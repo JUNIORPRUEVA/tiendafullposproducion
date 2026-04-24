@@ -6,9 +6,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/auth/auth_provider.dart';
 import '../../core/debug/debug_admin_action.dart';
+import '../../core/routing/app_navigator.dart';
 import '../../core/routing/routes.dart';
-import '../../core/widgets/app_drawer.dart';
-import '../../core/widgets/custom_app_bar.dart';
 import '../../core/widgets/sync_status_banner.dart';
 import 'application/clientes_controller.dart';
 import 'cliente_model.dart';
@@ -109,143 +108,117 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
     ].where((active) => active).length;
 
     return Scaffold(
-      drawer: buildAdaptiveDrawer(context, currentUser: currentUser),
-      appBar: CustomAppBar(
-        title: 'Clientes',
-        showLogo: false,
-        showDepartmentLabel: false,
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 4),
-            child: TextButton.icon(
-              style: TextButton.styleFrom(
-                foregroundColor: Colors.white,
-                backgroundColor: Colors.white.withValues(alpha: 0.10),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(0, 10, 0, 8),
+              child: _ClientesTopPanel(
+                searchController: _searchCtrl,
+                refreshing: state.refreshing,
+                purgingAllDebug: _purgingAllDebug,
+                activeFilterCount: activeFilterCount,
+                canShowDebugAction: canUseDebugAdminAction(currentUser),
+                onBack: () => AppNavigator.goBack(
+                  context,
+                  fallbackRoute: Routes.home,
                 ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(999),
-                  side: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
-                ),
+                onSearchChanged: _handleSearch,
+                onOpenMap: () => context.push(Routes.clientesMapa),
+                onOpenFilters: () => _openFilters(state),
+                onMenuActionSelected: (action) async {
+                  switch (action) {
+                    case _ClientesTopAction.newClient:
+                      context.push(Routes.clienteNuevo);
+                      break;
+                    case _ClientesTopAction.refresh:
+                      if (!state.refreshing) {
+                        await controller.refresh();
+                      }
+                      break;
+                    case _ClientesTopAction.clearFilters:
+                      await controller.applyFilters(
+                        order: ClientesOrder.az,
+                        correoFilter: CorreoFilter.todos,
+                        estadoFilter: EstadoFilter.activos,
+                      );
+                      break;
+                    case _ClientesTopAction.purgeDebug:
+                      if (!_purgingAllDebug) {
+                        await _purgeAllDebug();
+                      }
+                      break;
+                  }
+                },
+                showClearFiltersAction: activeFilterCount > 0,
               ),
-              onPressed: () => context.push(Routes.clientesMapa),
-              icon: const Icon(Icons.map_outlined, size: 18),
-              label: const Text('Mapa'),
             ),
-          ),
-          IconButton(
-            tooltip: 'Actualizar',
-            onPressed: state.refreshing ? null : controller.refresh,
-            icon: const Icon(Icons.refresh_rounded),
-          ),
-          DebugAdminActionButton(
-            user: currentUser,
-            busy: _purgingAllDebug,
-            tooltip: 'Limpiar tabla (debug)',
-            onPressed: _purgeAllDebug,
-          ),
-          IconButton(
-            tooltip: 'Nuevo cliente',
-            onPressed: () => context.push(Routes.clienteNuevo),
-            icon: const Icon(Icons.person_add_alt_1_rounded),
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          SyncStatusBanner(
-            visible: state.refreshing,
-            label: 'Sincronizando clientes...',
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _searchCtrl,
-                    onChanged: _handleSearch,
-                    decoration: InputDecoration(
-                      labelText: 'Buscar cliente',
-                      hintText: 'Nombre, teléfono o correo',
-                      prefixIcon: const Icon(Icons.search_rounded),
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 14,
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(18),
-                      ),
+            SyncStatusBanner(
+              visible: state.refreshing,
+              label: 'Sincronizando clientes...',
+            ),
+            if (state.error != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 8, 14, 4),
+                child: Material(
+                  color: theme.colorScheme.errorContainer,
+                  borderRadius: BorderRadius.circular(16),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.error_outline_rounded,
+                          color: theme.colorScheme.onErrorContainer,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            state.error!,
+                            style: TextStyle(
+                              color: theme.colorScheme.onErrorContainer,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-                const SizedBox(width: 10),
-                _SearchFilterButton(
-                  tooltip: 'Filtros',
-                  badgeCount: activeFilterCount,
-                  onPressed: () => _openFilters(state),
-                ),
-              ],
-            ),
-          ),
-          if (state.error != null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-              child: Material(
-                color: theme.colorScheme.errorContainer,
-                borderRadius: BorderRadius.circular(16),
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.error_outline_rounded,
-                        color: theme.colorScheme.onErrorContainer,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          state.error!,
-                          style: TextStyle(
-                            color: theme.colorScheme.onErrorContainer,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
               ),
-            ),
-          Expanded(
-            child: state.loading
-                ? const Center(child: CircularProgressIndicator())
-                : RefreshIndicator(
-                    onRefresh: controller.refresh,
-                    child: state.items.isEmpty
-                        ? ListView(
-                            physics: const AlwaysScrollableScrollPhysics(),
-                            children: const [
-                              SizedBox(height: 120),
-                              Center(
-                                child: Text('No hay clientes disponibles.'),
+            Expanded(
+              child: state.loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : RefreshIndicator(
+                      onRefresh: controller.refresh,
+                      child: state.items.isEmpty
+                          ? ListView(
+                              padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
+                              physics: const AlwaysScrollableScrollPhysics(),
+                              children: const [
+                                SizedBox(height: 120),
+                                Center(
+                                  child: Text('No hay clientes disponibles.'),
+                                ),
+                              ],
+                            )
+                          : ListView.separated(
+                              padding: const EdgeInsets.fromLTRB(14, 8, 14, 24),
+                              itemCount: state.items.length,
+                              separatorBuilder: (context, index) => Divider(
+                                height: 1,
+                                color: theme.colorScheme.outlineVariant
+                                    .withValues(alpha: 0.35),
                               ),
-                            ],
-                          )
-                        : ListView.separated(
-                            padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
-                            itemCount: state.items.length,
-                            separatorBuilder: (_, _) =>
-                                const SizedBox(height: 4),
-                            itemBuilder: (context, index) {
-                              final client = state.items[index];
-                              return _ClienteCard(client: client);
-                            },
-                          ),
-                  ),
-          ),
-        ],
+                              itemBuilder: (context, index) {
+                                final client = state.items[index];
+                                return _ClienteCard(client: client);
+                              },
+                            ),
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -259,54 +232,24 @@ class _ClienteCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final contactLine = _buildClientContactLine(client);
-    final badges = _buildClientBadges(client);
+    final phone = client.telefono.trim();
+    final createdAt = client.createdAt == null
+        ? null
+        : _formatClientDate(client.createdAt!);
 
-    return Card(
-      margin: EdgeInsets.zero,
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.55),
-          width: 0.8,
-        ),
-      ),
+    return Material(
+      color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(16),
         onTap: () => context.push(Routes.clienteDetail(client.id)),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 12),
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.primaryContainer.withValues(
-                    alpha: 0.72,
-                  ),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  client.nombre.trim().isEmpty
-                      ? '?'
-                      : client.nombre.trim().substring(0, 1).toUpperCase(),
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    color: theme.colorScheme.onPrimaryContainer,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Expanded(
                           child: Text(
@@ -315,74 +258,55 @@ class _ClienteCard extends ConsumerWidget {
                             overflow: TextOverflow.ellipsis,
                             style: theme.textTheme.titleSmall?.copyWith(
                               fontWeight: FontWeight.w800,
-                              height: 1.15,
+                              height: 1.05,
                             ),
                           ),
                         ),
                         if (client.isDeleted)
-                          _ClientStatusPill(
-                            label: 'Eliminado',
-                            color: theme.colorScheme.error,
+                          Padding(
+                            padding: const EdgeInsets.only(left: 8),
+                            child: Text(
+                              'Eliminado',
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: theme.colorScheme.error,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
                           ),
                       ],
                     ),
-                    if (contactLine.isNotEmpty) ...[
-                      const SizedBox(height: 3),
-                      Text(
-                        contactLine,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                          height: 1.2,
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            phone.isEmpty ? 'Sin telefono' : phone,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                         ),
-                      ),
-                    ],
-                    if (badges.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      Wrap(spacing: 6, runSpacing: 6, children: badges),
-                    ],
+                        if (createdAt != null)
+                          Text(
+                            createdAt,
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                      ],
+                    ),
                   ],
                 ),
               ),
-              const SizedBox(width: 6),
-              PopupMenuButton<_ClientCardAction>(
-                tooltip: 'Acciones',
-                onSelected: (action) async {
-                  switch (action) {
-                    case _ClientCardAction.edit:
-                      context.push(Routes.clienteEdit(client.id));
-                      break;
-                    case _ClientCardAction.delete:
-                      await _confirmDelete(context, ref, client);
-                      break;
-                  }
-                },
-                itemBuilder: (context) => const [
-                  PopupMenuItem<_ClientCardAction>(
-                    value: _ClientCardAction.edit,
-                    child: Text('Editar'),
-                  ),
-                  PopupMenuItem<_ClientCardAction>(
-                    value: _ClientCardAction.delete,
-                    child: Text('Eliminar'),
-                  ),
-                ],
-                child: Container(
-                  width: 34,
-                  height: 34,
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.surfaceContainerHighest.withValues(
-                      alpha: 0.42,
-                    ),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Icon(
-                    Icons.more_horiz_rounded,
-                    size: 18,
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
+              const SizedBox(width: 10),
+              Icon(
+                Icons.chevron_right_rounded,
+                size: 18,
+                color: theme.colorScheme.onSurfaceVariant,
               ),
             ],
           ),
@@ -392,159 +316,220 @@ class _ClienteCard extends ConsumerWidget {
   }
 }
 
-enum _ClientCardAction { edit, delete }
+enum _ClientesTopAction { newClient, refresh, clearFilters, purgeDebug }
 
-String _buildClientContactLine(ClienteModel client) {
-  final parts = <String>[];
-  if (client.telefono.trim().isNotEmpty) {
-    parts.add(client.telefono.trim());
-  }
-  final correo = (client.correo ?? '').trim();
-  if (correo.isNotEmpty) {
-    parts.add(correo);
-  }
-  return parts.join(' • ');
-}
+class _ClientesTopPanel extends StatelessWidget {
+  const _ClientesTopPanel({
+    required this.searchController,
+    required this.refreshing,
+    required this.purgingAllDebug,
+    required this.activeFilterCount,
+    required this.canShowDebugAction,
+    required this.onBack,
+    required this.onSearchChanged,
+    required this.onOpenMap,
+    required this.onOpenFilters,
+    required this.onMenuActionSelected,
+    required this.showClearFiltersAction,
+  });
 
-List<Widget> _buildClientBadges(ClienteModel client) {
-  final badges = <Widget>[];
-
-  if (client.createdAt != null) {
-    badges.add(
-      _ClientMetaPill(
-        icon: Icons.schedule_rounded,
-        label: 'Creado ${_formatClientDate(client.createdAt!)}',
-      ),
-    );
-  }
-
-  if (client.updatedLocal) {
-    badges.add(
-      const _ClientMetaPill(
-        icon: Icons.sync_problem_rounded,
-        label: 'Pendiente de sincronizar',
-      ),
-    );
-  } else if ((client.syncStatus ?? '').trim().isNotEmpty) {
-    badges.add(
-      _ClientMetaPill(
-        icon: Icons.cloud_done_outlined,
-        label: client.syncStatus!.trim(),
-      ),
-    );
-  }
-
-  if ((client.correo ?? '').trim().isEmpty) {
-    badges.add(
-      const _ClientMetaPill(
-        icon: Icons.alternate_email_rounded,
-        label: 'Sin correo',
-      ),
-    );
-  }
-
-  return badges;
-}
-
-class _ClientMetaPill extends StatelessWidget {
-  const _ClientMetaPill({required this.icon, required this.label});
-
-  final IconData icon;
-  final String label;
+  final TextEditingController searchController;
+  final bool refreshing;
+  final bool purgingAllDebug;
+  final int activeFilterCount;
+  final bool canShowDebugAction;
+  final VoidCallback onBack;
+  final ValueChanged<String> onSearchChanged;
+  final VoidCallback onOpenMap;
+  final VoidCallback onOpenFilters;
+  final ValueChanged<_ClientesTopAction> onMenuActionSelected;
+  final bool showClearFiltersAction;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(999),
+
+    return Material(
+      color: theme.colorScheme.surface,
+      borderRadius: BorderRadius.circular(22),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(
+            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.35),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: theme.colorScheme.shadow.withValues(alpha: 0.04),
+              blurRadius: 16,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                _TopCircleButton(
+                  tooltip: 'Regresar',
+                  icon: Icons.arrow_back_rounded,
+                  onPressed: onBack,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Clientes',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                _TopCircleButton(
+                  tooltip: 'Mapa',
+                  icon: Icons.map_outlined,
+                  onPressed: onOpenMap,
+                ),
+                const SizedBox(width: 6),
+                PopupMenuButton<_ClientesTopAction>(
+                  tooltip: 'Opciones',
+                  onSelected: onMenuActionSelected,
+                  itemBuilder: (context) => [
+                    _topMenuItem(
+                      context,
+                      value: _ClientesTopAction.newClient,
+                      icon: Icons.person_add_alt_1_rounded,
+                      label: 'Nuevo cliente',
+                    ),
+                    _topMenuItem(
+                      context,
+                      value: _ClientesTopAction.refresh,
+                      icon: Icons.refresh_rounded,
+                      label: refreshing ? 'Actualizando...' : 'Actualizar',
+                      enabled: !refreshing,
+                    ),
+                    if (showClearFiltersAction)
+                      _topMenuItem(
+                        context,
+                        value: _ClientesTopAction.clearFilters,
+                        icon: Icons.filter_alt_off_rounded,
+                        label: 'Limpiar filtros',
+                      ),
+                    if (canShowDebugAction)
+                      _topMenuItem(
+                        context,
+                        value: _ClientesTopAction.purgeDebug,
+                        icon: Icons.delete_sweep_rounded,
+                        label: purgingAllDebug
+                            ? 'Limpiando tabla...'
+                            : 'Limpiar tabla (debug)',
+                        enabled: !purgingAllDebug,
+                      ),
+                  ],
+                  child: const _TopCircleButton(
+                    tooltip: 'Opciones',
+                    icon: Icons.more_vert_rounded,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: searchController,
+                    onChanged: onSearchChanged,
+                    decoration: InputDecoration(
+                      isDense: true,
+                      hintText: 'Buscar clientes',
+                      prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 13,
+                      ),
+                      filled: true,
+                      fillColor: theme.colorScheme.surfaceContainerHighest
+                          .withValues(alpha: 0.35),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(18),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                _SearchFilterButton(
+                  tooltip: 'Filtros',
+                  badgeCount: activeFilterCount,
+                  onPressed: onOpenFilters,
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 13, color: theme.colorScheme.onSurfaceVariant),
-          const SizedBox(width: 5),
-          Text(
-            label,
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-              fontWeight: FontWeight.w700,
+    );
+  }
+}
+
+PopupMenuItem<_ClientesTopAction> _topMenuItem(
+  BuildContext context, {
+  required _ClientesTopAction value,
+  required IconData icon,
+  required String label,
+  bool enabled = true,
+}) {
+  final theme = Theme.of(context);
+  return PopupMenuItem<_ClientesTopAction>(
+    value: value,
+    enabled: enabled,
+    child: Row(
+      children: [
+        Icon(icon, size: 18, color: theme.colorScheme.onSurfaceVariant),
+        const SizedBox(width: 10),
+        Expanded(child: Text(label)),
+      ],
+    ),
+  );
+}
+
+class _TopCircleButton extends StatelessWidget {
+  const _TopCircleButton({
+    required this.tooltip,
+    required this.icon,
+    this.onPressed,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onPressed,
+        child: Tooltip(
+          message: tooltip,
+          child: SizedBox(
+            width: 40,
+            height: 40,
+            child: Icon(
+              icon,
+              size: 20,
+              color: theme.colorScheme.onSurface,
             ),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ClientStatusPill extends StatelessWidget {
-  const _ClientStatusPill({required this.label, required this.color});
-
-  final String label;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        label,
-        style: theme.textTheme.labelSmall?.copyWith(
-          color: color,
-          fontWeight: FontWeight.w800,
         ),
       ),
     );
-  }
-}
-
-Future<void> _confirmDelete(
-  BuildContext context,
-  WidgetRef ref,
-  ClienteModel client,
-) async {
-  final confirmed = await showDialog<bool>(
-    context: context,
-    builder: (dialogContext) {
-      return AlertDialog(
-        title: const Text('Eliminar cliente'),
-        content: Text(
-          'Se eliminara ${client.nombre}. Esta accion no se puede deshacer.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Eliminar'),
-          ),
-        ],
-      );
-    },
-  );
-
-  if (confirmed != true) return;
-
-  try {
-    await ref.read(clientesControllerProvider.notifier).remove(client.id);
-    if (!context.mounted) return;
-    ScaffoldMessenger.maybeOf(
-      context,
-    )?.showSnackBar(const SnackBar(content: Text('Cliente eliminado')));
-  } catch (error) {
-    if (!context.mounted) return;
-    ScaffoldMessenger.maybeOf(
-      context,
-    )?.showSnackBar(SnackBar(content: Text(error.toString())));
   }
 }
 
@@ -573,16 +558,14 @@ class _SearchFilterButton extends StatelessWidget {
       clipBehavior: Clip.none,
       children: [
         Material(
-          color: theme.colorScheme.surfaceContainerHighest.withValues(
-            alpha: 0.6,
-          ),
-          borderRadius: BorderRadius.circular(16),
+          color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
+          borderRadius: BorderRadius.circular(18),
           child: InkWell(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(18),
             onTap: onPressed,
             child: SizedBox(
-              width: 52,
-              height: 52,
+              width: 48,
+              height: 48,
               child: Tooltip(
                 message: tooltip,
                 child: Icon(
@@ -783,22 +766,61 @@ class _FilterSection<T> extends StatelessWidget {
             fontWeight: FontWeight.w700,
           ),
         ),
-        const SizedBox(height: 10),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
+        const SizedBox(height: 8),
+        Column(
           children: [
-            for (final option in options)
-              ChoiceChip(
-                label: Text(labelBuilder(option)),
-                selected: option == value,
-                onSelected: (_) => onSelected(option),
+            for (var index = 0; index < options.length; index++) ...[
+              if (index > 0) const SizedBox(height: 8),
+              Material(
+                color: optionEquals(options[index], value)
+                    ? theme.colorScheme.primaryContainer.withValues(alpha: 0.6)
+                    : theme.colorScheme.surfaceContainerHighest.withValues(
+                        alpha: 0.25,
+                      ),
+                borderRadius: BorderRadius.circular(16),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(16),
+                  onTap: () => onSelected(options[index]),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 12,
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          optionEquals(options[index], value)
+                              ? Icons.radio_button_checked_rounded
+                              : Icons.radio_button_off_rounded,
+                          size: 18,
+                          color: optionEquals(options[index], value)
+                              ? theme.colorScheme.primary
+                              : theme.colorScheme.onSurfaceVariant,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            labelBuilder(options[index]),
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontWeight: optionEquals(options[index], value)
+                                  ? FontWeight.w700
+                                  : FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
+            ],
           ],
         ),
       ],
     );
   }
+
+  bool optionEquals(T left, T right) => left == right;
 }
 
 String _clientesOrderLabel(ClientesOrder order) {

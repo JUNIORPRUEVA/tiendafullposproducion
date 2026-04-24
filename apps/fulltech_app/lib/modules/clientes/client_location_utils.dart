@@ -11,11 +11,20 @@ class ClientLocationPreview {
     this.resolvedUrl,
   });
 
-  bool get hasCoordinates =>
-      latitude != null &&
-      longitude != null &&
-      latitude!.isFinite &&
-      longitude!.isFinite;
+  bool get hasCoordinates => _isValidCoordinatePair(latitude, longitude);
+}
+
+bool _isValidCoordinatePair(double? latitude, double? longitude) {
+  if (latitude == null || longitude == null) {
+    return false;
+  }
+
+  return latitude.isFinite &&
+      longitude.isFinite &&
+      latitude >= -90 &&
+      latitude <= 90 &&
+      longitude >= -180 &&
+      longitude <= 180;
 }
 
 String normalizeClientLocationUrl(String? rawUrl) {
@@ -77,9 +86,7 @@ ClientLocationPreview parseClientLocationPreview(String? rawUrl) {
     final latitude = double.tryParse(match.group(1) ?? '');
     final longitude = double.tryParse(match.group(2) ?? '');
 
-    if (latitude == null || longitude == null) continue;
-    if (latitude < -90 || latitude > 90) continue;
-    if (longitude < -180 || longitude > 180) continue;
+    if (!_isValidCoordinatePair(latitude, longitude)) continue;
 
     return ClientLocationPreview(
       latitude: latitude,

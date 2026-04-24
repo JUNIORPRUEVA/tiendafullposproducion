@@ -21,6 +21,12 @@ class ClienteTimelineEvent {
     this.meta = const {},
   });
 
+  static num? _parseAmount(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value;
+    return num.tryParse(value.toString());
+  }
+
   factory ClienteTimelineEvent.fromJson(Map<String, dynamic> json) {
     final at =
         DateTime.tryParse((json['at'] ?? '').toString()) ?? DateTime(1970);
@@ -31,7 +37,7 @@ class ClienteTimelineEvent {
       eventId: (json['eventId'] ?? '').toString(),
       at: at,
       title: (json['title'] ?? '').toString(),
-      amount: json['amount'] as num?,
+        amount: _parseAmount(json['amount']),
       status: (json['status'] as String?)?.trim().isEmpty == true
           ? null
           : json['status'] as String?,

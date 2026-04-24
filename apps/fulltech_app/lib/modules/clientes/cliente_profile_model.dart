@@ -34,10 +34,18 @@ class ClienteProfileClient {
   });
 
   factory ClienteProfileClient.fromJson(Map<String, dynamic> json) {
-    double? parseDouble(dynamic v) {
-      if (v == null) return null;
-      final n = double.tryParse(v.toString());
-      return (n != null && n.isFinite) ? n : null;
+    double? parseLatitude(dynamic value) {
+      if (value == null) return null;
+      final parsed = double.tryParse(value.toString());
+      if (parsed == null || !parsed.isFinite) return null;
+      return parsed >= -90 && parsed <= 90 ? parsed : null;
+    }
+
+    double? parseLongitude(dynamic value) {
+      if (value == null) return null;
+      final parsed = double.tryParse(value.toString());
+      if (parsed == null || !parsed.isFinite) return null;
+      return parsed >= -180 && parsed <= 180 ? parsed : null;
     }
 
     return ClienteProfileClient(
@@ -58,8 +66,8 @@ class ClienteProfileClient {
               true
           ? null
           : (json['locationUrl'] ?? json['location_url']) as String?,
-      latitude: parseDouble(json['latitude']),
-      longitude: parseDouble(json['longitude']),
+        latitude: parseLatitude(json['latitude']),
+        longitude: parseLongitude(json['longitude']),
       notas: (json['notas'] as String?)?.trim().isEmpty == true
           ? null
           : json['notas'] as String?,
@@ -185,10 +193,16 @@ class ClienteProfileMetrics {
     required this.lastActivityAt,
   });
 
+  static num? _parseNum(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value;
+    return num.tryParse(value.toString());
+  }
+
   factory ClienteProfileMetrics.fromJson(Map<String, dynamic> json) {
     return ClienteProfileMetrics(
       salesCount: (json['salesCount'] as num?)?.toInt() ?? 0,
-      salesTotal: json['salesTotal'] as num?,
+      salesTotal: _parseNum(json['salesTotal']),
       lastSaleAt: json['lastSaleAt'] != null
           ? DateTime.tryParse(json['lastSaleAt'].toString())
           : null,
@@ -197,7 +211,7 @@ class ClienteProfileMetrics {
       legacyServicesCount: (json['legacyServicesCount'] as num?)?.toInt() ?? 0,
       serviceReferencesCount:
           (json['serviceReferencesCount'] as num?)?.toInt() ?? 0,
-      legacyServicesTotal: json['legacyServicesTotal'] as num?,
+        legacyServicesTotal: _parseNum(json['legacyServicesTotal']),
       lastServiceAt: json['lastServiceAt'] != null
           ? DateTime.tryParse(json['lastServiceAt'].toString())
           : null,
@@ -205,7 +219,7 @@ class ClienteProfileMetrics {
           ? DateTime.tryParse(json['lastReferenceAt'].toString())
           : null,
       cotizacionesCount: (json['cotizacionesCount'] as num?)?.toInt() ?? 0,
-      cotizacionesTotal: json['cotizacionesTotal'] as num?,
+          cotizacionesTotal: _parseNum(json['cotizacionesTotal']),
       lastCotizacionAt: json['lastCotizacionAt'] != null
           ? DateTime.tryParse(json['lastCotizacionAt'].toString())
           : null,

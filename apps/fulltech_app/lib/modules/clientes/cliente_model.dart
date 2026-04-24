@@ -32,10 +32,18 @@ class ClienteModel {
   });
 
   factory ClienteModel.fromMap(Map<String, dynamic> map) {
-    double? parseDouble(dynamic value) {
+    double? parseLatitude(dynamic value) {
       if (value == null) return null;
       final parsed = double.tryParse(value.toString());
-      return (parsed != null && parsed.isFinite) ? parsed : null;
+      if (parsed == null || !parsed.isFinite) return null;
+      return parsed >= -90 && parsed <= 90 ? parsed : null;
+    }
+
+    double? parseLongitude(dynamic value) {
+      if (value == null) return null;
+      final parsed = double.tryParse(value.toString());
+      if (parsed == null || !parsed.isFinite) return null;
+      return parsed >= -180 && parsed <= 180 ? parsed : null;
     }
 
     return ClienteModel(
@@ -53,8 +61,8 @@ class ClienteModel {
               true
           ? null
           : (map['locationUrl'] ?? map['location_url']) as String?,
-      latitude: parseDouble(map['latitude']),
-      longitude: parseDouble(map['longitude']),
+        latitude: parseLatitude(map['latitude']),
+        longitude: parseLongitude(map['longitude']),
       correo:
           ((map['correo'] ?? map['email']) as String?)?.trim().isEmpty == true
           ? null

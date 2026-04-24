@@ -1,16 +1,15 @@
 import 'dart:async';
 
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
-import '../../core/auth/auth_provider.dart';
-import '../../core/auth/auth_repository.dart';
+import 'package:latlong2/latlong.dart';
 import '../../core/realtime/operations_realtime_service.dart';
+import '../../core/routing/app_navigator.dart';
 import '../../core/routing/routes.dart';
 import '../../core/utils/safe_url_launcher.dart';
-import '../../core/widgets/app_drawer.dart';
-import '../../core/widgets/custom_app_bar.dart';
 import 'application/clientes_controller.dart';
 import 'client_location_utils.dart';
 import 'cliente_model.dart';
@@ -37,9 +36,6 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
   ClienteModel? _cliente;
   ClienteProfileResponse? _profile;
   List<ClienteTimelineEvent> _timeline = const [];
-  List<_TimelineGroupData> _timelineGroups = const [];
-  Future<ClientLocationPreview>? _locationPreviewFuture;
-  String _locationPreviewCacheKey = '';
   StreamSubscription<ClientsRealtimeMessage>? _clientsRealtimeSubscription;
 
   static const Duration _detailTimeout = Duration(seconds: 12);
@@ -139,8 +135,6 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
         _timeline = localSnapshot.timeline.isNotEmpty
             ? localSnapshot.timeline
             : _timeline;
-        _timelineGroups = _computeTimelineGroups(_timeline);
-        _syncLocationPreview();
         _loading = false;
         _refreshing = !widget.clienteId.startsWith('local_');
       });
@@ -150,7 +144,6 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
       setState(() {
         _profile = null;
         _timeline = const [];
-        _timelineGroups = const [];
         _loading = false;
         _refreshing = false;
       });
@@ -182,29 +175,23 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
       setState(() {
         _profile = profile;
         _timeline = timeline?.items.toList(growable: false) ?? const [];
-        _timelineGroups = _computeTimelineGroups(_timeline);
         _cliente = mergedClient;
-        _syncLocationPreview();
       });
-    } catch (_) {
+    } catch (error, stackTrace) {
+      debugPrint('Error cargando detalle del cliente: $error');
+      debugPrintStack(stackTrace: stackTrace);
       if (!mounted) return;
       setState(() {
-        final hasFallbackData =
-            _cliente != null || _profile != null || _timeline.isNotEmpty;
-        _error = hasFallbackData ? null : 'No se pudo cargar el cliente';
-        if (!hasFallbackData) {
-          _profile = null;
-          _timeline = const [];
-          _timelineGroups = const [];
+        if (_profile == null && _cliente == null) {
+          _error = 'No se pudo cargar el detalle del cliente.';
         }
       });
     } finally {
-      if (mounted) {
-        setState(() {
-          _loading = false;
-          _refreshing = false;
-        });
-      }
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _refreshing = false;
+      });
     }
   }
 
@@ -226,76 +213,6 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
       'createdAt': profile.client.createdAt?.toIso8601String(),
       'updatedAt': profile.client.updatedAt?.toIso8601String(),
     });
-  }
-
-  List<_TimelineGroupData> _computeTimelineGroups(
-    List<ClienteTimelineEvent> timeline,
-  ) {
-    if (timeline.isEmpty) {
-      return const [];
-    }
-
-    final grouped = <String, List<ClienteTimelineEvent>>{};
-    for (final event in timeline) {
-      grouped
-          .putIfAbsent(event.eventType, () => <ClienteTimelineEvent>[])
-          .add(event);
-    }
-
-    const order = ['service', 'cotizacion', 'sale'];
-    final items = <_TimelineGroupData>[];
-    for (final type in order) {
-      final rows = grouped.remove(type);
-      if (rows == null || rows.isEmpty) continue;
-      items.add(
-        _TimelineGroupData(
-          type: type,
-          label: _timelineTypeLabel(type),
-          items: rows,
-        ),
-      );
-    }
-
-    for (final entry in grouped.entries) {
-      if (entry.value.isEmpty) continue;
-      items.add(
-        _TimelineGroupData(
-          type: entry.key,
-          label: _timelineTypeLabel(entry.key),
-          items: entry.value,
-        ),
-      );
-    }
-    return items;
-  }
-
-  void _syncLocationPreview() {
-    final normalizedUrl = normalizeClientLocationUrl(
-      _profile?.client.locationUrl ?? _cliente?.locationUrl,
-    );
-    final latitude = _profile?.client.latitude ?? _cliente?.latitude;
-    final longitude = _profile?.client.longitude ?? _cliente?.longitude;
-    final nextKey = '$normalizedUrl|$latitude|$longitude';
-    if (_locationPreviewCacheKey == nextKey) {
-      return;
-    }
-
-    _locationPreviewCacheKey = nextKey;
-    final directPreview = ClientLocationPreview(
-      latitude: latitude,
-      longitude: longitude,
-      resolvedUrl: normalizedUrl.isEmpty ? null : normalizedUrl,
-    );
-    _locationPreviewFuture = Future.value(directPreview);
-
-    if (normalizedUrl.isEmpty) {
-      return;
-    }
-
-    _locationPreviewFuture = resolveClientLocationPreview(
-      normalizedUrl,
-      dio: ref.read(dioProvider),
-    );
   }
 
   Future<void> _deleteClient() async {
@@ -334,11 +251,11 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
         context,
       ).showSnackBar(const SnackBar(content: Text('Cliente eliminado')));
       context.go(Routes.clientes);
-    } catch (e) {
+    } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text(e.toString())));
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
     } finally {
       if (mounted) setState(() => _deleting = false);
     }
@@ -408,21 +325,6 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
         .toString()
         .trim();
     return serviceOrderId.isNotEmpty;
-  }
-
-  bool _hasText(String? value) => value != null && value.trim().isNotEmpty;
-
-  String _timelineTypeLabel(String type) {
-    switch (type) {
-      case 'sale':
-        return 'Ventas';
-      case 'cotizacion':
-        return 'Cotizaciones';
-      case 'service':
-        return 'Servicios y referencias';
-      default:
-        return 'Otros procesos';
-    }
   }
 
   IconData _timelineIcon(String type) {
@@ -625,1049 +527,785 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
     ];
   }
 
-  List<_ClientFactData> _buildClientFacts(ClienteProfileResponse? profile) {
-    final client = profile?.client;
-    final createdBy = profile?.createdBy;
-
-    return [
-          _ClientFactData(
-            label: 'Telefono',
-            value: (client?.telefono ?? _cliente?.telefono ?? '').trim(),
-            icon: Icons.call_outlined,
-          ),
-          _ClientFactData(
-            label: 'Correo',
-            value: (client?.email ?? _cliente?.correo ?? '').trim(),
-            icon: Icons.alternate_email_rounded,
-          ),
-          _ClientFactData(
-            label: 'Direccion',
-            value: (client?.direccion ?? _cliente?.direccion ?? '').trim(),
-            icon: Icons.location_on_outlined,
-          ),
-          _ClientFactData(
-            label: 'Creado por',
-            value: createdBy?.label ?? '',
-            icon: Icons.person_outline_rounded,
-          ),
-          _ClientFactData(
-            label: 'Creado',
-            value: client?.createdAt != null
-                ? _formatDate(client!.createdAt)
-                : '',
-            icon: Icons.calendar_today_outlined,
-          ),
-          _ClientFactData(
-            label: 'Ultima actividad',
-            value: _formatDate(
-              profile?.metrics.lastActivityAt ?? client?.lastActivityAt,
-            ),
-            icon: Icons.schedule_rounded,
-          ),
-          _ClientFactData(
-            label: 'Referencias de servicio',
-            value: '${profile?.metrics.serviceReferencesCount ?? 0}',
-            icon: Icons.link_rounded,
-          ),
-          _ClientFactData(
-            label: 'Cobertura de servicios',
-            value:
-                'OT ${profile?.metrics.serviceOrdersCount ?? 0} • Legacy ${profile?.metrics.legacyServicesCount ?? 0}',
-            icon: Icons.build_circle_outlined,
-          ),
-        ]
-        .where(
-          (item) => item.value.trim().isNotEmpty && item.value.trim() != '-',
-        )
-        .toList(growable: false);
-  }
-
   @override
   Widget build(BuildContext context) {
-    final currentUser = ref.watch(authStateProvider).user;
-    final profile = _profile;
-    final theme = Theme.of(context);
-    final fallbackLocation = parseClientLocationPreview(_cliente?.locationUrl);
-    final locationPreviewFuture =
-      _locationPreviewFuture ?? Future.value(fallbackLocation);
-
-    return Scaffold(
-      drawer: buildAdaptiveDrawer(context, currentUser: currentUser),
-      appBar: CustomAppBar(
-        title: _cliente?.nombre ?? 'Detalle del cliente',
-        fallbackRoute: Routes.clientes,
-        showLogo: false,
-        showDepartmentLabel: false,
-        actions: [
-          IconButton(
-            tooltip: 'Editar',
-            onPressed: _cliente == null || _deleting
-                ? null
-                : () => context.push(Routes.clienteEdit(_cliente!.id)),
-            icon: const Icon(Icons.edit_outlined),
-          ),
-          IconButton(
-            tooltip: 'Eliminar',
-            onPressed: _cliente == null || _deleting ? null : _deleteClient,
-            icon: _deleting
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.delete_outline_rounded),
-          ),
-          IconButton(
-            tooltip: 'Actualizar',
-            onPressed: _loading || _refreshing ? null : _load,
-            icon: _refreshing
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.refresh_rounded),
-          ),
-        ],
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? Center(child: Text(_error!))
-          : RefreshIndicator(
-              onRefresh: _load,
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
-                children: [
-                  _ClientHeroCard(
-                    name:
-                        profile?.client.nombre ?? _cliente?.nombre ?? 'Cliente',
-                    phone: profile?.client.telefono ?? _cliente?.telefono,
-                    email: profile?.client.email ?? _cliente?.correo,
-                    totalPurchased: _formatMoney(profile?.metrics.salesTotal),
-                    lastActivity: _formatDate(
-                      profile?.metrics.lastActivityAt ??
-                          profile?.client.lastActivityAt,
-                    ),
-                    deleted:
-                        profile?.client.isDeleted ??
-                        _cliente?.isDeleted ??
-                        false,
-                  ),
-                  const SizedBox(height: 12),
-                  _SectionCard(
-                    title: 'Resumen del cliente',
-                    child: _MetricGrid(items: _buildMetricItems(profile)),
-                  ),
-                  const SizedBox(height: 12),
-                  _SectionCard(
-                    title: 'Datos del cliente',
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _ClientFactsGrid(items: _buildClientFacts(profile)),
-                        _LocationDetailCard(
-                          locationUrl:
-                              profile?.client.locationUrl ??
-                              _cliente?.locationUrl,
-                          latitude:
-                              profile?.client.latitude ??
-                              fallbackLocation.latitude,
-                          longitude:
-                              profile?.client.longitude ??
-                              fallbackLocation.longitude,
-                            previewFuture: locationPreviewFuture,
-                        ),
-                        if (_hasText(profile?.client.notas))
-                          _InlineNoteCard(note: profile!.client.notas!.trim()),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Historial completo del cliente',
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  if (_timeline.isEmpty)
-                    Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.surface,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: theme.colorScheme.outlineVariant,
-                        ),
-                      ),
-                      child: const Text(
-                        'No hay ventas, cotizaciones, servicios ni referencias registradas para este cliente.',
-                      ),
-                    )
-                  else
-                    ..._timelineGroups.map(
-                      (group) => Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: _TimelineSection(
-                          icon: _timelineIcon(group.type),
-                          title: group.label,
-                          itemCount: group.items.length,
-                          children: group.items
-                              .map(
-                                (event) => _TimelineEventCard(
-                                  icon: _timelineIcon(event.eventType),
-                                  title: event.title,
-                                  summary: _timelineSummary(event),
-                                  date: _formatDate(event.at),
-                                  amount: event.amount == null
-                                      ? null
-                                      : _formatMoney(event.amount),
-                                  statusLabel: _timelineStatusLabel(event),
-                                  statusColor: _timelineStatusColor(
-                                    context,
-                                    event,
-                                  ),
-                                  enabled: _canOpenEvent(event),
-                                  onTap: () => _openEvent(event),
-                                ),
-                              )
-                              .toList(growable: false),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
+          final profile = _profile;
+          final profileClient = profile?.client;
+          final metrics = profile?.metrics;
+          final fallbackLocation = parseClientLocationPreview(_cliente?.locationUrl);
+          final resolvedClientId =
+              (profileClient?.id ?? _cliente?.id ?? widget.clienteId).trim();
+          final displayName =
+              (profileClient?.nombre ?? _cliente?.nombre ?? 'Detalle del cliente')
+                  .trim();
+          final displayPhone = (profileClient?.telefono ?? _cliente?.telefono ?? '')
+              .trim();
+          final displayEmail = profileClient?.email ?? _cliente?.correo;
+          final displayLocationUrl =
+              profileClient?.locationUrl ?? _cliente?.locationUrl;
+          final displayLatitude =
+              profileClient?.latitude ?? _cliente?.latitude ?? fallbackLocation.latitude;
+          final displayLongitude =
+              profileClient?.longitude ??
+              _cliente?.longitude ??
+              fallbackLocation.longitude;
+          final displayNote = (profileClient?.notas ?? '').trim();
+          final lastActivityAt =
+              metrics?.lastActivityAt ?? profileClient?.lastActivityAt;
+          final recentTimeline = _timeline.take(5).toList(growable: false);
+          final importantInfo = <_SimpleDetailRowData>[
+            _SimpleDetailRowData(
+              label: 'Correo',
+              value: (displayEmail ?? '').trim(),
             ),
-    );
-  }
-}
-
-class _LocationDetailCard extends ConsumerWidget {
-  const _LocationDetailCard({
-    required this.locationUrl,
-    required this.previewFuture,
-    this.latitude,
-    this.longitude,
-  });
-
-  final String? locationUrl;
-  final Future<ClientLocationPreview> previewFuture;
-  final double? latitude;
-  final double? longitude;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-    final normalizedUrl = normalizeClientLocationUrl(locationUrl);
-    final uri = normalizedUrl.isEmpty ? null : Uri.tryParse(normalizedUrl);
-    final directPreview = ClientLocationPreview(
-      latitude: latitude,
-      longitude: longitude,
-      resolvedUrl: normalizedUrl.isEmpty ? null : normalizedUrl,
-    );
-
-    if (normalizedUrl.isEmpty && !directPreview.hasCoordinates) {
-      return const SizedBox.shrink();
-    }
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Ubicacion',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-              fontWeight: FontWeight.w600,
+            _SimpleDetailRowData(
+              label: 'Direccion',
+              value: (profileClient?.direccion ?? _cliente?.direccion ?? '').trim(),
             ),
-          ),
-          const SizedBox(height: 8),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surfaceContainerLowest,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
-              ),
+            _SimpleDetailRowData(
+              label: 'Creado por',
+              value: (profile?.createdBy?.label ?? '').trim(),
             ),
-            child: FutureBuilder<ClientLocationPreview>(
-              future: previewFuture,
-              initialData: directPreview,
-              builder: (context, snapshot) {
-                final preview = snapshot.data ?? directPreview;
+            _SimpleDetailRowData(
+              label: 'Creado',
+              value: profileClient?.createdAt == null
+                  ? ''
+                  : _formatDate(profileClient?.createdAt),
+            ),
+            _SimpleDetailRowData(
+              label: 'Ultima actividad',
+              value: lastActivityAt == null ? '' : _formatDate(lastActivityAt),
+            ),
+            _SimpleDetailRowData(
+              label: 'Estado',
+              value: (profileClient?.isDeleted ?? _cliente?.isDeleted ?? false)
+                  ? 'Eliminado'
+                  : 'Activo',
+            ),
+          ].where((row) => row.value.isNotEmpty && row.value != '-').toList(growable: false);
 
-                if (snapshot.connectionState == ConnectionState.waiting &&
-                    !preview.hasCoordinates) {
-                  return const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 8),
-                    child: LinearProgressIndicator(),
-                  );
-                }
-
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      width: 42,
-                      height: 42,
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.primaryContainer,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      alignment: Alignment.center,
-                      child: Icon(
-                        Icons.location_on_outlined,
-                        color: theme.colorScheme.onPrimaryContainer,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+          return Scaffold(
+            body: SafeArea(
+              bottom: false,
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _error != null
+                  ? Center(child: Text(_error!))
+                  : RefreshIndicator(
+                      onRefresh: _load,
+                      child: ListView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.fromLTRB(14, 10, 14, 28),
                         children: [
-                          Text(
-                            preview.hasCoordinates
-                                ? 'Ubicacion vinculada correctamente'
-                                : 'Ubicacion vinculada sin coordenadas resueltas',
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              fontWeight: FontWeight.w800,
+                          _CompactDetailHeader(
+                            name: displayName.isEmpty ? 'Cliente' : displayName,
+                            phone: displayPhone,
+                            deleted:
+                                profileClient?.isDeleted ?? _cliente?.isDeleted ?? false,
+                            deleting: _deleting,
+                            onBack: () => AppNavigator.goBack(
+                              context,
+                              fallbackRoute: Routes.clientes,
                             ),
+                            onActionSelected: (action) {
+                              switch (action) {
+                                case _ClienteHeaderAction.edit:
+                                  if (resolvedClientId.isNotEmpty && !_deleting) {
+                                    context.push(Routes.clienteEdit(resolvedClientId));
+                                  }
+                                  break;
+                                case _ClienteHeaderAction.delete:
+                                  if (_cliente != null && !_deleting) {
+                                    _deleteClient();
+                                  }
+                                  break;
+                              }
+                            },
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            preview.hasCoordinates
-                                ? '${preview.latitude!.toStringAsFixed(6)}, ${preview.longitude!.toStringAsFixed(6)}'
-                                : 'Puedes abrir el enlace externo para revisar la ubicacion.',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                          if (uri != null) ...[
+                          if (_refreshing) ...[
                             const SizedBox(height: 8),
-                            TextButton.icon(
-                              onPressed: () => safeOpenUrl(context, uri),
-                              icon: const Icon(Icons.open_in_new_rounded, size: 16),
-                              label: const Text('Abrir en mapa'),
-                              style: TextButton.styleFrom(
-                                padding: EdgeInsets.zero,
-                                minimumSize: const Size(0, 0),
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                alignment: Alignment.centerLeft,
-                              ),
-                            ),
+                            const LinearProgressIndicator(),
                           ],
+                          const SizedBox(height: 18),
+                          _MetricGrid(items: _buildMetricItems(profile)),
+                          const SizedBox(height: 22),
+                          const _SectionLabel(title: 'Datos importantes del cliente'),
+                          const SizedBox(height: 10),
+                          _SimpleDetailList(rows: importantInfo),
+                          if (displayNote.isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            _InlineNoteCard(note: displayNote),
+                          ],
+                          const SizedBox(height: 22),
+                          _LocationDetailCard(
+                            locationUrl: displayLocationUrl,
+                            latitude: displayLatitude,
+                            longitude: displayLongitude,
+                          ),
+                          const SizedBox(height: 22),
+                          _TimelineSection(
+                            title: 'Ultimos movimientos',
+                            emptyLabel:
+                                'No hay ventas, cotizaciones o servicios registrados para este cliente.',
+                            children: recentTimeline
+                                .map(
+                                  (event) => _TimelineEventCard(
+                                    icon: _timelineIcon(event.eventType),
+                                    title: event.title,
+                                    summary: _timelineSummary(event),
+                                    date: _formatDate(event.at),
+                                    amount: event.amount == null
+                                        ? null
+                                        : _formatMoney(event.amount),
+                                    statusLabel: _timelineStatusLabel(event),
+                                    statusColor: _timelineStatusColor(
+                                      context,
+                                      event,
+                                    ),
+                                    enabled: _canOpenEvent(event),
+                                    onTap: () => _openEvent(event),
+                                  ),
+                                )
+                                .toList(growable: false),
+                          ),
                         ],
                       ),
                     ),
-                  ],
-                );
-              },
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
+          );
+        }
+      }
 
-class _MetricCard extends StatelessWidget {
-  const _MetricCard({
-    required this.label,
-    required this.value,
-    required this.helper,
-  });
+      enum _ClienteHeaderAction { edit, delete }
 
-  final String label;
-  final String value;
-  final String helper;
+      class _CompactDetailHeader extends StatelessWidget {
+        const _CompactDetailHeader({
+          required this.name,
+          required this.phone,
+          required this.deleted,
+          required this.deleting,
+          required this.onBack,
+          required this.onActionSelected,
+        });
 
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.35),
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 9, 10, 9),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 34,
-              height: 3,
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primary.withValues(alpha: 0.55),
-                borderRadius: BorderRadius.circular(999),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              value,
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w800,
-                height: 1.1,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              helper,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
+        final String name;
+        final String phone;
+        final bool deleted;
+        final bool deleting;
+        final VoidCallback onBack;
+        final ValueChanged<_ClienteHeaderAction> onActionSelected;
 
-class _ClientMetricData {
-  const _ClientMetricData({
-    required this.label,
-    required this.value,
-    required this.helper,
-  });
+        @override
+        Widget build(BuildContext context) {
+          final theme = Theme.of(context);
 
-  final String label;
-  final String value;
-  final String helper;
-}
-
-class _MetricGrid extends StatelessWidget {
-  const _MetricGrid({required this.items});
-
-  final List<_ClientMetricData> items;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final itemWidth = constraints.maxWidth < 700
-            ? constraints.maxWidth
-            : (constraints.maxWidth - 12) / 2;
-
-        return Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: items
-              .map(
-                (item) => SizedBox(
-                  width: itemWidth,
-                  child: _MetricCard(
-                    label: item.label,
-                    value: item.value,
-                    helper: item.helper,
-                  ),
-                ),
-              )
-              .toList(growable: false),
-        );
-      },
-    );
-  }
-}
-
-class _SectionCard extends StatelessWidget {
-  const _SectionCard({required this.title, required this.child});
-
-  final String title;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.fromLTRB(0, 0, 0, 12),
-      decoration: BoxDecoration(
-        border: Border(
-          bottom: BorderSide(
-            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
-          ),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: theme.textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w900,
-              letterSpacing: 0.2,
-            ),
-          ),
-          const SizedBox(height: 10),
-          child,
-        ],
-      ),
-    );
-  }
-}
-
-class _ClientHeroCard extends StatelessWidget {
-  const _ClientHeroCard({
-    required this.name,
-    required this.phone,
-    required this.email,
-    required this.totalPurchased,
-    required this.lastActivity,
-    required this.deleted,
-  });
-
-  final String name;
-  final String? phone;
-  final String? email;
-  final String totalPurchased;
-  final String lastActivity;
-  final bool deleted;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final contactLine = [
-      if ((phone ?? '').trim().isNotEmpty) phone!.trim(),
-      if ((email ?? '').trim().isNotEmpty) email!.trim(),
-    ].join(' • ');
-
-    return Container(
-      padding: const EdgeInsets.fromLTRB(0, 0, 0, 14),
-      decoration: BoxDecoration(
-        border: Border(
-          bottom: BorderSide(
-            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
-          ),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
+          return Row(
             children: [
-              CircleAvatar(
-                radius: 20,
-                backgroundColor: theme.colorScheme.primaryContainer,
-                foregroundColor: theme.colorScheme.onPrimaryContainer,
-                child: Text(
-                  name.isEmpty ? '?' : name.trim().substring(0, 1).toUpperCase(),
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
+              IconButton(
+                tooltip: 'Regresar',
+                onPressed: onBack,
+                style: IconButton.styleFrom(
+                  minimumSize: const Size(36, 36),
+                  padding: EdgeInsets.zero,
                 ),
+                icon: const Icon(Icons.arrow_back_rounded, size: 20),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 4),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       name,
-                      maxLines: 2,
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w900,
-                        height: 1.15,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
-                    if (contactLine.isNotEmpty) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        contactLine,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              if (deleted)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.errorContainer,
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Text(
-                    'Eliminado',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: theme.colorScheme.onErrorContainer,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: _InfoBadge(
-                  label: 'Total comprado',
-                  value: totalPurchased,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _InfoBadge(
-                  label: 'Ultima actividad',
-                  value: lastActivity,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _InfoBadge extends StatelessWidget {
-  const _InfoBadge({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.30),
-        ),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Container(
-            width: 3,
-            decoration: BoxDecoration(
-              color: theme.colorScheme.primary.withValues(alpha: 0.45),
-              borderRadius: const BorderRadius.horizontal(
-                left: Radius.circular(10),
-              ),
-            ),
-          ),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(8, 7, 10, 7),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    label,
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                  const SizedBox(height: 1),
-                  Text(
-                    value,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ClientFactData {
-  const _ClientFactData({
-    required this.label,
-    required this.value,
-    required this.icon,
-  });
-
-  final String label;
-  final String value;
-  final IconData icon;
-}
-
-class _ClientFactsGrid extends StatelessWidget {
-  const _ClientFactsGrid({required this.items});
-
-  final List<_ClientFactData> items;
-
-  @override
-  Widget build(BuildContext context) {
-    if (items.isEmpty) return const SizedBox.shrink();
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isCompact = constraints.maxWidth < 700;
-        final itemWidth = isCompact
-            ? constraints.maxWidth
-            : (constraints.maxWidth - 12) / 2;
-        return Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: items
-              .map(
-                (item) => SizedBox(
-                  width: itemWidth,
-                  child: _ClientFactTile(item: item),
-                ),
-              )
-              .toList(growable: false),
-        );
-      },
-    );
-  }
-}
-
-class _ClientFactTile extends StatelessWidget {
-  const _ClientFactTile({required this.item});
-
-  final _ClientFactData item;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.30),
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Container(
-              width: 28,
-              height: 28,
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primaryContainer.withValues(alpha: 0.65),
-                borderRadius: BorderRadius.circular(9),
-              ),
-              alignment: Alignment.center,
-              child: Icon(item.icon, size: 15, color: theme.colorScheme.primary),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    item.label,
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                  const SizedBox(height: 1),
-                  Text(
-                    item.value,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                      height: 1.2,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _InlineNoteCard extends StatelessWidget {
-  const _InlineNoteCard({required this.note});
-
-  final String note;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(top: 12),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.secondaryContainer.withValues(alpha: 0.45),
-          borderRadius: BorderRadius.circular(18),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Notas',
-              style: theme.textTheme.labelLarge?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(note),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _TimelineEventCard extends StatelessWidget {
-  const _TimelineEventCard({
-    required this.icon,
-    required this.title,
-    required this.summary,
-    required this.date,
-    required this.amount,
-    required this.statusLabel,
-    required this.statusColor,
-    required this.enabled,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String title;
-  final String summary;
-  final String date;
-  final String? amount;
-  final String statusLabel;
-  final Color statusColor;
-  final bool enabled;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: enabled ? onTap : null,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 30,
-                height: 30,
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(9),
-                ),
-                alignment: Alignment.center,
-                child: Icon(
-                  icon,
-                  size: 16,
-                  color: theme.colorScheme.onPrimaryContainer,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
+                    const SizedBox(height: 2),
                     Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(
-                          child: Text(
-                            title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              fontWeight: FontWeight.w800,
+                        if (phone.isNotEmpty)
+                          Flexible(
+                            child: Text(
+                              phone,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
                             ),
                           ),
-                        ),
-                        if (amount != null) ...[
-                          const SizedBox(width: 8),
-                          Text(
-                            amount!,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              fontWeight: FontWeight.w800,
+                        if (deleted) ...[
+                          if (phone.isNotEmpty) const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 7,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.errorContainer,
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              'Eliminado',
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: theme.colorScheme.onErrorContainer,
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
                           ),
                         ],
                       ],
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      date,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
+                  ],
+                ),
+              ),
+              PopupMenuButton<_ClienteHeaderAction>(
+                tooltip: 'Opciones',
+                enabled: !deleting,
+                onSelected: onActionSelected,
+                itemBuilder: (context) => const [
+                  PopupMenuItem(
+                    value: _ClienteHeaderAction.edit,
+                    child: Text('Editar'),
+                  ),
+                  PopupMenuItem(
+                    value: _ClienteHeaderAction.delete,
+                    child: Text('Eliminar'),
+                  ),
+                ],
+                icon: deleting
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                      : const Icon(Icons.more_vert_rounded),
+              ),
+            ],
+          );
+        }
+      }
+
+      class _ClientMetricData {
+        const _ClientMetricData({
+          required this.label,
+          required this.value,
+          required this.helper,
+        });
+
+        final String label;
+        final String value;
+        final String helper;
+      }
+
+      class _MetricGrid extends StatelessWidget {
+        const _MetricGrid({required this.items});
+
+        final List<_ClientMetricData> items;
+
+        @override
+        Widget build(BuildContext context) {
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              final itemWidth = (constraints.maxWidth - 12) / 2;
+              return Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  for (final item in items)
+                    SizedBox(
+                      width: itemWidth,
+                      child: _MetricCard(
+                        label: item.label,
+                        value: item.value,
+                        helper: item.helper,
                       ),
                     ),
-                    if (summary.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        summary,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall,
-                      ),
-                    ],
-                    const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: statusColor.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Text(
-                            statusLabel,
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: statusColor,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                        const Spacer(),
-                        if (enabled)
-                          Icon(
-                            Icons.chevron_right_rounded,
-                            size: 18,
-                            color: theme.colorScheme.onSurfaceVariant,
-                          )
-                        else
+                ],
+              );
+            },
+          );
+        }
+      }
+
+      class _MetricCard extends StatelessWidget {
+        const _MetricCard({
+          required this.label,
+          required this.value,
+          required this.helper,
+        });
+
+        final String label;
+        final String value;
+        final String helper;
+
+        @override
+        Widget build(BuildContext context) {
+          final theme = Theme.of(context);
+          return DecoratedBox(
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surface,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.24),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: theme.colorScheme.shadow.withValues(alpha: 0.05),
+                  blurRadius: 14,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 34,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primary.withValues(alpha: 0.45),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    value,
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      height: 1,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    helper,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                      height: 1.3,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+      }
+
+      class _SectionLabel extends StatelessWidget {
+        const _SectionLabel({required this.title});
+
+        final String title;
+
+        @override
+        Widget build(BuildContext context) {
+          final theme = Theme.of(context);
+          return Text(
+            title,
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0.1,
+            ),
+          );
+        }
+      }
+
+      class _SimpleDetailRowData {
+        const _SimpleDetailRowData({
+          required this.label,
+          required this.value,
+        });
+
+        final String label;
+        final String value;
+      }
+
+      class _SimpleDetailList extends StatelessWidget {
+        const _SimpleDetailList({required this.rows});
+
+        final List<_SimpleDetailRowData> rows;
+
+        @override
+        Widget build(BuildContext context) {
+          if (rows.isEmpty) return const SizedBox.shrink();
+
+          final theme = Theme.of(context);
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              final itemWidth = (constraints.maxWidth - 14) / 2;
+              return Wrap(
+                spacing: 14,
+                runSpacing: 14,
+                children: [
+                  for (final row in rows)
+                    SizedBox(
+                      width: itemWidth,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
                           Text(
-                            'Solo lectura',
+                            row.label,
                             style: theme.textTheme.labelSmall?.copyWith(
                               color: theme.colorScheme.onSurfaceVariant,
                               fontWeight: FontWeight.w700,
                             ),
                           ),
+                          const SizedBox(height: 3),
+                          Text(
+                            row.value,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              height: 1.35,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              );
+            },
+          );
+        }
+      }
+
+      class _InlineNoteCard extends StatelessWidget {
+        const _InlineNoteCard({required this.note});
+
+        final String note;
+
+        @override
+        Widget build(BuildContext context) {
+          final theme = Theme.of(context);
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Notas',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                note,
+                style: theme.textTheme.bodySmall?.copyWith(height: 1.45),
+              ),
+            ],
+          );
+        }
+      }
+
+      class _LocationDetailCard extends StatelessWidget {
+        const _LocationDetailCard({
+          required this.locationUrl,
+          this.latitude,
+          this.longitude,
+        });
+
+        final String? locationUrl;
+        final double? latitude;
+        final double? longitude;
+
+        String? _coordinateLabel(ClientLocationPreview preview) {
+          final latitude = preview.latitude;
+          final longitude = preview.longitude;
+          if (!preview.hasCoordinates || latitude == null || longitude == null) {
+            return null;
+          }
+          return '${latitude.toStringAsFixed(6)}, ${longitude.toStringAsFixed(6)}';
+        }
+
+        @override
+        Widget build(BuildContext context) {
+          final theme = Theme.of(context);
+          final normalizedUrl = normalizeClientLocationUrl(locationUrl);
+          final uri = normalizedUrl.isEmpty ? null : Uri.tryParse(normalizedUrl);
+          final parsedPreview = parseClientLocationPreview(normalizedUrl);
+          final directPreview = parsedPreview.hasCoordinates
+              ? parsedPreview
+              : ClientLocationPreview(
+                  latitude: latitude,
+                  longitude: longitude,
+                  resolvedUrl: normalizedUrl.isEmpty ? null : normalizedUrl,
+                );
+          final coordinateLabel = _coordinateLabel(directPreview);
+
+          if (normalizedUrl.isEmpty && !directPreview.hasCoordinates) {
+            return const SizedBox.shrink();
+          }
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const _SectionLabel(title: 'Ubicacion GPS'),
+              const SizedBox(height: 10),
+              if (directPreview.hasCoordinates) ...[
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(24),
+                  child: SizedBox(
+                    height: 210,
+                    child: FlutterMap(
+                      options: MapOptions(
+                        initialCenter: LatLng(
+                          directPreview.latitude!,
+                          directPreview.longitude!,
+                        ),
+                        initialZoom: 15,
+                      ),
+                      children: [
+                        TileLayer(
+                          urlTemplate:
+                              'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                          userAgentPackageName: 'com.fulltech.app',
+                        ),
+                        MarkerLayer(
+                          markers: [
+                            Marker(
+                              point: LatLng(
+                                directPreview.latitude!,
+                                directPreview.longitude!,
+                              ),
+                              width: 40,
+                              height: 40,
+                              child: Icon(
+                                Icons.location_pin,
+                                color: theme.colorScheme.error,
+                                size: 38,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                if (coordinateLabel != null)
+                  Text(
+                    coordinateLabel,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+              ] else
+                Text(
+                  normalizedUrl.isEmpty
+                      ? 'Sin coordenadas registradas.'
+                      : 'La ubicacion fue guardada como enlace, pero no tiene coordenadas para mostrar el mapa aqui.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              if (uri != null) ...[
+                const SizedBox(height: 8),
+                TextButton.icon(
+                  onPressed: () => safeOpenUrl(context, uri),
+                  icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                  label: const Text('Abrir ubicacion'),
+                  style: TextButton.styleFrom(
+                    padding: EdgeInsets.zero,
+                    minimumSize: const Size(0, 0),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    alignment: Alignment.centerLeft,
+                  ),
+                ),
+              ],
+            ],
+          );
+        }
+      }
+
+      class _TimelineSection extends StatelessWidget {
+        const _TimelineSection({
+          required this.title,
+          required this.emptyLabel,
+          required this.children,
+        });
+
+        final String title;
+        final String emptyLabel;
+        final List<Widget> children;
+
+        @override
+        Widget build(BuildContext context) {
+          final theme = Theme.of(context);
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 10),
+              if (children.isEmpty)
+                Text(
+                  emptyLabel,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                )
+              else
+                Column(
+                  children: [
+                    for (var index = 0; index < children.length; index++) ...[
+                      if (index > 0)
+                        Divider(
+                          height: 14,
+                          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.35),
+                        ),
+                      children[index],
+                    ],
+                  ],
+                ),
+            ],
+          );
+        }
+      }
+
+      class _TimelineEventCard extends StatelessWidget {
+        const _TimelineEventCard({
+          required this.icon,
+          required this.title,
+          required this.summary,
+          required this.date,
+          required this.amount,
+          required this.statusLabel,
+          required this.statusColor,
+          required this.enabled,
+          required this.onTap,
+        });
+
+        final IconData icon;
+        final String title;
+        final String summary;
+        final String date;
+        final String? amount;
+        final String statusLabel;
+        final Color statusColor;
+        final bool enabled;
+        final VoidCallback onTap;
+
+        @override
+        Widget build(BuildContext context) {
+          final theme = Theme.of(context);
+
+          return Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: enabled ? onTap : null,
+              borderRadius: BorderRadius.circular(16),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 26,
+                      height: 26,
+                      margin: const EdgeInsets.only(top: 1),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.75),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      alignment: Alignment.center,
+                      child: Icon(
+                        icon,
+                        size: 14,
+                        color: theme.colorScheme.onPrimaryContainer,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                              if (amount != null) ...[
+                                const SizedBox(width: 8),
+                                Text(
+                                  amount!,
+                                  style: theme.textTheme.labelMedium?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            date,
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                          if (summary.isNotEmpty) ...[
+                            const SizedBox(height: 3),
+                            Text(
+                              summary,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodySmall?.copyWith(height: 1.35),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          statusLabel,
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: statusColor,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Icon(
+                          enabled ? Icons.chevron_right_rounded : Icons.remove_rounded,
+                          size: 16,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
                       ],
                     ),
                   ],
                 ),
               ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _TimelineSection extends StatelessWidget {
-  const _TimelineSection({
-    required this.icon,
-    required this.title,
-    required this.itemCount,
-    required this.children,
-  });
-
-  final IconData icon;
-  final String title;
-  final int itemCount;
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: theme.colorScheme.outlineVariant),
-      ),
-      child: Column(
-        children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surfaceContainerHighest.withValues(
-                alpha: 0.55,
-              ),
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(16),
-              ),
             ),
-            child: Row(
-              children: [
-                Icon(icon, size: 16, color: theme.colorScheme.primary),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    title,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-                Text(
-                  '$itemCount',
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          for (var index = 0; index < children.length; index++) ...[
-            if (index > 0)
-              Divider(
-                height: 1,
-                thickness: 1,
-                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
-              ),
-            children[index],
-          ],
-        ],
-      ),
-    );
-  }
-}
+          );
+        }
+      }
 
-class _TimelineGroupData {
-  const _TimelineGroupData({
-    required this.type,
-    required this.label,
-    required this.items,
-  });
-
-  final String type;
-  final String label;
-  final List<ClienteTimelineEvent> items;
-}

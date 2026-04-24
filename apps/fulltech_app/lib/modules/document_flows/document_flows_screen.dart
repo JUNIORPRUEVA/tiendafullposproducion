@@ -27,7 +27,7 @@ class _DocumentFlowsScreenState extends ConsumerState<DocumentFlowsScreen> {
   bool _loading = true;
   String? _error;
   List<OrderDocumentFlowModel> _flows = const [];
-  _PrimaryDocumentFilter? _activePrimaryFilter = _PrimaryDocumentFilter.unsent;
+  _PrimaryDocumentFilter _activePrimaryFilter = _PrimaryDocumentFilter.all;
   DocumentFlowStatus? _selectedStatus;
 
   @override
@@ -238,7 +238,7 @@ class _DocumentFlowsScreenState extends ConsumerState<DocumentFlowsScreen> {
                               onClear: () {
                                 setState(() {
                                   _activePrimaryFilter =
-                                      _PrimaryDocumentFilter.unsent;
+                                      _PrimaryDocumentFilter.all;
                                   _selectedStatus = null;
                                   _searchController.clear();
                                 });
@@ -246,9 +246,7 @@ class _DocumentFlowsScreenState extends ConsumerState<DocumentFlowsScreen> {
                             ),
                             const SizedBox(height: 12),
                             _PrimaryFiltersRow(
-                              selectedFilter:
-                                  _activePrimaryFilter ??
-                                  _PrimaryDocumentFilter.unsent,
+                              selectedFilter: _activePrimaryFilter,
                               onChanged: (value) {
                                 setState(() {
                                   _activePrimaryFilter = value;
@@ -262,7 +260,7 @@ class _DocumentFlowsScreenState extends ConsumerState<DocumentFlowsScreen> {
                                 icon: Icons.inbox_outlined,
                                 title: 'No hay resultados para mostrar',
                                 message: _selectedStatus == null
-                                    ? 'La vista principal muestra por defecto todas las órdenes con documentación no enviada al cliente. Ajusta la búsqueda o cambia los filtros para ver otros documentos.'
+                                    ? 'No hay flujos documentales que coincidan con la búsqueda actual. Ajusta la búsqueda o cambia los filtros para ver otros documentos.'
                                     : 'No hay resultados para el filtro avanzado seleccionado. Ajusta la búsqueda o limpia el filtro.',
                               )
                             else
@@ -290,11 +288,9 @@ class _DocumentFlowsScreenState extends ConsumerState<DocumentFlowsScreen> {
 
   List<OrderDocumentFlowModel> _filteredFlows() {
     final query = _normalizeSearch(_searchController.text);
-    final activePrimaryFilter =
-        _activePrimaryFilter ?? _PrimaryDocumentFilter.unsent;
     final visibleStatuses = _selectedStatus != null
         ? <DocumentFlowStatus>{_selectedStatus!}
-        : activePrimaryFilter.statuses;
+        : _activePrimaryFilter.statuses;
 
     return _flows
         .where((flow) {
@@ -312,11 +308,13 @@ class _DocumentFlowsScreenState extends ConsumerState<DocumentFlowsScreen> {
   }
 }
 
-enum _PrimaryDocumentFilter { unsent, finalization, sent }
+enum _PrimaryDocumentFilter { all, unsent, finalization, sent }
 
 extension _PrimaryDocumentFilterX on _PrimaryDocumentFilter {
   String get label {
     switch (this) {
+      case _PrimaryDocumentFilter.all:
+        return 'Todos';
       case _PrimaryDocumentFilter.unsent:
         return 'No enviadas';
       case _PrimaryDocumentFilter.finalization:
@@ -328,6 +326,8 @@ extension _PrimaryDocumentFilterX on _PrimaryDocumentFilter {
 
   Set<DocumentFlowStatus> get statuses {
     switch (this) {
+      case _PrimaryDocumentFilter.all:
+        return DocumentFlowStatus.values.toSet();
       case _PrimaryDocumentFilter.unsent:
         return {
           DocumentFlowStatus.pendingPreparation,
@@ -345,6 +345,8 @@ extension _PrimaryDocumentFilterX on _PrimaryDocumentFilter {
 
   Color get color {
     switch (this) {
+      case _PrimaryDocumentFilter.all:
+        return const Color(0xFF1F2937);
       case _PrimaryDocumentFilter.unsent:
         return const Color(0xFF0F5D73);
       case _PrimaryDocumentFilter.finalization:
@@ -891,33 +893,33 @@ class _FeedbackPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFDEE5EC)),
+        border: Border.all(color: const Color(0xFFE1E8EF)),
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 36, color: const Color(0xFF667085)),
+          Icon(icon, size: 28, color: const Color(0xFF5B6B7F)),
           const SizedBox(height: 12),
           Text(
             title,
-            textAlign: TextAlign.center,
             style: const TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w800,
-              color: Color(0xFF24303F),
+              color: Color(0xFF112132),
             ),
           ),
           const SizedBox(height: 8),
           Text(
             message,
-            textAlign: TextAlign.center,
             style: const TextStyle(
               fontSize: 13.5,
               height: 1.45,
-              color: Color(0xFF667085),
+              color: Color(0xFF5B6B7F),
             ),
           ),
           if (action != null) ...[const SizedBox(height: 14), action!],

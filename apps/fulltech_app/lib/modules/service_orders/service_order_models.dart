@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 import '../clientes/cliente_model.dart';
+import '../cotizaciones/cotizacion_models.dart';
 
 enum ServiceOrderCategory {
   camara,
@@ -950,8 +951,15 @@ class ServiceOrderDraftReference {
 class ServiceOrderCreateArgs {
   final ServiceOrderModel? cloneSource;
   final ServiceOrderModel? editSource;
+  final CotizacionModel? initialQuotation;
+  final String? initialClientId;
 
-  const ServiceOrderCreateArgs({this.cloneSource, this.editSource});
+  const ServiceOrderCreateArgs({
+    this.cloneSource,
+    this.editSource,
+    this.initialQuotation,
+    this.initialClientId,
+  });
 
   bool get isCloneMode => cloneSource != null;
   bool get isEditMode => editSource != null;

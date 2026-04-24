@@ -241,17 +241,21 @@ class CreateServiceOrderController
         }
       }
       final seedOrder = args?.editSource ?? args?.cloneSource;
-      final selectedClient = seedOrder == null
+      final seedQuotation = args?.initialQuotation;
+      final seedClientId =
+          (seedOrder?.clientId ?? args?.initialClientId ?? seedQuotation?.customerId ?? '')
+              .trim();
+      final selectedClient = seedClientId.isEmpty
           ? null
           : clients
-                .where((item) => item.id == seedOrder.clientId)
+                .where((item) => item.id == seedClientId)
                 .firstWhere(
                   (item) => true,
                   orElse: () => ClienteModel(
-                    id: seedOrder.clientId,
+                    id: seedClientId,
                     ownerId: _ownerId,
-                    nombre: 'Cliente vinculado',
-                    telefono: '',
+                    nombre: (seedQuotation?.customerName ?? 'Cliente vinculado').trim(),
+                    telefono: (seedQuotation?.customerPhone ?? '').trim(),
                   ),
                 );
       final assignedToId = seedOrder?.assignedToId;
@@ -282,7 +286,7 @@ class CreateServiceOrderController
       if (selectedClient != null) {
         await selectClient(
           selectedClient,
-          preserveQuotationId: seedOrder?.quotationId,
+          preserveQuotationId: seedOrder?.quotationId ?? seedQuotation?.id,
         );
       }
     } catch (error) {

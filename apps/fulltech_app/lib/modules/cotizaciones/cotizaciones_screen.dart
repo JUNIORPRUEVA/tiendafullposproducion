@@ -27,6 +27,7 @@ import '../../core/widgets/product_network_image.dart';
 import '../../features/user/data/users_repository.dart';
 import '../clientes/cliente_model.dart';
 import '../clientes/cliente_form_screen.dart';
+import '../service_orders/service_order_models.dart';
 import '../ventas/data/ventas_repository.dart';
 import 'ai/application/quotation_ai_controller.dart';
 import 'ai/domain/models/ai_warning.dart';
@@ -698,6 +699,19 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     _editingCreatedAt = null;
   }
 
+  bool get _hasEditorContent {
+    return _items.isNotEmpty ||
+        _searchCtrl.text.trim().isNotEmpty ||
+        (_selectedClientId ?? '').trim().isNotEmpty ||
+        _selectedClientName.trim() != 'Sin cliente' ||
+        (_selectedClientPhone ?? '').trim().isNotEmpty ||
+        _note.trim().isNotEmpty ||
+        _includeItbis ||
+        _generalDiscountAmount != 0 ||
+        (_editingId ?? '').trim().isNotEmpty ||
+        (_selectedCategory ?? '').trim().isNotEmpty;
+  }
+
   void _commitEditorChange(VoidCallback changes) {
     setState(() {
       changes();
@@ -863,13 +877,89 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
       case _MobileQuickAction.history:
         await _openHistory();
         return;
+      case _MobileQuickAction.serviceOrder:
+        await _sendQuotationToServiceOrder();
+        return;
       case _MobileQuickAction.clear:
-        if (_items.isEmpty) return;
+        if (!_hasEditorContent) return;
         _commitEditorChange(_resetEditorState);
         return;
       case _MobileQuickAction.debugPurge:
         await _purgeAllDebug();
         return;
+    }
+  }
+
+  Future<void> _sendQuotationToServiceOrder() async {
+    if ((_selectedClientId ?? '').trim().isEmpty ||
+        _selectedClientName.trim() == 'Sin cliente') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Selecciona o crea un cliente primero')),
+      );
+      return;
+    }
+
+    if ((_selectedClientPhone ?? '').trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('El cliente debe tener teléfono')),
+      );
+      return;
+    }
+
+    if (_items.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Agrega al menos un producto al ticket')),
+      );
+      return;
+    }
+
+    final repository = ref.read(cotizacionesRepositoryProvider);
+    final draft = _buildDraftCotizacion();
+    final wasEditing = (_editingId ?? '').trim().isNotEmpty;
+
+    CotizacionModel savedQuotation;
+    try {
+      savedQuotation = wasEditing
+          ? await repository.update(_editingId!, draft)
+          : await repository.create(draft);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            error is ApiException
+                ? error.message
+                : 'No se pudo preparar la cotización para crear la orden',
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (!mounted) return;
+
+    _commitEditorChange(() {
+      _editingId = savedQuotation.id;
+      _editingCreatedAt = savedQuotation.createdAt;
+      _selectedClientId = savedQuotation.customerId;
+      _selectedClientName = savedQuotation.customerName;
+      _selectedClientPhone = savedQuotation.customerPhone;
+    });
+    _schedulePersistEditorDraft(immediate: true);
+
+    final opened = await context.push<bool>(
+      Routes.serviceOrderCreate,
+      extra: ServiceOrderCreateArgs(
+        initialQuotation: savedQuotation,
+        initialClientId: savedQuotation.customerId,
+      ),
+    );
+
+    if (!mounted) return;
+    if (opened == true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Orden de servicio creada desde la cotización')),
+      );
     }
   }
 
@@ -1604,6 +1694,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     Timer? searchDebounce;
     int requestId = 0;
     bool loading = true;
+    bool dialogOpen = true;
     String? error;
     var ownerFilter = _ClientOwnerFilter.all;
     var ageFilter = _ClientAgeFilter.all;
@@ -1635,10 +1726,11 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
       }).toList(growable: false);
     }
 
-    await showDialog<void>(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setStateDialog) {
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (context) => StatefulBuilder(
+          builder: (context, setStateDialog) {
           Future<void> openFilterSheet() async {
             final selected = await showModalBottomSheet<_ClientFilterSelection>(
               context: context,
@@ -1813,14 +1905,14 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
             });
             try {
               final rows = await repo.searchClients(searchCtrl.text.trim());
-              if (!context.mounted) return;
+              if (!mounted || !dialogOpen) return;
               if (currentRequest != requestId) return;
               setStateDialog(() {
                 clients = rows;
                 loading = false;
               });
             } catch (e) {
-              if (!context.mounted) return;
+              if (!mounted || !dialogOpen) return;
               if (currentRequest != requestId) return;
               setStateDialog(() {
                 loading = false;
@@ -1899,7 +1991,9 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                                   const ClienteFormScreen(returnSavedClient: true),
                             ),
                           );
-                          if (!context.mounted || !mounted || created == null) return;
+                          if (!mounted || !dialogOpen || !context.mounted || created == null) {
+                            return;
+                          }
                           _commitEditorChange(() {
                             _selectedClientId = created.id;
                             _selectedClientName = created.nombre;
@@ -2007,7 +2101,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                             ),
                           ),
                         );
-                    if (!context.mounted || !mounted || updated == null) {
+                    if (!mounted || !dialogOpen || !context.mounted || updated == null) {
                       return;
                     }
                     _commitEditorChange(() {
@@ -2022,12 +2116,15 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                 ),
             ],
           );
-        },
-      ),
-    );
-
-    searchDebounce?.cancel();
-    searchCtrl.dispose();
+          },
+        ),
+      );
+    } finally {
+      dialogOpen = false;
+      searchDebounce?.cancel();
+      await WidgetsBinding.instance.endOfFrame;
+      searchCtrl.dispose();
+    }
   }
 
   CotizacionModel _buildDraftCotizacion() {
@@ -2833,14 +2930,10 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                       visualDensity: VisualDensity.compact,
                       padding: EdgeInsets.zero,
                       constraints: const BoxConstraints(minHeight: 24, minWidth: 24),
-                      onPressed: _items.isEmpty
+                      onPressed: !_hasEditorContent
                           ? null
                           : () {
-                              _commitEditorChange(() {
-                                _items.clear();
-                                _editingId = null;
-                                _editingCreatedAt = null;
-                              });
+                              _commitEditorChange(_resetEditorState);
                             },
                       icon: const Icon(Icons.delete_sweep_outlined),
                     ),
@@ -2988,6 +3081,15 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                   contentPadding: EdgeInsets.zero,
                   leading: Icon(Icons.history),
                   title: Text('Historial'),
+                ),
+              ),
+              const PopupMenuItem(
+                value: _MobileQuickAction.serviceOrder,
+                child: ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.assignment_turned_in_outlined),
+                  title: Text('Pasar a orden de servicio'),
                 ),
               ),
               const PopupMenuItem(
@@ -3160,7 +3262,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                         onAddExternalItem: _openExternalItemDialog,
                         onToggleItbis: (value) =>
                             _commitEditorChange(() => _includeItbis = value),
-                        onClear: _items.isEmpty
+                        onClear: !_hasEditorContent
                             ? null
                             : () {
                                 _commitEditorChange(_resetEditorState);
@@ -3214,6 +3316,7 @@ enum _MobileQuickAction {
   newTicket,
   pdf,
   history,
+  serviceOrder,
   clear,
   debugPurge,
 }

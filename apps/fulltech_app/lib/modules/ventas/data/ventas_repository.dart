@@ -210,30 +210,41 @@ class VentasRepository {
 
   Future<List<ClienteModel>> searchClients(String search) async {
     try {
-      final res = await _dio.get(
-        ApiRoutes.clients,
-        queryParameters: {
-          if (search.trim().isNotEmpty) 'search': search.trim(),
-          'page': 1,
-          'pageSize': 100,
-        },
-        options: Options(extra: const {'skipLoader': true}),
-      );
+      const pageSize = 100;
+      final normalizedSearch = search.trim();
+      final clients = <ClienteModel>[];
+      var page = 1;
+      var totalPages = 1;
 
-      final raw = res.data;
-      final List<dynamic> rows;
-      if (raw is List) {
-        rows = raw;
-      } else if (raw is Map && raw['items'] is List) {
-        rows = raw['items'] as List<dynamic>;
-      } else {
-        rows = const [];
+      while (page <= totalPages) {
+        final res = await _dio.get(
+          ApiRoutes.clients,
+          queryParameters: {
+            if (normalizedSearch.isNotEmpty) 'search': normalizedSearch,
+            'page': page,
+            'pageSize': pageSize,
+          },
+          options: Options(extra: const {'skipLoader': true}),
+        );
+
+        final raw = res.data;
+        final rows = _extractRows(raw);
+        clients.addAll(
+          rows
+              .whereType<Map>()
+              .map((row) => ClienteModel.fromJson(row.cast<String, dynamic>())),
+        );
+
+        totalPages = raw is Map && raw['totalPages'] is num
+            ? (raw['totalPages'] as num).toInt()
+            : 1;
+        if (rows.isEmpty || totalPages <= page) {
+          break;
+        }
+        page += 1;
       }
 
-      return rows
-          .whereType<Map>()
-          .map((row) => ClienteModel.fromJson(row.cast<String, dynamic>()))
-          .toList();
+      return clients;
     } on DioException catch (e) {
       throw ApiException(
         _extractMessage(e.response?.data, 'No se pudieron cargar clientes'),
