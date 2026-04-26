@@ -15,7 +15,24 @@ export class WhatsappService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
-  ) {}
+  ) {
+    // Startup sanity-check: Evolution API URL must NOT point to this server itself.
+    const evoUrl = (config.get<string>('EVOLUTION_API_URL') ?? '').trim().replace(/\/$/, '');
+    const selfUrl = (config.get<string>('PUBLIC_BASE_URL') ?? '').trim().replace(/\/$/, '');
+    if (!evoUrl) {
+      console.warn(
+        '[WhatsApp] ADVERTENCIA: EVOLUTION_API_URL no está configurada. Las funciones de WhatsApp no funcionarán.',
+      );
+    } else if (
+      selfUrl &&
+      evoUrl.toLowerCase() === selfUrl.toLowerCase()
+    ) {
+      console.error(
+        `[WhatsApp] ¡CONFIGURACIÓN CRÍTICA INCORRECTA! EVOLUTION_API_URL apunta a este mismo servidor (${evoUrl}). ` +
+          'Debes configurar EVOLUTION_API_URL con la URL del servidor Evolution API externo, NO la de este API.',
+      );
+    }
+  }
 
   private get evolutionBaseUrl(): string {
     const raw = (this.config.get<string>('EVOLUTION_API_URL') ?? '').trim();

@@ -144,6 +144,31 @@ class _WhatsappPanelState extends ConsumerState<WhatsappPanel> {
     }
   }
 
+  Future<void> _confirmReset() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reiniciar instancia'),
+        content: const Text(
+          'Esto eliminará el registro actual (que está fallando) y podrás crear una nueva instancia de WhatsApp desde cero.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Reiniciar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      await ref.read(whatsappControllerProvider.notifier).deleteInstance();
+    }
+  }
+
   Future<void> _confirmDisconnect() async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -202,6 +227,7 @@ class _WhatsappPanelState extends ConsumerState<WhatsappPanel> {
     return _WaPendingCard(
       state: state,
       onScanQr: _openQrSheet,
+      onReset: _confirmReset,
       onDisconnect: _confirmDisconnect,
     );
   }
@@ -468,11 +494,13 @@ class _WaPendingCard extends StatelessWidget {
   const _WaPendingCard({
     required this.state,
     required this.onScanQr,
+    required this.onReset,
     required this.onDisconnect,
   });
 
   final WhatsappState state;
   final VoidCallback onScanQr;
+  final VoidCallback onReset;
   final VoidCallback onDisconnect;
 
   @override
@@ -514,7 +542,7 @@ class _WaPendingCard extends StatelessWidget {
                         style: theme.textTheme.titleSmall
                             ?.copyWith(fontWeight: FontWeight.w800)),
                     const SizedBox(height: 2),
-                    Text('Pendiente — escanea el código QR',
+                    Text('Pendiente — sin conectar',
                         style: theme.textTheme.bodySmall?.copyWith(
                             color: statusColor,
                             fontWeight: FontWeight.w600)),
@@ -523,44 +551,63 @@ class _WaPendingCard extends StatelessWidget {
               ),
             ],
           ),
-          if ((instance?.instanceName ?? '').isNotEmpty) ...[
+          if ((instance?.instanceName ?? '').isNotEmpty) ...[  
             const SizedBox(height: 10),
             _InfoRow(
                 icon: Icons.memory_rounded,
                 label: 'Instancia',
                 value: instance!.instanceName!),
           ],
-          const SizedBox(height: 6),
-          Text(
-            'Si el código QR falla, usa "Reiniciar" para crear una nueva instancia.',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context)
-                    .colorScheme
-                    .onSurfaceVariant),
+          const SizedBox(height: 12),
+          // Warning banner
+          Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: statusColor.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(10),
+              border:
+                  Border.all(color: statusColor.withValues(alpha: 0.30)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.warning_amber_rounded,
+                    color: statusColor, size: 16),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Esta instancia no está activa en el servidor de WhatsApp. '
+                    'Si el QR falla, usa "Reiniciar" para borrarla y crear una nueva.',
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(color: statusColor),
+                  ),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 14),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              FilledButton.icon(
-                onPressed: onScanQr,
-                icon: const Icon(Icons.qr_code_rounded),
-                label: const Text('Escanear QR'),
-                style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFF25D366)),
-              ),
-              OutlinedButton.icon(
-                onPressed: onDisconnect,
-                icon: Icon(Icons.restart_alt_rounded, color: scheme.error),
-                label: Text('Reiniciar',
-                    style: TextStyle(color: scheme.error)),
-                style: OutlinedButton.styleFrom(
-                  side: BorderSide(
-                      color: scheme.error.withValues(alpha: 0.4)),
-                ),
-              ),
-            ],
+          // Primary action: Reset to create fresh
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: onReset,
+              icon: const Icon(Icons.restart_alt_rounded),
+              label: const Text('Reiniciar y crear nueva instancia'),
+              style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF25D366),
+                  padding: const EdgeInsets.symmetric(vertical: 13)),
+            ),
+          ),
+          const SizedBox(height: 8),
+          // Secondary action: try QR anyway
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: onScanQr,
+              icon: const Icon(Icons.qr_code_rounded),
+              label: const Text('Intentar escanear QR'),
+            ),
           ),
         ],
       ),
