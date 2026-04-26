@@ -1,4 +1,4 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
@@ -11,6 +11,7 @@ import '../../core/company/company_settings_model.dart';
 import '../../core/company/company_settings_repository.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
+import '../whatsapp/whatsapp_panel.dart';
 import 'configuracion_usuarios_screen.dart';
 
 class ConfiguracionScreen extends ConsumerStatefulWidget {
@@ -28,7 +29,15 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
   final _nameCtrl = TextEditingController();
   final _rncCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
+  final _phonePreferentialCtrl = TextEditingController();
   final _addressCtrl = TextEditingController();
+  final _descriptionCtrl = TextEditingController();
+  final _businessHoursCtrl = TextEditingController();
+  final _instagramUrlCtrl = TextEditingController();
+  final _facebookUrlCtrl = TextEditingController();
+  final _websiteUrlCtrl = TextEditingController();
+  final _gpsLocationUrlCtrl = TextEditingController();
+  final List<_BankRowCtrls> _bankRows = [];
   final _legalRepresentativeNameCtrl = TextEditingController();
   final _legalRepresentativeCedulaCtrl = TextEditingController();
   final _legalRepresentativeRoleCtrl = TextEditingController();
@@ -44,6 +53,7 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
   bool _saving = false;
   bool _showApiKey = false;
   String? _logoBase64;
+  String? _openSection;
 
   @override
   void initState() {
@@ -56,7 +66,17 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
     _nameCtrl.dispose();
     _rncCtrl.dispose();
     _phoneCtrl.dispose();
+    _phonePreferentialCtrl.dispose();
     _addressCtrl.dispose();
+    _descriptionCtrl.dispose();
+    _businessHoursCtrl.dispose();
+    _instagramUrlCtrl.dispose();
+    _facebookUrlCtrl.dispose();
+    _websiteUrlCtrl.dispose();
+    _gpsLocationUrlCtrl.dispose();
+    for (final row in _bankRows) {
+      row.dispose();
+    }
     _legalRepresentativeNameCtrl.dispose();
     _legalRepresentativeCedulaCtrl.dispose();
     _legalRepresentativeRoleCtrl.dispose();
@@ -69,23 +89,34 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
     super.dispose();
   }
 
-  void _applySettings(CompanySettings settings) {
-    _nameCtrl.text = settings.companyName;
-    _rncCtrl.text = settings.rnc;
-    _phoneCtrl.text = settings.phone;
-    _addressCtrl.text = settings.address;
-    _legalRepresentativeNameCtrl.text = settings.legalRepresentativeName;
-    _legalRepresentativeCedulaCtrl.text = settings.legalRepresentativeCedula;
-    _legalRepresentativeRoleCtrl.text = settings.legalRepresentativeRole;
-    _legalRepresentativeNationalityCtrl.text =
-        settings.legalRepresentativeNationality;
-    _legalRepresentativeCivilStatusCtrl.text =
-        settings.legalRepresentativeCivilStatus;
-    _logoBase64 = settings.logoBase64;
-    _openAiApiKeyCtrl.text = settings.openAiApiKey;
-    _evolutionApiBaseUrlCtrl.text = settings.evolutionApiBaseUrl;
-    _evolutionApiInstanceNameCtrl.text = settings.evolutionApiInstanceName;
-    _evolutionApiApiKeyCtrl.text = settings.evolutionApiApiKey;
+  void _applySettings(CompanySettings s) {
+    _nameCtrl.text = s.companyName;
+    _rncCtrl.text = s.rnc;
+    _phoneCtrl.text = s.phone;
+    _phonePreferentialCtrl.text = s.phonePreferential;
+    _addressCtrl.text = s.address;
+    _descriptionCtrl.text = s.description;
+    _businessHoursCtrl.text = s.businessHours;
+    _instagramUrlCtrl.text = s.instagramUrl;
+    _facebookUrlCtrl.text = s.facebookUrl;
+    _websiteUrlCtrl.text = s.websiteUrl;
+    _gpsLocationUrlCtrl.text = s.gpsLocationUrl;
+    for (final row in _bankRows) {
+      row.dispose();
+    }
+    _bankRows
+      ..clear()
+      ..addAll(s.bankAccounts.map(_BankRowCtrls.fromEntry));
+    _legalRepresentativeNameCtrl.text = s.legalRepresentativeName;
+    _legalRepresentativeCedulaCtrl.text = s.legalRepresentativeCedula;
+    _legalRepresentativeRoleCtrl.text = s.legalRepresentativeRole;
+    _legalRepresentativeNationalityCtrl.text = s.legalRepresentativeNationality;
+    _legalRepresentativeCivilStatusCtrl.text = s.legalRepresentativeCivilStatus;
+    _logoBase64 = s.logoBase64;
+    _openAiApiKeyCtrl.text = s.openAiApiKey;
+    _evolutionApiBaseUrlCtrl.text = s.evolutionApiBaseUrl;
+    _evolutionApiInstanceNameCtrl.text = s.evolutionApiInstanceName;
+    _evolutionApiApiKeyCtrl.text = s.evolutionApiApiKey;
   }
 
   Future<void> _load() async {
@@ -104,7 +135,6 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
           _refreshing = true;
         });
       }
-
       final settings = await repo.getSettingsRemoteAndCache();
       if (!mounted) return;
       _applySettings(settings);
@@ -121,20 +151,69 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
     }
   }
 
+  Future<bool> _save() async {
+    if (_saving) return false;
+    setState(() => _saving = true);
+    final settings = CompanySettings(
+      companyName: _nameCtrl.text.trim(),
+      rnc: _rncCtrl.text.trim(),
+      phone: _phoneCtrl.text.trim(),
+      phonePreferential: _phonePreferentialCtrl.text.trim(),
+      address: _addressCtrl.text.trim(),
+      description: _descriptionCtrl.text.trim(),
+      businessHours: _businessHoursCtrl.text.trim(),
+      instagramUrl: _instagramUrlCtrl.text.trim(),
+      facebookUrl: _facebookUrlCtrl.text.trim(),
+      websiteUrl: _websiteUrlCtrl.text.trim(),
+      gpsLocationUrl: _gpsLocationUrlCtrl.text.trim(),
+      bankAccounts: _bankRows.map((r) => r.toEntry()).toList(),
+      legalRepresentativeName: _legalRepresentativeNameCtrl.text.trim(),
+      legalRepresentativeCedula: _legalRepresentativeCedulaCtrl.text.trim(),
+      legalRepresentativeRole: _legalRepresentativeRoleCtrl.text.trim(),
+      legalRepresentativeNationality:
+          _legalRepresentativeNationalityCtrl.text.trim(),
+      legalRepresentativeCivilStatus:
+          _legalRepresentativeCivilStatusCtrl.text.trim(),
+      logoBase64: _logoBase64,
+      openAiApiKey: _openAiApiKeyCtrl.text.trim(),
+      openAiModel: '',
+      hasOpenAiApiKey: _openAiApiKeyCtrl.text.trim().isNotEmpty,
+      evolutionApiBaseUrl: _evolutionApiBaseUrlCtrl.text.trim(),
+      evolutionApiInstanceName: _evolutionApiInstanceNameCtrl.text.trim(),
+      evolutionApiApiKey: _evolutionApiApiKeyCtrl.text.trim(),
+      hasEvolutionApiApiKey: _evolutionApiApiKeyCtrl.text.trim().isNotEmpty,
+    );
+    try {
+      final queued = await ref
+          .read(companySettingsRepositoryProvider)
+          .saveSettingsOrQueue(settings);
+      ref.invalidate(companySettingsProvider);
+      _showMessage(
+        queued
+            ? 'Configuracion guardada localmente. Se sincronizara en segundo plano.'
+            : 'Configuracion guardada.',
+      );
+      return true;
+    } catch (e) {
+      _showMessage('$e');
+      return false;
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
   Future<void> _pickLogo() async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.image,
       allowMultiple: false,
       withData: true,
     );
-
     if (!mounted) return;
     final file = result?.files.firstOrNull;
     if (file == null || file.bytes == null) return;
-
     try {
-      final preparedBytes = _prepareLogoBytes(file.bytes!);
-      setState(() => _logoBase64 = base64Encode(preparedBytes));
+      final prepared = _prepareLogoBytes(file.bytes!);
+      setState(() => _logoBase64 = base64Encode(prepared));
       _showMessage('Logo cargado correctamente.');
     } catch (e) {
       _showMessage('$e');
@@ -153,34 +232,18 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
 
   Uint8List _prepareLogoBytes(Uint8List rawBytes) {
     final decoded = img.decodeImage(rawBytes);
-    if (decoded == null) {
-      throw Exception('La imagen seleccionada no es valida.');
-    }
-
+    if (decoded == null) throw Exception('La imagen seleccionada no es valida.');
     var current = img.bakeOrientation(decoded);
     current = _resizeToFit(current, _maxLogoDimension);
-
     for (var attempt = 0; attempt < 5; attempt++) {
       final quality = (88 - (attempt * 10)).clamp(50, 88).toInt();
       final pngBytes = Uint8List.fromList(img.encodePng(current, level: 6));
-      final jpgBytes = Uint8List.fromList(
-        img.encodeJpg(current, quality: quality),
-      );
-
-      if (current.hasAlpha && pngBytes.length <= _maxLogoBytes) {
-        return pngBytes;
-      }
-      if (jpgBytes.length <= _maxLogoBytes) {
-        return jpgBytes;
-      }
-      if (!current.hasAlpha && pngBytes.length <= _maxLogoBytes) {
-        return pngBytes;
-      }
-
-      if (current.width <= 320 && current.height <= 320) {
-        break;
-      }
-
+      final jpgBytes =
+          Uint8List.fromList(img.encodeJpg(current, quality: quality));
+      if (current.hasAlpha && pngBytes.length <= _maxLogoBytes) return pngBytes;
+      if (jpgBytes.length <= _maxLogoBytes) return jpgBytes;
+      if (!current.hasAlpha && pngBytes.length <= _maxLogoBytes) return pngBytes;
+      if (current.width <= 320 && current.height <= 320) break;
       current = img.copyResize(
         current,
         width: (current.width * 0.82).round(),
@@ -188,563 +251,440 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
         interpolation: img.Interpolation.average,
       );
     }
-
-    throw Exception(
-      'El logo sigue siendo demasiado pesado. Usa una imagen menor de 2 MB o con menos resolucion.',
-    );
+    throw Exception('El logo sigue siendo demasiado pesado. Usa una imagen menor a 2 MB.');
   }
 
   img.Image _resizeToFit(img.Image image, int maxDimension) {
     if (image.width <= maxDimension && image.height <= maxDimension) {
       return image;
     }
-
-    final aspectRatio = image.width / image.height;
-    final width = image.width >= image.height
-        ? maxDimension
-        : (maxDimension * aspectRatio).round();
-    final height = image.height > image.width
-        ? maxDimension
-        : (maxDimension / aspectRatio).round();
-
-    return img.copyResize(
-      image,
-      width: width,
-      height: height,
-      interpolation: img.Interpolation.average,
-    );
+    final ar = image.width / image.height;
+    final w =
+        image.width >= image.height ? maxDimension : (maxDimension * ar).round();
+    final h =
+        image.height > image.width ? maxDimension : (maxDimension / ar).round();
+    return img.copyResize(image, width: w, height: h,
+        interpolation: img.Interpolation.average);
   }
 
   void _showMessage(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.maybeOf(
-      context,
-    )?.showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.maybeOf(context)
+        ?.showSnackBar(SnackBar(content: Text(message)));
   }
 
-  Future<bool> _save() async {
-    if (_saving) return false;
-    setState(() => _saving = true);
-    final settings = CompanySettings(
-      companyName: _nameCtrl.text.trim(),
-      rnc: _rncCtrl.text.trim(),
-      phone: _phoneCtrl.text.trim(),
-      address: _addressCtrl.text.trim(),
-      legalRepresentativeName: _legalRepresentativeNameCtrl.text.trim(),
-      legalRepresentativeCedula: _legalRepresentativeCedulaCtrl.text.trim(),
-      legalRepresentativeRole: _legalRepresentativeRoleCtrl.text.trim(),
-      legalRepresentativeNationality: _legalRepresentativeNationalityCtrl.text
-          .trim(),
-      legalRepresentativeCivilStatus: _legalRepresentativeCivilStatusCtrl.text
-          .trim(),
-      logoBase64: _logoBase64,
-      openAiApiKey: _openAiApiKeyCtrl.text.trim(),
-      openAiModel: '',
-      hasOpenAiApiKey: _openAiApiKeyCtrl.text.trim().isNotEmpty,
-      evolutionApiBaseUrl: _evolutionApiBaseUrlCtrl.text.trim(),
-      evolutionApiInstanceName: _evolutionApiInstanceNameCtrl.text.trim(),
-      evolutionApiApiKey: _evolutionApiApiKeyCtrl.text.trim(),
-      hasEvolutionApiApiKey: _evolutionApiApiKeyCtrl.text.trim().isNotEmpty,
-    );
-
-    try {
-      final queued = await ref
-          .read(companySettingsRepositoryProvider)
-          .saveSettingsOrQueue(settings);
-      ref.invalidate(companySettingsProvider);
-      _showMessage(
-        queued
-            ? 'Configuración guardada localmente. Se sincronizará en segundo plano.'
-            : 'Configuración guardada',
-      );
-      return true;
-    } catch (e) {
-      _showMessage('$e');
-      return false;
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
+  void _toggleSection(String key) {
+    setState(() => _openSection = _openSection == key ? null : key);
   }
 
-  Widget _buildSavingBanner({EdgeInsetsGeometry? margin}) {
-    return Padding(
-      padding: margin ?? const EdgeInsets.only(bottom: 10),
-      child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: const [
-              Text(
-                'Guardando configuración...',
-                style: TextStyle(fontWeight: FontWeight.w700),
-              ),
-              SizedBox(height: 8),
-              LinearProgressIndicator(),
-            ],
-          ),
-        ),
+  InputDecoration _dec(String label, {String? hint, Widget? suffix}) {
+    final scheme = Theme.of(context).colorScheme;
+    return InputDecoration(
+      labelText: label,
+      hintText: hint,
+      suffixIcon: suffix,
+      filled: true,
+      fillColor: scheme.surfaceContainerLowest,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide(color: scheme.outlineVariant, width: 1),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide:
+            BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.6)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide(color: scheme.primary, width: 1.5),
       ),
     );
   }
 
-  Widget _buildCompanyFields({VoidCallback? refreshUi}) {
+  Widget _field(
+    TextEditingController ctrl,
+    String label, {
+    String? hint,
+    TextInputType? keyboard,
+    bool obscure = false,
+    Widget? suffix,
+    int maxLines = 1,
+  }) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 480),
+      child: TextField(
+        controller: ctrl,
+        obscureText: obscure,
+        keyboardType: keyboard,
+        maxLines: maxLines,
+        autocorrect: false,
+        enableSuggestions: !obscure,
+        decoration: _dec(label, hint: hint, suffix: suffix),
+      ),
+    );
+  }
+
+  Widget _accordion({
+    required String key,
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Widget child,
+  }) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isOpen = _openSection == key;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isOpen
+              ? scheme.primary.withValues(alpha: 0.35)
+              : scheme.outlineVariant.withValues(alpha: 0.5),
+          width: isOpen ? 1.5 : 1,
+        ),
+        color: scheme.surface,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          InkWell(
+            onTap: () => _toggleSection(key),
+            borderRadius:
+                const BorderRadius.vertical(top: Radius.circular(14)),
+            child: Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+              child: Row(
+                children: [
+                  Icon(icon, size: 22,
+                      color: isOpen
+                          ? scheme.primary
+                          : scheme.onSurfaceVariant),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: isOpen
+                                ? scheme.primary
+                                : scheme.onSurface,
+                          ),
+                        ),
+                        if (!isOpen) ...[
+                          const SizedBox(height: 2),
+                          Text(subtitle,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                  color: scheme.onSurfaceVariant)),
+                        ],
+                      ],
+                    ),
+                  ),
+                  AnimatedRotation(
+                    turns: isOpen ? 0.5 : 0,
+                    duration: const Duration(milliseconds: 200),
+                    child: Icon(Icons.keyboard_arrow_down_rounded,
+                        color: scheme.onSurfaceVariant),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeInOut,
+            child: isOpen
+                ? Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 4, 18, 20),
+                    child: child,
+                  )
+                : const SizedBox.shrink(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmpresaSection() {
+    final logoBytes = _logoBytes();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        TextField(
-          controller: _nameCtrl,
-          decoration: const InputDecoration(labelText: 'Nombre empresa'),
-        ),
-        const SizedBox(height: 8),
-        TextField(
-          controller: _rncCtrl,
-          decoration: const InputDecoration(labelText: 'RNC'),
-        ),
-        const SizedBox(height: 8),
-        TextField(
-          controller: _phoneCtrl,
-          keyboardType: TextInputType.phone,
-          decoration: const InputDecoration(labelText: 'Teléfono'),
-        ),
-        const SizedBox(height: 8),
-        TextField(
-          controller: _addressCtrl,
-          maxLines: 2,
-          decoration: const InputDecoration(labelText: 'Dirección'),
-        ),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
+            if (logoBytes != null)
+              Container(
+                width: 72,
+                height: 72,
+                margin: const EdgeInsets.only(right: 12),
+                clipBehavior: Clip.antiAlias,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                      color:
+                          Theme.of(context).colorScheme.outlineVariant),
+                ),
+                child: Image.memory(logoBytes, fit: BoxFit.cover),
+              )
+            else
+              Container(
+                width: 72,
+                height: 72,
+                margin: const EdgeInsets.only(right: 12),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .outlineVariant
+                          .withValues(alpha: 0.5)),
+                  color: Theme.of(context)
+                      .colorScheme
+                      .surfaceContainerLow,
+                ),
+                child: Icon(Icons.image_outlined,
+                    size: 28,
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurfaceVariant),
+              ),
             OutlinedButton.icon(
-              onPressed: () async {
-                await _pickLogo();
-                refreshUi?.call();
-              },
-              icon: const Icon(Icons.upload_file_outlined),
+              onPressed: _pickLogo,
+              icon: const Icon(Icons.upload_file_outlined, size: 18),
               label: const Text('Subir logo'),
+              style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 10)),
             ),
-            if (_logoBase64 != null)
-              OutlinedButton.icon(
+            if (_logoBase64 != null) ...[
+              const SizedBox(width: 8),
+              IconButton(
+                tooltip: 'Quitar logo',
                 onPressed: () {
                   setState(() => _logoBase64 = null);
-                  refreshUi?.call();
                   _showMessage('Logo eliminado.');
                 },
                 icon: const Icon(Icons.delete_outline),
-                label: const Text('Quitar logo'),
+                color: Theme.of(context).colorScheme.error,
               ),
+            ],
           ],
         ),
+        const SizedBox(height: 16),
+        _field(_nameCtrl, 'Nombre de la empresa'),
+        const SizedBox(height: 12),
+        _field(_rncCtrl, 'RNC'),
+        const SizedBox(height: 12),
+        _field(_descriptionCtrl, 'Descripcion corta', maxLines: 2),
+        const SizedBox(height: 12),
+        _field(_phoneCtrl, 'Telefono principal',
+            keyboard: TextInputType.phone),
+        const SizedBox(height: 12),
+        _field(_phonePreferentialCtrl, 'Telefono preferencial',
+            hint: 'Ej. +1 809 000 0000',
+            keyboard: TextInputType.phone),
+        const SizedBox(height: 12),
+        _field(_addressCtrl, 'Direccion', maxLines: 2),
+        const SizedBox(height: 12),
+        _field(_businessHoursCtrl, 'Horario comercial',
+            hint: 'Ej. Lun-Vie 8am-5pm | Sab 8am-12pm',
+            maxLines: 2),
+        const SizedBox(height: 16),
+        Text('Redes y presencia digital',
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.3)),
         const SizedBox(height: 10),
-        if (_logoBytes() != null)
-          Container(
-            width: 90,
-            height: 90,
-            clipBehavior: Clip.antiAlias,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: Theme.of(context).colorScheme.outlineVariant,
-              ),
-            ),
-            child: Image.memory(_logoBytes()!, fit: BoxFit.cover),
-          ),
+        _field(_instagramUrlCtrl, 'Instagram',
+            hint: 'https://instagram.com/...',
+            keyboard: TextInputType.url),
+        const SizedBox(height: 12),
+        _field(_facebookUrlCtrl, 'Facebook',
+            hint: 'https://facebook.com/...',
+            keyboard: TextInputType.url),
+        const SizedBox(height: 12),
+        _field(_websiteUrlCtrl, 'Sitio web',
+            hint: 'https://...', keyboard: TextInputType.url),
+        const SizedBox(height: 12),
+        _field(_gpsLocationUrlCtrl, 'Enlace GPS',
+            hint: 'https://maps.google.com/...',
+            keyboard: TextInputType.url),
       ],
     );
   }
 
-  Widget _buildLegalFields() {
+  Widget _buildCuentasSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        TextField(
-          controller: _legalRepresentativeNameCtrl,
-          decoration: const InputDecoration(labelText: 'Representante legal'),
-        ),
-        const SizedBox(height: 8),
-        TextField(
-          controller: _legalRepresentativeCedulaCtrl,
-          decoration: const InputDecoration(
-            labelText: 'Cédula del representante',
-          ),
-        ),
-        const SizedBox(height: 8),
-        TextField(
-          controller: _legalRepresentativeRoleCtrl,
-          decoration: const InputDecoration(
-            labelText: 'Cargo del representante',
-          ),
-        ),
-        const SizedBox(height: 8),
-        TextField(
-          controller: _legalRepresentativeNationalityCtrl,
-          decoration: const InputDecoration(
-            labelText: 'Nacionalidad del representante',
-          ),
-        ),
-        const SizedBox(height: 8),
-        TextField(
-          controller: _legalRepresentativeCivilStatusCtrl,
-          decoration: const InputDecoration(
-            labelText: 'Estado civil del representante',
-          ),
+        if (_bankRows.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text('Sin cuentas bancarias configuradas.',
+                style: TextStyle(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurfaceVariant)),
+          )
+        else
+          for (var i = 0; i < _bankRows.length; i++) ...[
+            _BankRowWidget(
+              row: _bankRows[i],
+              index: i + 1,
+              dec: _dec,
+              onRemove: () => setState(() {
+                _bankRows[i].dispose();
+                _bankRows.removeAt(i);
+              }),
+            ),
+            const SizedBox(height: 12),
+          ],
+        TextButton.icon(
+          onPressed: () =>
+              setState(() => _bankRows.add(_BankRowCtrls())),
+          icon: const Icon(Icons.add, size: 18),
+          label: const Text('Agregar cuenta'),
         ),
       ],
     );
   }
 
-  Widget _buildOpenAiFields({VoidCallback? refreshUi}) {
+  Widget _buildLegalSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Configuración de API (ChatGPT)',
-          style: TextStyle(fontWeight: FontWeight.w700),
+        _field(_legalRepresentativeNameCtrl,
+            'Nombre del representante legal'),
+        const SizedBox(height: 12),
+        _field(_legalRepresentativeCedulaCtrl, 'Cedula'),
+        const SizedBox(height: 12),
+        _field(_legalRepresentativeRoleCtrl, 'Cargo'),
+        const SizedBox(height: 12),
+        _field(_legalRepresentativeNationalityCtrl, 'Nacionalidad'),
+        const SizedBox(height: 12),
+        _field(_legalRepresentativeCivilStatusCtrl, 'Estado civil'),
+      ],
+    );
+  }
+
+  Widget _buildOpenAiSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Solo coloca tu API key. El sistema selecciona el modelo segun la necesidad.',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color:
+                  Theme.of(context).colorScheme.onSurfaceVariant),
         ),
+        const SizedBox(height: 12),
+        _field(_openAiApiKeyCtrl, 'OpenAI API Key',
+            hint: 'sk-...',
+            obscure: !_showApiKey,
+            suffix: IconButton(
+              tooltip:
+                  _showApiKey ? 'Ocultar clave' : 'Mostrar clave',
+              onPressed: () =>
+                  setState(() => _showApiKey = !_showApiKey),
+              icon: Icon(_showApiKey
+                  ? Icons.visibility_off_outlined
+                  : Icons.visibility_outlined),
+            )),
         const SizedBox(height: 8),
-        const Text(
-          'Solo coloca tu API key. El sistema selecciona automáticamente el mejor modelo disponible según la necesidad.',
-        ),
-        const SizedBox(height: 10),
-        TextField(
-          controller: _openAiApiKeyCtrl,
-          obscureText: !_showApiKey,
-          autocorrect: false,
-          enableSuggestions: false,
-          decoration: InputDecoration(
-            labelText: 'OpenAI API Key',
-            hintText: 'sk-...',
-            suffixIcon: IconButton(
-              tooltip: _showApiKey ? 'Ocultar clave' : 'Mostrar clave',
-              onPressed: () {
-                setState(() => _showApiKey = !_showApiKey);
-                refreshUi?.call();
-              },
-              icon: Icon(
-                _showApiKey
-                    ? Icons.visibility_off_outlined
-                    : Icons.visibility_outlined,
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: OutlinedButton.icon(
-            onPressed: () {
-              setState(() {
-                _openAiApiKeyCtrl.clear();
-              });
-              refreshUi?.call();
-            },
-            icon: const Icon(Icons.delete_outline),
+        if (_openAiApiKeyCtrl.text.trim().isNotEmpty)
+          TextButton.icon(
+            onPressed: () =>
+                setState(() => _openAiApiKeyCtrl.clear()),
+            icon: const Icon(Icons.delete_outline, size: 18),
             label: const Text('Limpiar API key'),
           ),
-        ),
       ],
     );
   }
 
-  // Evolution API credentials are configured via EVOLUTION_API_URL
-  // and EVOLUTION_API_KEY environment variables on the backend server.
-  // They are intentionally not editable from the app UI.
-
-  Widget _buildMobileBody() {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        if (_saving) _buildSavingBanner(),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Datos de la empresa',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 12),
-                _buildCompanyFields(),
-                const SizedBox(height: 12),
-                const Divider(),
-                const SizedBox(height: 12),
-                const Text(
-                  'Datos legales para contrato laboral',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 8),
-                _buildLegalFields(),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 10),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: _buildOpenAiFields(),
-          ),
-        ),
-      ],
-    );
+  Widget _buildWhatsAppSection() {
+    return const WhatsappPanel();
   }
 
-  List<_SettingsCardData> _buildDesktopCards() {
-    final companyTitle = _nameCtrl.text.trim().isEmpty
-        ? 'Empresa pendiente de configurar'
-        : _nameCtrl.text.trim();
-    final legalTitle = _legalRepresentativeNameCtrl.text.trim().isEmpty
-        ? 'Representante legal pendiente'
-        : _legalRepresentativeNameCtrl.text.trim();
-    final openAiReady = _openAiApiKeyCtrl.text.trim().isNotEmpty;
-
-    return [
-      _SettingsCardData(
-        icon: Icons.business_outlined,
-        title: 'Datos de la empresa',
-        description: 'Nombre, RNC, teléfono, dirección y logo institucional.',
-        actionLabel: 'Editar empresa',
-        highlights: [
-          companyTitle,
-          _phoneCtrl.text.trim().isEmpty
-              ? 'Sin teléfono configurado'
-              : _phoneCtrl.text.trim(),
-        ],
-        onTap: _openCompanyDialog,
-      ),
-      _SettingsCardData(
-        icon: Icons.gavel_outlined,
-        title: 'Datos legales',
-        description:
-            'Información del representante legal utilizada en contratos laborales.',
-        actionLabel: 'Editar datos legales',
-        highlights: [
-          legalTitle,
-          _legalRepresentativeRoleCtrl.text.trim().isEmpty
-              ? 'Sin cargo definido'
-              : _legalRepresentativeRoleCtrl.text.trim(),
-        ],
-        onTap: _openLegalDialog,
-      ),
-      _SettingsCardData(
-        icon: Icons.hub_outlined,
-        title: 'OpenAI',
-        description:
-            'Credenciales de OpenAI para el asistente de inteligencia artificial.',
-        actionLabel: 'Editar OpenAI',
-        highlights: [
-          openAiReady ? 'API Key configurada' : 'API Key pendiente',
-        ],
-        onTap: _openApiDialog,
-      ),
-    ];
-  }
-
-  Future<void> _openCompanyDialog() async {
-    await _openDesktopDialog(
-      title: 'Editar datos de empresa',
-      subtitle:
-          'Actualiza la identidad comercial y la información base usada en documentos y procesos internos.',
-      maxWidth: 680,
-      contentBuilder: (refreshUi) => _buildCompanyFields(refreshUi: refreshUi),
-    );
-  }
-
-  Future<void> _openLegalDialog() async {
-    await _openDesktopDialog(
-      title: 'Editar datos legales',
-      subtitle:
-          'Mantén al día la información legal utilizada en contratos y plantillas administrativas.',
-      maxWidth: 640,
-      contentBuilder: (_) => _buildLegalFields(),
-    );
-  }
-
-  Future<void> _openApiDialog() async {
-    await _openDesktopDialog(
-      title: 'Editar OpenAI',
-      subtitle:
-          'Gestiona la API Key de OpenAI para el asistente de inteligencia artificial.',
-      maxWidth: 640,
-      contentBuilder: (refreshUi) => _buildOpenAiFields(refreshUi: refreshUi),
-    );
-  }
-
-  Future<void> _openDesktopDialog({
-    required String title,
-    required String subtitle,
-    required double maxWidth,
-    required Widget Function(VoidCallback refreshUi) contentBuilder,
-  }) async {
-    var isSubmitting = false;
-
-    await showDialog<void>(
-      context: context,
-      barrierDismissible: !isSubmitting,
-      builder: (dialogContext) {
-        final screenSize = MediaQuery.sizeOf(dialogContext);
-
-        return StatefulBuilder(
-          builder: (dialogContext, setStateDialog) {
-            Future<void> submit() async {
-              if (isSubmitting) return;
-              setStateDialog(() => isSubmitting = true);
-              final success = await _save();
-              if (!dialogContext.mounted) return;
-              if (success) {
-                Navigator.of(dialogContext).pop();
-                return;
-              }
-              setStateDialog(() => isSubmitting = false);
-            }
-
-            return Dialog(
-              insetPadding: const EdgeInsets.all(24),
-              clipBehavior: Clip.antiAlias,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: maxWidth,
-                  maxHeight: screenSize.height * 0.84,
-                ),
-                child: Container(
-                  padding: const EdgeInsets.fromLTRB(28, 28, 28, 24),
-                  decoration: BoxDecoration(
-                    color: Theme.of(dialogContext).colorScheme.surface,
-                    borderRadius: BorderRadius.circular(24),
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  title,
-                                  style: Theme.of(dialogContext)
-                                      .textTheme
-                                      .headlineSmall
-                                      ?.copyWith(fontWeight: FontWeight.w800),
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  subtitle,
-                                  style: Theme.of(dialogContext)
-                                      .textTheme
-                                      .bodyMedium
-                                      ?.copyWith(
-                                        color: Theme.of(
-                                          dialogContext,
-                                        ).colorScheme.onSurfaceVariant,
-                                      ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          IconButton(
-                            tooltip: 'Cerrar',
-                            onPressed: isSubmitting
-                                ? null
-                                : () => Navigator.of(dialogContext).pop(),
-                            icon: const Icon(Icons.close),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 20),
-                      if (isSubmitting) ...[
-                        const LinearProgressIndicator(),
-                        const SizedBox(height: 18),
-                      ],
-                      Flexible(
-                        child: SingleChildScrollView(
-                          child: contentBuilder(() => setStateDialog(() {})),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          TextButton(
-                            onPressed: isSubmitting
-                                ? null
-                                : () => Navigator.of(dialogContext).pop(),
-                            child: const Text('Cancelar'),
-                          ),
-                          const SizedBox(width: 12),
-                          FilledButton.icon(
-                            onPressed: isSubmitting ? null : submit,
-                            icon: const Icon(Icons.save_outlined),
-                            label: Text(
-                              isSubmitting ? 'Guardando...' : 'Guardar',
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Widget _buildDesktopBody(BuildContext context) {
-    final cards = _buildDesktopCards();
-
+  Widget _buildBody() {
     return SafeArea(
       child: Align(
         alignment: Alignment.topCenter,
         child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1400),
+            constraints: const BoxConstraints(maxWidth: 680),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (_saving)
-                  _buildSavingBanner(margin: const EdgeInsets.only(bottom: 18)),
-                _SettingsHeader(
-                  title: 'Configuración del sistema',
+                if (_saving) ...[
+                  _SavingBanner(),
+                  const SizedBox(height: 12),
+                ],
+                if (_refreshing)
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 12),
+                    child: _RefreshingSettingsBanner(),
+                  ),
+                _accordion(
+                  key: 'empresa',
+                  icon: Icons.business_outlined,
+                  title: 'Datos de la empresa',
+                  subtitle: 'Nombre, logo, contacto y redes sociales.',
+                  child: _buildEmpresaSection(),
+                ),
+                _accordion(
+                  key: 'cuentas',
+                  icon: Icons.account_balance_outlined,
+                  title: 'Cuentas bancarias',
                   subtitle:
-                      'Administra los datos de la empresa y los parámetros del sistema.',
+                      'Cuentas disponibles para pagos y transferencias.',
+                  child: _buildCuentasSection(),
+                ),
+                _accordion(
+                  key: 'legal',
+                  icon: Icons.gavel_outlined,
+                  title: 'Datos legales',
+                  subtitle:
+                      'Representante legal — usado en contratos laborales.',
+                  child: _buildLegalSection(),
+                ),
+                _accordion(
+                  key: 'openai',
+                  icon: Icons.hub_outlined,
+                  title: 'OpenAI',
+                  subtitle: 'Credenciales para el asistente de IA.',
+                  child: _buildOpenAiSection(),
+                ),
+                _accordion(
+                  key: 'whatsapp',
+                  icon: Icons.chat_outlined,
+                  title: 'WhatsApp (Notificaciones)',
+                  subtitle: 'Numero principal para envio de mensajes.',
+                  child: _buildWhatsAppSection(),
                 ),
                 const SizedBox(height: 24),
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final width = constraints.maxWidth;
-                    final columns = width >= 1280
-                        ? 3
-                        : width >= 980
-                        ? 2
-                        : 1;
-                    const spacing = 20.0;
-                    final cardWidth =
-                        (width - (spacing * (columns - 1))) / columns;
-
-                    return Wrap(
-                      spacing: spacing,
-                      runSpacing: spacing,
-                      children: [
-                        for (final card in cards)
-                          SizedBox(
-                            width: cardWidth,
-                            child: _SettingsCard(card: card),
-                          ),
-                      ],
-                    );
-                  },
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: FilledButton.icon(
+                    onPressed: _saving ? null : _save,
+                    icon: const Icon(Icons.save_outlined),
+                    label: Text(_saving
+                        ? 'Guardando...'
+                        : 'Guardar configuracion'),
+                    style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 28, vertical: 14)),
+                  ),
                 ),
               ],
             ),
@@ -758,52 +698,31 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
   Widget build(BuildContext context) {
     final user = ref.watch(authStateProvider).user;
     final isAdmin = user?.role == 'ADMIN';
-    final isDesktop = MediaQuery.sizeOf(context).width >= 900;
 
     if (!isAdmin) {
       return Scaffold(
         appBar: const CustomAppBar(
-          title: 'Configuración',
+          title: 'Configuracion',
           showLogo: false,
           showDepartmentLabel: false,
         ),
         drawer: buildAdaptiveDrawer(context, currentUser: user),
         body: const Center(
-          child: Text('Solo administradores pueden acceder a configuración'),
+          child: Text('Solo administradores pueden acceder a configuracion.'),
         ),
       );
     }
 
     return Scaffold(
       appBar: const CustomAppBar(
-        title: 'Configuración',
+        title: 'Configuracion',
         showLogo: false,
         showDepartmentLabel: false,
       ),
       drawer: buildAdaptiveDrawer(context, currentUser: user),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : isDesktop
-          ? Column(
-              children: [
-                if (_refreshing)
-                  const Padding(
-                    padding: EdgeInsets.fromLTRB(16, 12, 16, 0),
-                    child: _RefreshingSettingsBanner(),
-                  ),
-                Expanded(child: _buildDesktopBody(context)),
-              ],
-            )
-          : Column(
-              children: [
-                if (_refreshing)
-                  const Padding(
-                    padding: EdgeInsets.fromLTRB(16, 12, 16, 0),
-                    child: _RefreshingSettingsBanner(),
-                  ),
-                Expanded(child: _buildMobileBody()),
-              ],
-            ),
+          : _buildBody(),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => Navigator.push(
           context,
@@ -815,16 +734,154 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
         label: const Text('Config. por usuario'),
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-      bottomNavigationBar: isDesktop
-          ? null
-          : SafeArea(
-              minimum: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-              child: FilledButton.icon(
-                onPressed: _saving ? null : _save,
-                icon: const Icon(Icons.save_outlined),
-                label: Text(_saving ? 'Guardando...' : 'Guardar configuración'),
+    );
+  }
+}
+
+class _BankRowCtrls {
+  final TextEditingController name;
+  final TextEditingController type;
+  final TextEditingController accountNumber;
+  final TextEditingController bankName;
+
+  _BankRowCtrls({
+    String initialName = '',
+    String initialType = '',
+    String initialAccountNumber = '',
+    String initialBankName = '',
+  })  : name = TextEditingController(text: initialName),
+        type = TextEditingController(text: initialType),
+        accountNumber = TextEditingController(text: initialAccountNumber),
+        bankName = TextEditingController(text: initialBankName);
+
+  factory _BankRowCtrls.fromEntry(BankAccountEntry e) => _BankRowCtrls(
+        initialName: e.name,
+        initialType: e.type,
+        initialAccountNumber: e.accountNumber,
+        initialBankName: e.bankName,
+      );
+
+  BankAccountEntry toEntry() => BankAccountEntry(
+        name: name.text.trim(),
+        type: type.text.trim(),
+        accountNumber: accountNumber.text.trim(),
+        bankName: bankName.text.trim(),
+      );
+
+  void dispose() {
+    name.dispose();
+    type.dispose();
+    accountNumber.dispose();
+    bankName.dispose();
+  }
+}
+
+class _BankRowWidget extends StatelessWidget {
+  const _BankRowWidget({
+    required this.row,
+    required this.index,
+    required this.dec,
+    required this.onRemove,
+  });
+
+  final _BankRowCtrls row;
+  final int index;
+  final InputDecoration Function(String, {String? hint, Widget? suffix}) dec;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+            color: scheme.outlineVariant.withValues(alpha: 0.5)),
+        color: scheme.surfaceContainerLowest,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text('Cuenta $index',
+                    style: Theme.of(context)
+                        .textTheme
+                        .labelMedium
+                        ?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: scheme.onSurfaceVariant)),
               ),
-            ),
+              IconButton(
+                tooltip: 'Eliminar cuenta',
+                onPressed: onRemove,
+                icon: const Icon(Icons.close, size: 18),
+                color: scheme.error,
+                padding: EdgeInsets.zero,
+                constraints:
+                    const BoxConstraints(minWidth: 32, minHeight: 32),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              SizedBox(
+                  width: 200,
+                  child: TextField(
+                      controller: row.name,
+                      decoration: dec('Nombre de cuenta'))),
+              SizedBox(
+                  width: 140,
+                  child: TextField(
+                      controller: row.type,
+                      decoration:
+                          dec('Tipo', hint: 'Ej. Ahorros'))),
+              SizedBox(
+                  width: 200,
+                  child: TextField(
+                      controller: row.accountNumber,
+                      decoration: dec('Numero de cuenta'),
+                      keyboardType: TextInputType.number)),
+              SizedBox(
+                  width: 180,
+                  child: TextField(
+                      controller: row.bankName,
+                      decoration: dec('Banco'))),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SavingBanner extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        color: Theme.of(context).colorScheme.primaryContainer,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Guardando configuracion...',
+              style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onPrimaryContainer)),
+          const SizedBox(height: 8),
+          const LinearProgressIndicator(),
+        ],
+      ),
     );
   }
 }
@@ -834,286 +891,35 @@ class _RefreshingSettingsBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: EdgeInsets.zero,
-      child: const Padding(
-        padding: EdgeInsets.all(12),
-        child: Row(
-          children: [
-            SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-            SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                'Actualizando configuración en segundo plano...',
-                style: TextStyle(fontWeight: FontWeight.w600),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SettingsHeader extends StatelessWidget {
-  const _SettingsHeader({required this.title, required this.subtitle});
-
-  final String title;
-  final String subtitle;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(28),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
-        gradient: LinearGradient(
-          colors: [scheme.surface, scheme.surfaceContainerHighest],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.6)),
-        boxShadow: [
-          BoxShadow(
-            color: scheme.shadow.withValues(alpha: 0.06),
-            blurRadius: 24,
-            offset: const Offset(0, 12),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(10),
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
+        border: Border.all(
+            color: Theme.of(context)
+                .colorScheme
+                .outlineVariant
+                .withValues(alpha: 0.5)),
       ),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: theme.textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -0.5,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  subtitle,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
+          SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Theme.of(context).colorScheme.primary),
           ),
-          const SizedBox(width: 20),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(
-              color: scheme.primary.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.desktop_windows_outlined, color: scheme.primary),
-                const SizedBox(width: 8),
-                Text(
-                  'Vista desktop',
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    color: scheme.primary,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text('Actualizando configuracion en segundo plano...',
+                style: Theme.of(context)
+                    .textTheme
+                    .bodySmall
+                    ?.copyWith(fontWeight: FontWeight.w600)),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _SettingsCardData {
-  const _SettingsCardData({
-    required this.icon,
-    required this.title,
-    required this.description,
-    required this.actionLabel,
-    required this.highlights,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String title;
-  final String description;
-  final String actionLabel;
-  final List<String> highlights;
-  final Future<void> Function() onTap;
-}
-
-class _SettingsCard extends StatefulWidget {
-  const _SettingsCard({required this.card});
-
-  final _SettingsCardData card;
-
-  @override
-  State<_SettingsCard> createState() => _SettingsCardState();
-}
-
-class _SettingsCardState extends State<_SettingsCard> {
-  bool _hovered = false;
-
-  void _setHovered(bool value) {
-    if (_hovered == value) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      if (_hovered == value) return;
-      setState(() => _hovered = value);
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-
-    return MouseRegion(
-      onEnter: (_) => _setHovered(true),
-      onExit: (_) => _setHovered(false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOut,
-        transform: Matrix4.translationValues(0, _hovered ? -4.0 : 0.0, 0),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: scheme.shadow.withValues(alpha: _hovered ? 0.12 : 0.06),
-              blurRadius: _hovered ? 28 : 18,
-              offset: Offset(0, _hovered ? 14 : 10),
-            ),
-          ],
-        ),
-        child: Material(
-          color: scheme.surface,
-          borderRadius: BorderRadius.circular(20),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(20),
-            onTap: widget.card.onTap,
-            child: Ink(
-              padding: const EdgeInsets.all(22),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: _hovered
-                      ? scheme.primary.withValues(alpha: 0.28)
-                      : scheme.outlineVariant.withValues(alpha: 0.7),
-                ),
-                gradient: LinearGradient(
-                  colors: [scheme.surface, scheme.surfaceContainerLowest],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 52,
-                        height: 52,
-                        decoration: BoxDecoration(
-                          color: scheme.primary.withValues(alpha: 0.10),
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Icon(
-                          widget.card.icon,
-                          color: scheme.primary,
-                          size: 28,
-                        ),
-                      ),
-                      const Spacer(),
-                      Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: scheme.surfaceContainerHighest,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          Icons.arrow_outward_rounded,
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 18),
-                  Text(
-                    widget.card.title,
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    widget.card.description,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                      height: 1.45,
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  for (final highlight in widget.card.highlights) ...[
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.check_circle_outline_rounded,
-                          size: 18,
-                          color: scheme.primary,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            highlight,
-                            style: theme.textTheme.bodyMedium,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                  ],
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: scheme.primary.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      widget.card.actionLabel,
-                      style: theme.textTheme.labelLarge?.copyWith(
-                        color: scheme.primary,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
       ),
     );
   }
