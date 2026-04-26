@@ -25,6 +25,7 @@ import { MediaGalleryModule } from './media-gallery/media-gallery.module';
 import { ServiceOrdersModule } from './service-orders/service-orders.module';
 import { StorageModule } from './storage/storage.module';
 import { WarrantyConfigsModule } from './warranty-configs/warranty-configs.module';
+import { WhatsappModule } from './whatsapp/whatsapp.module';
 
 @Module({
   imports: [
@@ -60,6 +61,7 @@ import { WarrantyConfigsModule } from './warranty-configs/warranty-configs.modul
     ServiceOrdersModule,
     StorageModule,
     WarrantyConfigsModule,
+    WhatsappModule,
   ]
 })
 export class AppModule {}

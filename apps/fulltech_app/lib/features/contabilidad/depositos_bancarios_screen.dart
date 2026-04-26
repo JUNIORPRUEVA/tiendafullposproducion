@@ -10,6 +10,7 @@ import '../../core/auth/app_role.dart';
 import '../../core/auth/auth_provider.dart';
 import '../../core/auth/role_permissions.dart';
 import '../../core/errors/api_exception.dart';
+import '../../core/routing/app_navigator.dart';
 import '../../core/utils/safe_url_launcher.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
@@ -18,7 +19,15 @@ import 'data/contabilidad_repository.dart';
 import 'deposit_bank_catalog.dart';
 import 'models/deposit_order_model.dart';
 import 'utils/deposit_order_pdf_service.dart';
-import 'widgets/date_range_picker_field.dart';
+
+enum _DepositTileMenuAction {
+  detail,
+  pdf,
+  voucher,
+  uploadVoucher,
+  edit,
+  delete,
+}
 
 class DepositosBancariosScreen extends ConsumerStatefulWidget {
   const DepositosBancariosScreen({super.key});
@@ -114,6 +123,18 @@ class _DepositosBancariosScreenState
   }
 
   Future<void> _clearDateRange() => _applyDateRange(null);
+
+  Future<void> _pickDateRangeFromAppBar() async {
+    final now = DateTime.now();
+    final picked = await showDateRangePicker(
+      context: context,
+      initialDateRange: _dateRange,
+      firstDate: DateTime(now.year - 3),
+      lastDate: DateTime(now.year + 1, 12, 31),
+    );
+    if (picked == null) return;
+    await _applyDateRange(picked);
+  }
 
   Future<void> _showSnack(String message) async {
     if (!mounted) return;
@@ -964,10 +985,40 @@ class _DepositosBancariosScreenState
     }
   }
 
+  Future<void> _handleTileAction(
+    DepositOrderModel item,
+    _DepositTileMenuAction action,
+  ) async {
+    switch (action) {
+      case _DepositTileMenuAction.detail:
+        await _openDepositDetail(item);
+        break;
+      case _DepositTileMenuAction.pdf:
+        await _openPdfPreview(item);
+        break;
+      case _DepositTileMenuAction.voucher:
+        await _openVoucher(item);
+        break;
+      case _DepositTileMenuAction.uploadVoucher:
+        await _uploadVoucher(item);
+        break;
+      case _DepositTileMenuAction.edit:
+        await _openEditor(initial: item);
+        break;
+      case _DepositTileMenuAction.delete:
+        await _confirmDelete(item);
+        break;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(authStateProvider).user;
     final canUseModule = canAccessContabilidadByRole(user?.role);
+    final pendingCount =
+      _orders.where((item) => item.status == DepositOrderStatus.pending).length;
+    final executedCount =
+      _orders.where((item) => item.status == DepositOrderStatus.executed).length;
     final executedOrders = _orders
         .where((item) => item.status == DepositOrderStatus.executed)
         .toList(growable: false);
@@ -979,23 +1030,61 @@ class _DepositosBancariosScreenState
     if (!canUseModule) {
       return Scaffold(
         key: _scaffoldKey,
-        appBar: const CustomAppBar(
+        appBar: CustomAppBar(
           title: 'Depósitos bancarios',
           showLogo: false,
           showDepartmentLabel: false,
+          actions: [
+            IconButton(
+              tooltip: 'Menú',
+              onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+              icon: const Icon(Icons.menu_rounded),
+            ),
+          ],
         ),
         drawer: buildAdaptiveDrawer(context, currentUser: user),
-        body: const Center(
-          child: Padding(
-            padding: EdgeInsets.all(24),
-            child: Text(
-              'Este módulo está disponible solo para usuarios autorizados.',
-              textAlign: TextAlign.center,
-            ),
+        body: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _AppBarBackButton(
+                onPressed: () => AppNavigator.goBack(context),
+              ),
+              const SizedBox(height: 16),
+              const Expanded(
+                child: Center(
+                  child: Text(
+                    'Este módulo está disponible solo para usuarios autorizados.',
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       );
     }
+
+    final summaryPanel = Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _AppBarBackButton(
+          onPressed: () => AppNavigator.goBack(context),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _DepositsSummaryBar(
+            total: _orders.length,
+            pending: pendingCount,
+            executed: executedCount,
+            depositedCount: executedOrders.length,
+            depositedTotal: executedTotal,
+            money: _money,
+          ),
+        ),
+      ],
+    );
 
     return Scaffold(
       key: _scaffoldKey,
@@ -1003,27 +1092,50 @@ class _DepositosBancariosScreenState
         title: 'Depósitos bancarios',
         showLogo: false,
         showDepartmentLabel: false,
-        onMenuPressed: () => _scaffoldKey.currentState?.openDrawer(),
+        actions: [
+          IconButton(
+            tooltip: 'Menú',
+            onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+            icon: const Icon(Icons.menu_rounded),
+          ),
+          IconButton(
+            tooltip: _dateRange == null ? 'Filtrar' : 'Cambiar filtro',
+            onPressed: _pickDateRangeFromAppBar,
+            icon: Badge(
+              isLabelVisible: _dateRange != null,
+              smallSize: 8,
+              child: const Icon(Icons.filter_alt_outlined),
+            ),
+          ),
+        ],
       ),
       drawer: buildAdaptiveDrawer(context, currentUser: user),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _openEditor(),
+        icon: const Icon(Icons.add),
+        label: const Text('Nuevo depósito'),
+      ),
       body: RefreshIndicator(
         onRefresh: _load,
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            _DepositsHeader(
-              total: _orders.length,
-              pending: _orders.where((item) => item.status == DepositOrderStatus.pending).length,
-              executed: _orders.where((item) => item.status == DepositOrderStatus.executed).length,
-              dateRange: _dateRange,
-              isAdmin: _isAdmin,
-              depositedCount: executedOrders.length,
-              depositedTotal: executedTotal,
-              onDateRangeChanged: _applyDateRange,
-              onClearDateRange: _dateRange == null ? null : _clearDateRange,
-              onCreate: () => _openEditor(),
-            ),
-            const SizedBox(height: 16),
+            summaryPanel,
+            const SizedBox(height: 12),
+            if (_dateRange != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: InputChip(
+                    avatar: const Icon(Icons.date_range_outlined, size: 18),
+                    label: Text(
+                      '${_dateFmt.format(_dateRange!.start)} - ${_dateFmt.format(_dateRange!.end)}',
+                    ),
+                    onDeleted: _clearDateRange,
+                  ),
+                ),
+              ),
             if (_loading)
               const Padding(
                 padding: EdgeInsets.all(24),
@@ -1043,22 +1155,35 @@ class _DepositosBancariosScreenState
                 child: Text('Todavía no hay depósitos registrados.'),
               )
             else
-              ..._orders.map(
-                (item) => Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: _DepositOrderTile(
-                    item: item,
-                    money: _money,
-                    dateFmt: _dateFmt,
-                    statusColor: _statusColor(item.status),
-                    isAdmin: _isAdmin,
-                    onDetail: () => _openDepositDetail(item),
-                    onPdf: () => _openPdfPreview(item),
-                    onVoucher: item.hasVoucher ? () => _openVoucher(item) : null,
-                    onUploadVoucher: _isAdmin ? () => _uploadVoucher(item) : null,
-                    onEdit: _isAdmin ? () => _openEditor(initial: item) : null,
-                    onDelete: _isAdmin ? () => _confirmDelete(item) : null,
-                  ),
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: const Color(0xFFD9E0E8)),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x0F0F172A),
+                      blurRadius: 16,
+                      offset: Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    _DepositListHeader(isAdmin: _isAdmin),
+                    for (var index = 0; index < _orders.length; index++) ...[
+                      if (index > 0) const Divider(height: 1),
+                      _DepositOrderTile(
+                        item: _orders[index],
+                        money: _money,
+                        statusColor: _statusColor(_orders[index].status),
+                        isAdmin: _isAdmin,
+                        onTap: () => _openDepositDetail(_orders[index]),
+                        onSelectedAction: (action) =>
+                            _handleTileAction(_orders[index], action),
+                      ),
+                    ],
+                  ],
                 ),
               ),
           ],
@@ -1068,253 +1193,186 @@ class _DepositosBancariosScreenState
   }
 }
 
-class _DepositsHeader extends StatelessWidget {
-  const _DepositsHeader({
+class _DepositsSummaryBar extends StatelessWidget {
+  const _DepositsSummaryBar({
     required this.total,
     required this.pending,
     required this.executed,
-    required this.dateRange,
-    required this.isAdmin,
     required this.depositedCount,
     required this.depositedTotal,
-    required this.onDateRangeChanged,
-    required this.onClearDateRange,
-    required this.onCreate,
+    required this.money,
   });
-
   final int total;
   final int pending;
   final int executed;
-  final DateTimeRange? dateRange;
-  final bool isAdmin;
   final int depositedCount;
   final double depositedTotal;
-  final ValueChanged<DateTimeRange?> onDateRangeChanged;
-  final VoidCallback? onClearDateRange;
-  final VoidCallback onCreate;
+  final NumberFormat money;
 
   @override
   Widget build(BuildContext context) {
-    final isMobile = MediaQuery.sizeOf(context).width < 700;
-    final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$ ');
-    return Container(
-      padding: EdgeInsets.all(isMobile ? 12 : 16),
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF0F172A), Color(0xFF1E3A5F)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x1F0F172A),
+            blurRadius: 18,
+            offset: Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Expanded(child: _SummaryPill(label: 'Total', value: '$total')),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _SummaryPill(label: 'Pendiente', value: '$pending'),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _SummaryPill(label: 'Ejecutada', value: '$executed'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: _SummaryPill(label: 'Número', value: '$depositedCount'),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  flex: 2,
+                  child: _SummaryPill(
+                    label: 'Depositado',
+                    value: money.format(depositedTotal),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AppBarBackButton extends StatelessWidget {
+  const _AppBarBackButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFD9E0E8)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x24000000),
+            blurRadius: 14,
+            offset: Offset(0, 5),
+          ),
+        ],
+      ),
+      child: SizedBox(
+        width: 52,
+        height: 52,
+        child: IconButton(
+          tooltip: 'Regresar',
+          onPressed: onPressed,
+          icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F172A)),
+        ),
+      ),
+    );
+  }
+}
+
+class _SummaryPill extends StatelessWidget {
+  const _SummaryPill({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Gestión de depósitos bancarios',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.w800,
-                            fontSize: isMobile ? 15 : null,
-                          ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Filtra por fechas y revisa el historial de depósitos más recientes primero.',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: const Color(0xFF64748B),
-                            fontSize: isMobile ? 12 : null,
-                          ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 12),
-              FilledButton.icon(
-                onPressed: onCreate,
-                icon: const Icon(Icons.add, size: 18),
-                label: Text(isMobile ? 'Nuevo' : 'Nuevo depósito'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              SizedBox(
-                height: isMobile ? 40 : 44,
-                child: DateRangePickerField(
-                  value: dateRange,
-                  label: 'Intervalo',
-                  onChanged: onDateRangeChanged,
-                ),
-              ),
-              if (onClearDateRange != null)
-                SizedBox(
-                  height: isMobile ? 40 : 44,
-                  child: OutlinedButton.icon(
-                    onPressed: onClearDateRange,
-                    icon: const Icon(Icons.filter_alt_off_outlined, size: 18),
-                    label: const Text('Limpiar'),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: isMobile ? 6 : 12,
-            runSpacing: 6,
-            children: [
-              _HeaderChip(label: 'Total: $total', compact: isMobile),
-              _HeaderChip(label: 'Pendientes: $pending', compact: isMobile),
-              _HeaderChip(label: 'Ejecutados: $executed', compact: isMobile),
-            ],
-          ),
-          if (isAdmin) ...[
-            const SizedBox(height: 14),
-            Container(
-              width: double.infinity,
-              padding: EdgeInsets.all(isMobile ? 12 : 14),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF8FAFC),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: const Color(0xFFD9E0E8)),
-              ),
-              child: Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                children: [
-                  _AdminSummaryTile(
-                    compact: isMobile,
-                    icon: Icons.paid_outlined,
-                    label: 'Monto total depositado',
-                    value: money.format(depositedTotal),
-                    helper: 'Solo depósitos ejecutados',
-                  ),
-                  _AdminSummaryTile(
-                    compact: isMobile,
-                    icon: Icons.local_shipping_outlined,
-                    label: 'Veces depositadas',
-                    value: '$depositedCount',
-                    helper: 'Cantidad de depósitos ejecutados',
-                  ),
-                ],
-              ),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
             ),
-          ],
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 14,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
         ],
       ),
     );
   }
 }
 
-class _AdminSummaryTile extends StatelessWidget {
-  const _AdminSummaryTile({
-    required this.icon,
-    required this.label,
-    required this.value,
-    required this.helper,
-    required this.compact,
-  });
+class _DepositListHeader extends StatelessWidget {
+  const _DepositListHeader({required this.isAdmin});
 
-  final IconData icon;
-  final String label;
-  final String value;
-  final String helper;
-  final bool compact;
+  final bool isAdmin;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final width = compact ? double.infinity : 250.0;
-    return SizedBox(
-      width: width,
-      child: Container(
-        padding: EdgeInsets.all(compact ? 12 : 14),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: const Color(0xFFD9E0E8)),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                color: const Color(0xFFE2E8F0),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              alignment: Alignment.center,
-              child: Icon(icon, size: 18, color: const Color(0xFF0F172A)),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    label,
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      color: const Color(0xFF64748B),
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    value,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    helper,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: const Color(0xFF64748B),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _HeaderChip extends StatelessWidget {
-  const _HeaderChip({required this.label, this.compact = false});
-
-  final String label;
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context) {
+    final style = Theme.of(context).textTheme.labelMedium?.copyWith(
+          color: const Color(0xFF64748B),
+          fontWeight: FontWeight.w800,
+        );
     return Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: compact ? 8 : 10,
-        vertical: compact ? 4 : 6,
+      padding: const EdgeInsets.fromLTRB(16, 14, 12, 12),
+      decoration: const BoxDecoration(
+        color: Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
       ),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFC),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: const Color(0xFFD9E0E8)),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(fontSize: compact ? 11 : 13),
+      child: Row(
+        children: [
+          Expanded(flex: 3, child: Text('Banco', style: style)),
+          Expanded(flex: 2, child: Text('Ejecutó', style: style)),
+          Expanded(
+            child: Text('Monto', style: style, textAlign: TextAlign.end),
+          ),
+          SizedBox(
+            width: isAdmin ? 48 : 44,
+            child: Text('Más', style: style, textAlign: TextAlign.end),
+          ),
+        ],
       ),
     );
   }
@@ -1354,204 +1412,169 @@ class _DepositOrderTile extends StatelessWidget {
   const _DepositOrderTile({
     required this.item,
     required this.money,
-    required this.dateFmt,
     required this.statusColor,
     required this.isAdmin,
-    required this.onDetail,
-    required this.onPdf,
-    this.onVoucher,
-    this.onUploadVoucher,
-    this.onEdit,
-    this.onDelete,
+    required this.onTap,
+    required this.onSelectedAction,
   });
 
   final DepositOrderModel item;
   final NumberFormat money;
-  final DateFormat dateFmt;
   final Color statusColor;
   final bool isAdmin;
-  final VoidCallback onDetail;
-  final VoidCallback onPdf;
-  final VoidCallback? onVoucher;
-  final VoidCallback? onUploadVoucher;
-  final VoidCallback? onEdit;
-  final VoidCallback? onDelete;
+  final VoidCallback onTap;
+  final ValueChanged<_DepositTileMenuAction> onSelectedAction;
 
   @override
   Widget build(BuildContext context) {
-    final isMobile = MediaQuery.sizeOf(context).width < 700;
-    return Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: isMobile ? 12 : 14,
-        vertical: isMobile ? 10 : 14,
-      ),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFD9E0E8)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      money.format(item.depositTotal),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.w900,
-                            fontSize: isMobile ? 16 : null,
-                          ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${item.bankName} · ${item.bankAccount ?? 'Cuenta sin indicar'}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: const Color(0xFF475569),
-                            fontSize: isMobile ? 12.5 : null,
-                          ),
-                    ),
-                  ],
-                ),
+    final executedBy = item.executedByName ?? item.collaboratorName ?? 'No indicado';
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+        child: Row(
+          children: [
+            Expanded(
+              flex: 3,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item.bankName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w900,
+                        ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    item.bankAccount ?? 'Cuenta sin indicar',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: const Color(0xFF64748B),
+                        ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 10),
-              Container(
-                padding: EdgeInsets.symmetric(
-                  horizontal: isMobile ? 8 : 10,
-                  vertical: isMobile ? 4 : 6,
-                ),
-                decoration: BoxDecoration(
-                  color: statusColor.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  item.status.label,
-                  style: TextStyle(
-                    color: statusColor,
-                    fontWeight: FontWeight.w800,
-                    fontSize: isMobile ? 11.5 : 13,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 2,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    executedBy,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    item.status.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: statusColor,
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                money.format(item.depositTotal),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.end,
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w900,
+                    ),
+              ),
+            ),
+            PopupMenuButton<_DepositTileMenuAction>(
+              tooltip: 'Más acciones',
+              onSelected: onSelectedAction,
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: _DepositTileMenuAction.detail,
+                  child: _DepositMenuItem(
+                    icon: Icons.visibility_outlined,
+                    label: 'Ver detalle',
                   ),
                 ),
-              ),
-            ],
-          ),
-          SizedBox(height: isMobile ? 6 : 8),
-          Text(
-            'Fecha: ${dateFmt.format(item.windowFrom)} · ${item.collaboratorName ?? 'No indicado'}',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: const Color(0xFF475569),
-                  fontSize: isMobile ? 12 : null,
-                ),
-          ),
-          if ((item.note ?? '').trim().isNotEmpty) ...[
-            SizedBox(height: isMobile ? 4 : 6),
-            Text(
-              item.note!,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: const Color(0xFF64748B),
-                    fontSize: isMobile ? 11.5 : null,
+                const PopupMenuItem(
+                  value: _DepositTileMenuAction.pdf,
+                  child: _DepositMenuItem(
+                    icon: Icons.picture_as_pdf_outlined,
+                    label: 'Carta PDF',
                   ),
+                ),
+                if (item.hasVoucher)
+                  const PopupMenuItem(
+                    value: _DepositTileMenuAction.voucher,
+                    child: _DepositMenuItem(
+                      icon: Icons.receipt_long_outlined,
+                      label: 'Ver voucher',
+                    ),
+                  ),
+                if (isAdmin)
+                  PopupMenuItem(
+                    value: _DepositTileMenuAction.uploadVoucher,
+                    child: _DepositMenuItem(
+                      icon: Icons.upload_file_outlined,
+                      label: item.hasVoucher ? 'Cambiar voucher' : 'Subir voucher',
+                    ),
+                  ),
+                if (isAdmin)
+                  const PopupMenuItem(
+                    value: _DepositTileMenuAction.edit,
+                    child: _DepositMenuItem(
+                      icon: Icons.edit_outlined,
+                      label: 'Editar',
+                    ),
+                  ),
+                if (isAdmin)
+                  const PopupMenuItem(
+                    value: _DepositTileMenuAction.delete,
+                    child: _DepositMenuItem(
+                      icon: Icons.delete_outline,
+                      label: 'Eliminar',
+                    ),
+                  ),
+              ],
+              child: const Padding(
+                padding: EdgeInsets.all(8),
+                child: Icon(Icons.more_vert_rounded),
+              ),
             ),
           ],
-          SizedBox(height: isMobile ? 8 : 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              FilledButton.icon(
-                onPressed: onDetail,
-                icon: const Icon(Icons.visibility_outlined, size: 18),
-                label: const Text('Detalle'),
-                style: isMobile
-                    ? FilledButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        minimumSize: Size.zero,
-                      )
-                    : null,
-              ),
-              OutlinedButton.icon(
-                onPressed: onPdf,
-                icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
-                label: const Text('PDF'),
-                style: isMobile
-                    ? OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        minimumSize: Size.zero,
-                      )
-                    : null,
-              ),
-              if (onVoucher != null)
-                OutlinedButton.icon(
-                  onPressed: onVoucher,
-                  icon: const Icon(Icons.receipt_long_outlined, size: 18),
-                  label: const Text('Ver voucher'),
-                  style: isMobile
-                      ? OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          minimumSize: Size.zero,
-                        )
-                      : null,
-                ),
-              if (onUploadVoucher != null)
-                OutlinedButton.icon(
-                  onPressed: onUploadVoucher,
-                  icon: const Icon(Icons.upload_file_outlined, size: 18),
-                  label: Text(item.hasVoucher ? 'Cambiar voucher' : 'Subir voucher'),
-                  style: isMobile
-                      ? OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          minimumSize: Size.zero,
-                        )
-                      : null,
-                ),
-              if (onEdit != null)
-                OutlinedButton.icon(
-                  onPressed: onEdit,
-                  icon: const Icon(Icons.edit_outlined, size: 18),
-                  label: const Text('Editar'),
-                  style: isMobile
-                      ? OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          minimumSize: Size.zero,
-                        )
-                      : null,
-                ),
-              if (onDelete != null)
-                OutlinedButton.icon(
-                  onPressed: onDelete,
-                  icon: const Icon(Icons.delete_outline, size: 18),
-                  label: const Text('Eliminar'),
-                  style: isMobile
-                      ? OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          minimumSize: Size.zero,
-                        )
-                      : null,
-                ),
-              if (!isAdmin)
-                const Text('Asistente: puede crear depósitos; edición y eliminación solo admin.'),
-            ],
-          ),
-        ],
+        ),
       ),
+    );
+  }
+}
+
+class _DepositMenuItem extends StatelessWidget {
+  const _DepositMenuItem({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: const Color(0xFF0F172A)),
+        const SizedBox(width: 10),
+        Text(label),
+      ],
     );
   }
 }

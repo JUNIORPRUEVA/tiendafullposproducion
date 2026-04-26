@@ -432,8 +432,23 @@ model User {
 
   workEmployeeConfig WorkEmployeeConfig?
   warrantyProductConfigs WarrantyProductConfig[]
+  whatsappInstance UserWhatsappInstance?
 
   @@map("users")
+}
+
+model UserWhatsappInstance {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @unique @db.Uuid @map("user_id")
+  instanceName String   @unique @map("instance_name")
+  status       String   @default("pending")
+  phoneNumber  String?  @map("phone_number")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_whatsapp_instances")
 }
 
 model UserLocation {
@@ -460,7 +475,15 @@ model AppConfig {
   companyName  String   @default("")
   rnc          String   @default("")
   phone        String   @default("")
+  phonePreferential String @default("") @map("phone_preferential")
   address      String   @default("")
+  description  String   @default("")
+  instagramUrl String   @default("") @map("instagram_url")
+  facebookUrl  String   @default("") @map("facebook_url")
+  websiteUrl   String   @default("") @map("website_url")
+  gpsLocationUrl String @default("") @map("gps_location_url")
+  businessHours  String @default("") @map("business_hours")
+  bankAccounts   Json   @default("[]") @map("bank_accounts")
   legalRepresentativeName         String  @default("") @map("legal_representative_name")
   legalRepresentativeCedula       String  @default("") @map("legal_representative_cedula")
   legalRepresentativeRole         String  @default("") @map("legal_representative_role")

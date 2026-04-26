@@ -6,6 +6,7 @@ enum AppPermission {
   // Common
   viewProfile,
   viewMyPayments,
+  viewWhatsapp,
 
   // Core modules
   viewOperations,
@@ -44,6 +45,7 @@ const Map<AppRole, Set<AppPermission>> rolePermissions = {
   AppRole.admin: {
     AppPermission.viewProfile,
     AppPermission.viewMyPayments,
+    AppPermission.viewWhatsapp,
     AppPermission.viewOperations,
     AppPermission.viewDocumentFlows,
     AppPermission.viewTechOperations,
@@ -65,6 +67,7 @@ const Map<AppRole, Set<AppPermission>> rolePermissions = {
   AppRole.asistente: {
     AppPermission.viewProfile,
     AppPermission.viewMyPayments,
+    AppPermission.viewWhatsapp,
     AppPermission.viewOperations,
     AppPermission.viewDocumentFlows,
     AppPermission.viewPunch,
@@ -78,6 +81,7 @@ const Map<AppRole, Set<AppPermission>> rolePermissions = {
   AppRole.vendedor: {
     AppPermission.viewProfile,
     AppPermission.viewMyPayments,
+    AppPermission.viewWhatsapp,
     AppPermission.viewOperations,
     AppPermission.viewPunch,
     AppPermission.viewCatalog,
@@ -89,6 +93,7 @@ const Map<AppRole, Set<AppPermission>> rolePermissions = {
   AppRole.marketing: {
     AppPermission.viewProfile,
     AppPermission.viewMyPayments,
+    AppPermission.viewWhatsapp,
     AppPermission.viewOperations,
     AppPermission.viewPunch,
     AppPermission.viewCatalog,
@@ -100,6 +105,7 @@ const Map<AppRole, Set<AppPermission>> rolePermissions = {
   AppRole.tecnico: {
     AppPermission.viewProfile,
     AppPermission.viewMyPayments,
+    AppPermission.viewWhatsapp,
     AppPermission.viewOperations,
     AppPermission.viewTechOperations,
     AppPermission.viewPunch,
@@ -111,6 +117,7 @@ const Map<AppRole, Set<AppPermission>> rolePermissions = {
   AppRole.unknown: {
     // Least privilege (still allow self areas to avoid redirect loops)
     AppPermission.viewProfile,
+    AppPermission.viewWhatsapp,
   },
 };
 

@@ -11,7 +11,15 @@ type AppConfigResponseShape = {
   companyName?: string | null;
   rnc?: string | null;
   phone?: string | null;
+  phonePreferential?: string | null;
   address?: string | null;
+  description?: string | null;
+  instagramUrl?: string | null;
+  facebookUrl?: string | null;
+  websiteUrl?: string | null;
+  gpsLocationUrl?: string | null;
+  businessHours?: string | null;
+  bankAccounts?: unknown;
   legalRepresentativeName?: string | null;
   legalRepresentativeCedula?: string | null;
   legalRepresentativeRole?: string | null;
@@ -141,11 +149,23 @@ export class SettingsService {
     const isAdmin = `${actor?.role ?? ''}`.toUpperCase() === 'ADMIN';
     const productsSource = this.resolveProductsSource();
 
+    const bankAccounts = Array.isArray(config.bankAccounts)
+      ? config.bankAccounts
+      : [];
+
     return {
       companyName: config.companyName,
       rnc: config.rnc,
       phone: config.phone,
+      phonePreferential: config.phonePreferential ?? '',
       address: config.address,
+      description: config.description ?? '',
+      instagramUrl: config.instagramUrl ?? '',
+      facebookUrl: config.facebookUrl ?? '',
+      websiteUrl: config.websiteUrl ?? '',
+      gpsLocationUrl: config.gpsLocationUrl ?? '',
+      businessHours: config.businessHours ?? '',
+      bankAccounts,
       legalRepresentativeName: config.legalRepresentativeName,
       legalRepresentativeCedula: config.legalRepresentativeCedula,
       legalRepresentativeRole: config.legalRepresentativeRole,
@@ -177,7 +197,15 @@ export class SettingsService {
           companyName: '',
           rnc: '',
           phone: '',
+          phonePreferential: '',
           address: '',
+          description: '',
+          instagramUrl: '',
+          facebookUrl: '',
+          websiteUrl: '',
+          gpsLocationUrl: '',
+          businessHours: '',
+          bankAccounts: [],
           legalRepresentativeName: '',
           legalRepresentativeCedula: '',
           legalRepresentativeRole: '',
@@ -215,8 +243,39 @@ export class SettingsService {
               : {}),
           ...(dto.rnc != null ? { rnc: this.sanitizeText(dto.rnc) } : {}),
           ...(dto.phone != null ? { phone: this.sanitizeText(dto.phone) } : {}),
+          ...(dto.phonePreferential != null
+              ? { phonePreferential: this.sanitizeText(dto.phonePreferential) }
+              : {}),
           ...(dto.address != null
               ? { address: this.sanitizeText(dto.address) }
+              : {}),
+          ...(dto.description != null
+              ? { description: this.sanitizeText(dto.description) }
+              : {}),
+          ...(dto.instagramUrl != null
+              ? { instagramUrl: this.sanitizeText(dto.instagramUrl) }
+              : {}),
+          ...(dto.facebookUrl != null
+              ? { facebookUrl: this.sanitizeText(dto.facebookUrl) }
+              : {}),
+          ...(dto.websiteUrl != null
+              ? { websiteUrl: this.sanitizeText(dto.websiteUrl) }
+              : {}),
+          ...(dto.gpsLocationUrl != null
+              ? { gpsLocationUrl: this.sanitizeText(dto.gpsLocationUrl) }
+              : {}),
+          ...(dto.businessHours != null
+              ? { businessHours: this.sanitizeText(dto.businessHours) }
+              : {}),
+          ...(dto.bankAccounts != null
+              ? {
+                  bankAccounts: (dto.bankAccounts as object[]).map((acc: any) => ({
+                    name: this.sanitizeText(acc.name),
+                    type: this.sanitizeText(acc.type),
+                    accountNumber: this.sanitizeText(acc.accountNumber),
+                    bankName: this.sanitizeText(acc.bankName),
+                  })),
+                }
               : {}),
           ...(dto.legalRepresentativeName != null
               ? {

@@ -56,6 +56,8 @@ class RouteAccess {
         return AppPermission.viewAdminPanel;
       case Routes.configuracion:
         return AppPermission.manageSettings;
+      case Routes.whatsapp:
+        return AppPermission.viewWhatsapp;
       case Routes.users:
       case Routes.user:
         return AppPermission.manageUsers;

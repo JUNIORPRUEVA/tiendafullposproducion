@@ -229,4 +229,10 @@ class ApiRoutes {
       '/work-scheduling/reports/most-changes';
   static const workSchedulingReportLowCoverage =
       '/work-scheduling/reports/low-coverage';
+
+  // WhatsApp (instancias por usuario)
+  static const whatsappInstance = '/whatsapp/instance';
+  static const whatsappInstanceStatus = '/whatsapp/instance/status';
+  static const whatsappInstanceQr = '/whatsapp/instance/qr';
+  static const whatsappAdminUsers = '/whatsapp/admin/users';
 }

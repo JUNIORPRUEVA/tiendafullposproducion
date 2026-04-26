@@ -1,4 +1,27 @@
-import { IsBoolean, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsArray, IsBoolean, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
+
+export class BankAccountDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  type?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  accountNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  bankName?: string;
+}
 
 export class UpdateSettingsDto {
   @IsOptional()
@@ -18,8 +41,49 @@ export class UpdateSettingsDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(60)
+  phonePreferential?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(500)
   address?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  instagramUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  facebookUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  websiteUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  gpsLocationUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  businessHours?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => BankAccountDto)
+  bankAccounts?: BankAccountDto[];
 
   @IsOptional()
   @IsString()
@@ -78,3 +142,4 @@ export class UpdateSettingsDto {
   @IsBoolean()
   operationsTechCanViewAllServices?: boolean;
 }
+

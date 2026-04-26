@@ -149,6 +149,12 @@ List<AppNavigationSection> buildAppNavigationSections(
           title: 'IA',
           route: Routes.ai,
         ),
+        if (can(AppPermission.viewWhatsapp))
+          const AppNavigationItem(
+            icon: Icons.chat_rounded,
+            title: 'WhatsApp',
+            route: Routes.whatsapp,
+          ),
         if (can(AppPermission.viewCompanyManual))
           AppNavigationItem(
             icon: Icons.menu_book_outlined,
