@@ -612,7 +612,21 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
   }
 
   Widget _buildWhatsAppSection() {
-    return const WhatsappPanel();
+    final rawPhone = _phoneCtrl.text.trim();
+    final companyPhone = rawPhone.isEmpty
+        ? null
+        : () {
+            final digits = rawPhone.replaceAll(RegExp(r'\D'), '');
+            if (digits.isEmpty) return null;
+            if (digits.startsWith('1') && digits.length >= 11) return digits;
+            return '1$digits';
+          }();
+    return WhatsappPanel(
+      defaultInstanceName: _nameCtrl.text.trim().isEmpty
+          ? null
+          : _nameCtrl.text.trim(),
+      defaultPhoneNumber: companyPhone,
+    );
   }
 
   Widget _buildBody() {

@@ -17,6 +17,15 @@ class WhatsappScreen extends ConsumerStatefulWidget {
 }
 
 class _WhatsappScreenState extends ConsumerState<WhatsappScreen> {
+  /// Prefixes a raw fleet/phone number with "1" (country code) if needed.
+  static String? _buildPhone(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return null;
+    final digits = raw.trim().replaceAll(RegExp(r'\D'), '');
+    if (digits.isEmpty) return null;
+    if (digits.startsWith('1') && digits.length >= 11) return digits;
+    return '1$digits';
+  }
+
   @override
   void initState() {
     super.initState();
@@ -60,7 +69,10 @@ class _WhatsappScreenState extends ConsumerState<WhatsappScreen> {
               // My WhatsApp section
               _MySectionHeader(theme: theme),
               const SizedBox(height: 12),
-              const WhatsappPanel(),
+              WhatsappPanel(
+                defaultInstanceName: user?.nombreCompleto,
+                defaultPhoneNumber: _buildPhone(user?.numeroFlota),
+              ),
 
               // Admin users section
               if (isAdmin) ...[

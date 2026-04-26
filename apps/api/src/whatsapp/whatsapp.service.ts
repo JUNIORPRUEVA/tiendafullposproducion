@@ -200,26 +200,74 @@ export class WhatsappService {
       );
     }
 
-    try {
-      const qrData = await this.fetchEvolution<{
-        base64?: string;
-        code?: string;
-        qrcode?: { base64?: string; code?: string };
-      }>(`/instance/connect/${encodeURIComponent(record.instanceName)}`);
-
-      const base64 =
-        qrData?.base64 ??
-        qrData?.qrcode?.base64 ??
-        '';
-
+    // If already connected, no need to call /connect (it would return 400)
+    if (record.status === 'connected') {
       return {
         instanceName: record.instanceName,
-        qrBase64: base64,
+        qrBase64: '',
+        status: 'connected',
+      };
+    }
+
+    type QrPayload = { base64?: string; code?: string; qrcode?: { base64?: string; code?: string } };
+
+    const extractBase64 = (qrData: QrPayload) =>
+      qrData?.base64 ?? qrData?.qrcode?.base64 ?? '';
+
+    const tryConnect = () =>
+      this.fetchEvolution<QrPayload>(
+        `/instance/connect/${encodeURIComponent(record.instanceName)}`,
+      );
+
+    // First attempt
+    try {
+      const qrData = await tryConnect();
+      return {
+        instanceName: record.instanceName,
+        qrBase64: extractBase64(qrData),
         status: record.status,
       };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      throw new BadRequestException(`No se pudo obtener el QR: ${msg}`);
+    } catch (firstErr) {
+      // Instance likely doesn't exist in Evolution API (e.g. was never created
+      // due to a prior network error). Try to recreate it, then retry.
+      console.warn(
+        `[WhatsApp] getQrCode first attempt failed for "${record.instanceName}", attempting recreation: ${firstErr instanceof Error ? firstErr.message : firstErr}`,
+      );
+      try {
+        await this.fetchEvolution(`/instance/create`, {
+          method: 'POST',
+          body: JSON.stringify({
+            instanceName: record.instanceName,
+            qrcode: true,
+            integration: 'WHATSAPP-BAILEYS',
+            ...(record.phoneNumber ? { number: record.phoneNumber } : {}),
+          }),
+        });
+      } catch (createErr) {
+        // If 409 (already exists), that's fine — continue to retry connect
+        const msg =
+          createErr instanceof Error ? createErr.message : String(createErr);
+        if (!msg.includes('409') && !msg.toLowerCase().includes('already')) {
+          console.error(`[WhatsApp] recreation failed: ${msg}`);
+          throw new BadRequestException(
+            `No se pudo obtener el QR. Intenta eliminar y volver a crear la instancia.`,
+          );
+        }
+      }
+
+      // Retry connect after recreation
+      try {
+        const qrData = await tryConnect();
+        return {
+          instanceName: record.instanceName,
+          qrBase64: extractBase64(qrData),
+          status: record.status,
+        };
+      } catch (retryErr) {
+        const msg =
+          retryErr instanceof Error ? retryErr.message : String(retryErr);
+        throw new BadRequestException(`No se pudo obtener el QR: ${msg}`);
+      }
     }
   }
 
