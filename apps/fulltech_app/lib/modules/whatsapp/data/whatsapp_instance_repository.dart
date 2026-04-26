@@ -39,12 +39,15 @@ class WhatsappInstanceRepository {
   }
 
   /// POST /whatsapp/instance — crea instancia para el usuario autenticado.
-  Future<WhatsappInstanceModel> createInstance({String? instanceName}) async {
+  Future<WhatsappInstanceModel> createInstance({
+    String? instanceName,
+    String? phoneNumber,
+  }) async {
     try {
-      final res = await _dio.post(
-        '/whatsapp/instance',
-        data: instanceName != null ? {'instanceName': instanceName} : {},
-      );
+      final data = <String, dynamic>{};
+      if (instanceName != null) data['instanceName'] = instanceName;
+      if (phoneNumber != null) data['phoneNumber'] = phoneNumber;
+      final res = await _dio.post('/whatsapp/instance', data: data);
       return WhatsappInstanceModel.fromJson(
         (res.data as Map).cast<String, dynamic>(),
       );

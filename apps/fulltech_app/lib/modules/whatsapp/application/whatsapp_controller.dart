@@ -90,12 +90,18 @@ class WhatsappController extends StateNotifier<WhatsappState> {
   }
 
   /// Crea una nueva instancia de WhatsApp.
-  Future<void> createInstance({String? instanceName}) async {
+  Future<void> createInstance({
+    String? instanceName,
+    String? phoneNumber,
+  }) async {
     if (state.isCreating) return;
 
     state = state.copyWith(isCreating: true, clearError: true);
     try {
-      await _repo.createInstance(instanceName: instanceName);
+      await _repo.createInstance(
+        instanceName: instanceName,
+        phoneNumber: phoneNumber,
+      );
       if (!mounted) return;
       // Reload status after creation
       final result = await _repo.getInstanceStatus();

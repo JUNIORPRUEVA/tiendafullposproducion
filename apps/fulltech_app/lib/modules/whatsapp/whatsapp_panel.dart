@@ -29,14 +29,18 @@ class _WhatsappPanelState extends ConsumerState<WhatsappPanel> {
     final controller = ref.read(whatsappControllerProvider.notifier);
     final s = ref.read(whatsappControllerProvider);
 
-    // Si no hay instancia, crear primero
+    // Si no hay instancia, mostrar formulario de creación primero
     if (s.instance == null || !s.instance!.exists) {
-      await controller.createInstance();
       if (!mounted) return;
+      // ignore: use_build_context_synchronously
+      final created = await showModalBottomSheet<bool>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (_) => const _CreateInstanceSheet(),
+      );
+      if (created != true || !mounted) return;
     }
-
-    final newState = ref.read(whatsappControllerProvider);
-    if (newState.error != null && newState.instance == null) return;
 
     if (!mounted) return;
     // ignore: use_build_context_synchronously
@@ -360,6 +364,190 @@ class _InfoRow extends StatelessWidget {
   }
 }
 
+// ─── Create Instance Sheet ────────────────────────────────────────────────────
+
+/// Formulario para crear una nueva instancia de WhatsApp.
+/// Solicita nombre de instancia (opcional) y número de teléfono.
+class _CreateInstanceSheet extends ConsumerStatefulWidget {
+  const _CreateInstanceSheet();
+
+  @override
+  ConsumerState<_CreateInstanceSheet> createState() =>
+      _CreateInstanceSheetState();
+}
+
+class _CreateInstanceSheetState extends ConsumerState<_CreateInstanceSheet> {
+  final _formKey = GlobalKey<FormState>();
+  final _nameCtrl = TextEditingController();
+  final _phoneCtrl = TextEditingController();
+  bool _isCreating = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _phoneCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() {
+      _isCreating = true;
+      _error = null;
+    });
+    try {
+      final name = _nameCtrl.text.trim();
+      final phone = _phoneCtrl.text.trim();
+      await ref.read(whatsappControllerProvider.notifier).createInstance(
+            instanceName: name.isEmpty ? null : name,
+            phoneNumber: phone.isEmpty ? null : phone,
+          );
+      if (!mounted) return;
+      final state = ref.read(whatsappControllerProvider);
+      if (state.error != null) {
+        setState(() {
+          _isCreating = false;
+          _error = state.error;
+        });
+        return;
+      }
+      // ignore: use_build_context_synchronously
+      Navigator.pop(context, true);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isCreating = false;
+        _error = '$e';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        20,
+        4,
+        20,
+        24 + MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Text(
+                'Crear instancia WhatsApp',
+                style: theme.textTheme.titleLarge
+                    ?.copyWith(fontWeight: FontWeight.w800),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Center(
+              child: Text(
+                'Configura tu instancia para conectar WhatsApp.',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodyMedium
+                    ?.copyWith(color: scheme.onSurfaceVariant),
+              ),
+            ),
+            const SizedBox(height: 24),
+            Text('Nombre de la instancia',
+                style: theme.textTheme.labelLarge
+                    ?.copyWith(fontWeight: FontWeight.w700)),
+            const SizedBox(height: 6),
+            TextFormField(
+              controller: _nameCtrl,
+              textInputAction: TextInputAction.next,
+              decoration: InputDecoration(
+                hintText: 'ej: mi-empresa  (auto-generado si se deja vacío)',
+                prefixIcon: const Icon(Icons.memory_rounded),
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12)),
+              ),
+              validator: (v) {
+                if (v != null &&
+                    v.trim().isNotEmpty &&
+                    v.trim().length < 3) {
+                  return 'Mínimo 3 caracteres, o déjalo vacío para auto-generar';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 16),
+            Text('Número de teléfono',
+                style: theme.textTheme.labelLarge
+                    ?.copyWith(fontWeight: FontWeight.w700)),
+            const SizedBox(height: 6),
+            TextFormField(
+              controller: _phoneCtrl,
+              keyboardType: TextInputType.phone,
+              textInputAction: TextInputAction.done,
+              onFieldSubmitted: (_) => _submit(),
+              decoration: InputDecoration(
+                hintText: 'ej: 593912345678  (con código de país)',
+                prefixIcon: const Icon(Icons.phone_rounded),
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 14),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: scheme.errorContainer.withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.error_outline_rounded,
+                        color: scheme.onErrorContainer, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _error!,
+                        style: theme.textTheme.bodySmall
+                            ?.copyWith(color: scheme.onErrorContainer),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 22),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _isCreating ? null : _submit,
+                icon: _isCreating
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Icon(Icons.add_circle_outline_rounded),
+                label: Text(_isCreating ? 'Creando...' : 'Crear y obtener QR'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF25D366),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // ─── QR Bottom Sheet ─────────────────────────────────────────────────────────
 
 /// Sheet modal para escanear el QR.
@@ -372,12 +560,16 @@ class WhatsappQrSheet extends ConsumerStatefulWidget {
 }
 
 class _WhatsappQrSheetState extends ConsumerState<WhatsappQrSheet> {
+  // Store direct reference to avoid calling ref.read() in dispose()
+  void Function()? _stopPollingFn;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final controller = ref.read(whatsappControllerProvider.notifier);
+      _stopPollingFn = controller.stopPolling;
       controller.refreshQr();
       controller.startPolling();
     });
@@ -385,7 +577,7 @@ class _WhatsappQrSheetState extends ConsumerState<WhatsappQrSheet> {
 
   @override
   void dispose() {
-    ref.read(whatsappControllerProvider.notifier).stopPolling();
+    _stopPollingFn?.call();
     super.dispose();
   }
 

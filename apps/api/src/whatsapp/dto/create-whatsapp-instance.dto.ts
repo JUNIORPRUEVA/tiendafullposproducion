@@ -5,4 +5,8 @@ export class CreateWhatsappInstanceDto {
   @IsString()
   @MinLength(3)
   instanceName?: string;
+
+  @IsOptional()
+  @IsString()
+  phoneNumber?: string;
 }

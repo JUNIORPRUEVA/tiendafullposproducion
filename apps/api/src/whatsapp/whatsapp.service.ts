@@ -114,6 +114,7 @@ export class WhatsappService {
             instanceName,
             qrcode: true,
             integration: 'WHATSAPP-BAILEYS',
+            ...(dto.phoneNumber ? { number: dto.phoneNumber } : {}),
           }),
         });
       } catch (err) {
@@ -132,6 +133,7 @@ export class WhatsappService {
         userId,
         instanceName,
         status: 'pending',
+        ...(dto.phoneNumber ? { phoneNumber: dto.phoneNumber } : {}),
       },
     });
 
@@ -199,23 +201,16 @@ export class WhatsappService {
     }
 
     try {
-      const data = await this.fetchEvolution<{
-        base64?: string;
-        code?: string;
-        qrcode?: { base64?: string };
-      }>(`/instance/fetchInstances`, {
-        method: 'GET',
-      });
-
-      // Try to get QR from the instance-specific endpoint
       const qrData = await this.fetchEvolution<{
         base64?: string;
         code?: string;
-      }>(
-        `/instance/connect/${encodeURIComponent(record.instanceName)}`,
-      );
+        qrcode?: { base64?: string; code?: string };
+      }>(`/instance/connect/${encodeURIComponent(record.instanceName)}`);
 
-      const base64 = qrData?.base64 ?? (data as any)?.base64 ?? '';
+      const base64 =
+        qrData?.base64 ??
+        qrData?.qrcode?.base64 ??
+        '';
 
       return {
         instanceName: record.instanceName,
