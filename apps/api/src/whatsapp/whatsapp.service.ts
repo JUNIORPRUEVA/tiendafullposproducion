@@ -64,12 +64,20 @@ export class WhatsappService {
   }
 
   private buildInstanceName(userId: string, custom?: string): string {
-    if (custom && custom.trim().length >= 3) {
-      // Sanitize: only alphanumeric, hyphens, underscores
-      return custom.trim().replace(/[^a-zA-Z0-9_-]/g, '_');
+    const userSuffix = userId.replace(/-/g, '').substring(0, 16);
+    const sanitizedCustom = (custom ?? '')
+      .trim()
+      .replace(/[^a-zA-Z0-9_-]/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_+|_+$/g, '');
+
+    if (sanitizedCustom.length >= 3) {
+      const prefix = sanitizedCustom.substring(0, 40);
+      return `${prefix}_${userSuffix}`;
     }
-    // Auto-generate a name based on userId prefix
-    return `user_${userId.replace(/-/g, '').substring(0, 16)}`;
+
+    // Auto-generate a unique instance name per user.
+    return `user_${userSuffix}`;
   }
 
   private describeEvolutionError(error: unknown): string {
