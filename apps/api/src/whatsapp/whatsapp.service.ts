@@ -26,6 +26,10 @@ export class WhatsappService {
       console.warn(
         '[WhatsApp] ADVERTENCIA: EVOLUTION_API_URL no está configurada. Las funciones de WhatsApp no funcionarán.',
       );
+    } else if (!/^https?:\/\//i.test(evoUrl)) {
+      console.error(
+        `[WhatsApp] CONFIGURACION INVALIDA: EVOLUTION_API_URL debe iniciar con http:// o https://. Valor actual: ${evoUrl}`,
+      );
     } else if (
       selfUrl &&
       evoUrl.toLowerCase() === selfUrl.toLowerCase()
@@ -40,6 +44,11 @@ export class WhatsappService {
   private get evolutionBaseUrl(): string {
     const raw = (this.config.get<string>('EVOLUTION_API_URL') ?? '').trim();
     if (!raw) return '';
+    if (!/^https?:\/\//i.test(raw)) {
+      throw new ServiceUnavailableException(
+        `EVOLUTION_API_URL invalida: debe iniciar con http:// o https://. Valor actual: ${raw}`,
+      );
+    }
     return raw.endsWith('/') ? raw.slice(0, -1) : raw;
   }
 
