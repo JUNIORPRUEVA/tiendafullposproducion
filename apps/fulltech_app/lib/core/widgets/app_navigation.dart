@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../modules/manual_interno/company_manual_repository.dart';
+import '../../modules/whatsapp/application/whatsapp_visibility_provider.dart';
 import '../auth/app_permissions.dart';
+import '../auth/app_role.dart';
 import '../models/user_model.dart';
 import '../routing/routes.dart';
 
@@ -50,6 +52,12 @@ List<AppNavigationSection> buildAppNavigationSections(
         orElse: () => false,
       ) ??
       false;
+  final showWhatsappEntry = can(AppPermission.viewWhatsapp)
+      ? ref.watch(whatsappNavigationVisibilityProvider).maybeWhen(
+            data: (value) => value,
+            orElse: () => role == null ? false : role == AppRole.admin,
+          )
+      : false;
 
   final sections = <AppNavigationSection>[
     AppNavigationSection(
@@ -149,7 +157,7 @@ List<AppNavigationSection> buildAppNavigationSections(
           title: 'IA',
           route: Routes.ai,
         ),
-        if (can(AppPermission.viewWhatsapp))
+        if (showWhatsappEntry)
           const AppNavigationItem(
             icon: Icons.chat_rounded,
             title: 'WhatsApp',

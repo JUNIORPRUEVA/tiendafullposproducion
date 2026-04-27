@@ -1,11 +1,14 @@
 ﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/auth/app_role.dart';
 import '../../core/auth/auth_provider.dart';
+import '../../core/routing/route_access.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
 import 'application/whatsapp_controller.dart';
+import 'application/whatsapp_visibility_provider.dart';
 import 'whatsapp_instance_model.dart';
 import 'whatsapp_panel.dart';
 
@@ -43,8 +46,27 @@ class _WhatsappScreenState extends ConsumerState<WhatsappScreen> {
   Widget build(BuildContext context) {
     final user = ref.watch(authStateProvider).user;
     final state = ref.watch(whatsappControllerProvider);
+    final whatsappVisibility = ref.watch(whatsappNavigationVisibilityProvider);
     final isAdmin = user?.appRole == AppRole.admin;
     final theme = Theme.of(context);
+
+    if (!isAdmin) {
+      final shouldShowWhatsapp = whatsappVisibility.maybeWhen(
+        data: (value) => value,
+        orElse: () => true,
+      );
+
+      if (!shouldShowWhatsapp && user != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          context.go(RouteAccess.defaultHomeForRole(user.appRole));
+        });
+
+        return const Scaffold(
+          body: Center(child: CircularProgressIndicator()),
+        );
+      }
+    }
 
     return Scaffold(
       appBar: const CustomAppBar(

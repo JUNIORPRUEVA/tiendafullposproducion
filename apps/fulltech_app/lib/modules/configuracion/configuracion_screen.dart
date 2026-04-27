@@ -11,7 +11,6 @@ import '../../core/company/company_settings_model.dart';
 import '../../core/company/company_settings_repository.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
-import '../whatsapp/whatsapp_panel.dart';
 import 'configuracion_usuarios_screen.dart';
 
 class ConfiguracionScreen extends ConsumerStatefulWidget {
@@ -614,53 +613,6 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
     );
   }
 
-  Widget _buildWhatsAppSection() {
-    final rawPhone = _phoneCtrl.text.trim();
-    final companyPhone = rawPhone.isEmpty
-        ? null
-        : () {
-            final digits = rawPhone.replaceAll(RegExp(r'\D'), '');
-            if (digits.isEmpty) return null;
-            if (digits.startsWith('1') && digits.length >= 11) return digits;
-            return '1$digits';
-          }();
-    return WhatsappPanel(
-      defaultInstanceName: _nameCtrl.text.trim().isEmpty
-          ? null
-          : _nameCtrl.text.trim(),
-      defaultPhoneNumber: companyPhone,
-    );
-  }
-
-  Widget _buildWhatsAppWebhookSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Cuando está activado, el backend configura y habilita automáticamente el webhook para todas las instancias ya creadas. Las nuevas instancias heredarán este estado global.',
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant),
-        ),
-        const SizedBox(height: 12),
-        SwitchListTile.adaptive(
-          contentPadding: EdgeInsets.zero,
-          title: const Text('Activar recepción global de mensajes WhatsApp'),
-          subtitle: Text(
-            _whatsappWebhookEnabled
-                ? 'Todos los webhooks quedarán habilitados.'
-                : 'Los webhooks se configuran, pero permanecen desactivados.',
-          ),
-          value: _whatsappWebhookEnabled,
-          onChanged: _saving
-              ? null
-              : (value) {
-                  setState(() => _whatsappWebhookEnabled = value);
-                },
-        ),
-      ],
-    );
-  }
-
   Widget _buildBody() {
     return SafeArea(
       child: Align(
@@ -710,20 +662,6 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
                   title: 'OpenAI',
                   subtitle: 'Credenciales para el asistente de IA.',
                   child: _buildOpenAiSection(),
-                ),
-                _accordion(
-                  key: 'whatsapp',
-                  icon: Icons.chat_outlined,
-                  title: 'WhatsApp (Notificaciones)',
-                  subtitle: 'Numero principal para envio de mensajes.',
-                  child: _buildWhatsAppSection(),
-                ),
-                _accordion(
-                  key: 'whatsapp-webhook',
-                  icon: Icons.settings_input_component_outlined,
-                  title: 'WhatsApp Webhook',
-                  subtitle: 'Control global del webhook de mensajes entrantes.',
-                  child: _buildWhatsAppWebhookSection(),
                 ),
                 const SizedBox(height: 24),
                 Align(

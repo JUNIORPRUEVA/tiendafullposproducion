@@ -64,7 +64,7 @@ export class ServiceOrderNotificationsListener {
   private static readonly SCHEDULED_TECHNICIAN_REMINDER_MINUTES = 20;
   private static readonly PENDING_TECHNICIAN_REMINDER_INTERVAL_MINUTES = 60;
   private static readonly IN_PROGRESS_REMINDER_INTERVAL_MINUTES = 120;
-  private static readonly MAX_TECHNICIAN_REMINDERS_PER_RECIPIENT = 5;
+  private static readonly MAX_TECHNICIAN_REMINDERS_PER_RECIPIENT = 2;
   private static readonly IN_PROGRESS_REMINDER_KINDS = [
     'service_order_in_progress_started',
     'service_order_in_progress_reminder',
@@ -145,11 +145,9 @@ export class ServiceOrderNotificationsListener {
     orderId: string,
     previousStatus: string,
     nextStatus: string,
-    actorUserId?: string | null,
+    _actorUserId?: string | null,
   ) {
-    if (nextStatus !== 'en_proceso') {
-      await this.cancelPendingInProgressReminderOutbox(orderId, `Estado actualizado a ${nextStatus}`);
-    }
+    await this.cancelPendingInProgressReminderOutbox(orderId, `Estado actualizado a ${nextStatus}`);
 
     if (
       nextStatus === 'en_proceso' ||
@@ -170,7 +168,6 @@ export class ServiceOrderNotificationsListener {
 
     if (nextStatus === 'en_proceso') {
       await this.notifyServiceStarted(orderId);
-      await this.notifyInProgressActor(orderId, actorUserId);
       return;
     }
 
@@ -182,52 +179,9 @@ export class ServiceOrderNotificationsListener {
     this.logger.debug(`No notification flow for service-order status change ${previousStatus} -> ${nextStatus} order=${orderId}`);
   }
 
-  async processDueInProgressReminders(limit = 25) {
-    const now = new Date();
-    const orders = await this.prisma.serviceOrder.findMany({
-      where: {
-        status: ServiceOrderStatus.EN_PROCESO,
-      },
-      select: {
-        id: true,
-      },
-      orderBy: [{ updatedAt: 'asc' }, { createdAt: 'asc' }],
-      take: limit,
-    });
-
-    let processed = 0;
-
-    for (const order of orders) {
-      const latestReminder = await this.findLatestInProgressReminderEvent(order.id);
-      if (!latestReminder) {
-        continue;
-      }
-
-      const actorUserId = this.extractActorUserId(latestReminder.payload);
-      if (!actorUserId) {
-        continue;
-      }
-
-      const lastAttemptAt = latestReminder.sentAt ?? latestReminder.createdAt;
-      const dueAt = new Date(
-        lastAttemptAt.getTime() +
-          ServiceOrderNotificationsListener.IN_PROGRESS_REMINDER_INTERVAL_MINUTES * 60_000,
-      );
-
-      if (dueAt.getTime() > now.getTime()) {
-        continue;
-      }
-
-      const recipient = await this.resolveInProgressReminderRecipient(actorUserId);
-      if (!recipient) {
-        continue;
-      }
-
-      await this.enqueueInProgressReminder(order.id, recipient, 'service_order_in_progress_reminder', dueAt);
-      processed += 1;
-    }
-
-    return processed;
+  async processDueInProgressReminders(_limit = 25) {
+    this.logger.debug('In-progress technician reminders are disabled.');
+    return 0;
   }
 
   async dispatchThirtyMinuteReminder(jobId: string) {
@@ -458,7 +412,7 @@ export class ServiceOrderNotificationsListener {
     if (!enqueuedCount) {
       await this.cancelPendingTechnicianReminderJobs(
         order.id,
-        'Se alcanzó el maximo de 5 recordatorios por orden y destinatario',
+        'Se alcanzó el maximo de 2 recordatorios por orden y destinatario',
       );
       return;
     }
