@@ -140,6 +140,39 @@ export class NotificationsService {
     return this.injectOrderNumberLine(stripped, orderNumber);
   }
 
+  private normalizeSenderUserId(raw?: string | null) {
+    const value = (raw ?? '').toString().trim();
+    return value || null;
+  }
+
+  private attachSenderUserId(payload: unknown, senderUserId?: string | null) {
+    const normalizedSenderUserId = this.normalizeSenderUserId(senderUserId);
+    if (!normalizedSenderUserId) {
+      return (payload ?? null) as Prisma.InputJsonValue;
+    }
+
+    if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+      return {
+        ...(payload as Record<string, unknown>),
+        senderUserId: normalizedSenderUserId,
+      } as Prisma.InputJsonValue;
+    }
+
+    return {
+      senderUserId: normalizedSenderUserId,
+      payload,
+    } as Prisma.InputJsonValue;
+  }
+
+  private extractSenderUserId(payload: unknown) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return null;
+    }
+
+    const raw = (payload as Record<string, unknown>).senderUserId;
+    return this.normalizeSenderUserId(typeof raw === 'string' ? raw : null);
+  }
+
   private formatLocalYmdHm(d: Date) {
     const yyyy = d.getFullYear();
     const mm = this.pad2(d.getMonth() + 1);
@@ -175,6 +208,7 @@ export class NotificationsService {
     messageText: string;
     dedupeKey?: string;
     payload?: unknown;
+    senderUserId?: string | null;
   }) {
     const rawPhone = (params.toNumber ?? '').toString().trim();
     const normalized = this.evolution.normalizeWhatsAppNumber(rawPhone);
@@ -190,7 +224,7 @@ export class NotificationsService {
           templateKey: 'custom_text',
           dedupeKey: params.dedupeKey ?? null,
           messageText,
-          payload: (params.payload ?? null) as any,
+          payload: this.attachSenderUserId(params.payload, params.senderUserId),
           recipientUserId: null,
           toNumber: rawPhone,
           toNumberNormalized: '',
@@ -209,7 +243,7 @@ export class NotificationsService {
           templateKey: 'custom_text',
           dedupeKey: params.dedupeKey ?? null,
           messageText,
-          payload: (params.payload ?? null) as any,
+          payload: this.attachSenderUserId(params.payload, params.senderUserId),
           recipientUserId: null,
           toNumber: rawPhone,
           toNumberNormalized: normalized,
@@ -228,7 +262,7 @@ export class NotificationsService {
         templateKey: 'custom_text',
         dedupeKey: params.dedupeKey ?? null,
         messageText,
-        payload: (params.payload ?? null) as any,
+        payload: this.attachSenderUserId(params.payload, params.senderUserId),
         recipientUserId: null,
         toNumber: rawPhone,
         toNumberNormalized: normalized,
@@ -247,6 +281,7 @@ export class NotificationsService {
     dedupeKey?: string;
     payload?: unknown;
     recipientUserId?: string | null;
+    senderUserId?: string | null;
   }) {
     const rawPhone = (params.toNumber ?? '').toString().trim();
     const normalized = this.evolution.normalizeWhatsAppNumber(rawPhone);
@@ -267,7 +302,7 @@ export class NotificationsService {
       mediaBase64: bytes.length ? Buffer.from(bytes).toString('base64') : null,
       mediaFileName: fileName,
       mediaMimeType: mimeType,
-      payload: (params.payload ?? null) as any,
+      payload: this.attachSenderUserId(params.payload, params.senderUserId),
       recipientUserId: (params.recipientUserId ?? null) as any,
       toNumber: rawPhone,
       toNumberNormalized: normalized || '',
@@ -305,6 +340,7 @@ export class NotificationsService {
     recipientUserId: string;
     payload: NotificationPayload;
     dedupeKey?: string;
+    senderUserId?: string | null;
   }) {
     const user = await this.prisma.user.findUnique({
       where: { id: params.recipientUserId },
@@ -327,7 +363,7 @@ export class NotificationsService {
           templateKey: params.payload.template,
           dedupeKey: params.dedupeKey ?? null,
           messageText,
-          payload: params.payload as unknown as Prisma.InputJsonValue,
+          payload: this.attachSenderUserId(params.payload, params.senderUserId),
           recipientUserId: params.recipientUserId,
           toNumber: rawPhone,
           toNumberNormalized: normalized,
@@ -347,7 +383,7 @@ export class NotificationsService {
           templateKey: params.payload.template,
           dedupeKey: params.dedupeKey ?? null,
           messageText,
-          payload: params.payload as unknown as Prisma.InputJsonValue,
+          payload: this.attachSenderUserId(params.payload, params.senderUserId),
           recipientUserId: params.recipientUserId,
           toNumber: rawPhone,
           toNumberNormalized: '',
@@ -366,7 +402,7 @@ export class NotificationsService {
         templateKey: params.payload.template,
         dedupeKey: params.dedupeKey ?? null,
         messageText,
-        payload: params.payload as unknown as Prisma.InputJsonValue,
+        payload: this.attachSenderUserId(params.payload, params.senderUserId),
         recipientUserId: params.recipientUserId,
         toNumber: rawPhone,
         toNumberNormalized: normalized,
@@ -418,6 +454,7 @@ export class NotificationsService {
       try {
         const payload = (row.payload ?? null) as any;
         const kind = payload?.kind ? String(payload.kind) : '';
+        const senderUserId = this.extractSenderUserId(payload);
         if (kind === 'reservation_reminder') {
           await this.disableLegacyReservationReminder(row);
           continue;
@@ -450,11 +487,15 @@ export class NotificationsService {
             bytes: Buffer.from(mediaBase64, 'base64'),
             fileName: mediaFileName,
             caption: row.messageText,
+            senderUserId,
+            requirePersonalInstance: !!senderUserId,
           });
         } else {
           await this.evolution.sendTextMessage({
             toNumber: row.toNumberNormalized,
             message: row.messageText,
+            senderUserId,
+            requirePersonalInstance: !!senderUserId,
           });
         }
 

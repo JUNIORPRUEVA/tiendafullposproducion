@@ -7,6 +7,11 @@ type EvolutionRuntimeConfig = {
   apiKey: string;
 };
 
+type ResolveRuntimeConfigOptions = {
+  senderUserId?: string | null;
+  requirePersonalInstance?: boolean;
+};
+
 type EvolutionHttpError = {
   status?: number;
   message: string;
@@ -30,6 +35,11 @@ export class EvolutionWhatsAppService {
     const trimmed = raw.trim();
     if (!trimmed) return '';
     return trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed;
+  }
+
+  private normalizeSenderUserId(raw?: string | null) {
+    const value = (raw ?? '').toString().trim();
+    return value || null;
   }
 
   normalizeWhatsAppNumber(raw: string) {
@@ -59,7 +69,7 @@ export class EvolutionWhatsAppService {
     return digits;
   }
 
-  private async getRuntimeConfig(): Promise<EvolutionRuntimeConfig> {
+  private async getGlobalRuntimeConfig(): Promise<EvolutionRuntimeConfig> {
     const disabled = (process.env.NOTIFICATIONS_ENABLED ?? '').trim().toLowerCase();
     if (disabled === '0' || disabled === 'false') {
       throw new BadRequestException('Notificaciones deshabilitadas por NOTIFICATIONS_ENABLED');
@@ -86,6 +96,39 @@ export class EvolutionWhatsAppService {
     const value = { baseUrl, instanceName, apiKey };
     this.cachedConfig = { value, atMs: now };
     return value;
+  }
+
+  private async getRuntimeConfig(options: ResolveRuntimeConfigOptions = {}): Promise<EvolutionRuntimeConfig> {
+    const baseConfig = await this.getGlobalRuntimeConfig();
+    this.validateRuntimeConfig(baseConfig);
+
+    const senderUserId = this.normalizeSenderUserId(options.senderUserId);
+    if (!senderUserId) {
+      return baseConfig;
+    }
+
+    const userInstance = await this.prisma.userWhatsappInstance.findUnique({
+      where: { userId: senderUserId },
+      select: {
+        instanceName: true,
+        status: true,
+      },
+    });
+
+    const instanceName = (userInstance?.instanceName ?? '').trim();
+    if (!instanceName) {
+      if (options.requirePersonalInstance) {
+        throw new BadRequestException(
+          'El usuario emisor no tiene una instancia personal de WhatsApp configurada.',
+        );
+      }
+      return baseConfig;
+    }
+
+    return {
+      ...baseConfig,
+      instanceName,
+    };
   }
 
   private stringifyPreview(value: unknown, maxChars = 900) {
@@ -188,7 +231,7 @@ export class EvolutionWhatsAppService {
     }
   }
 
-  async sendTextMessage(params: { toNumber: string; message: string }) {
+  async sendTextMessage(params: { toNumber: string; message: string; senderUserId?: string | null; requirePersonalInstance?: boolean }) {
     const mockEnabled = this.isMockEnabled();
 
     // Mock mode: validate inputs but skip external calls.
@@ -201,8 +244,10 @@ export class EvolutionWhatsAppService {
       return;
     }
 
-    const config = await this.getRuntimeConfig();
-    this.validateRuntimeConfig(config);
+    const config = await this.getRuntimeConfig({
+      senderUserId: params.senderUserId,
+      requirePersonalInstance: params.requirePersonalInstance,
+    });
 
     const number = this.validateNumber(params.toNumber);
 
@@ -233,6 +278,8 @@ export class EvolutionWhatsAppService {
     bytes: Uint8Array;
     fileName: string;
     caption?: string;
+    senderUserId?: string | null;
+    requirePersonalInstance?: boolean;
   }) {
     const mockEnabled = this.isMockEnabled();
     const number = this.validateNumber(params.toNumber);
@@ -248,8 +295,10 @@ export class EvolutionWhatsAppService {
       return;
     }
 
-    const config = await this.getRuntimeConfig();
-    this.validateRuntimeConfig(config);
+    const config = await this.getRuntimeConfig({
+      senderUserId: params.senderUserId,
+      requirePersonalInstance: params.requirePersonalInstance,
+    });
 
     const endpoint = `${config.baseUrl}/message/sendMedia/${encodeURIComponent(config.instanceName)}`;
     const mediaBase64 = Buffer.from(bytes).toString('base64');

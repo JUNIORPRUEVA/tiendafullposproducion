@@ -127,7 +127,7 @@ export class ServiceOrderNotificationsListener {
     ].join('\n');
 
     for (const recipient of recipients) {
-      await this.notifications.enqueueWhatsAppRawText({
+      await this.enqueueOrderWhatsAppRawText(order, {
         toNumber: recipient,
         messageText: message,
         dedupeKey: `service-order:confirm:${order.id}:${technician.id}:${recipient}`,
@@ -289,7 +289,7 @@ export class ServiceOrderNotificationsListener {
           continue;
         }
 
-        await this.notifications.enqueueWhatsAppRawText({
+        await this.enqueueOrderWhatsAppRawText(order, {
           toNumber: number,
           messageText: this.buildTechnicianReminderMessage(message, nextReminderSequence),
           dedupeKey: `service-order:20m:${order.id}:${order.scheduledFor.toISOString()}:${technician.userId}:${number}`,
@@ -439,7 +439,7 @@ export class ServiceOrderNotificationsListener {
           continue;
         }
 
-        await this.notifications.enqueueWhatsAppRawText({
+        await this.enqueueOrderWhatsAppRawText(order, {
           toNumber: number,
           messageText: this.buildTechnicianReminderMessage(message, nextReminderSequence),
           dedupeKey: `service-order:1h-pending:${order.id}:${job.runAt.toISOString()}:${technician.userId}:${number}`,
@@ -579,7 +579,7 @@ export class ServiceOrderNotificationsListener {
 
     if (!isInvoiceFlow) {
       for (const recipient of creatorRecipients) {
-        await this.notifications.enqueueWhatsAppRawText({
+        await this.enqueueOrderWhatsAppRawText(order, {
           toNumber: recipient,
           messageText: baseMessage,
           dedupeKey: `service-order:start:${order.id}:${recipient}`,
@@ -603,7 +603,7 @@ export class ServiceOrderNotificationsListener {
 
     for (const assistant of assistants) {
       for (const number of assistant.numbers) {
-        await this.notifications.enqueueWhatsAppDocument({
+        await this.enqueueOrderWhatsAppDocument(order, {
           toNumber: number,
           messageText: baseMessage,
           dedupeKey: `service-order:start:${order.id}:${assistant.userId}:${number}`,
@@ -663,7 +663,7 @@ export class ServiceOrderNotificationsListener {
 
     if (!isInvoiceFlow) {
       for (const recipient of creatorRecipients) {
-        await this.notifications.enqueueWhatsAppRawText({
+        await this.enqueueOrderWhatsAppRawText(order, {
           toNumber: recipient,
           messageText: baseMessage,
           dedupeKey: `service-order:finalized:${order.id}:${recipient}`,
@@ -682,7 +682,7 @@ export class ServiceOrderNotificationsListener {
     const recipients = [...new Set([...assistantNumbers, ...creatorRecipients])];
 
     for (const recipient of recipients) {
-      await this.notifications.enqueueWhatsAppRawText({
+      await this.enqueueOrderWhatsAppRawText(order, {
         toNumber: recipient,
         messageText: baseMessage,
         dedupeKey: `service-order:finalized:${order.id}:${recipient}`,
@@ -714,7 +714,7 @@ export class ServiceOrderNotificationsListener {
     ].join('\n');
 
     for (const recipient of recipients) {
-      await this.notifications.enqueueWhatsAppRawText({
+      await this.enqueueOrderWhatsAppRawText(order, {
         toNumber: recipient,
         messageText: message,
         dedupeKey: `service-order:postponed-ready:${order.id}:${recipient}:${order.scheduledFor?.toISOString() ?? 'no-date'}`,
@@ -824,6 +824,38 @@ export class ServiceOrderNotificationsListener {
     return [...new Set(values)];
   }
 
+  private async enqueueOrderWhatsAppRawText(
+    order: ServiceOrderNotificationContext,
+    params: Parameters<NotificationsService['enqueueWhatsAppRawText']>[0],
+  ) {
+    await this.notifications.enqueueWhatsAppRawText({
+      ...params,
+      senderUserId: order.createdBy.id,
+    });
+  }
+
+  private async enqueueOrderWhatsAppDocument(
+    order: ServiceOrderNotificationContext,
+    params: Parameters<NotificationsService['enqueueWhatsAppDocument']>[0],
+  ) {
+    await this.notifications.enqueueWhatsAppDocument({
+      ...params,
+      senderUserId: order.createdBy.id,
+    });
+  }
+
+  private async resolveOrderSenderUserId(orderId: string) {
+    const order = await this.prisma.serviceOrder.findUnique({
+      where: { id: orderId },
+      select: {
+        createdBy: {
+          select: { id: true },
+        },
+      },
+    });
+    return order?.createdBy?.id ?? null;
+  }
+
   private async resolveInProgressReminderRecipient(actorUserId: string) {
     const actor = await this.prisma.user.findUnique({
       where: { id: actorUserId },
@@ -864,6 +896,7 @@ export class ServiceOrderNotificationsListener {
     kind: (typeof ServiceOrderNotificationsListener.IN_PROGRESS_REMINDER_KINDS)[number],
     sequenceAt: Date,
   ) {
+    const senderUserId = await this.resolveOrderSenderUserId(orderId);
     await this.notifications.enqueueWhatsAppRawText({
       toNumber: recipient.number,
       messageText: ServiceOrderNotificationsListener.IN_PROGRESS_REMINDER_MESSAGE,
@@ -873,6 +906,7 @@ export class ServiceOrderNotificationsListener {
         orderId,
         actorUserId: recipient.userId,
       },
+      senderUserId,
     });
   }
 

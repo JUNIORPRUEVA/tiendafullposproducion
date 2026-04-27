@@ -348,6 +348,7 @@ class CotizacionesRepository {
   }
 
   Future<void> sendWhatsAppQuotation({
+    required String quotationId,
     required String customerName,
     required String customerPhone,
     required List<int> pdfBytes,
@@ -358,6 +359,7 @@ class CotizacionesRepository {
       await _dio.post(
         ApiRoutes.cotizacionSendWhatsapp,
         data: {
+          'quotationId': quotationId.trim(),
           'customerName': customerName.trim(),
           'customerPhone': customerPhone.trim(),
           'pdfBase64': base64Encode(pdfBytes),

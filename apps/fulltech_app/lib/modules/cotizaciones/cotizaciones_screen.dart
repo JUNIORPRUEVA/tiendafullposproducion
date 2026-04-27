@@ -2266,15 +2266,22 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     );
   }
 
-  Future<void> _sendCotizacionPdfToSelf({
+  Future<void> _sendCotizacionPdfToCustomer({
     required CotizacionModel cotizacion,
     required Uint8List pdfBytes,
   }) async {
-    final currentUser = await _resolveCurrentUserForSelfDelivery();
-    final selfPhone = _resolveCurrentUserDeliveryPhone(currentUser);
-    if (selfPhone == null) {
+    final customerPhone = (cotizacion.customerPhone ?? '').trim();
+    final customerName = cotizacion.customerName.trim();
+    if (customerPhone.isEmpty) {
       throw ApiException(
-        'Tu usuario no tiene número de flota ni teléfono configurado para recibir el PDF.',
+        'La cotización no tiene un teléfono de cliente configurado para enviar el PDF.',
+        null,
+      );
+    }
+
+    if (customerName.isEmpty) {
+      throw ApiException(
+        'La cotización no tiene un nombre de cliente válido para enviar el PDF.',
         null,
       );
     }
@@ -2286,49 +2293,23 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     await ref
         .read(cotizacionesRepositoryProvider)
         .sendWhatsAppQuotation(
-          customerName: (currentUser?.nombreCompleto ?? 'Usuario').trim(),
-          customerPhone: selfPhone,
+          quotationId: cotizacion.id,
+          customerName: customerName,
+          customerPhone: customerPhone,
           pdfBytes: pdfBytes,
           fileName: fileName,
-          messageText: _buildSelfDeliveryMessage(
+          messageText: _buildCustomerDeliveryMessage(
             cotizacion: cotizacion,
-            currentUserName: currentUser?.nombreCompleto,
           ),
         );
   }
 
-  Future<UserModel?> _resolveCurrentUserForSelfDelivery() async {
-    final currentUser = ref.read(authStateProvider).user;
-    try {
-      final freshUser = await ref.read(usersRepositoryProvider).fetchMe();
-      ref.read(authStateProvider.notifier).setUser(freshUser);
-      return freshUser;
-    } catch (_) {
-      return currentUser;
-    }
-  }
-
-  String? _resolveCurrentUserDeliveryPhone(UserModel? currentUser) {
-    if (currentUser == null) return null;
-    final fleet = (currentUser.numeroFlota ?? '').trim();
-    if (fleet.isNotEmpty) {
-      return fleet;
-    }
-    final phone = currentUser.telefono.trim();
-    if (phone.isNotEmpty) {
-      return phone;
-    }
-    return null;
-  }
-
-  String _buildSelfDeliveryMessage({
+  String _buildCustomerDeliveryMessage({
     required CotizacionModel cotizacion,
-    String? currentUserName,
   }) {
-    final recipientName = (currentUserName ?? '').trim();
-    final safeRecipient = recipientName.isEmpty
+    final safeRecipient = cotizacion.customerName.trim().isEmpty
         ? 'Hola'
-        : 'Hola $recipientName';
+        : 'Hola ${cotizacion.customerName.trim()}';
     final quoteCode = _buildQuotationCode(cotizacion.id);
     final total = NumberFormat.currency(
       locale: 'es_DO',
@@ -2337,27 +2318,27 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     ).format(cotizacion.total);
 
     return [
-      '$safeRecipient, te envío tu PDF de cotización.',
+      '$safeRecipient, te compartimos tu cotización en PDF.',
       'Cotización: $quoteCode',
       'Cliente: ${cotizacion.customerName}',
       'Total: $total',
     ].join('\n');
   }
 
-  String _selfDeliveryButtonLabel(bool compact) {
-    return compact ? 'PDF a mí' : 'Enviar PDF a mí';
+  String _customerDeliveryButtonLabel(bool compact) {
+    return compact ? 'A cliente' : 'Enviar al cliente';
   }
 
-  String _selfDeliverySuccessMessage() {
-    return 'Cotización enviada a tu propio WhatsApp.';
+  String _customerDeliverySuccessMessage() {
+    return 'Cotización enviada al cliente.';
   }
 
-  String _selfDeliveryTimeoutMessage() {
-    return 'Tiempo de espera agotado enviando el PDF a tu propio WhatsApp.';
+  String _customerDeliveryTimeoutMessage() {
+    return 'Tiempo de espera agotado enviando el PDF al cliente.';
   }
 
-  String _selfDeliveryErrorPrefix() {
-    return 'No se pudo enviar el PDF a tu número';
+  String _customerDeliveryErrorPrefix() {
+    return 'No se pudo enviar el PDF al cliente';
   }
 
   Future<void> _sendCotizacionForAdminApproval({
@@ -2383,6 +2364,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     await ref
         .read(cotizacionesRepositoryProvider)
         .sendWhatsAppQuotation(
+          quotationId: cotizacion.id,
           customerName: cotizacion.customerName,
           customerPhone: adminPhone,
           pdfBytes: bytes,
@@ -2449,26 +2431,26 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
         final compact = media.width < 560;
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            final currentUser = ref.read(authStateProvider).user;
-            final canSend = currentUser != null && !sendingWhatsApp;
+            final customerPhone = (cotizacion.customerPhone ?? '').trim();
+            final canSend = customerPhone.isNotEmpty && !sendingWhatsApp;
             final adminPhone = Env.quotationApprovalAdminPhone.trim();
             final canSendAdmin = adminPhone.isNotEmpty && !sendingAdminApproval;
 
             Future<void> sendWhatsApp() async {
               setDialogState(() => sendingWhatsApp = true);
               try {
-                await _sendCotizacionPdfToSelf(
+                await _sendCotizacionPdfToCustomer(
                   cotizacion: cotizacion,
                   pdfBytes: bytes,
                 ).timeout(const Duration(seconds: 25));
                 if (!scaffoldContext.mounted) return;
                 ScaffoldMessenger.maybeOf(scaffoldContext)?.showSnackBar(
-                  SnackBar(content: Text(_selfDeliverySuccessMessage())),
+                  SnackBar(content: Text(_customerDeliverySuccessMessage())),
                 );
               } on TimeoutException {
                 if (!scaffoldContext.mounted) return;
                 ScaffoldMessenger.maybeOf(scaffoldContext)?.showSnackBar(
-                  SnackBar(content: Text(_selfDeliveryTimeoutMessage())),
+                  SnackBar(content: Text(_customerDeliveryTimeoutMessage())),
                 );
               } on ApiException catch (e) {
                 if (!scaffoldContext.mounted) return;
@@ -2478,7 +2460,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
               } catch (e) {
                 if (!scaffoldContext.mounted) return;
                 ScaffoldMessenger.maybeOf(scaffoldContext)?.showSnackBar(
-                  SnackBar(content: Text('${_selfDeliveryErrorPrefix()}: $e')),
+                  SnackBar(content: Text('${_customerDeliveryErrorPrefix()}: $e')),
                 );
               } finally {
                 if (context.mounted) {
@@ -2562,7 +2544,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                                     ),
                                   )
                                 : const Icon(Icons.chat_outlined),
-                            label: Text(_selfDeliveryButtonLabel(compact)),
+                            label: Text(_customerDeliveryButtonLabel(compact)),
                           ),
                           const SizedBox(width: 6),
                           TextButton.icon(

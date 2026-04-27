@@ -11,6 +11,7 @@ import PDFDocument from 'pdfkit';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { EvolutionWhatsAppService } from '../notifications/evolution-whatsapp.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   SERVICE_ORDER_CATEGORY_FROM_DB,
@@ -99,12 +100,22 @@ export class OrderDocumentFlowService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly evolutionWhatsApp: EvolutionWhatsAppService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   private readonly include = {
     order: {
       include: {
         client: true,
+        createdBy: {
+          select: {
+            id: true,
+            nombreCompleto: true,
+            telefono: true,
+            numeroFlota: true,
+            blocked: true,
+          },
+        },
         quotation: {
           include: {
             items: {
@@ -247,18 +258,24 @@ export class OrderDocumentFlowService {
     await this.evolutionWhatsApp.sendTextMessage({
       toNumber: customerPhone,
       message: messageText,
+      senderUserId: flow.order.createdBy.id,
+      requirePersonalInstance: true,
     });
     await this.evolutionWhatsApp.sendPdfDocument({
       toNumber: customerPhone,
       bytes: invoiceBytes,
       fileName: this.buildDocumentFileName('factura', flow.order.id),
       caption: 'Factura correspondiente a su servicio.',
+      senderUserId: flow.order.createdBy.id,
+      requirePersonalInstance: true,
     });
     await this.evolutionWhatsApp.sendPdfDocument({
       toNumber: customerPhone,
       bytes: warrantyBytes,
       fileName: this.buildDocumentFileName('carta_garantia', flow.order.id),
       caption: 'Carta de garantia correspondiente a su servicio.',
+      senderUserId: flow.order.createdBy.id,
+      requirePersonalInstance: true,
     });
 
     const updated = await this.prisma.orderDocumentFlow.update({
@@ -275,6 +292,33 @@ export class OrderDocumentFlowService {
     this.logger.log(
       `Document flow WhatsApp sent by user=${user.id} role=${user.role} to=${normalizedPhone || customerPhone} flow=${id}`,
     );
+
+    if (flow.order.createdBy?.id) {
+      const internalMessage = [
+        '*Documentos enviados al cliente*',
+        `Cliente: ${customerName}`,
+        `Teléfono: ${normalizedPhone || customerPhone}`,
+        'Se enviaron la factura y la carta de garantía desde la instancia principal de empresa.',
+      ].join('\n');
+
+      await this.notifications.enqueueWhatsAppToUser({
+        recipientUserId: flow.order.createdBy.id,
+        payload: {
+          template: 'custom_text',
+          title: 'Documentos enviados al cliente',
+          body: internalMessage,
+          data: {
+            kind: 'order_document_flow_sent',
+            orderId: flow.order.id,
+            flowId: flow.id,
+            customerPhone: normalizedPhone || customerPhone,
+          },
+        } as any,
+        dedupeKey: `order-document-flow:sent:${flow.id}:${flow.order.createdBy.id}`,
+        senderUserId: flow.order.createdBy.id,
+      });
+    }
+
     return {
       flow: mapped,
       whatsappPayload: {

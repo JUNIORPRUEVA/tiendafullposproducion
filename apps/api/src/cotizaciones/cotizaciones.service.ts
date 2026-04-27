@@ -475,9 +475,29 @@ export class CotizacionesService {
     user: { id: string; role: Role },
     dto: SendCotizacionWhatsappDto,
   ) {
+    const quotationId = dto.quotationId.trim();
     const customerPhone = dto.customerPhone.trim();
     const customerName = dto.customerName.trim();
     const customMessage = (dto.messageText ?? '').trim();
+    const quotation = await this.prisma.cotizacion.findUnique({
+      where: { id: quotationId },
+      select: {
+        id: true,
+        createdByUserId: true,
+      },
+    });
+
+    if (!quotation) {
+      throw new NotFoundException('Cotización no encontrada.');
+    }
+
+    const senderUserId = quotation.createdByUserId?.trim();
+    if (!senderUserId) {
+      throw new BadRequestException(
+        'La cotización no tiene un creador asignado para enviar por su instancia personal.',
+      );
+    }
+
     if (!customerPhone) {
       throw new BadRequestException('El teléfono del cliente es obligatorio.');
     }
@@ -494,6 +514,8 @@ export class CotizacionesService {
       await this.evolutionWhatsApp.sendTextMessage({
         toNumber: customerPhone,
         message: customMessage,
+        senderUserId,
+        requirePersonalInstance: true,
       });
     }
 
@@ -502,10 +524,12 @@ export class CotizacionesService {
       bytes,
       fileName,
       caption,
+      senderUserId,
+      requirePersonalInstance: true,
     });
 
     this.logger.log(
-      `Quote WhatsApp sent by user=${user.id} role=${user.role} to=${normalizedPhone || customerPhone}`,
+      `Quote WhatsApp sent by actor=${user.id} sender=${senderUserId} role=${user.role} to=${normalizedPhone || customerPhone} quotation=${quotationId}`,
     );
 
     return {
