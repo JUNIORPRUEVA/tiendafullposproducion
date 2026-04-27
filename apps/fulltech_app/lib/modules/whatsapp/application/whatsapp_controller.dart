@@ -132,8 +132,38 @@ class WhatsappController extends StateNotifier<WhatsappState> {
   }
 
   /// Obtiene el código QR para conectar WhatsApp.
+  /// Valida el estado antes de solicitar el QR:
+  /// - Si la instancia no existe, la crea primero.
+  /// - Si ya está conectada, no solicita el QR.
   Future<void> refreshQr() async {
     state = state.copyWith(clearQrError: true);
+
+    // Refresh instance status first
+    try {
+      final current = await _repo.getInstanceStatus();
+      if (!mounted) return;
+      state = state.copyWith(instance: current);
+
+      // Already connected — no need for QR
+      if (current.isConnected) {
+        _stopPolling();
+        return;
+      }
+
+      // Instance does not exist — create it first
+      if (!current.exists) {
+        state = state.copyWith(isCreating: true);
+        await _repo.createInstance();
+        if (!mounted) return;
+        state = state.copyWith(isCreating: false);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      state = state.copyWith(qrError: 'Error validando estado: $e');
+      return;
+    }
+
+    // Request QR
     try {
       final qr = await _repo.getQrCode();
       if (!mounted) return;
@@ -147,10 +177,10 @@ class WhatsappController extends StateNotifier<WhatsappState> {
   /// Detiene el polling de estado.
   void stopPolling() => _stopPolling();
 
-  /// Inicia polling cada 3 segundos para verificar si WhatsApp se conectó.
+  /// Inicia polling cada 5 segundos para verificar si WhatsApp se conectó.
   void startPolling() {
     _stopPolling();
-    _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) async {
+    _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
       if (!mounted) {
         _stopPolling();
         return;

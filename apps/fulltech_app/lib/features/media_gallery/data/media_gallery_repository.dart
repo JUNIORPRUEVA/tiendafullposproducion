@@ -39,7 +39,6 @@ class MediaGalleryRepository {
           'type': _typeValue(typeFilter),
           'installationStatus': _installationValue(installationFilter),
           if ((cursor ?? '').trim().isNotEmpty) 'cursor': cursor!.trim(),
-          if (forceRefresh) '_ts': DateTime.now().millisecondsSinceEpoch,
         },
         options: _backgroundOptions.copyWith(
           extra: {

@@ -201,11 +201,13 @@ export class WhatsappService {
   }
 
   async getQrCode(userId: string) {
+    console.log(`[WhatsApp][QR] Solicitando QR para userId=${userId}`);
     const record = await this.prisma.userWhatsappInstance.findUnique({
       where: { userId },
     });
 
     if (!record) {
+      console.warn(`[WhatsApp][QR] Sin instancia registrada para userId=${userId}`);
       throw new NotFoundException(
         'No hay instancia de WhatsApp registrada. Crea una instancia primero.',
       );
@@ -219,12 +221,15 @@ export class WhatsappService {
 
     // If already connected, no need to call /connect (it would return 400)
     if (record.status === 'connected') {
+      console.log(`[WhatsApp][QR] Instancia "${record.instanceName}" ya conectada. No se solicita QR.`);
       return {
         instanceName: record.instanceName,
         qrBase64: '',
         status: 'connected',
       };
     }
+
+    console.log(`[WhatsApp][QR] Intentando conectar instancia "${record.instanceName}" (status=${record.status})...`);
 
     type QrPayload = { base64?: string; code?: string; qrcode?: { base64?: string; code?: string } };
 
@@ -239,6 +244,7 @@ export class WhatsappService {
     // First attempt
     try {
       const qrData = await tryConnect();
+      console.log(`[WhatsApp][QR] QR obtenido para "${record.instanceName}" en primer intento.`);
       return {
         instanceName: record.instanceName,
         qrBase64: extractBase64(qrData),
@@ -265,16 +271,18 @@ export class WhatsappService {
         const msg =
           createErr instanceof Error ? createErr.message : String(createErr);
         if (!msg.includes('409') && !msg.toLowerCase().includes('already')) {
-          console.error(`[WhatsApp] recreation failed: ${msg}`);
+          console.error(`[WhatsApp][QR] Recreación de instancia fallida para "${record.instanceName}": ${msg}`);
           throw new BadRequestException(
             `No se pudo obtener el QR. Intenta eliminar y volver a crear la instancia.`,
           );
         }
+        console.warn(`[WhatsApp][QR] Recreación: instancia "${record.instanceName}" ya existía (409), reintentando connect.`);
       }
 
       // Retry connect after recreation
       try {
         const qrData = await tryConnect();
+        console.log(`[WhatsApp][QR] QR obtenido para "${record.instanceName}" luego de recreación.`);
         return {
           instanceName: record.instanceName,
           qrBase64: extractBase64(qrData),
@@ -283,6 +291,7 @@ export class WhatsappService {
       } catch (retryErr) {
         const msg =
           retryErr instanceof Error ? retryErr.message : String(retryErr);
+        console.error(`[WhatsApp][QR] Fallo definitivo al obtener QR para "${record.instanceName}": ${msg}`);
         throw new BadRequestException(`No se pudo obtener el QR: ${msg}`);
       }
     }

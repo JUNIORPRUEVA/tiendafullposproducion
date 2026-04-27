@@ -60,9 +60,7 @@ class CatalogRepository {
     try {
       final res = await _dio.get(
         ApiRoutes.catalogProducts,
-        queryParameters: forceRefresh
-            ? {'_ts': DateTime.now().millisecondsSinceEpoch}
-            : null,
+        queryParameters: null,
         options: Options(
           headers: {
             'Cache-Control': 'no-cache, no-store, must-revalidate',

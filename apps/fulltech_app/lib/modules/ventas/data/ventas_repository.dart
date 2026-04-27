@@ -233,9 +233,7 @@ class VentasRepository {
     try {
       final res = await _dio.get(
         ApiRoutes.catalogProducts,
-        queryParameters: forceRefresh
-            ? {'_ts': DateTime.now().millisecondsSinceEpoch}
-            : null,
+        queryParameters: null,
         options: Options(
           extra: const {'skipLoader': true},
           headers: {
