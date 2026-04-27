@@ -52,6 +52,7 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
   bool _refreshing = false;
   bool _saving = false;
   bool _showApiKey = false;
+  bool _whatsappWebhookEnabled = false;
   String? _logoBase64;
   String? _openSection;
 
@@ -117,6 +118,7 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
     _evolutionApiBaseUrlCtrl.text = s.evolutionApiBaseUrl;
     _evolutionApiInstanceNameCtrl.text = s.evolutionApiInstanceName;
     _evolutionApiApiKeyCtrl.text = s.evolutionApiApiKey;
+    _whatsappWebhookEnabled = s.whatsappWebhookEnabled;
   }
 
   Future<void> _load() async {
@@ -182,6 +184,7 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
       evolutionApiInstanceName: _evolutionApiInstanceNameCtrl.text.trim(),
       evolutionApiApiKey: _evolutionApiApiKeyCtrl.text.trim(),
       hasEvolutionApiApiKey: _evolutionApiApiKeyCtrl.text.trim().isNotEmpty,
+      whatsappWebhookEnabled: _whatsappWebhookEnabled,
     );
     try {
       final queued = await ref
@@ -629,6 +632,35 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
     );
   }
 
+  Widget _buildWhatsAppWebhookSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Cuando está activado, el backend configura y habilita automáticamente el webhook para todas las instancias ya creadas. Las nuevas instancias heredarán este estado global.',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant),
+        ),
+        const SizedBox(height: 12),
+        SwitchListTile.adaptive(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Activar recepción global de mensajes WhatsApp'),
+          subtitle: Text(
+            _whatsappWebhookEnabled
+                ? 'Todos los webhooks quedarán habilitados.'
+                : 'Los webhooks se configuran, pero permanecen desactivados.',
+          ),
+          value: _whatsappWebhookEnabled,
+          onChanged: _saving
+              ? null
+              : (value) {
+                  setState(() => _whatsappWebhookEnabled = value);
+                },
+        ),
+      ],
+    );
+  }
+
   Widget _buildBody() {
     return SafeArea(
       child: Align(
@@ -685,6 +717,13 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
                   title: 'WhatsApp (Notificaciones)',
                   subtitle: 'Numero principal para envio de mensajes.',
                   child: _buildWhatsAppSection(),
+                ),
+                _accordion(
+                  key: 'whatsapp-webhook',
+                  icon: Icons.settings_input_component_outlined,
+                  title: 'WhatsApp Webhook',
+                  subtitle: 'Control global del webhook de mensajes entrantes.',
+                  child: _buildWhatsAppWebhookSection(),
                 ),
                 const SizedBox(height: 24),
                 Align(

@@ -140,6 +140,7 @@ class CompanySettingsRepository {
               'evolutionApiBaseUrl': settings.evolutionApiBaseUrl,
               'evolutionApiInstanceName': settings.evolutionApiInstanceName,
               'evolutionApiApiKey': settings.evolutionApiApiKey,
+              'whatsappWebhookEnabled': settings.whatsappWebhookEnabled,
             },
           )
           .timeout(_settingsTimeout);

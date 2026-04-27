@@ -68,6 +68,7 @@ class CompanySettings {
   final String evolutionApiInstanceName;
   final String evolutionApiApiKey;
   final bool hasEvolutionApiApiKey;
+  final bool whatsappWebhookEnabled;
   final String productsSource;
   final bool productsReadOnly;
 
@@ -97,6 +98,7 @@ class CompanySettings {
     required this.evolutionApiInstanceName,
     required this.evolutionApiApiKey,
     required this.hasEvolutionApiApiKey,
+    this.whatsappWebhookEnabled = false,
     this.productsSource = 'LOCAL',
     this.productsReadOnly = false,
   });
@@ -128,6 +130,7 @@ class CompanySettings {
       evolutionApiInstanceName: '',
       evolutionApiApiKey: '',
       hasEvolutionApiApiKey: false,
+      whatsappWebhookEnabled: false,
       productsSource: 'LOCAL',
       productsReadOnly: false,
     );
@@ -159,6 +162,7 @@ class CompanySettings {
     String? evolutionApiInstanceName,
     String? evolutionApiApiKey,
     bool? hasEvolutionApiApiKey,
+    bool? whatsappWebhookEnabled,
     String? productsSource,
     bool? productsReadOnly,
     bool clearLogo = false,
@@ -196,6 +200,8 @@ class CompanySettings {
       evolutionApiApiKey: evolutionApiApiKey ?? this.evolutionApiApiKey,
       hasEvolutionApiApiKey:
           hasEvolutionApiApiKey ?? this.hasEvolutionApiApiKey,
+        whatsappWebhookEnabled:
+          whatsappWebhookEnabled ?? this.whatsappWebhookEnabled,
       productsSource: productsSource ?? this.productsSource,
       productsReadOnly: productsReadOnly ?? this.productsReadOnly,
     );
@@ -227,6 +233,7 @@ class CompanySettings {
     'evolutionApiInstanceName': evolutionApiInstanceName,
     'evolutionApiApiKey': evolutionApiApiKey,
     'hasEvolutionApiApiKey': hasEvolutionApiApiKey,
+    'whatsappWebhookEnabled': whatsappWebhookEnabled,
     'productsSource': productsSource,
     'productsReadOnly': productsReadOnly,
   };
@@ -268,6 +275,7 @@ class CompanySettings {
       evolutionApiInstanceName: (map['evolutionApiInstanceName'] ?? '').toString(),
       evolutionApiApiKey: (map['evolutionApiApiKey'] ?? '').toString(),
       hasEvolutionApiApiKey: map['hasEvolutionApiApiKey'] == true,
+      whatsappWebhookEnabled: map['whatsappWebhookEnabled'] == true,
       productsSource: (map['productsSource'] ?? 'LOCAL').toString(),
       productsReadOnly: map['productsReadOnly'] == true,
     );

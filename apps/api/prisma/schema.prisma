@@ -495,6 +495,7 @@ model AppConfig {
   evolutionApiBaseUrl      String  @default("") @map("evolution_api_base_url")
   evolutionApiInstanceName String  @default("") @map("evolution_api_instance_name")
   evolutionApiApiKey       String? @map("evolution_api_api_key")
+  whatsappWebhookEnabled   Boolean @default(false) @map("whatsapp_webhook_enabled")
   operationsTechCanViewAllServices Boolean @default(false) @map("operations_tech_can_view_all_services")
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt

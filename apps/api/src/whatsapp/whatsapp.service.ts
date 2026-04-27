@@ -63,6 +63,110 @@ export class WhatsappService {
     };
   }
 
+  private resolvePublicBaseUrl(): string {
+    const raw = (
+      this.config.get<string>('PUBLIC_BASE_URL') ??
+      this.config.get<string>('API_BASE_URL') ??
+      ''
+    ).trim();
+    if (!raw) {
+      throw new ServiceUnavailableException(
+        'PUBLIC_BASE_URL o API_BASE_URL no está configurada para construir el webhook de WhatsApp.',
+      );
+    }
+    if (!/^https?:\/\//i.test(raw)) {
+      throw new ServiceUnavailableException(
+        `PUBLIC_BASE_URL inválida: debe iniciar con http:// o https://. Valor actual: ${raw}`,
+      );
+    }
+    return raw.endsWith('/') ? raw.slice(0, -1) : raw;
+  }
+
+  private buildWebhookUrl(instanceName: string): string {
+    return `${this.resolvePublicBaseUrl()}/whatsapp/webhook/${encodeURIComponent(instanceName)}`;
+  }
+
+  private async isGlobalWebhookEnabled(): Promise<boolean> {
+    try {
+      const config = await this.prisma.appConfig.upsert({
+        where: { id: 'global' },
+        create: { id: 'global' },
+        update: {},
+      });
+      return !!config.whatsappWebhookEnabled;
+    } catch (error) {
+      console.warn(
+        `[WhatsApp][Webhook] No se pudo leer app_config para webhook global: ${this.describeEvolutionError(error)}`,
+      );
+      return false;
+    }
+  }
+
+  private async configureInstanceWebhook(
+    instanceName: string,
+    enabled: boolean,
+  ): Promise<void> {
+    try {
+      const payload = {
+        enabled,
+        url: this.buildWebhookUrl(instanceName),
+        webhook_by_events: false,
+        webhook_base64: false,
+        events: ['MESSAGES_UPSERT'],
+      };
+
+      await this.fetchEvolution(`/webhook/set/${encodeURIComponent(instanceName)}`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+
+      console.log(
+        `[WhatsApp][Webhook] Configurado webhook para "${instanceName}" enabled=${enabled}`,
+      );
+    } catch (error) {
+      console.error(
+        `[WhatsApp][Webhook] No se pudo configurar webhook para "${instanceName}" enabled=${enabled}: ${this.describeEvolutionError(error)}`,
+      );
+    }
+  }
+
+  async syncWebhookConfigurationForAllInstances(enabled: boolean) {
+    const instances = await this.prisma.userWhatsappInstance.findMany({
+      select: { instanceName: true, userId: true },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    for (const instance of instances) {
+      await this.configureInstanceWebhook(instance.instanceName, enabled);
+    }
+
+    console.log(
+      `[WhatsApp][Webhook] Sincronización global completada. enabled=${enabled}, totalInstancias=${instances.length}`,
+    );
+
+    return { updated: instances.length, enabled };
+  }
+
+  async handleIncomingWebhook(instanceName: string, payload: unknown) {
+    const record = await this.prisma.userWhatsappInstance.findUnique({
+      where: { instanceName },
+      select: { userId: true, instanceName: true },
+    });
+
+    if (!record) {
+      console.warn(
+        `[WhatsApp][Webhook] Webhook recibido para instancia no registrada "${instanceName}".`,
+      );
+      return { ok: true, ignored: true, reason: 'instance_not_registered' };
+    }
+
+    console.log(
+      `[WhatsApp][Webhook] Evento recibido para instancia "${instanceName}" userId=${record.userId}: ${JSON.stringify(payload)}`,
+    );
+
+    return { ok: true };
+  }
+
   private buildInstanceName(userId: string, custom?: string): string {
     const userSuffix = userId.replace(/-/g, '').substring(0, 16);
     const sanitizedCustom = (custom ?? '')
@@ -208,6 +312,7 @@ export class WhatsappService {
     }
 
     const instanceName = this.buildInstanceName(userId, dto.instanceName);
+    const webhookEnabled = await this.isGlobalWebhookEnabled();
 
     // Create instance in Evolution API (if configured)
     if (this.evolutionBaseUrl) {
@@ -240,6 +345,8 @@ export class WhatsappService {
         ...(dto.phoneNumber ? { phoneNumber: dto.phoneNumber } : {}),
       },
     });
+
+    await this.configureInstanceWebhook(instanceName, webhookEnabled);
 
     return record;
   }
@@ -363,6 +470,10 @@ export class WhatsappService {
             ...(record.phoneNumber ? { number: record.phoneNumber } : {}),
           }),
         });
+        await this.configureInstanceWebhook(
+          record.instanceName,
+          await this.isGlobalWebhookEnabled(),
+        );
       } catch (createErr) {
         if (this.isEvolutionUnavailableError(createErr)) {
           console.error(

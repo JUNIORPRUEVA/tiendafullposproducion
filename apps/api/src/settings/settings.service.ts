@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
+import { WhatsappService } from '../whatsapp/whatsapp.service';
 
 type Actor = { role?: Role | string };
 
@@ -31,6 +32,7 @@ type AppConfigResponseShape = {
   evolutionApiBaseUrl?: string | null;
   evolutionApiInstanceName?: string | null;
   evolutionApiApiKey?: string | null;
+  whatsappWebhookEnabled?: boolean | null;
   operationsTechCanViewAllServices?: boolean | null;
   updatedAt?: Date | null;
 };
@@ -40,6 +42,7 @@ export class SettingsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly whatsappService: WhatsappService,
   ) {}
 
   private resolveProductsSource(): ProductsSource {
@@ -179,6 +182,7 @@ export class SettingsService {
       evolutionApiInstanceName: config.evolutionApiInstanceName,
       hasEvolutionApiApiKey: !!config.evolutionApiApiKey,
       evolutionApiApiKey: isAdmin ? config.evolutionApiApiKey : null,
+      whatsappWebhookEnabled: !!config.whatsappWebhookEnabled,
       operationsTechCanViewAllServices: !!config.operationsTechCanViewAllServices,
       productsSource,
       productsReadOnly: productsSource === 'FULLPOS' || productsSource === 'FULLPOS_DIRECT',
@@ -219,6 +223,7 @@ export class SettingsService {
           evolutionApiInstanceName: '',
           hasEvolutionApiApiKey: false,
           evolutionApiApiKey: null,
+          whatsappWebhookEnabled: false,
           operationsTechCanViewAllServices: false,
           productsSource: this.resolveProductsSource(),
           productsReadOnly: this.resolveProductsSource() === 'FULLPOS' || this.resolveProductsSource() === 'FULLPOS_DIRECT',
@@ -234,6 +239,7 @@ export class SettingsService {
     await this.ensureConfig();
 
     let updated;
+    let shouldSyncWhatsappWebhooks = false;
     try {
       updated = await this.prisma.appConfig.update({
         where: { id: 'global' },
@@ -339,11 +345,15 @@ export class SettingsService {
           ...(dto.evolutionApiApiKey != null
               ? { evolutionApiApiKey: this.sanitizeNullable(dto.evolutionApiApiKey) }
               : {}),
+          ...(dto.whatsappWebhookEnabled != null
+              ? { whatsappWebhookEnabled: !!dto.whatsappWebhookEnabled }
+              : {}),
             ...(dto.operationsTechCanViewAllServices != null
               ? { operationsTechCanViewAllServices: !!dto.operationsTechCanViewAllServices }
               : {}),
         },
       });
+      shouldSyncWhatsappWebhooks = dto.whatsappWebhookEnabled != null;
     } catch (e) {
       if (this.isMissingAppConfigTableOrColumns(e)) {
         throw new BadRequestException(
@@ -351,6 +361,12 @@ export class SettingsService {
         );
       }
       throw e;
+    }
+
+    if (shouldSyncWhatsappWebhooks) {
+      await this.whatsappService.syncWebhookConfigurationForAllInstances(
+        !!updated.whatsappWebhookEnabled,
+      );
     }
 
     return this.toResponse(updated, actor);

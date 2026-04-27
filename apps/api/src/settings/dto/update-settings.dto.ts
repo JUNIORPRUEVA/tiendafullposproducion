@@ -140,6 +140,10 @@ export class UpdateSettingsDto {
 
   @IsOptional()
   @IsBoolean()
+  whatsappWebhookEnabled?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
   operationsTechCanViewAllServices?: boolean;
 }
 

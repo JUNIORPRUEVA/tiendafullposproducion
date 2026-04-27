@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Param,
   Post,
   Req,
   UseGuards,
@@ -52,5 +53,18 @@ export class WhatsappController {
   @Roles(Role.ADMIN)
   listAdminUsers() {
     return this.whatsapp.listUsersWithWhatsappStatus();
+  }
+}
+
+@Controller('whatsapp/webhook')
+export class WhatsappWebhookController {
+  constructor(private readonly whatsapp: WhatsappService) {}
+
+  @Post(':instanceName')
+  receiveWebhook(
+    @Param('instanceName') instanceName: string,
+    @Body() payload: unknown,
+  ) {
+    return this.whatsapp.handleIncomingWebhook(instanceName, payload);
   }
 }
