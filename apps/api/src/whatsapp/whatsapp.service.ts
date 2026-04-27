@@ -3,7 +3,10 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
+import * as http from 'node:http';
+import * as https from 'node:https';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateWhatsappInstanceDto } from './dto/create-whatsapp-instance.dto';
@@ -60,6 +63,62 @@ export class WhatsappService {
     return `user_${userId.replace(/-/g, '').substring(0, 16)}`;
   }
 
+  private describeEvolutionError(error: unknown): string {
+    if (error instanceof Error) {
+      const code = (error as Error & { code?: string }).code;
+      return code ? `${error.message} [${code}]` : error.message;
+    }
+    return String(error);
+  }
+
+  private isEvolutionUnavailableError(error: unknown): boolean {
+    return error instanceof ServiceUnavailableException;
+  }
+
+  private async performEvolutionRequest(
+    url: URL,
+    init: { method?: string; headers?: Record<string, string>; body?: string },
+  ): Promise<{ status: number; contentType: string; bodyText: string }> {
+    const client = url.protocol === 'https:' ? https : http;
+
+    return new Promise((resolve, reject) => {
+      const req = client.request(
+        url,
+        {
+          method: init.method ?? 'GET',
+          headers: init.headers,
+          family: 4,
+          servername: url.hostname,
+          timeout: this.requestTimeoutMs,
+        },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+          res.on('end', () => {
+            const bodyText = Buffer.concat(chunks).toString('utf8');
+            resolve({
+              status: res.statusCode ?? 0,
+              contentType: Array.isArray(res.headers['content-type'])
+                ? res.headers['content-type'].join(',')
+                : (res.headers['content-type'] ?? ''),
+              bodyText,
+            });
+          });
+        },
+      );
+
+      req.on('timeout', () => {
+        req.destroy(new Error(`Evolution API timeout after ${this.requestTimeoutMs}ms`));
+      });
+      req.on('error', reject);
+
+      if (init.body) {
+        req.write(init.body);
+      }
+      req.end();
+    });
+  }
+
   private async fetchEvolution<T = unknown>(
     path: string,
     options?: RequestInit,
@@ -71,39 +130,50 @@ export class WhatsappService {
       );
     }
     const url = `${base}${path}`;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.requestTimeoutMs);
     try {
-      const res = await fetch(url, {
-        ...options,
+      const response = await this.performEvolutionRequest(new URL(url), {
+        method: options?.method,
         headers: {
           ...this.buildHeaders(),
-          ...(options?.headers ?? {}),
+          ...((options?.headers as Record<string, string> | undefined) ?? {}),
         },
-        signal: controller.signal,
+        body: typeof options?.body === 'string' ? options.body : undefined,
       });
 
       let body: unknown;
-      const contentType = res.headers.get('content-type') ?? '';
+      const contentType = response.contentType;
       if (contentType.includes('application/json')) {
-        body = await res.json();
+        body = response.bodyText ? JSON.parse(response.bodyText) : null;
       } else {
-        body = await res.text();
+        body = response.bodyText;
       }
 
-      if (!res.ok) {
+      if (response.status < 200 || response.status >= 300) {
         const msg =
           typeof body === 'string'
             ? body.trim()
-            : (body as { message?: string })?.message ?? `HTTP ${res.status}`;
+            : (body as { message?: string })?.message ?? `HTTP ${response.status}`;
         throw new BadRequestException(
-          `Evolution API error (HTTP ${res.status}): ${msg}`,
+          `Evolution API error (HTTP ${response.status}): ${msg}`,
         );
       }
 
       return body as T;
-    } finally {
-      clearTimeout(timer);
+    } catch (error) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof NotFoundException ||
+        error instanceof ConflictException ||
+        error instanceof ServiceUnavailableException
+      ) {
+        throw error;
+      }
+
+      const detail = this.describeEvolutionError(error);
+      console.error(`[WhatsApp][Evolution] Request failed ${url}: ${detail}`);
+      throw new ServiceUnavailableException(
+        `No se pudo conectar con Evolution API. Verifica EVOLUTION_API_URL, DNS, SSL y conectividad saliente del contenedor API. Detalle: ${detail}`,
+      );
     }
   }
 
@@ -184,7 +254,10 @@ export class WhatsappService {
           });
           record.status = newStatus;
         }
-      } catch {
+      } catch (error) {
+        console.warn(
+          `[WhatsApp][status] No se pudo consultar estado en Evolution para "${record.instanceName}": ${this.describeEvolutionError(error)}`,
+        );
         // Could not reach Evolution API — return stored status
       }
     }
@@ -251,6 +324,13 @@ export class WhatsappService {
         status: record.status,
       };
     } catch (firstErr) {
+      if (this.isEvolutionUnavailableError(firstErr)) {
+        console.error(
+          `[WhatsApp][QR] Evolution no disponible al conectar "${record.instanceName}": ${this.describeEvolutionError(firstErr)}`,
+        );
+        throw firstErr;
+      }
+
       // Instance likely doesn't exist in Evolution API (e.g. was never created
       // due to a prior network error). Try to recreate it, then retry.
       console.warn(
@@ -267,6 +347,13 @@ export class WhatsappService {
           }),
         });
       } catch (createErr) {
+        if (this.isEvolutionUnavailableError(createErr)) {
+          console.error(
+            `[WhatsApp][QR] Evolution no disponible al recrear "${record.instanceName}": ${this.describeEvolutionError(createErr)}`,
+          );
+          throw createErr;
+        }
+
         // If 409 (already exists), that's fine — continue to retry connect
         const msg =
           createErr instanceof Error ? createErr.message : String(createErr);
@@ -289,6 +376,13 @@ export class WhatsappService {
           status: record.status,
         };
       } catch (retryErr) {
+        if (this.isEvolutionUnavailableError(retryErr)) {
+          console.error(
+            `[WhatsApp][QR] Evolution no disponible en reintento para "${record.instanceName}": ${this.describeEvolutionError(retryErr)}`,
+          );
+          throw retryErr;
+        }
+
         const msg =
           retryErr instanceof Error ? retryErr.message : String(retryErr);
         console.error(`[WhatsApp][QR] Fallo definitivo al obtener QR para "${record.instanceName}": ${msg}`);
