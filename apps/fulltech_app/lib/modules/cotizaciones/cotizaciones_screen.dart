@@ -3322,9 +3322,9 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
           Expanded(
             child: LayoutBuilder(
               builder: (context, constraints) {
-                final quotePaneWidth = (constraints.maxWidth * 0.38).clamp(
-                  460.0,
-                  620.0,
+                final quotePaneWidth = (constraints.maxWidth * 0.43).clamp(
+                  540.0,
+                  720.0,
                 );
 
                 return Row(
@@ -3781,19 +3781,19 @@ class _DesktopCatalogPaneState extends State<_DesktopCatalogPane> {
                   : LayoutBuilder(
                       builder: (context, constraints) {
                         final width = constraints.maxWidth;
-                        final columns = width >= 1500
+                        final columns = width >= 1600
+                            ? 8
+                            : width >= 1280
+                            ? 7
+                            : width >= 1000
                             ? 6
-                            : width >= 1180
-                            ? 5
-                            : width >= 900
-                            ? 4
-                            : 3;
-                        final spacing = width >= 1180 ? 14.0 : 12.0;
+                            : 5;
+                        const spacing = 8.0;
                         final cardWidth =
                             (width - spacing * (columns - 1)) / columns;
-                        final cardHeight = (cardWidth * 0.82).clamp(
-                          160.0,
-                          205.0,
+                        final cardHeight = (cardWidth * 1.02).clamp(
+                          95.0,
+                          128.0,
                         );
 
                         return Scrollbar(
@@ -4249,129 +4249,116 @@ class _DesktopProductCard extends StatelessWidget {
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(12),
           onTap: onTap,
-          child: Ink(
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surface,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.04),
-                  blurRadius: 16,
-                  offset: const Offset(0, 8),
-                ),
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: Stack(
+              fit: StackFit.expand,
               children: [
-                Expanded(
-                  child: ClipRRect(
-                    borderRadius: const BorderRadius.vertical(
-                      top: Radius.circular(20),
-                    ),
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        (product.displayFotoUrl ?? '').trim().isEmpty
-                            ? Container(
-                                color:
-                                    theme.colorScheme.surfaceContainerHighest,
-                                child: const Center(
-                                  child: Icon(
-                                    Icons.inventory_2_outlined,
-                                    size: 34,
-                                  ),
-                                ),
-                              )
-                            : ProductNetworkImage(
-                                imageUrl: product.displayFotoUrl!,
-                                productId: product.id,
-                                productName: product.nombre,
-                                originalUrl: product.originalFotoUrl,
-                                fit: BoxFit.cover,
-                                loading: Container(
-                                  color:
-                                      theme.colorScheme.surfaceContainerHighest,
-                                  child: const Center(
-                                    child: Icon(
-                                      Icons.inventory_2_outlined,
-                                      size: 30,
-                                    ),
-                                  ),
-                                ),
-                                fallback: Container(
-                                  color:
-                                      theme.colorScheme.surfaceContainerHighest,
-                                  child: const Center(
-                                    child: Icon(
-                                      Icons.broken_image_outlined,
-                                      size: 30,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                        const Positioned.fill(
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                colors: [Color(0x05000000), Color(0x5E000000)],
-                              ),
+                // ── Background / image ──────────────────────────────
+                (product.displayFotoUrl ?? '').trim().isEmpty
+                    ? Container(
+                        color: theme.colorScheme.surfaceContainerHighest,
+                        child: Center(
+                          child: Icon(
+                            Icons.inventory_2_outlined,
+                            size: 24,
+                            color: theme.colorScheme.outline,
+                          ),
+                        ),
+                      )
+                    : ProductNetworkImage(
+                        imageUrl: product.displayFotoUrl!,
+                        productId: product.id,
+                        productName: product.nombre,
+                        originalUrl: product.originalFotoUrl,
+                        fit: BoxFit.cover,
+                        loading: Container(
+                          color: theme.colorScheme.surfaceContainerHighest,
+                          child: Center(
+                            child: Icon(
+                              Icons.inventory_2_outlined,
+                              size: 20,
+                              color: theme.colorScheme.outline,
                             ),
                           ),
                         ),
-                        Positioned(
-                          top: 10,
-                          right: 10,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withValues(alpha: 0.58),
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                            child: Text(
-                              money(product.precio),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w700,
-                              ),
+                        fallback: Container(
+                          color: theme.colorScheme.surfaceContainerHighest,
+                          child: Center(
+                            child: Icon(
+                              Icons.broken_image_outlined,
+                              size: 20,
+                              color: theme.colorScheme.outline,
                             ),
                           ),
                         ),
-                      ],
+                      ),
+                // ── Gradient overlay ────────────────────────────────
+                const Positioned.fill(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [Color(0x00000000), Color(0xD0000000)],
+                        stops: [0.30, 1.0],
+                      ),
                     ),
                   ),
                 ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+                // ── Price badge (top-right) ──────────────────────────
+                Positioned(
+                  top: 5,
+                  right: 5,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 5, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.70),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      money(product.precio),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 9.5,
+                        height: 1,
+                      ),
+                    ),
+                  ),
+                ),
+                // ── Name + category (bottom overlay) ────────────────
+                Positioned(
+                  left: 6,
+                  right: 6,
+                  bottom: 5,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
                         product.nombre,
-                        maxLines: 1,
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodyMedium?.copyWith(
+                        style: const TextStyle(
+                          fontSize: 9.8,
                           fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                          height: 1.1,
                         ),
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 2),
                       Text(
                         product.categoriaLabel,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                          fontSize: 11,
+                        style: const TextStyle(
+                          fontSize: 8.2,
+                          color: Colors.white70,
+                          height: 1,
                         ),
                       ),
                     ],

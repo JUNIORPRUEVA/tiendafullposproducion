@@ -157,10 +157,39 @@ export class WhatsappInboxWebhookController {
     try {
       // Access prisma through service private field using bracket notation
       const prismaService = (this.inboxService as unknown as { prisma: PrismaService }).prisma;
-      const instance = await prismaService.userWhatsappInstance.findUnique({
+      let instance = await prismaService.userWhatsappInstance.findUnique({
         where: { instanceName },
         select: { id: true, userId: true },
       });
+
+      // Fallback: check if this is the company-wide instance (stored in AppConfig)
+      if (!instance) {
+        const appConfig = await prismaService.appConfig.findUnique({
+          where: { id: 'global' },
+          select: { evolutionApiInstanceName: true },
+        });
+        if (appConfig?.evolutionApiInstanceName === instanceName) {
+          // Find first admin user to own the company instance record
+          const adminUser = await prismaService.user.findFirst({
+            where: { role: 'ADMIN' },
+            select: { id: true },
+          });
+          if (adminUser) {
+            // Upsert a UserWhatsappInstance record for the company instance
+            instance = await prismaService.userWhatsappInstance.upsert({
+              where: { instanceName },
+              create: {
+                instanceName,
+                userId: adminUser.id,
+                status: 'connected',
+                webhookEnabled: true,
+              },
+              update: {},
+              select: { id: true, userId: true },
+            });
+          }
+        }
+      }
 
       if (!instance) {
         return { ok: true, ignored: true, reason: 'instance_not_registered' };

@@ -66,8 +66,11 @@ export class WhatsappInboxService {
       } else if (rawMessageType === 'imageMessage') {
         messageType = WhatsappMessageType.IMAGE;
         const img = messageObj.imageMessage as Record<string, unknown> | undefined;
-        mediaUrl = (img?.url as string | undefined) ?? null;
         mediaMimeType = (img?.mimetype as string | undefined) ?? 'image/jpeg';
+        const imgBase64 = img?.base64 as string | undefined;
+        mediaUrl = imgBase64
+          ? `data:${mediaMimeType};base64,${imgBase64}`
+          : (img?.url as string | undefined) ?? null;
         caption = (img?.caption as string | undefined) ?? null;
         body = caption;
       } else if (rawMessageType === 'audioMessage' || rawMessageType === 'pttMessage') {
@@ -76,25 +79,38 @@ export class WhatsappInboxService {
           (messageObj.audioMessage ?? messageObj.pttMessage) as
             | Record<string, unknown>
             | undefined;
-        mediaUrl = (audio?.url as string | undefined) ?? null;
         mediaMimeType = (audio?.mimetype as string | undefined) ?? 'audio/ogg';
+        const audioBase64 = audio?.base64 as string | undefined;
+        mediaUrl = audioBase64
+          ? `data:${mediaMimeType};base64,${audioBase64}`
+          : (audio?.url as string | undefined) ?? null;
       } else if (rawMessageType === 'videoMessage') {
         messageType = WhatsappMessageType.VIDEO;
         const vid = messageObj.videoMessage as Record<string, unknown> | undefined;
-        mediaUrl = (vid?.url as string | undefined) ?? null;
         mediaMimeType = (vid?.mimetype as string | undefined) ?? 'video/mp4';
+        const vidBase64 = vid?.base64 as string | undefined;
+        mediaUrl = vidBase64
+          ? `data:${mediaMimeType};base64,${vidBase64}`
+          : (vid?.url as string | undefined) ?? null;
         caption = (vid?.caption as string | undefined) ?? null;
         body = caption;
       } else if (rawMessageType === 'documentMessage') {
         messageType = WhatsappMessageType.DOCUMENT;
         const doc = messageObj.documentMessage as Record<string, unknown> | undefined;
-        mediaUrl = (doc?.url as string | undefined) ?? null;
         mediaMimeType = (doc?.mimetype as string | undefined) ?? null;
+        const docBase64 = doc?.base64 as string | undefined;
+        mediaUrl = docBase64
+          ? `data:${mediaMimeType ?? 'application/octet-stream'};base64,${docBase64}`
+          : (doc?.url as string | undefined) ?? null;
         body = (doc?.fileName as string | undefined) ?? null;
       } else if (rawMessageType === 'stickerMessage') {
         messageType = WhatsappMessageType.STICKER;
         const sticker = messageObj.stickerMessage as Record<string, unknown> | undefined;
-        mediaUrl = (sticker?.url as string | undefined) ?? null;
+        const stickerMime = (sticker?.mimetype as string | undefined) ?? 'image/webp';
+        const stickerBase64 = sticker?.base64 as string | undefined;
+        mediaUrl = stickerBase64
+          ? `data:${stickerMime};base64,${stickerBase64}`
+          : (sticker?.url as string | undefined) ?? null;
       } else {
         // Unknown type: store raw body if possible
         body = JSON.stringify(messageObj).substring(0, 500);

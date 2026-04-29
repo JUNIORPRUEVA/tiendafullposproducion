@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -1296,26 +1297,7 @@ class _ImageContent extends StatelessWidget {
             borderRadius: BorderRadius.circular(8),
             child: GestureDetector(
               onTap: () => _showFullImage(context, url),
-              child: Image.network(
-                url,
-                width: 220,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => Container(
-                  width: 220,
-                  height: 120,
-                  color: Colors.grey.shade300,
-                  child: const Icon(Icons.broken_image_rounded, size: 40),
-                ),
-                loadingBuilder: (_, child, progress) {
-                  if (progress == null) return child;
-                  return Container(
-                    width: 220,
-                    height: 120,
-                    color: Colors.grey.shade200,
-                    child: const Center(child: CircularProgressIndicator()),
-                  );
-                },
-              ),
+              child: _buildImageWidget(url),
             ),
           )
         else
@@ -1341,16 +1323,68 @@ class _ImageContent extends StatelessWidget {
     );
   }
 
+  Widget _buildImageWidget(String url) {
+    if (url.startsWith('data:')) {
+      try {
+        final commaIdx = url.indexOf(',');
+        if (commaIdx != -1) {
+          final bytes = base64Decode(url.substring(commaIdx + 1));
+          return Image.memory(
+            bytes,
+            width: 220,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => _brokenImage(),
+          );
+        }
+      } catch (_) {
+        return _brokenImage();
+      }
+    }
+    return Image.network(
+      url,
+      width: 220,
+      fit: BoxFit.cover,
+      errorBuilder: (_, __, ___) => _brokenImage(),
+      loadingBuilder: (_, child, progress) {
+        if (progress == null) return child;
+        return Container(
+          width: 220,
+          height: 120,
+          color: Colors.grey.shade200,
+          child: const Center(child: CircularProgressIndicator()),
+        );
+      },
+    );
+  }
+
+  Widget _brokenImage() => Container(
+        width: 220,
+        height: 120,
+        color: Colors.grey.shade300,
+        child: const Icon(Icons.broken_image_rounded, size: 40),
+      );
+
   void _showFullImage(BuildContext context, String url) {
+    Widget imageWidget;
+    if (url.startsWith('data:')) {
+      try {
+        final commaIdx = url.indexOf(',');
+        final bytes = base64Decode(url.substring(commaIdx + 1));
+        imageWidget = Image.memory(bytes);
+      } catch (_) {
+        imageWidget = const Icon(Icons.broken_image_rounded,
+            size: 64, color: Colors.white);
+      }
+    } else {
+      imageWidget = Image.network(url);
+    }
     showDialog(
       context: context,
       builder: (ctx) => Dialog(
         backgroundColor: Colors.black,
         child: GestureDetector(
           onTap: () => Navigator.of(ctx).pop(),
-          child: InteractiveViewer(
-            child: Image.network(url),
-          ),
+          child: InteractiveViewer(child: imageWidget),
         ),
       ),
     );
