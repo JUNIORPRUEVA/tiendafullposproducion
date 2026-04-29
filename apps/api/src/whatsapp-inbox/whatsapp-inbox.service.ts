@@ -42,6 +42,10 @@ export class WhatsappInboxService {
       const pushName = (data.pushName as string | undefined) ?? null;
       const rawMessageType = (data.messageType as string | undefined) ?? '';
       const messageObj = (data.message as Record<string, unknown> | undefined) ?? {};
+      const fallbackBase64 =
+        (messageObj.base64 as string | undefined) ??
+        (data.base64 as string | undefined) ??
+        null;
       const ts = data.messageTimestamp;
       const sentAt = ts
         ? new Date(typeof ts === 'number' ? ts * 1000 : Number(ts) * 1000)
@@ -67,7 +71,7 @@ export class WhatsappInboxService {
         messageType = WhatsappMessageType.IMAGE;
         const img = messageObj.imageMessage as Record<string, unknown> | undefined;
         mediaMimeType = (img?.mimetype as string | undefined) ?? 'image/jpeg';
-        const imgBase64 = img?.base64 as string | undefined;
+        const imgBase64 = (img?.base64 as string | undefined) ?? fallbackBase64;
         mediaUrl = imgBase64
           ? `data:${mediaMimeType};base64,${imgBase64}`
           : (img?.url as string | undefined) ?? null;
@@ -80,7 +84,7 @@ export class WhatsappInboxService {
             | Record<string, unknown>
             | undefined;
         mediaMimeType = (audio?.mimetype as string | undefined) ?? 'audio/ogg';
-        const audioBase64 = audio?.base64 as string | undefined;
+        const audioBase64 = (audio?.base64 as string | undefined) ?? fallbackBase64;
         mediaUrl = audioBase64
           ? `data:${mediaMimeType};base64,${audioBase64}`
           : (audio?.url as string | undefined) ?? null;
@@ -88,7 +92,7 @@ export class WhatsappInboxService {
         messageType = WhatsappMessageType.VIDEO;
         const vid = messageObj.videoMessage as Record<string, unknown> | undefined;
         mediaMimeType = (vid?.mimetype as string | undefined) ?? 'video/mp4';
-        const vidBase64 = vid?.base64 as string | undefined;
+        const vidBase64 = (vid?.base64 as string | undefined) ?? fallbackBase64;
         mediaUrl = vidBase64
           ? `data:${mediaMimeType};base64,${vidBase64}`
           : (vid?.url as string | undefined) ?? null;
@@ -98,7 +102,7 @@ export class WhatsappInboxService {
         messageType = WhatsappMessageType.DOCUMENT;
         const doc = messageObj.documentMessage as Record<string, unknown> | undefined;
         mediaMimeType = (doc?.mimetype as string | undefined) ?? null;
-        const docBase64 = doc?.base64 as string | undefined;
+        const docBase64 = (doc?.base64 as string | undefined) ?? fallbackBase64;
         mediaUrl = docBase64
           ? `data:${mediaMimeType ?? 'application/octet-stream'};base64,${docBase64}`
           : (doc?.url as string | undefined) ?? null;
@@ -107,7 +111,7 @@ export class WhatsappInboxService {
         messageType = WhatsappMessageType.STICKER;
         const sticker = messageObj.stickerMessage as Record<string, unknown> | undefined;
         const stickerMime = (sticker?.mimetype as string | undefined) ?? 'image/webp';
-        const stickerBase64 = sticker?.base64 as string | undefined;
+        const stickerBase64 = (sticker?.base64 as string | undefined) ?? fallbackBase64;
         mediaUrl = stickerBase64
           ? `data:${stickerMime};base64,${stickerBase64}`
           : (sticker?.url as string | undefined) ?? null;

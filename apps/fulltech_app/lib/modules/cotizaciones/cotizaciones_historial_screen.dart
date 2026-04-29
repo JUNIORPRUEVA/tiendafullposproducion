@@ -17,6 +17,26 @@ import 'cotizacion_models.dart';
 import 'data/cotizaciones_repository.dart';
 import 'utils/cotizacion_pdf_service.dart';
 
+class _HistorialFilterState {
+  const _HistorialFilterState({
+    this.clientKey,
+    this.quoteTag,
+    this.fromDate,
+    this.toDate,
+  });
+
+  const _HistorialFilterState.clear()
+      : clientKey = null,
+        quoteTag = null,
+        fromDate = null,
+        toDate = null;
+
+  final String? clientKey;
+  final String? quoteTag;
+  final DateTime? fromDate;
+  final DateTime? toDate;
+}
+
 class CotizacionesHistorialScreen extends ConsumerStatefulWidget {
   final String? customerPhone;
   final bool pickForEditor;
@@ -52,6 +72,7 @@ class _CotizacionesHistorialScreenState
   String? _selectedQuoteTag;
   DateTime? _fromDate;
   DateTime? _toDate;
+  bool _ownOnly = false;
 
   String _money(double value) =>
       NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$').format(value);
@@ -527,6 +548,7 @@ class _CotizacionesHistorialScreenState
     final filtered = _items
         .where((item) {
           if (!_matchesSearch(item)) return false;
+          if (_ownOnly && !_isOwnClient(item)) return false;
           if (_selectedClientKey != null &&
               _clientKey(
                     customerId: item.customerId,
@@ -822,6 +844,7 @@ class _CotizacionesHistorialScreenState
       _selectedQuoteTag = null;
       _fromDate = null;
       _toDate = null;
+      _ownOnly = false;
     });
   }
 
@@ -1127,29 +1150,200 @@ class _CotizacionesHistorialScreenState
     );
   }
 
+  Widget _buildListContent(BuildContext context, List<CotizacionModel> visibleItems) {
+    final phone = (widget.customerPhone ?? '').trim();
+    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_error != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+        ),
+      );
+    }
+    if (_items.isEmpty) {
+      return Center(
+        child: Text(phone.isEmpty ? 'No hay cotizaciones guardadas' : 'Este cliente no tiene cotizaciones'),
+      );
+    }
+    if (visibleItems.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.search_off_rounded, size: 42, color: Theme.of(context).colorScheme.primary),
+              const SizedBox(height: 10),
+              Text('Sin resultados con los filtros activos.',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                textAlign: TextAlign.center),
+              const SizedBox(height: 6),
+              TextButton.icon(
+                onPressed: _clearFilters,
+                icon: const Icon(Icons.restart_alt_rounded),
+                label: const Text('Limpiar filtros'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView.separated(
+        padding: const EdgeInsets.fromLTRB(12, 4, 12, 18),
+        itemCount: visibleItems.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 8),
+        itemBuilder: (context, index) {
+          final item = visibleItems[index];
+          final canEditOrDelete = _canEditOrDelete(item);
+          final canDuplicate = widget.pickForEditor;
+          final quoteTag = _quoteTags(item).firstOrNull ?? 'General';
+          final isOwnClient = _isOwnClient(item);
+          final dateFmt = DateFormat('dd/MM/yy · h:mm a', 'es_DO').format(item.createdAt);
+          return _HistorialListCard(
+            item: item,
+            dateFmt: dateFmt,
+            quoteTag: quoteTag,
+            isOwnClient: isOwnClient,
+            money: _money(item.total),
+            canEdit: canEditOrDelete,
+            canDuplicate: canDuplicate,
+            onTap: () => _viewDetail(item),
+            onView: () => _viewDetail(item),
+            onPdf: () => _openPdfPreview(item),
+            onEdit: canEditOrDelete ? () => _editQuotation(item) : null,
+            onDuplicate: canDuplicate
+                ? () => Navigator.pop(context, CotizacionEditorPayload(source: item, duplicate: true))
+                : null,
+            onDelete: canEditOrDelete ? () => _delete(item) : null,
+          );
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final phone = (widget.customerPhone ?? '').trim();
     final visibleItems = _visibleItems;
     final isMobile = MediaQuery.of(context).size.width < 860;
 
+    if (!isMobile) {
+      // ── Desktop: AppBar + Row(list | sidebar) ──────────────────────────
+      final totalVisible = visibleItems.fold<double>(0, (s, i) => s + i.total);
+      final uniqueClients = {
+        for (final item in visibleItems)
+          _clientKey(customerId: item.customerId, customerPhone: item.customerPhone, customerName: item.customerName),
+      }.length;
+
+      return Scaffold(
+        appBar: CustomAppBar(
+          title: phone.isEmpty ? 'Historial cotizaciones' : 'Cotizaciones · $phone',
+          fallbackRoute: Routes.cotizaciones,
+          showLogo: false,
+          showDepartmentLabel: false,
+        ),
+        body: SafeArea(
+          bottom: false,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // ── Left: search bar + list ──────────────────────────────────
+              Expanded(
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+                      child: TextField(
+                        controller: _searchCtrl,
+                        decoration: InputDecoration(
+                          hintText: 'Buscar cliente, teléfono o fecha…',
+                          isDense: true,
+                          prefixIcon: const Icon(Icons.search_rounded),
+                          suffixIcon: _searchQuery.isEmpty
+                              ? null
+                              : IconButton(
+                                  onPressed: () => _searchCtrl.clear(),
+                                  icon: const Icon(Icons.close_rounded),
+                                ),
+                          filled: true,
+                          fillColor: Theme.of(context).colorScheme.surfaceContainerHigh,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            borderSide: BorderSide.none,
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        ),
+                      ),
+                    ),
+                    if (_refreshing) const LinearProgressIndicator(minHeight: 2),
+                    Expanded(child: _buildListContent(context, visibleItems)),
+                  ],
+                ),
+              ),
+              // ── Right: fixed sidebar ────────────────────────────────────
+              Container(
+                width: 1,
+                color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.40),
+              ),
+              SizedBox(
+                width: 272,
+                child: _HistorialDesktopSidebar(
+                  totalCount: visibleItems.length,
+                  totalAmount: totalVisible,
+                  uniqueClients: uniqueClients,
+                  ownOnly: _ownOnly,
+                  selectedTag: _selectedQuoteTag,
+                  availableTags: _availableTags,
+                  fromDate: _fromDate,
+                  toDate: _toDate,
+                  hasActiveFilters: _activeFilterCount > 0 || _searchQuery.isNotEmpty || _ownOnly,
+                  onToggleOwn: (v) => setState(() {
+                    _ownOnly = v;
+                    _selectedClientKey = null;
+                  }),
+                  onSelectTag: (tag) => setState(() => _selectedQuoteTag = tag),
+                  onPickFrom: () async {
+                    final now = DateTime.now();
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: _fromDate ?? now,
+                      firstDate: DateTime(now.year - 5),
+                      lastDate: DateTime(now.year + 2),
+                      locale: const Locale('es', 'DO'),
+                    );
+                    if (picked != null) setState(() => _fromDate = picked);
+                  },
+                  onPickTo: () async {
+                    final now = DateTime.now();
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: _toDate ?? now,
+                      firstDate: DateTime(now.year - 5),
+                      lastDate: DateTime(now.year + 2),
+                      locale: const Locale('es', 'DO'),
+                    );
+                    if (picked != null) setState(() => _toDate = picked);
+                  },
+                  onClearFilters: _clearFilters,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // ── Mobile ────────────────────────────────────────────────────────────
     return Scaffold(
-      appBar: isMobile
-          ? null
-          : CustomAppBar(
-              title: phone.isEmpty
-                  ? 'Historial cotizaciones'
-                  : 'Cotizaciones · $phone',
-              fallbackRoute: Routes.cotizaciones,
-              showLogo: false,
-              showDepartmentLabel: false,
-            ),
       body: SafeArea(
-        top: isMobile,
+        top: true,
         bottom: false,
         child: Column(
           children: [
-            _buildToolbar(context, isMobile: isMobile),
+            _buildToolbar(context, isMobile: true),
             if (_refreshing) const LinearProgressIndicator(minHeight: 2),
             Expanded(
               child: _loading
@@ -1209,7 +1403,7 @@ class _CotizacionesHistorialScreenState
                         padding: const EdgeInsets.fromLTRB(12, 4, 12, 18),
                         itemCount: visibleItems.length,
                         separatorBuilder: (context, index) =>
-                            const SizedBox(height: 10),
+                            const SizedBox(height: 8),
                         itemBuilder: (context, index) {
                           final item = visibleItems[index];
                           final canEditOrDelete = _canEditOrDelete(item);
@@ -1218,188 +1412,24 @@ class _CotizacionesHistorialScreenState
                           final quoteTag =
                               _quoteTags(item).firstOrNull ?? 'General';
                           final isOwnClient = _isOwnClient(item);
-                          final secondaryParts = <String>[
-                            DateFormat(
-                              'dd/MM/yyyy · h:mm a',
-                              'es_DO',
-                            ).format(item.createdAt),
-                            'Lineas ${item.items.length}',
-                            quoteTag,
-                            if ((item.customerPhone ?? '').trim().isNotEmpty)
-                              item.customerPhone!.trim(),
-                            if (isOwnClient) 'Mi cliente',
-                          ];
-                          final secondary = secondaryParts.join('   ·   ');
+                          final dateFmt = DateFormat('dd/MM/yy · h:mm a', 'es_DO').format(item.createdAt);
 
-                          return Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(18),
-                              onTap: () => _viewDetail(item),
-                              child: Ink(
-                                decoration: BoxDecoration(
-                                  color: Theme.of(context).colorScheme.surface,
-                                  borderRadius: BorderRadius.circular(18),
-                                  border: Border.all(
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .outlineVariant
-                                        .withValues(alpha: 0.48),
-                                  ),
-                                ),
-                                child: Padding(
-                                  padding: const EdgeInsets.fromLTRB(
-                                    12,
-                                    10,
-                                    8,
-                                    10,
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Container(
-                                        width: 34,
-                                        height: 34,
-                                        decoration: BoxDecoration(
-                                          color: Theme.of(context)
-                                              .colorScheme
-                                              .primary
-                                              .withValues(alpha: 0.10),
-                                          borderRadius: BorderRadius.circular(
-                                            11,
-                                          ),
-                                        ),
-                                        child: Icon(
-                                          Icons.description_outlined,
-                                          size: 18,
-                                          color: Theme.of(
-                                            context,
-                                          ).colorScheme.primary,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 10),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Row(
-                                              children: [
-                                                Expanded(
-                                                  child: Text(
-                                                    item.customerName
-                                                            .trim()
-                                                            .isEmpty
-                                                        ? 'Cliente sin nombre'
-                                                        : item.customerName
-                                                              .trim(),
-                                                    maxLines: 1,
-                                                    overflow:
-                                                        TextOverflow.ellipsis,
-                                                    style: Theme.of(context)
-                                                        .textTheme
-                                                        .titleSmall
-                                                        ?.copyWith(
-                                                          fontWeight:
-                                                              FontWeight.w800,
-                                                        ),
-                                                  ),
-                                                ),
-                                                const SizedBox(width: 8),
-                                                Text(
-                                                  _money(item.total),
-                                                  maxLines: 1,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                  style: Theme.of(context)
-                                                      .textTheme
-                                                      .labelLarge
-                                                      ?.copyWith(
-                                                        fontWeight:
-                                                            FontWeight.w800,
-                                                        color: Theme.of(
-                                                          context,
-                                                        ).colorScheme.primary,
-                                                      ),
-                                                ),
-                                              ],
-                                            ),
-                                            const SizedBox(height: 3),
-                                            Text(
-                                              secondary,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: Theme.of(
-                                                context,
-                                              ).textTheme.bodySmall,
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      PopupMenuButton<String>(
-                                        tooltip: 'Acciones',
-                                        onSelected: (value) async {
-                                          if (value == 'view') {
-                                            _viewDetail(item);
-                                            return;
-                                          }
-                                          if (value == 'pdf') {
-                                            await _openPdfPreview(item);
-                                            return;
-                                          }
-                                          if (value == 'duplicate' &&
-                                              canDuplicate) {
-                                            Navigator.pop(
-                                              context,
-                                              CotizacionEditorPayload(
-                                                source: item,
-                                                duplicate: true,
-                                              ),
-                                            );
-                                            return;
-                                          }
-                                          if (value == 'edit' && canEdit) {
-                                            await _editQuotation(item);
-                                            return;
-                                          }
-                                          if (value == 'delete' &&
-                                              canEditOrDelete) {
-                                            await _delete(item);
-                                          }
-                                        },
-                                        itemBuilder: (context) => [
-                                          const PopupMenuItem<String>(
-                                            value: 'view',
-                                            child: Text('Ver detalle'),
-                                          ),
-                                          const PopupMenuItem<String>(
-                                            value: 'pdf',
-                                            child: Text('Ver PDF'),
-                                          ),
-                                          if (canEdit)
-                                            const PopupMenuItem<String>(
-                                              value: 'edit',
-                                              child: Text('Editar'),
-                                            ),
-                                          if (canDuplicate)
-                                            const PopupMenuItem<String>(
-                                              value: 'duplicate',
-                                              child: Text('Duplicar'),
-                                            ),
-                                          if (canEditOrDelete)
-                                            const PopupMenuItem<String>(
-                                              value: 'delete',
-                                              child: Text('Eliminar'),
-                                            ),
-                                        ],
-                                        icon: const Icon(
-                                          Icons.more_horiz_rounded,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
+                          return _HistorialListCard(
+                            item: item,
+                            dateFmt: dateFmt,
+                            quoteTag: quoteTag,
+                            isOwnClient: isOwnClient,
+                            money: _money(item.total),
+                            canEdit: canEdit,
+                            canDuplicate: canDuplicate,
+                            onTap: () => _viewDetail(item),
+                            onView: () => _viewDetail(item),
+                            onPdf: () => _openPdfPreview(item),
+                            onEdit: canEdit ? () => _editQuotation(item) : null,
+                            onDuplicate: canDuplicate
+                                ? () => Navigator.pop(context, CotizacionEditorPayload(source: item, duplicate: true))
+                                : null,
+                            onDelete: canEditOrDelete ? () => _delete(item) : null,
                           );
                         },
                       ),
@@ -1412,24 +1442,396 @@ class _CotizacionesHistorialScreenState
   }
 }
 
-class _HistorialFilterState {
-  const _HistorialFilterState({
-    required this.clientKey,
-    required this.quoteTag,
+// ═══════════════════════════════════════════════════════════════════════════
+// Desktop sidebar
+// ═══════════════════════════════════════════════════════════════════════════
+
+class _HistorialDesktopSidebar extends StatelessWidget {
+  const _HistorialDesktopSidebar({
+    required this.totalCount,
+    required this.totalAmount,
+    required this.uniqueClients,
+    required this.ownOnly,
+    required this.selectedTag,
+    required this.availableTags,
     required this.fromDate,
     required this.toDate,
+    required this.hasActiveFilters,
+    required this.onToggleOwn,
+    required this.onSelectTag,
+    required this.onPickFrom,
+    required this.onPickTo,
+    required this.onClearFilters,
   });
 
-  const _HistorialFilterState.clear()
-    : clientKey = null,
-      quoteTag = null,
-      fromDate = null,
-      toDate = null;
-
-  final String? clientKey;
-  final String? quoteTag;
+  final int totalCount;
+  final double totalAmount;
+  final int uniqueClients;
+  final bool ownOnly;
+  final String? selectedTag;
+  final List<String> availableTags;
   final DateTime? fromDate;
   final DateTime? toDate;
+  final bool hasActiveFilters;
+  final ValueChanged<bool> onToggleOwn;
+  final ValueChanged<String?> onSelectTag;
+  final VoidCallback onPickFrom;
+  final VoidCallback onPickTo;
+  final VoidCallback onClearFilters;
+
+  String _fmt(double v) =>
+      NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$').format(v);
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final primary = theme.colorScheme.primary;
+
+    return Container(
+      color: theme.colorScheme.surfaceContainerLow,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(14, 16, 14, 24),
+        children: [
+          // ── Stats ────────────────────────────────────────────────────────
+          _HSidebarSection(
+            label: 'Panel',
+            icon: Icons.dashboard_customize_outlined,
+            child: Column(
+              children: [
+                _HSidebarStat(icon: Icons.receipt_long_outlined, label: 'Cotizaciones', value: '$totalCount', theme: theme),
+                const SizedBox(height: 8),
+                _HSidebarStat(icon: Icons.people_outline, label: 'Clientes únicos', value: '$uniqueClients', theme: theme),
+                const SizedBox(height: 8),
+                _HSidebarStat(icon: Icons.payments_outlined, label: 'Total acumulado', value: _fmt(totalAmount), theme: theme, accent: true),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          // ── Owner ─────────────────────────────────────────────────────────
+          _HSidebarSection(
+            label: 'Clientes',
+            icon: Icons.person_pin_outlined,
+            child: Row(
+              children: [
+                Expanded(child: _HOwnerChip(label: 'Todos', selected: !ownOnly, onTap: () => onToggleOwn(false), theme: theme)),
+                const SizedBox(width: 8),
+                Expanded(child: _HOwnerChip(label: 'Mis clientes', selected: ownOnly, onTap: () => onToggleOwn(true), theme: theme)),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          // ── Category tags ─────────────────────────────────────────────────
+          if (availableTags.isNotEmpty) ...[
+            _HSidebarSection(
+              label: 'Categoría',
+              icon: Icons.category_outlined,
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  _HTagChip(label: 'Todas', selected: selectedTag == null, onTap: () => onSelectTag(null), theme: theme),
+                  ...availableTags.map((tag) => _HTagChip(
+                    label: tag,
+                    selected: selectedTag == tag,
+                    onTap: () => onSelectTag(selectedTag == tag ? null : tag),
+                    theme: theme,
+                  )),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+          // ── Date range ────────────────────────────────────────────────────
+          _HSidebarSection(
+            label: 'Fecha',
+            icon: Icons.date_range_outlined,
+            child: Column(
+              children: [
+                _HDateButton(label: 'Desde', date: fromDate, onTap: onPickFrom, theme: theme),
+                const SizedBox(height: 8),
+                _HDateButton(label: 'Hasta', date: toDate, onTap: onPickTo, theme: theme),
+              ],
+            ),
+          ),
+          // ── Clear ─────────────────────────────────────────────────────────
+          if (hasActiveFilters) ...[
+            const SizedBox(height: 16),
+            OutlinedButton.icon(
+              onPressed: onClearFilters,
+              icon: const Icon(Icons.restart_alt_rounded, size: 16),
+              label: const Text('Limpiar filtros'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: primary,
+                side: BorderSide(color: primary.withValues(alpha: 0.40)),
+                minimumSize: const Size(double.infinity, 40),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _HSidebarSection extends StatelessWidget {
+  const _HSidebarSection({required this.label, required this.icon, required this.child});
+  final String label;
+  final IconData icon;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, size: 13, color: theme.colorScheme.onSurfaceVariant),
+            const SizedBox(width: 5),
+            Text(label.toUpperCase(), style: theme.textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w800, letterSpacing: 0.8, color: theme.colorScheme.onSurfaceVariant)),
+          ],
+        ),
+        const SizedBox(height: 8),
+        child,
+      ],
+    );
+  }
+}
+
+class _HSidebarStat extends StatelessWidget {
+  const _HSidebarStat({required this.icon, required this.label, required this.value, required this.theme, this.accent = false});
+  final IconData icon;
+  final String label;
+  final String value;
+  final ThemeData theme;
+  final bool accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = accent ? theme.colorScheme.primary : theme.colorScheme.onSurface;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: accent ? theme.colorScheme.primary.withValues(alpha: 0.25) : theme.colorScheme.outlineVariant.withValues(alpha: 0.50)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 14, color: color.withValues(alpha: 0.65)),
+          const SizedBox(width: 8),
+          Expanded(child: Text(label, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant))),
+          Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800, color: color)),
+        ],
+      ),
+    );
+  }
+}
+
+class _HOwnerChip extends StatelessWidget {
+  const _HOwnerChip({required this.label, required this.selected, required this.onTap, required this.theme});
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  final ThemeData theme;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(vertical: 9),
+        decoration: BoxDecoration(
+          color: selected ? theme.colorScheme.primary : theme.colorScheme.surface,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: selected ? theme.colorScheme.primary : theme.colorScheme.outlineVariant.withValues(alpha: 0.55)),
+        ),
+        child: Center(
+          child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w700, color: selected ? Colors.white : theme.colorScheme.onSurface)),
+        ),
+      ),
+    );
+  }
+}
+
+class _HTagChip extends StatelessWidget {
+  const _HTagChip({required this.label, required this.selected, required this.onTap, required this.theme});
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  final ThemeData theme;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 140),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: selected ? theme.colorScheme.primary.withValues(alpha: 0.12) : theme.colorScheme.surface,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: selected ? theme.colorScheme.primary.withValues(alpha: 0.60) : theme.colorScheme.outlineVariant.withValues(alpha: 0.50),
+            width: selected ? 1.5 : 1,
+          ),
+        ),
+        child: Text(label, style: theme.textTheme.labelMedium?.copyWith(fontWeight: selected ? FontWeight.w800 : FontWeight.w600, color: selected ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant)),
+      ),
+    );
+  }
+}
+
+class _HDateButton extends StatelessWidget {
+  const _HDateButton({required this.label, required this.date, required this.onTap, required this.theme});
+  final String label;
+  final DateTime? date;
+  final VoidCallback onTap;
+  final ThemeData theme;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasDate = date != null;
+    final text = hasDate ? DateFormat('dd/MM/yyyy', 'es_DO').format(date!) : label;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surface,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: hasDate ? theme.colorScheme.primary.withValues(alpha: 0.45) : theme.colorScheme.outlineVariant.withValues(alpha: 0.50)),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.event_outlined, size: 14, color: hasDate ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(text, style: theme.textTheme.bodySmall?.copyWith(fontWeight: hasDate ? FontWeight.w700 : FontWeight.w500, color: hasDate ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// List card (shared by mobile and desktop list)
+// ═══════════════════════════════════════════════════════════════════════════
+
+class _HistorialListCard extends StatelessWidget {
+  const _HistorialListCard({
+    required this.item,
+    required this.dateFmt,
+    required this.quoteTag,
+    required this.isOwnClient,
+    required this.money,
+    required this.canEdit,
+    required this.canDuplicate,
+    required this.onTap,
+    required this.onView,
+    required this.onPdf,
+    this.onEdit,
+    this.onDuplicate,
+    this.onDelete,
+  });
+
+  final CotizacionModel item;
+  final String dateFmt;
+  final String quoteTag;
+  final bool isOwnClient;
+  final String money;
+  final bool canEdit;
+  final bool canDuplicate;
+  final VoidCallback onTap;
+  final VoidCallback onView;
+  final VoidCallback onPdf;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDuplicate;
+  final VoidCallback? onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final clientName = item.customerName.trim().isEmpty ? 'Cliente sin nombre' : item.customerName.trim();
+    final secondary = [dateFmt, '${item.items.length} líneas', quoteTag, if ((item.customerPhone ?? '').trim().isNotEmpty) item.customerPhone!.trim(), if (isOwnClient) 'Mi cliente'].join(' · ');
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Ink(
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45)),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 6, 10),
+            child: Row(
+              children: [
+                Container(
+                  width: 36, height: 36,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primary.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(Icons.description_outlined, size: 18, color: theme.colorScheme.primary),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(child: Text(clientName, maxLines: 1, overflow: TextOverflow.ellipsis, style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800))),
+                          const SizedBox(width: 8),
+                          Text(money, maxLines: 1, style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w800, color: theme.colorScheme.primary)),
+                        ],
+                      ),
+                      const SizedBox(height: 3),
+                      Text(secondary, maxLines: 1, overflow: TextOverflow.ellipsis, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+                    ],
+                  ),
+                ),
+                PopupMenuButton<String>(
+                  tooltip: 'Acciones',
+                  onSelected: (value) {
+                    if (value == 'view') onView();
+                    if (value == 'pdf') onPdf();
+                    if (value == 'edit') onEdit?.call();
+                    if (value == 'duplicate') onDuplicate?.call();
+                    if (value == 'delete') onDelete?.call();
+                  },
+                  itemBuilder: (_) => [
+                    const PopupMenuItem(value: 'view', child: Text('Ver detalle')),
+                    const PopupMenuItem(value: 'pdf', child: Text('Ver PDF')),
+                    if (canEdit) const PopupMenuItem(value: 'edit', child: Text('Editar')),
+                    if (canDuplicate) const PopupMenuItem(value: 'duplicate', child: Text('Duplicar')),
+                    if (onDelete != null) const PopupMenuItem(value: 'delete', child: Text('Eliminar')),
+                  ],
+                  icon: Container(
+                    padding: const EdgeInsets.all(5),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.more_horiz_rounded, size: 16),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _ClientFilterOption {

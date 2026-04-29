@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:media_kit/media_kit.dart' as media_kit;
+import 'package:media_kit_video/media_kit_video.dart' as media_kit_video;
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -1094,6 +1096,48 @@ Future<void> _openMedia(String mediaUrl, String? mimeType) async {
   }
 }
 
+Future<String> _mediaSourceForPlayback(
+  String mediaUrl,
+  String? mimeType, {
+  required String prefix,
+}) async {
+  if (!mediaUrl.startsWith('data:') &&
+      (mediaUrl.startsWith('http://') ||
+          mediaUrl.startsWith('https://') ||
+          mediaUrl.startsWith('file://'))) {
+    return mediaUrl;
+  }
+
+  final commaIdx = mediaUrl.indexOf(',');
+  final isDataUri = mediaUrl.startsWith('data:');
+  if (isDataUri && commaIdx == -1) throw Exception('URI base64 inválido');
+
+  String? detectedMime = mimeType;
+  if (detectedMime == null || detectedMime.trim().isEmpty) {
+    if (isDataUri) {
+      final header = mediaUrl.substring(5, commaIdx);
+      final semiIdx = header.indexOf(';');
+      detectedMime = semiIdx == -1 ? header : header.substring(0, semiIdx);
+    } else {
+      detectedMime = 'application/octet-stream';
+    }
+  }
+
+  final bytes = base64Decode(
+    isDataUri ? mediaUrl.substring(commaIdx + 1) : mediaUrl,
+  );
+  final ext = _mimeToExtension(detectedMime);
+  final tempDir = await getTemporaryDirectory();
+  final hash = mediaUrl.hashCode.abs();
+  final file = File(
+    '${tempDir.path}${Platform.pathSeparator}${prefix}_$hash$ext',
+  );
+  if (!await file.exists()) {
+    await file.writeAsBytes(bytes, flush: true);
+  }
+  return Uri.file(file.path).toString();
+}
+
 // ─── Chat Panel ───────────────────────────────────────────────────────────────
 
 class _ChatPanel extends StatelessWidget {
@@ -1418,6 +1462,18 @@ class _ImageContent extends StatelessWidget {
         return _brokenImage();
       }
     }
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      try {
+        return Image.memory(
+          base64Decode(url),
+          width: 220,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => _brokenImage(),
+        );
+      } catch (_) {
+        return _brokenImage();
+      }
+    }
     return Image.network(
       url,
       width: 220,
@@ -1453,6 +1509,13 @@ class _ImageContent extends StatelessWidget {
         imageWidget = const Icon(Icons.broken_image_rounded,
             size: 64, color: Colors.white);
       }
+    } else if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      try {
+        imageWidget = Image.memory(base64Decode(url));
+      } catch (_) {
+        imageWidget = const Icon(Icons.broken_image_rounded,
+            size: 64, color: Colors.white);
+      }
     } else {
       imageWidget = Image.network(url);
     }
@@ -1478,69 +1541,266 @@ class _AudioContent extends StatefulWidget {
 }
 
 class _AudioContentState extends State<_AudioContent> {
-  bool _loading = false;
+  media_kit.Player? _player;
+  StreamSubscription<bool>? _playingSub;
+  StreamSubscription<Duration>? _positionSub;
+  StreamSubscription<Duration>? _durationSub;
+  bool _initializing = false;
+  bool _initialized = false;
+  bool _playing = false;
+  Duration _position = Duration.zero;
+  Duration _duration = Duration.zero;
+  String? _error;
 
-  Future<void> _play() async {
-    if (widget.msg.mediaUrl == null) return;
-    setState(() => _loading = true);
-    await _openMedia(widget.msg.mediaUrl!, widget.msg.mediaMimeType);
-    if (mounted) setState(() => _loading = false);
+  @override
+  void dispose() {
+    _playingSub?.cancel();
+    _positionSub?.cancel();
+    _durationSub?.cancel();
+    _player?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _ensureInitialized() async {
+    if (_initializing || _initialized) return;
+    setState(() => _initializing = true);
+
+    try {
+      final url = widget.msg.mediaUrl;
+      if (url == null) throw Exception('Sin URL de audio');
+
+      final source = await _mediaSourceForPlayback(
+        url,
+        widget.msg.mediaMimeType,
+        prefix: 'wa_audio',
+      );
+
+      final player = media_kit.Player();
+      await player.setVolume(100);
+      _playingSub = player.stream.playing.listen((value) {
+        if (mounted) setState(() => _playing = value);
+      });
+      _positionSub = player.stream.position.listen((value) {
+        if (mounted) setState(() => _position = value);
+      });
+      _durationSub = player.stream.duration.listen((value) {
+        if (mounted) setState(() => _duration = value);
+      });
+
+      await player.open(media_kit.Media(source), play: true);
+
+      if (mounted) {
+        setState(() {
+          _player = player;
+          _initializing = false;
+          _initialized = true;
+        });
+      } else {
+        await player.dispose();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _initializing = false;
+          _error = e.toString();
+        });
+      }
+    }
+  }
+
+  Future<void> _togglePlayPause() async {
+    final player = _player;
+    if (player == null) return;
+    if (_playing) {
+      await player.pause();
+    } else {
+      if (_duration > Duration.zero && _position >= _duration) {
+        await player.seek(Duration.zero);
+      }
+      await player.play();
+    }
+  }
+
+  String _fmt(Duration d) {
+    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$m:$s';
   }
 
   @override
   Widget build(BuildContext context) {
     final color = widget.textColor;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _loading
-            ? SizedBox(
-                width: 28,
-                height: 28,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: color,
+
+    if (widget.msg.mediaUrl == null) {
+      return Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(Icons.mic_off_rounded, color: color, size: 16),
+        const SizedBox(width: 6),
+        Text('Audio no disponible',
+            style: TextStyle(color: color, fontSize: 13)),
+      ]);
+    }
+
+    if (_error != null) {
+      return Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(Icons.error_outline, color: color, size: 16),
+        const SizedBox(width: 6),
+        Text('Error al cargar audio',
+            style: TextStyle(color: color, fontSize: 13)),
+      ]);
+    }
+
+    // Not yet loaded — show tap-to-play
+    if (!_initialized) {
+      return GestureDetector(
+        onTap: _ensureInitialized,
+        child: SizedBox(
+          width: 220,
+          child: Row(
+            children: [
+              _initializing
+                  ? SizedBox(
+                      width: 36,
+                      height: 36,
+                      child: Padding(
+                        padding: const EdgeInsets.all(7),
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2.5, color: color),
+                      ),
+                    )
+                  : Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: color.withValues(alpha: 0.15),
+                      ),
+                      child: Icon(Icons.play_arrow_rounded,
+                          color: color, size: 22),
+                    ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('Audio',
+                        style: TextStyle(
+                            color: color,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 2),
+                    // Fake waveform bar
+                    _StaticWaveform(color: color),
+                  ],
                 ),
-              )
-            : GestureDetector(
-                onTap: widget.msg.mediaUrl != null ? _play : null,
-                child: Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: color.withValues(alpha: 0.15),
-                  ),
-                  child: Icon(
-                    Icons.play_arrow_rounded,
-                    color: color,
-                    size: 22,
-                  ),
-                ),
               ),
-        const SizedBox(width: 10),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'Audio',
-              style: TextStyle(
-                color: color,
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            Text(
-              widget.msg.mediaUrl != null ? 'Toca para escuchar' : 'No disponible',
-              style: TextStyle(
-                color: color.withValues(alpha: 0.6),
-                fontSize: 10,
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ],
+      );
+    }
+
+    // Initialized — show inline player
+  final player = _player!;
+  final progress = _duration.inMilliseconds > 0
+    ? (_position.inMilliseconds / _duration.inMilliseconds).clamp(0.0, 1.0)
+        : 0.0;
+
+    return SizedBox(
+      width: 230,
+      child: Row(
+        children: [
+          GestureDetector(
+            onTap: _togglePlayPause,
+            child: Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: color.withValues(alpha: 0.15),
+              ),
+              child: Icon(
+                _playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                color: color,
+                size: 22,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SliderTheme(
+                  data: SliderThemeData(
+                    trackHeight: 2.5,
+                    thumbShape:
+                        const RoundSliderThumbShape(enabledThumbRadius: 5),
+                    overlayShape: SliderComponentShape.noOverlay,
+                    activeTrackColor: color,
+                    inactiveTrackColor: color.withValues(alpha: 0.25),
+                    thumbColor: color,
+                  ),
+                  child: Slider(
+                    value: progress.toDouble(),
+                    onChanged: (v) {
+                      final ms = (v * _duration.inMilliseconds).round();
+                      player.seek(Duration(milliseconds: ms));
+                    },
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(_fmt(_position),
+                          style: TextStyle(
+                              color: color.withValues(alpha: 0.7),
+                              fontSize: 9)),
+                      Text(_fmt(_duration),
+                          style: TextStyle(
+                              color: color.withValues(alpha: 0.7),
+                              fontSize: 9)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A decorative static waveform bar shown before audio is loaded.
+class _StaticWaveform extends StatelessWidget {
+  const _StaticWaveform({required this.color});
+  final Color color;
+
+  static const _heights = [4.0, 8.0, 12.0, 6.0, 14.0, 8.0, 10.0, 6.0, 4.0,
+    12.0, 8.0, 14.0, 6.0, 10.0, 8.0, 4.0, 12.0, 6.0];
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 20,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: _heights
+            .map((h) => Container(
+                  width: 3,
+                  height: h,
+                  margin: const EdgeInsets.symmetric(horizontal: 1),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ))
+            .toList(),
+      ),
     );
   }
 }
@@ -1554,52 +1814,129 @@ class _VideoContent extends StatefulWidget {
 }
 
 class _VideoContentState extends State<_VideoContent> {
+  media_kit.Player? _player;
+  media_kit_video.VideoController? _videoController;
+  StreamSubscription<bool>? _playingSub;
   bool _loading = false;
+  bool _initialized = false;
+  bool _playing = false;
+  String? _error;
 
-  Future<void> _play() async {
+  @override
+  void dispose() {
+    _playingSub?.cancel();
+    _player?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _initializeAndPlay() async {
     if (widget.msg.mediaUrl == null) return;
     setState(() => _loading = true);
-    await _openMedia(widget.msg.mediaUrl!, widget.msg.mediaMimeType ?? 'video/mp4');
-    if (mounted) setState(() => _loading = false);
+    try {
+      final source = await _mediaSourceForPlayback(
+        widget.msg.mediaUrl!,
+        widget.msg.mediaMimeType ?? 'video/mp4',
+        prefix: 'wa_video',
+      );
+      final player = media_kit.Player();
+      await player.setVolume(100);
+      final controller = media_kit_video.VideoController(player);
+      _playingSub = player.stream.playing.listen((value) {
+        if (mounted) setState(() => _playing = value);
+      });
+      await player.open(media_kit.Media(source), play: true);
+      if (!mounted) {
+        await player.dispose();
+        return;
+      }
+      setState(() {
+        _player = player;
+        _videoController = controller;
+        _initialized = true;
+        _loading = false;
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = e.toString();
+        });
+      }
+    }
+  }
+
+  Future<void> _togglePlayPause() async {
+    final player = _player;
+    if (player == null) return;
+    if (_playing) {
+      await player.pause();
+    } else {
+      await player.play();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final color = widget.textColor;
+    final controller = _videoController;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        GestureDetector(
-          onTap: widget.msg.mediaUrl != null ? _play : null,
-          child: Container(
-            width: 220,
-            height: 130,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(8),
-              color: Colors.black54,
+        ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: GestureDetector(
+            onTap: _initialized ? _togglePlayPause : _initializeAndPlay,
+            child: Container(
+              width: 260,
+              height: 150,
+              color: Colors.black87,
+              child: _error != null
+                  ? const Center(
+                      child: Icon(Icons.error_outline,
+                          color: Colors.white70, size: 34),
+                    )
+                  : _initialized && controller != null
+                      ? Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            media_kit_video.Video(controller: controller),
+                            if (!_playing)
+                              Container(
+                                width: 52,
+                                height: 52,
+                                decoration: const BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: Colors.black45,
+                                ),
+                                child: const Icon(Icons.play_arrow_rounded,
+                                    color: Colors.white, size: 34),
+                              ),
+                          ],
+                        )
+                      : _loading
+                          ? const Center(
+                              child: CircularProgressIndicator(
+                                  color: Colors.white),
+                            )
+                          : Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                const Icon(Icons.videocam_rounded,
+                                    color: Colors.white54, size: 40),
+                                Container(
+                                  width: 52,
+                                  height: 52,
+                                  decoration: const BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: Colors.black45,
+                                  ),
+                                  child: const Icon(Icons.play_arrow_rounded,
+                                      color: Colors.white, size: 34),
+                                ),
+                              ],
+                            ),
             ),
-            child: _loading
-                ? const Center(
-                    child: CircularProgressIndicator(color: Colors.white),
-                  )
-                : Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      const Icon(Icons.videocam_rounded,
-                          color: Colors.white54, size: 40),
-                      Container(
-                        width: 52,
-                        height: 52,
-                        decoration: const BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Colors.black45,
-                        ),
-                        child: const Icon(Icons.play_arrow_rounded,
-                            color: Colors.white, size: 34),
-                      ),
-                    ],
-                  ),
           ),
         ),
         if (widget.msg.caption?.isNotEmpty == true)
