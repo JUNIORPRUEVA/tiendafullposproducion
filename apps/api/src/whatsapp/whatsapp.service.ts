@@ -106,28 +106,27 @@ export class WhatsappService {
     instanceName: string,
     enabled: boolean,
   ): Promise<void> {
-    try {
-      const payload = {
+    const webhookUrl = this.buildWebhookUrl(instanceName);
+
+    // Evolution API v2 format: nested under "webhook" key with camelCase
+    const payloadV2 = {
+      webhook: {
         enabled,
-        url: this.buildWebhookUrl(instanceName),
-        webhook_by_events: false,
-        webhook_base64: false,
+        url: webhookUrl,
+        byEvents: false,
+        base64: false,
         events: ['MESSAGES_UPSERT'],
-      };
+      },
+    };
 
-      await this.fetchEvolution(`/webhook/set/${encodeURIComponent(instanceName)}`, {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
+    await this.fetchEvolution(`/webhook/set/${encodeURIComponent(instanceName)}`, {
+      method: 'POST',
+      body: JSON.stringify(payloadV2),
+    });
 
-      console.log(
-        `[WhatsApp][Webhook] Configurado webhook para "${instanceName}" enabled=${enabled}`,
-      );
-    } catch (error) {
-      console.error(
-        `[WhatsApp][Webhook] No se pudo configurar webhook para "${instanceName}" enabled=${enabled}: ${this.describeEvolutionError(error)}`,
-      );
-    }
+    console.log(
+      `[WhatsApp][Webhook] Configurado webhook para "${instanceName}" enabled=${enabled} url=${webhookUrl}`,
+    );
   }
 
   async syncWebhookConfigurationForAllInstances(enabled: boolean) {
@@ -136,15 +135,23 @@ export class WhatsappService {
       orderBy: { createdAt: 'asc' },
     });
 
+    let updated = 0;
     for (const instance of instances) {
-      await this.configureInstanceWebhook(instance.instanceName, enabled);
+      try {
+        await this.configureInstanceWebhook(instance.instanceName, enabled);
+        updated++;
+      } catch (error) {
+        console.error(
+          `[WhatsApp][Webhook] Error sincronizando webhook para "${instance.instanceName}": ${this.describeEvolutionError(error)}`,
+        );
+      }
     }
 
     console.log(
-      `[WhatsApp][Webhook] Sincronización global completada. enabled=${enabled}, totalInstancias=${instances.length}`,
+      `[WhatsApp][Webhook] Sincronización global completada. enabled=${enabled}, actualizadas=${updated}/${instances.length}`,
     );
 
-    return { updated: instances.length, enabled };
+    return { updated, total: instances.length, enabled };
   }
 
   // ─── CRM: list all instances with webhook status ────────────────────────
@@ -232,6 +239,10 @@ export class WhatsappService {
     const companyName = (appConfig?.evolutionApiInstanceName ?? '').trim();
     const isCompany = companyName && instanceName === companyName;
 
+    // Build the URL that will be configured (for response)
+    const webhookUrl = this.buildWebhookUrl(instanceName);
+
+    // This now throws if Evolution API fails — DB is only updated on success
     await this.configureInstanceWebhook(instanceName, enabled);
 
     if (isCompany) {
@@ -253,7 +264,7 @@ export class WhatsappService {
       });
     }
 
-    return { ok: true, instanceName, enabled };
+    return { ok: true, instanceName, enabled, webhookUrl };
   }
 
   // ─── Helper: get instance state from Evolution API ───────────────────────
@@ -484,7 +495,11 @@ export class WhatsappService {
       },
     });
 
-    await this.configureInstanceWebhook(instanceName, webhookEnabled);
+    try {
+      await this.configureInstanceWebhook(instanceName, webhookEnabled);
+    } catch (webhookErr) {
+      console.error(`[WhatsApp] No se pudo configurar webhook al crear instancia "${instanceName}": ${this.describeEvolutionError(webhookErr)}`);
+    }
 
     return record;
   }
@@ -608,10 +623,12 @@ export class WhatsappService {
             ...(record.phoneNumber ? { number: record.phoneNumber } : {}),
           }),
         });
-        await this.configureInstanceWebhook(
-          record.instanceName,
-          await this.isGlobalWebhookEnabled(),
-        );
+        try {
+          await this.configureInstanceWebhook(
+            record.instanceName,
+            await this.isGlobalWebhookEnabled(),
+          );
+        } catch (_webhookErr) { /* non-blocking in QR retry flow */ }
       } catch (createErr) {
         if (this.isEvolutionUnavailableError(createErr)) {
           console.error(
@@ -781,7 +798,11 @@ export class WhatsappService {
     await this.setCompanyInstanceName(instanceName);
 
     const webhookEnabled = await this.isGlobalWebhookEnabled();
-    await this.configureInstanceWebhook(instanceName, webhookEnabled);
+    try {
+      await this.configureInstanceWebhook(instanceName, webhookEnabled);
+    } catch (webhookErr) {
+      console.error(`[WhatsApp] No se pudo configurar webhook al crear instancia empresa "${instanceName}": ${this.describeEvolutionError(webhookErr)}`);
+    }
 
     return { instanceName, status: 'pending' };
   }
@@ -841,7 +862,9 @@ export class WhatsappService {
           method: 'POST',
           body: JSON.stringify({ instanceName, qrcode: true, integration: 'WHATSAPP-BAILEYS' }),
         });
-        await this.configureInstanceWebhook(instanceName, await this.isGlobalWebhookEnabled());
+        try {
+          await this.configureInstanceWebhook(instanceName, await this.isGlobalWebhookEnabled());
+        } catch (_webhookErr) { /* non-blocking in QR retry flow */ }
       } catch (createErr) {
         const msg = createErr instanceof Error ? createErr.message : String(createErr);
         if (!msg.includes('409') && !msg.toLowerCase().includes('already')) {

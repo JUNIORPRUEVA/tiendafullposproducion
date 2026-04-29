@@ -26,18 +26,28 @@ class WaCrmRepository {
     return (res.data ?? []).cast<Map<String, dynamic>>();
   }
 
-  /// Toggle webhook for a specific instance
-  Future<void> setInstanceWebhook(String instanceName, {required bool enabled}) async {
+  /// Toggle webhook for a specific instance — returns the configured URL
+  Future<String> setInstanceWebhook(String instanceName, {required bool enabled}) async {
     try {
-      await _dio.patch<void>(
+      final res = await _dio.patch<Map<String, dynamic>>(
         '/whatsapp/admin/instance-webhook',
         data: {'instanceName': instanceName, 'enabled': enabled},
       );
+      return (res.data?['webhookUrl'] as String?) ?? '';
     } on DioException catch (e) {
-      final msg = (e.response?.data is Map)
-          ? (e.response?.data['message'] ?? 'Error configurando webhook')
-          : 'Error configurando webhook';
-      throw Exception(msg.toString());
+      String msg = 'Error configurando webhook en Evolution API';
+      final data = e.response?.data;
+      if (data is Map) {
+        final raw = data['message'];
+        if (raw is List) {
+          msg = raw.join(', ');
+        } else if (raw != null) {
+          msg = raw.toString();
+        }
+      } else if (data is String && data.isNotEmpty) {
+        msg = data;
+      }
+      throw Exception(msg);
     }
   }
 

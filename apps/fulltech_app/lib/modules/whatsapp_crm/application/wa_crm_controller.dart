@@ -192,7 +192,7 @@ class WaCrmController extends StateNotifier<WaCrmState> {
 
   // ─── Set webhook for a specific instance ────────────────────────────
 
-  Future<void> setInstanceWebhook(
+  Future<String> setInstanceWebhook(
     String instanceName, {
     required bool enabled,
   }) async {
@@ -205,7 +205,8 @@ class WaCrmController extends StateNotifier<WaCrmState> {
     state = state.copyWith(allInstances: updated);
 
     try {
-      await _repo.setInstanceWebhook(instanceName, enabled: enabled);
+      final webhookUrl = await _repo.setInstanceWebhook(instanceName, enabled: enabled);
+      return webhookUrl;
     } catch (e, st) {
       print('[WaCrm] setInstanceWebhook error: $e\n$st');
       // Revert on error

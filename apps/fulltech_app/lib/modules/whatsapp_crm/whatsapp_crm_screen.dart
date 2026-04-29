@@ -561,6 +561,7 @@ class _WebhookDialogState extends State<_WebhookDialog> {
   late bool _enabled;
   bool _saving = false;
   String? _error;
+  String? _configuredUrl;
 
   @override
   void initState() {
@@ -573,15 +574,19 @@ class _WebhookDialogState extends State<_WebhookDialog> {
       _enabled = value;
       _saving = true;
       _error = null;
+      _configuredUrl = null;
     });
     try {
-      await widget.ref
+      final url = await widget.ref
           .read(waCrmControllerProvider.notifier)
           .setInstanceWebhook(
             widget.instance.instanceName,
             enabled: value,
           );
-      setState(() => _saving = false);
+      setState(() {
+        _saving = false;
+        _configuredUrl = url.isNotEmpty ? url : null;
+      });
     } catch (e) {
       setState(() {
         _saving = false;
@@ -722,23 +727,50 @@ class _WebhookDialogState extends State<_WebhookDialog> {
                     color: Colors.green.withValues(alpha: 0.3),
                   ),
                 ),
-                child: Row(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Icon(
-                      Icons.check_circle_outline_rounded,
-                      size: 14,
-                      color: Colors.green,
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.check_circle_outline_rounded,
+                          size: 14,
+                          color: Colors.green,
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            'Los mensajes de esta instancia llegarán al CRM en tiempo real.',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: Colors.green.shade700,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        'Los mensajes de esta instancia llegarán al CRM en tiempo real.',
+                    if (_configuredUrl != null) ...[
+                      const SizedBox(height: 6),
+                      const Divider(height: 1),
+                      const SizedBox(height: 6),
+                      Text(
+                        'URL configurada en Evolution API:',
                         style: theme.textTheme.bodySmall?.copyWith(
-                          color: Colors.green.shade700,
-                          fontSize: 11,
+                          color: Colors.green.shade800,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 10,
                         ),
                       ),
-                    ),
+                      const SizedBox(height: 2),
+                      SelectableText(
+                        _configuredUrl!,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          fontFamily: 'monospace',
+                          fontSize: 10,
+                          color: Colors.green.shade900,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
