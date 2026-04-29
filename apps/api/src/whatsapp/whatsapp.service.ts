@@ -147,6 +147,133 @@ export class WhatsappService {
     return { updated: instances.length, enabled };
   }
 
+  // ─── CRM: list all instances with webhook status ────────────────────────
+
+  async listAllInstancesForCrm() {
+    // 1. User instances
+    const userInstances = await this.prisma.userWhatsappInstance.findMany({
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        instanceName: true,
+        status: true,
+        phoneNumber: true,
+        webhookEnabled: true,
+        user: {
+          select: {
+            id: true,
+            nombreCompleto: true,
+            email: true,
+            role: true,
+          },
+        },
+      },
+    });
+
+    const userEntries: Array<{
+      id: string;
+      instanceName: string;
+      status: string;
+      phoneNumber: string | null;
+      webhookEnabled: boolean;
+      isCompany: boolean;
+      userId: string | null;
+      userName: string;
+      userRole: string | null;
+    }> = userInstances.map((inst) => ({
+      id: inst.id,
+      instanceName: inst.instanceName,
+      status: inst.status,
+      phoneNumber: inst.phoneNumber ?? null,
+      webhookEnabled: inst.webhookEnabled,
+      isCompany: false,
+      userId: inst.user?.id ?? null,
+      userName: inst.user?.nombreCompleto ?? inst.user?.email ?? 'Sin nombre',
+      userRole: inst.user?.role as string | null ?? null,
+    }));
+
+    // 2. Company instance
+    const appConfig = await this.prisma.appConfig.findUnique({
+      where: { id: 'global' },
+      select: {
+        evolutionApiInstanceName: true,
+        whatsappWebhookEnabled: true,
+      },
+    });
+
+    const companyInstanceName = (appConfig?.evolutionApiInstanceName ?? '').trim();
+
+    if (companyInstanceName) {
+      const companyStatus = await this.getInstanceStateFromEvolution(companyInstanceName);
+      userEntries.unshift({
+        id: 'company',
+        instanceName: companyInstanceName,
+        status: companyStatus,
+        phoneNumber: null,
+        webhookEnabled: appConfig?.whatsappWebhookEnabled ?? false,
+        isCompany: true,
+        userId: null,
+        userName: 'Empresa (instancia principal)',
+        userRole: null,
+      });
+    }
+
+    return userEntries;
+  }
+
+  // ─── CRM: set webhook for a specific instance ────────────────────────────
+
+  async setInstanceWebhookForAdmin(instanceName: string, enabled: boolean) {
+    const appConfig = await this.prisma.appConfig.findUnique({
+      where: { id: 'global' },
+      select: { evolutionApiInstanceName: true },
+    });
+
+    const companyName = (appConfig?.evolutionApiInstanceName ?? '').trim();
+    const isCompany = companyName && instanceName === companyName;
+
+    await this.configureInstanceWebhook(instanceName, enabled);
+
+    if (isCompany) {
+      await this.prisma.appConfig.update({
+        where: { id: 'global' },
+        data: { whatsappWebhookEnabled: enabled },
+      });
+    } else {
+      const existing = await this.prisma.userWhatsappInstance.findUnique({
+        where: { instanceName },
+        select: { id: true },
+      });
+      if (!existing) {
+        throw new NotFoundException(`Instancia "${instanceName}" no encontrada.`);
+      }
+      await this.prisma.userWhatsappInstance.update({
+        where: { instanceName },
+        data: { webhookEnabled: enabled },
+      });
+    }
+
+    return { ok: true, instanceName, enabled };
+  }
+
+  // ─── Helper: get instance state from Evolution API ───────────────────────
+
+  private async getInstanceStateFromEvolution(instanceName: string): Promise<string> {
+    try {
+      const raw = await this.fetchEvolution(
+        `/instance/connectionState/${encodeURIComponent(instanceName)}`,
+        { method: 'GET' },
+      );
+      const data = raw as Record<string, unknown>;
+      const state = (data?.['instance'] as Record<string, unknown>)?.['state'] as string | undefined;
+      if (state === 'open') return 'connected';
+      if (state) return state;
+      return 'pending';
+    } catch {
+      return 'pending';
+    }
+  }
+
   async handleIncomingWebhook(instanceName: string, payload: unknown) {
     const record = await this.prisma.userWhatsappInstance.findUnique({
       where: { instanceName },

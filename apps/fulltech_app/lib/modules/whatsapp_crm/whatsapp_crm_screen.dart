@@ -283,7 +283,7 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
 
 // ─── Conversations Panel (Column 1) ─────────────────────────────────────────
 
-class _ConversationsPanel extends StatelessWidget {
+class _ConversationsPanel extends StatefulWidget {
   const _ConversationsPanel({
     required this.state,
     required this.onSelectConversation,
@@ -295,24 +295,42 @@ class _ConversationsPanel extends StatelessWidget {
   final ValueChanged<WaCrmUser> onSelectUser;
 
   @override
+  State<_ConversationsPanel> createState() => _ConversationsPanelState();
+}
+
+class _ConversationsPanelState extends State<_ConversationsPanel> {
+  bool _showInstances = true;
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final state = widget.state;
 
     return Column(
       children: [
-        // User selector
+        // ── Instances section (collapsible) ──────────────────────────
+        _InstancesSection(
+          instances: state.allInstances,
+          loading: state.loadingInstances,
+          expanded: _showInstances,
+          onToggleExpanded: () =>
+              setState(() => _showInstances = !_showInstances),
+        ),
+        const Divider(height: 1),
+        // ── User selector for conversations ──────────────────────────
         Container(
-          padding: const EdgeInsets.all(12),
-          color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          color: theme.colorScheme.surfaceContainerHighest
+              .withValues(alpha: 0.4),
           child: _UserSelectorDropdown(
             users: state.users,
             selected: state.selectedUser,
             loading: state.loadingUsers,
-            onChanged: onSelectUser,
+            onChanged: widget.onSelectUser,
           ),
         ),
         const Divider(height: 1),
-        // Conversations list
+        // ── Conversations list ────────────────────────────────────────
         Expanded(
           child: state.loadingConversations
               ? const Center(child: CircularProgressIndicator())
@@ -327,13 +345,423 @@ class _ConversationsPanel extends StatelessWidget {
                         return _ConversationTile(
                           conv: conv,
                           isSelected: isSelected,
-                          onTap: () => onSelectConversation(conv),
+                          onTap: () => widget.onSelectConversation(conv),
                         );
                       },
                     ),
         ),
       ],
     );
+  }
+}
+
+// ─── Instances Section ────────────────────────────────────────────────────────
+
+class _InstancesSection extends StatelessWidget {
+  const _InstancesSection({
+    required this.instances,
+    required this.loading,
+    required this.expanded,
+    required this.onToggleExpanded,
+  });
+
+  final List<WaCrmInstanceEntry> instances;
+  final bool loading;
+  final bool expanded;
+  final VoidCallback onToggleExpanded;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Header
+        InkWell(
+          onTap: onToggleExpanded,
+          child: Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            color: theme.colorScheme.primaryContainer
+                .withValues(alpha: 0.25),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.wifi_tethering_rounded,
+                  size: 15,
+                  color: theme.colorScheme.primary,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Instancias (${instances.length})',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.primary,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ),
+                if (loading)
+                  const SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(strokeWidth: 1.5),
+                  )
+                else
+                  Icon(
+                    expanded
+                        ? Icons.keyboard_arrow_up_rounded
+                        : Icons.keyboard_arrow_down_rounded,
+                    size: 16,
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        if (expanded) ...[
+          if (instances.isEmpty && !loading)
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 8,
+              ),
+              child: Text(
+                'Sin instancias configuradas',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                ),
+              ),
+            )
+          else
+            ...instances.map(
+              (inst) => _InstanceRow(instance: inst),
+            ),
+        ],
+      ],
+    );
+  }
+}
+
+// ─── Instance Row ──────────────────────────────────────────────────────────────
+
+class _InstanceRow extends ConsumerWidget {
+  const _InstanceRow({required this.instance});
+
+  final WaCrmInstanceEntry instance;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: Row(
+        children: [
+          _StatusDot(status: instance.status),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    if (instance.isCompany)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 4),
+                        child: Icon(
+                          Icons.business_rounded,
+                          size: 11,
+                          color: theme.colorScheme.primary,
+                        ),
+                      ),
+                    Expanded(
+                      child: Text(
+                        instance.userName,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          fontWeight: FontWeight.w500,
+                          fontSize: 11.5,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+                Text(
+                  instance.instanceName,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontSize: 10,
+                    color:
+                        theme.colorScheme.onSurface.withValues(alpha: 0.45),
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          // Webhook toggle icon
+          Tooltip(
+            message: instance.webhookEnabled
+                ? 'Webhook activo'
+                : 'Webhook inactivo',
+            child: IconButton(
+              iconSize: 18,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(
+                minWidth: 28,
+                minHeight: 28,
+              ),
+              icon: Icon(
+                instance.webhookEnabled
+                    ? Icons.webhook_rounded
+                    : Icons.webhook_outlined,
+                color: instance.webhookEnabled
+                    ? Colors.green
+                    : theme.colorScheme.onSurface.withValues(alpha: 0.35),
+              ),
+              onPressed: () =>
+                  _showWebhookDialog(context, ref, instance),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showWebhookDialog(
+    BuildContext context,
+    WidgetRef ref,
+    WaCrmInstanceEntry inst,
+  ) {
+    showDialog<void>(
+      context: context,
+      builder: (_) => _WebhookDialog(instance: inst, ref: ref),
+    );
+  }
+}
+
+// ─── Webhook Dialog ────────────────────────────────────────────────────────────
+
+class _WebhookDialog extends StatefulWidget {
+  const _WebhookDialog({required this.instance, required this.ref});
+
+  final WaCrmInstanceEntry instance;
+  final WidgetRef ref;
+
+  @override
+  State<_WebhookDialog> createState() => _WebhookDialogState();
+}
+
+class _WebhookDialogState extends State<_WebhookDialog> {
+  late bool _enabled;
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _enabled = widget.instance.webhookEnabled;
+  }
+
+  Future<void> _toggle(bool value) async {
+    setState(() {
+      _enabled = value;
+      _saving = true;
+      _error = null;
+    });
+    try {
+      await widget.ref
+          .read(waCrmControllerProvider.notifier)
+          .setInstanceWebhook(
+            widget.instance.instanceName,
+            enabled: value,
+          );
+      setState(() => _saving = false);
+    } catch (e) {
+      setState(() {
+        _saving = false;
+        _enabled = !value; // revert
+        _error = e.toString().replaceFirst('Exception: ', '');
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final inst = widget.instance;
+
+    return AlertDialog(
+      title: Row(
+        children: [
+          const Icon(Icons.webhook_rounded, size: 20),
+          const SizedBox(width: 8),
+          const Text('Webhook'),
+        ],
+      ),
+      content: SizedBox(
+        width: 320,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Instance info
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerHighest
+                    .withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      if (inst.isCompany)
+                        const Icon(Icons.business_rounded,
+                            size: 14)
+                      else
+                        const Icon(Icons.person_rounded, size: 14),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          inst.userName,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    inst.instanceName,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurface
+                          .withValues(alpha: 0.55),
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      _StatusDot(status: inst.status),
+                      const SizedBox(width: 6),
+                      Text(
+                        _statusLabel(inst.status),
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            // Toggle row
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Recibir mensajes en backend',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      Text(
+                        'Configura el webhook en Evolution API',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurface
+                              .withValues(alpha: 0.55),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (_saving)
+                  const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                else
+                  Switch(
+                    value: _enabled,
+                    onChanged: _toggle,
+                    activeThumbColor: Colors.green,
+                  ),
+              ],
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                _error!,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.error,
+                ),
+              ),
+            ],
+            if (_enabled) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.green.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color: Colors.green.withValues(alpha: 0.3),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.check_circle_outline_rounded,
+                      size: 14,
+                      color: Colors.green,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Los mensajes de esta instancia llegarán al CRM en tiempo real.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: Colors.green.shade700,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cerrar'),
+        ),
+      ],
+    );
+  }
+
+  String _statusLabel(String status) {
+    return switch (status.toLowerCase()) {
+      'open' || 'connected' => 'Conectado',
+      'close' || 'closed' => 'Desconectado',
+      'connecting' => 'Conectando...',
+      _ => 'Pendiente',
+    };
   }
 }
 

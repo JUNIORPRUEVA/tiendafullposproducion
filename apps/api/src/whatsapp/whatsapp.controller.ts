@@ -4,10 +4,21 @@ import {
   Delete,
   Get,
   Param,
+  Patch,
   Post,
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { IsBoolean, IsNotEmpty, IsString } from 'class-validator';
+
+class SetInstanceWebhookDto {
+  @IsString()
+  @IsNotEmpty()
+  instanceName!: string;
+
+  @IsBoolean()
+  enabled!: boolean;
+}
 import { AuthGuard } from '@nestjs/passport';
 import { Request } from 'express';
 import { RolesGuard } from '../auth/roles.guard';
@@ -83,6 +94,22 @@ export class WhatsappController {
   @Roles(Role.ADMIN)
   deleteCompanyInstance() {
     return this.whatsapp.deleteCompanyInstance();
+  }
+
+  // ─── CRM admin: all instances + per-instance webhook ──────────────────
+
+  @Get('admin/all-instances')
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN)
+  listAllInstancesForCrm() {
+    return this.whatsapp.listAllInstancesForCrm();
+  }
+
+  @Patch('admin/instance-webhook')
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN)
+  setInstanceWebhook(@Body() dto: SetInstanceWebhookDto) {
+    return this.whatsapp.setInstanceWebhookForAdmin(dto.instanceName, dto.enabled);
   }
 }
 

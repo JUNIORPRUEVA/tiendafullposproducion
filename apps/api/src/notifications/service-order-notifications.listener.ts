@@ -782,20 +782,21 @@ export class ServiceOrderNotificationsListener {
     order: ServiceOrderNotificationContext,
     params: Parameters<NotificationsService['enqueueWhatsAppRawText']>[0],
   ) {
-    await this.notifications.enqueueWhatsAppRawText({
-      ...params,
-      senderUserId: order.createdBy.id,
-    });
+    // Use the company instance (no senderUserId) so all order notifications
+    // are sent from the company's WhatsApp, not from the individual creator.
+    const { senderUserId: _ignored, ...rest } = params as typeof params & { senderUserId?: unknown };
+    void _ignored;
+    await this.notifications.enqueueWhatsAppRawText({ ...rest });
   }
 
   private async enqueueOrderWhatsAppDocument(
     order: ServiceOrderNotificationContext,
     params: Parameters<NotificationsService['enqueueWhatsAppDocument']>[0],
   ) {
-    await this.notifications.enqueueWhatsAppDocument({
-      ...params,
-      senderUserId: order.createdBy.id,
-    });
+    // Use the company instance — same rationale as enqueueOrderWhatsAppRawText.
+    const { senderUserId: _ignored, ...rest } = params as typeof params & { senderUserId?: unknown };
+    void _ignored;
+    await this.notifications.enqueueWhatsAppDocument({ ...rest });
   }
 
   private async resolveOrderSenderUserId(orderId: string) {
@@ -850,7 +851,7 @@ export class ServiceOrderNotificationsListener {
     kind: (typeof ServiceOrderNotificationsListener.IN_PROGRESS_REMINDER_KINDS)[number],
     sequenceAt: Date,
   ) {
-    const senderUserId = await this.resolveOrderSenderUserId(orderId);
+    // No senderUserId → uses company WhatsApp instance.
     await this.notifications.enqueueWhatsAppRawText({
       toNumber: recipient.number,
       messageText: ServiceOrderNotificationsListener.IN_PROGRESS_REMINDER_MESSAGE,
@@ -860,7 +861,6 @@ export class ServiceOrderNotificationsListener {
         orderId,
         actorUserId: recipient.userId,
       },
-      senderUserId,
     });
   }
 

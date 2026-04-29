@@ -20,6 +20,27 @@ class WaCrmRepository {
     return (res.data ?? []).cast<Map<String, dynamic>>();
   }
 
+  /// List ALL instances (user + company) with webhook status — for CRM panel
+  Future<List<Map<String, dynamic>>> listAllInstancesForCrm() async {
+    final res = await _dio.get<List<dynamic>>('/whatsapp/admin/all-instances');
+    return (res.data ?? []).cast<Map<String, dynamic>>();
+  }
+
+  /// Toggle webhook for a specific instance
+  Future<void> setInstanceWebhook(String instanceName, {required bool enabled}) async {
+    try {
+      await _dio.patch<void>(
+        '/whatsapp/admin/instance-webhook',
+        data: {'instanceName': instanceName, 'enabled': enabled},
+      );
+    } on DioException catch (e) {
+      final msg = (e.response?.data is Map)
+          ? (e.response?.data['message'] ?? 'Error configurando webhook')
+          : 'Error configurando webhook';
+      throw Exception(msg.toString());
+    }
+  }
+
   /// List conversations for a user
   Future<List<WaCrmConversation>> getConversations(String userId) async {
     final res = await _dio.get<List<dynamic>>(

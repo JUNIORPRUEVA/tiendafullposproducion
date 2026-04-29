@@ -438,13 +438,14 @@ model User {
 }
 
 model UserWhatsappInstance {
-  id           String   @id @default(uuid()) @db.Uuid
-  userId       String   @unique @db.Uuid @map("user_id")
-  instanceName String   @unique @map("instance_name")
-  status       String   @default("pending")
-  phoneNumber  String?  @map("phone_number")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  id             String   @id @default(uuid()) @db.Uuid
+  userId         String   @unique @db.Uuid @map("user_id")
+  instanceName   String   @unique @map("instance_name")
+  status         String   @default("pending")
+  phoneNumber    String?  @map("phone_number")
+  webhookEnabled Boolean  @default(false) @map("webhook_enabled")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
   user          User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
   conversations WhatsappConversation[]

@@ -1,8 +1,62 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/wa_crm_repository.dart';
 import '../models/wa_crm_conversation.dart';
 import '../models/wa_crm_message.dart';
+
+// ─── CRM Instance Entry (for webhook management panel) ────────────────────
+
+class WaCrmInstanceEntry {
+  const WaCrmInstanceEntry({
+    required this.id,
+    required this.instanceName,
+    required this.status,
+    required this.webhookEnabled,
+    required this.isCompany,
+    required this.userName,
+    this.userId,
+    this.userRole,
+    this.phoneNumber,
+  });
+
+  final String id;
+  final String instanceName;
+  final String status;
+  final bool webhookEnabled;
+  final bool isCompany;
+  final String userName;
+  final String? userId;
+  final String? userRole;
+  final String? phoneNumber;
+
+  factory WaCrmInstanceEntry.fromJson(Map<String, dynamic> json) {
+    return WaCrmInstanceEntry(
+      id: json['id'] as String? ?? '',
+      instanceName: json['instanceName'] as String? ?? '',
+      status: json['status'] as String? ?? 'pending',
+      webhookEnabled: json['webhookEnabled'] as bool? ?? false,
+      isCompany: json['isCompany'] as bool? ?? false,
+      userName: json['userName'] as String? ?? 'Sin nombre',
+      userId: json['userId'] as String?,
+      userRole: json['userRole'] as String?,
+      phoneNumber: json['phoneNumber'] as String?,
+    );
+  }
+
+  WaCrmInstanceEntry copyWithWebhook(bool enabled) => WaCrmInstanceEntry(
+        id: id,
+        instanceName: instanceName,
+        status: status,
+        webhookEnabled: enabled,
+        isCompany: isCompany,
+        userName: userName,
+        userId: userId,
+        userRole: userRole,
+        phoneNumber: phoneNumber,
+      );
+}
 
 // ─── User selector ────────────────────────────────────────────────────────
 
@@ -50,6 +104,8 @@ class WaCrmState {
     this.loadingMessages = false,
     this.sending = false,
     this.error,
+    this.allInstances = const [],
+    this.loadingInstances = false,
   });
 
   final List<WaCrmUser> users;
@@ -62,6 +118,8 @@ class WaCrmState {
   final bool loadingMessages;
   final bool sending;
   final String? error;
+  final List<WaCrmInstanceEntry> allInstances;
+  final bool loadingInstances;
 
   WaCrmState copyWith({
     List<WaCrmUser>? users,
@@ -74,6 +132,8 @@ class WaCrmState {
     bool? loadingMessages,
     bool? sending,
     String? Function()? error,
+    List<WaCrmInstanceEntry>? allInstances,
+    bool? loadingInstances,
   }) {
     return WaCrmState(
       users: users ?? this.users,
@@ -89,6 +149,8 @@ class WaCrmState {
       loadingMessages: loadingMessages ?? this.loadingMessages,
       sending: sending ?? this.sending,
       error: error != null ? error() : this.error,
+      allInstances: allInstances ?? this.allInstances,
+      loadingInstances: loadingInstances ?? this.loadingInstances,
     );
   }
 }
@@ -114,6 +176,49 @@ class WaCrmController extends StateNotifier<WaCrmState> {
     );
   }
 
+  // ─── Load all instances with webhook status ──────────────────────────
+
+  Future<void> loadAllInstances() async {
+    state = state.copyWith(loadingInstances: true);
+    try {
+      final raw = await _repo.listAllInstancesForCrm();
+      final instances = raw.map(WaCrmInstanceEntry.fromJson).toList();
+      state = state.copyWith(allInstances: instances, loadingInstances: false);
+    } catch (e, st) {
+      print('[WaCrm] loadAllInstances error: $e\n$st');
+      state = state.copyWith(loadingInstances: false);
+    }
+  }
+
+  // ─── Set webhook for a specific instance ────────────────────────────
+
+  Future<void> setInstanceWebhook(
+    String instanceName, {
+    required bool enabled,
+  }) async {
+    // Optimistic update
+    final updated = state.allInstances.map((inst) {
+      return inst.instanceName == instanceName
+          ? inst.copyWithWebhook(enabled)
+          : inst;
+    }).toList();
+    state = state.copyWith(allInstances: updated);
+
+    try {
+      await _repo.setInstanceWebhook(instanceName, enabled: enabled);
+    } catch (e, st) {
+      print('[WaCrm] setInstanceWebhook error: $e\n$st');
+      // Revert on error
+      final reverted = state.allInstances.map((inst) {
+        return inst.instanceName == instanceName
+            ? inst.copyWithWebhook(!enabled)
+            : inst;
+      }).toList();
+      state = state.copyWith(allInstances: reverted);
+      rethrow;
+    }
+  }
+
   // ─── Load users ─────────────────────────────────────────────────────
 
   Future<void> loadUsers() async {
@@ -136,6 +241,8 @@ class WaCrmController extends StateNotifier<WaCrmState> {
         error: () => 'Error cargando usuarios: $e',
       );
     }
+    // Also refresh the instance+webhook list
+    unawaited(loadAllInstances());
   }
 
   // ─── Select user (loads conversations) ───────────────────────────────

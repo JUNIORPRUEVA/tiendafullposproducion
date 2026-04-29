@@ -40,7 +40,9 @@ class ResponsiveShell extends ConsumerStatefulWidget {
 }
 
 class _ResponsiveShellState extends ConsumerState<ResponsiveShell> {
-  bool _collapsed = false;
+  // Default: collapsed. User can expand; collapses automatically on navigation.
+  bool _collapsed = true;
+  String _lastKnownLocation = '';
 
   void _toggleSidebar() {
     if (!mounted) return;
@@ -62,6 +64,14 @@ class _ResponsiveShellState extends ConsumerState<ResponsiveShell> {
     final location = safeCurrentLocation(context);
     final title = resolveNavigationTitle(location, sections);
     final showShellAppBar = desktopShellShouldShowOwnAppBar(location);
+
+    // Auto-collapse when the user navigates to a different screen.
+    if (_lastKnownLocation.isNotEmpty && _lastKnownLocation != location) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_collapsed) setState(() => _collapsed = true);
+      });
+    }
+    _lastKnownLocation = location;
 
     // Force sidebar collapsed and locked on CRM WhatsApp screen.
     final isCrmScreen = location == Routes.whatsappCrm;
@@ -406,23 +416,23 @@ class DesktopSidebar extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final width = collapsed ? 84.0 : 280.0;
+    final width = collapsed ? 80.0 : 256.0;
     final branding = resolveRoleBranding(
       currentUser?.appRole ?? AppRole.unknown,
     );
     const onBase = Colors.white;
 
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 240),
+      duration: const Duration(milliseconds: 220),
       curve: Curves.easeOutCubic,
       width: width,
       decoration: BoxDecoration(
         gradient: branding.drawerGradient,
         boxShadow: [
           BoxShadow(
-            color: branding.tertiary.withValues(alpha: 0.14),
-            blurRadius: 26,
-            offset: const Offset(6, 0),
+            color: Colors.black.withValues(alpha: 0.22),
+            blurRadius: 20,
+            offset: const Offset(4, 0),
           ),
         ],
       ),
@@ -430,309 +440,200 @@ class DesktopSidebar extends ConsumerWidget {
         color: Colors.transparent,
         child: Column(
           children: [
-            Padding(
-              padding: EdgeInsets.fromLTRB(
-                collapsed ? 12 : 16,
-                14,
-                collapsed ? 12 : 16,
-                10,
+            // ── Brand / toggle header ────────────────────────────────
+            GestureDetector(
+              onTap: onToggleSidebar,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                height: 64,
+                padding: EdgeInsets.symmetric(
+                  horizontal: collapsed ? 0 : 14,
+                ),
+                child: collapsed
+                    ? Center(
+                        child: Tooltip(
+                          message: 'Expandir menú',
+                          preferBelow: false,
+                          verticalOffset: 28,
+                          textStyle: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 11,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF0F172A),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              color: onBase.withValues(alpha: 0.10),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: onBase.withValues(alpha: 0.14),
+                              ),
+                            ),
+                            child: const Icon(
+                              Icons.business_rounded,
+                              color: Colors.white,
+                              size: 20,
+                            ),
+                          ),
+                        ),
+                      )
+                    : Row(
+                        children: [
+                          Container(
+                            width: 36,
+                            height: 36,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.14),
+                              borderRadius: BorderRadius.circular(11),
+                            ),
+                            child: const Icon(
+                              Icons.business_rounded,
+                              color: Colors.white,
+                              size: 18,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  'FULLTECH',
+                                  style: theme.textTheme.labelLarge?.copyWith(
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 1.2,
+                                    color: onBase,
+                                  ),
+                                ),
+                                Text(
+                                  branding.departmentName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.labelSmall?.copyWith(
+                                    color: onBase.withValues(alpha: 0.68),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Icon(
+                            Icons.keyboard_double_arrow_left_rounded,
+                            size: 16,
+                            color: onBase.withValues(alpha: 0.55),
+                          ),
+                        ],
+                      ),
               ),
-              child: Tooltip(
-                message: collapsed ? 'Expandir menú' : 'Encoger menú',
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(18),
-                    onTap: onToggleSidebar,
-                    child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 220),
-                      child: collapsed
-                          ? Container(
-                              key: const ValueKey('brand-collapsed'),
-                              width: double.infinity,
-                              padding: const EdgeInsets.symmetric(vertical: 10),
-                              decoration: BoxDecoration(
-                                color: onBase.withValues(alpha: 0.06),
-                                borderRadius: BorderRadius.circular(18),
-                                border: Border.all(
-                                  color: onBase.withValues(alpha: 0.10),
-                                ),
-                              ),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  CircleAvatar(
-                                    radius: 20,
-                                    backgroundColor: theme.colorScheme.primary
-                                        .withValues(alpha: 0.20),
-                                    child: Icon(
-                                      Icons.business_rounded,
-                                      color: onBase,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Icon(
-                                    Icons.keyboard_double_arrow_left_rounded,
-                                    size: 16,
-                                    color: onBase.withValues(alpha: 0.80),
-                                  ),
-                                ],
-                              ),
-                            )
-                          : Container(
-                              key: const ValueKey('brand-expanded'),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 12,
-                              ),
-                              decoration: BoxDecoration(
-                                color: onBase.withValues(alpha: 0.06),
-                                borderRadius: BorderRadius.circular(18),
-                                border: Border.all(
-                                  color: onBase.withValues(alpha: 0.10),
-                                ),
-                              ),
-                              child: LayoutBuilder(
-                                builder: (context, constraints) {
-                                  final isNarrow = constraints.maxWidth < 190;
+            ),
 
-                                  return Row(
-                                    children: [
-                                      CircleAvatar(
-                                        radius: 18,
-                                        backgroundColor: theme
-                                            .colorScheme
-                                            .primary
-                                            .withValues(alpha: 0.96),
-                                        child: const Icon(
-                                          Icons.business_rounded,
-                                          color: Colors.white,
-                                          size: 18,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Text(
-                                              'FULLTECH',
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: theme.textTheme.labelLarge
-                                                  ?.copyWith(
-                                                    fontWeight: FontWeight.w900,
-                                                    letterSpacing: 0.8,
-                                                    color: onBase,
-                                                  ),
-                                            ),
-                                            if (!isNarrow)
-                                              Text(
-                                                branding.departmentName,
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: theme.textTheme.bodySmall
-                                                    ?.copyWith(
-                                                      color: onBase.withValues(
-                                                        alpha: 0.78,
-                                                      ),
-                                                    ),
-                                              ),
-                                          ],
-                                        ),
-                                      ),
-                                      if (!isNarrow)
-                                        Icon(
-                                          Icons
-                                              .keyboard_double_arrow_left_rounded,
-                                          color: onBase.withValues(alpha: 0.80),
-                                        ),
-                                    ],
-                                  );
-                                },
+            // ── Top separator ────────────────────────────────────────
+            Divider(
+              height: 1,
+              color: onBase.withValues(alpha: 0.08),
+            ),
+
+            // ── Navigation items ─────────────────────────────────────
+            Expanded(
+              child: ListView(
+                physics: const ClampingScrollPhysics(),
+                padding: const EdgeInsets.only(top: 6, bottom: 6),
+                children: [
+                  for (final section in sections) ...[
+                    // Section label (expanded only)
+                    if (!collapsed)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 10, 16, 3),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                section.title.toUpperCase(),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: onBase.withValues(alpha: 0.50),
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 0.9,
+                                  fontSize: 10,
+                                ),
                               ),
                             ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            Expanded(
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(
-                  collapsed ? 10 : 12,
-                  4,
-                  collapsed ? 10 : 12,
-                  8,
-                ),
-                child: ListView(
-                  physics: const ClampingScrollPhysics(),
-                  padding: EdgeInsets.zero,
-                  children: [
-                    for (final section in sections) ...[
-                      if (!collapsed)
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(8, 2, 8, 8),
-                          child: Text(
-                            section.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: onBase.withValues(alpha: 0.72),
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: 0.7,
-                            ),
-                          ),
+                          ],
                         ),
-                      for (final item in section.items)
-                        SizedBox(
-                          height: collapsed ? 52 : 56,
-                          child: _DesktopSidebarItem(
-                            collapsed: collapsed,
-                            item: item,
-                            height: collapsed ? 52 : 56,
-                            selected: isNavigationRouteActive(
-                              currentLocation,
-                              item.route,
-                            ),
-                            onTap: () => onNavigate(item.route),
-                          ),
+                      )
+                    else
+                      Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 5),
+                        child: Divider(
+                          height: 1,
+                          color: onBase.withValues(alpha: 0.08),
                         ),
-                      SizedBox(height: collapsed ? 6 : 10),
-                    ],
+                      ),
+
+                    // Items
+                    for (final item in section.items)
+                      _DesktopSidebarItem(
+                        collapsed: collapsed,
+                        item: item,
+                        selected: isNavigationRouteActive(
+                          currentLocation,
+                          item.route,
+                        ),
+                        onTap: () => onNavigate(item.route),
+                      ),
                   ],
-                ),
+                ],
               ),
             ),
+
+            // ── Bottom separator ────────────────────────────────────
+            Divider(
+              height: 1,
+              color: onBase.withValues(alpha: 0.08),
+            ),
+
+            // ── User / logout footer ─────────────────────────────────
             Padding(
               padding: EdgeInsets.fromLTRB(
-                collapsed ? 10 : 12,
+                collapsed ? 8 : 10,
                 8,
-                collapsed ? 10 : 12,
+                collapsed ? 8 : 10,
                 12,
               ),
               child: Column(
                 children: [
-                  Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(18),
-                      onTap: () => context.push(Routes.profile),
-                      child: Ink(
-                        padding: EdgeInsets.symmetric(
-                          horizontal: collapsed ? 0 : 12,
-                          vertical: 10,
-                        ),
-                        decoration: BoxDecoration(
-                          color: onBase.withValues(alpha: 0.06),
-                          borderRadius: BorderRadius.circular(18),
-                          border: Border.all(
-                            color: onBase.withValues(alpha: 0.10),
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: collapsed
-                              ? MainAxisAlignment.center
-                              : MainAxisAlignment.start,
-                          children: [
-                            CircleAvatar(
-                              radius: 16,
-                              backgroundColor: onBase.withValues(alpha: 0.12),
-                              child: Text(
-                                userInitials(currentUser),
-                                style: TextStyle(
-                                  color: onBase,
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ),
-                            if (!collapsed) ...[
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      (currentUser?.nombreCompleto ?? 'Perfil')
-                                          .toString(),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: theme.textTheme.labelLarge
-                                          ?.copyWith(
-                                            fontWeight: FontWeight.w800,
-                                            color: onBase,
-                                          ),
-                                    ),
-                                    Text(
-                                      branding.departmentName,
-                                      style: theme.textTheme.bodySmall
-                                          ?.copyWith(
-                                            color: onBase.withValues(
-                                              alpha: 0.74,
-                                            ),
-                                          ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                    ),
+                  // Profile
+                  _SidebarFooterButton(
+                    collapsed: collapsed,
+                    tooltip: 'Mi perfil',
+                    icon: Icons.person_outline_rounded,
+                    label: currentUser?.nombreCompleto ?? 'Perfil',
+                    sublabel: branding.departmentName,
+                    useAvatar: true,
+                    avatarInitials: userInitials(currentUser),
+                    onTap: () => context.push(Routes.profile),
                   ),
-                  const SizedBox(height: 8),
-                  if (!collapsed)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
-                        ),
-                        decoration: BoxDecoration(
-                          color: onBase.withValues(alpha: 0.08),
-                          borderRadius: BorderRadius.circular(18),
-                          border: Border.all(
-                            color: onBase.withValues(alpha: 0.10),
-                          ),
-                        ),
-                        child: Text(
-                          branding.departmentName,
-                          textAlign: TextAlign.center,
-                          style: theme.textTheme.labelLarge?.copyWith(
-                            color: onBase.withValues(alpha: 0.92),
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ),
-                    ),
-                  if (collapsed)
-                    IconButton.filledTonal(
-                      tooltip: 'Cerrar sesión',
-                      onPressed: () async {
-                        await ref.read(authStateProvider.notifier).logout();
-                        if (context.mounted) context.go(Routes.login);
-                      },
-                      icon: const Icon(Icons.logout_rounded),
-                    )
-                  else
-                    FilledButton.tonalIcon(
-                      onPressed: () async {
-                        await ref.read(authStateProvider.notifier).logout();
-                        if (context.mounted) context.go(Routes.login);
-                      },
-                      icon: const Icon(Icons.logout_rounded),
-                      label: const Text('Cerrar sesión'),
-                      style: FilledButton.styleFrom(
-                        minimumSize: const Size.fromHeight(48),
-                        padding: const EdgeInsets.symmetric(horizontal: 14),
-                      ),
-                    ),
+                  const SizedBox(height: 4),
+                  // Logout
+                  _SidebarFooterButton(
+                    collapsed: collapsed,
+                    tooltip: 'Cerrar sesión',
+                    icon: Icons.logout_rounded,
+                    label: 'Cerrar sesión',
+                    isDestructive: true,
+                    onTap: () async {
+                      await ref.read(authStateProvider.notifier).logout();
+                      if (context.mounted) context.go(Routes.login);
+                    },
+                  ),
                 ],
               ),
             ),
@@ -743,18 +644,156 @@ class DesktopSidebar extends ConsumerWidget {
   }
 }
 
+// ── Footer action button ──────────────────────────────────────────────────────
+
+class _SidebarFooterButton extends StatefulWidget {
+  const _SidebarFooterButton({
+    required this.collapsed,
+    required this.tooltip,
+    required this.icon,
+    required this.label,
+    this.sublabel,
+    this.useAvatar = false,
+    this.avatarInitials = '',
+    this.isDestructive = false,
+    required this.onTap,
+  });
+
+  final bool collapsed;
+  final String tooltip;
+  final IconData icon;
+  final String label;
+  final String? sublabel;
+  final bool useAvatar;
+  final String avatarInitials;
+  final bool isDestructive;
+  final VoidCallback onTap;
+
+  @override
+  State<_SidebarFooterButton> createState() => _SidebarFooterButtonState();
+}
+
+class _SidebarFooterButtonState extends State<_SidebarFooterButton> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    const onBase = Colors.white;
+    final bg = _hovered
+        ? Colors.white.withValues(alpha: widget.isDestructive ? 0.12 : 0.10)
+        : Colors.white.withValues(alpha: 0.06);
+    final fgColor = widget.isDestructive
+        ? Colors.red.shade200
+        : onBase;
+
+    Widget content = Container(
+      height: 40,
+      padding: EdgeInsets.symmetric(
+          horizontal: widget.collapsed ? 0 : 10),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(11),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+      ),
+      child: widget.collapsed
+          ? Center(
+              child: Icon(widget.icon, size: 18, color: fgColor),
+            )
+          : Row(
+              children: [
+                widget.useAvatar
+                    ? CircleAvatar(
+                        radius: 13,
+                        backgroundColor:
+                            Colors.white.withValues(alpha: 0.14),
+                        child: Text(
+                          widget.avatarInitials,
+                          style: TextStyle(
+                            color: onBase,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 10,
+                          ),
+                        ),
+                      )
+                    : Icon(widget.icon, size: 17, color: fgColor),
+                const SizedBox(width: 9),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        widget.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: fgColor,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12,
+                        ),
+                      ),
+                      if (widget.sublabel != null)
+                        Text(
+                          widget.sublabel!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: onBase.withValues(alpha: 0.50),
+                            fontSize: 10,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+    );
+
+    if (widget.collapsed) {
+      content = Tooltip(
+        message: widget.tooltip,
+        preferBelow: false,
+        verticalOffset: 28,
+        textStyle: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w800,
+          fontSize: 11,
+        ),
+        decoration: BoxDecoration(
+          color: const Color(0xFF0F172A),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: content,
+      );
+    }
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) {
+        if (mounted) setState(() => _hovered = true);
+      },
+      onExit: (_) {
+        if (mounted) setState(() => _hovered = false);
+      },
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: content,
+      ),
+    );
+  }
+}
+
 class _DesktopSidebarItem extends StatefulWidget {
   const _DesktopSidebarItem({
     required this.collapsed,
     required this.item,
-    required this.height,
     required this.selected,
     required this.onTap,
   });
 
   final bool collapsed;
   final AppNavigationItem item;
-  final double height;
   final bool selected;
   final VoidCallback onTap;
 
@@ -763,117 +802,280 @@ class _DesktopSidebarItem extends StatefulWidget {
 }
 
 class _DesktopSidebarItemState extends State<_DesktopSidebarItem> {
-  // Avoid manual hover state with setState on desktop.
-  // MouseRegion hover callbacks can trigger MouseTracker asserts on Windows.
+  bool _hovered = false;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final base = Color.alphaBlend(
-      theme.colorScheme.secondary.withValues(alpha: 0.16),
-      theme.colorScheme.tertiary,
-    );
     const onBase = Colors.white;
     final selected = widget.selected;
-    final background = selected
-        ? Color.alphaBlend(
-            theme.colorScheme.primary.withValues(alpha: 0.34),
-            base,
-          )
-        : Colors.transparent;
-    final iconColor = selected ? onBase : onBase.withValues(alpha: 0.88);
+    final collapsed = widget.collapsed;
 
-    final hoverBg = selected
-        ? Color.alphaBlend(
-            theme.colorScheme.primary.withValues(alpha: 0.22),
-            base,
-          )
-        : onBase.withValues(alpha: 0.08);
+    Widget content;
+    if (collapsed) {
+      // ─────────────────────────────────────────────────────────────
+      // COLLAPSED: premium icon pill
+      // - Selected:  bright white icon, frosted bg, glow shadow
+      // - Hovered:   dim glow + slight scale
+      // - Default:   muted icon, transparent bg
+      // ─────────────────────────────────────────────────────────────
+      final iconOpacity = selected ? 1.0 : (_hovered ? 0.92 : 0.60);
+      final containerBg = selected
+          ? Colors.white.withValues(alpha: 0.18)
+          : _hovered
+              ? Colors.white.withValues(alpha: 0.10)
+              : Colors.transparent;
 
-    final effectiveBg = background;
-
-    final height = widget.height;
-    final computedIconSize = (height * 0.44).clamp(12.0, 22.0);
-    final maxIconSize = (height - 6).clamp(10.0, 22.0);
-    final iconSize = computedIconSize > maxIconSize
-        ? maxIconSize
-        : computedIconSize;
-    final horizontalPadding = widget.collapsed ? 0.0 : 10.0;
-    final fontSize = (height * 0.33).clamp(10.0, 14.0);
-
-    final arrowSize = (height * 0.30).clamp(12.0, 18.0);
-    final arrowColor = selected ? onBase : onBase.withValues(alpha: 0.70);
-
-    final child = Container(
-      padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
-      decoration: BoxDecoration(
-        color: effectiveBg,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: selected
-              ? onBase.withValues(alpha: 0.16)
-              : onBase.withValues(alpha: 0.08),
-        ),
-      ),
-      child: Row(
-        mainAxisAlignment: widget.collapsed
-            ? MainAxisAlignment.center
-            : MainAxisAlignment.start,
-        children: [
-          Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Icon(widget.item.icon, size: iconSize, color: iconColor),
-              if (widget.item.showIndicator)
-                Positioned(
-                  right: -2,
-                  top: -1,
-                  child: Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.error,
-                      shape: BoxShape.circle,
+      content = SizedBox(
+        height: 50,
+        child: Center(
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: containerBg,
+              borderRadius: BorderRadius.circular(15),
+              border: selected
+                  ? Border.all(
+                      color: onBase.withValues(alpha: 0.28),
+                      width: 1,
+                    )
+                  : _hovered
+                      ? Border.all(
+                          color: onBase.withValues(alpha: 0.10),
+                          width: 1,
+                        )
+                      : null,
+              boxShadow: selected
+                  ? [
+                      BoxShadow(
+                        color: Colors.white.withValues(alpha: 0.10),
+                        blurRadius: 12,
+                        spreadRadius: 1,
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Stack(
+              clipBehavior: Clip.none,
+              alignment: Alignment.center,
+              children: [
+                AnimatedScale(
+                  scale: selected ? 1.10 : (_hovered ? 1.05 : 1.0),
+                  duration: const Duration(milliseconds: 180),
+                  child: AnimatedOpacity(
+                    opacity: iconOpacity,
+                    duration: const Duration(milliseconds: 180),
+                    child: Icon(
+                      widget.item.icon,
+                      size: 22,
+                      color: onBase,
                     ),
                   ),
                 ),
-            ],
+                if (widget.item.showIndicator)
+                  Positioned(
+                    right: 7,
+                    top: 7,
+                    child: Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.error,
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: Colors.white,
+                          width: 1.5,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: theme.colorScheme.error
+                                .withValues(alpha: 0.50),
+                            blurRadius: 4,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
-          if (!widget.collapsed) ...[
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                widget.item.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  fontWeight: selected ? FontWeight.w900 : FontWeight.w700,
-                  color: iconColor,
-                  fontSize: fontSize,
+        ),
+      );
+    } else {
+      // ─────────────────────────────────────────────────────────────
+      // EXPANDED: icon pill + label, premium look
+      // ─────────────────────────────────────────────────────────────
+      final iconOpacityExpanded =
+          selected ? 1.0 : (_hovered ? 0.90 : 0.60);
+      final labelColor = selected
+          ? onBase
+          : (_hovered ? onBase.withValues(alpha: 0.90) : onBase.withValues(alpha: 0.58));
+      final expandedBg = selected
+          ? Colors.white.withValues(alpha: 0.14)
+          : _hovered
+              ? Colors.white.withValues(alpha: 0.07)
+              : Colors.transparent;
+      final iconBoxBg = selected
+          ? Colors.white.withValues(alpha: 0.20)
+          : _hovered
+              ? Colors.white.withValues(alpha: 0.10)
+              : Colors.white.withValues(alpha: 0.06);
+
+      content = SizedBox(
+        height: 44,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          curve: Curves.easeOutCubic,
+          margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          decoration: BoxDecoration(
+            color: expandedBg,
+            borderRadius: BorderRadius.circular(12),
+            border: selected
+                ? Border.all(
+                    color: Colors.white.withValues(alpha: 0.14),
+                    width: 1,
+                  )
+                : null,
+          ),
+          child: Row(
+            children: [
+              // Left accent bar
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeOutCubic,
+                width: selected ? 3.5 : 0,
+                height: 20,
+                margin: const EdgeInsets.only(left: 6),
+                decoration: BoxDecoration(
+                  color: onBase,
+                  borderRadius: BorderRadius.circular(99),
+                  boxShadow: selected
+                      ? [
+                          BoxShadow(
+                            color: Colors.white.withValues(alpha: 0.40),
+                            blurRadius: 6,
+                          ),
+                        ]
+                      : null,
                 ),
               ),
-            ),
-            Icon(
-              Icons.chevron_right_rounded,
-              size: arrowSize,
-              color: arrowColor,
-            ),
-          ],
-        ],
+              SizedBox(width: selected ? 8 : 11),
+              // Icon in pill container
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 160),
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: iconBoxBg,
+                  borderRadius: BorderRadius.circular(10),
+                  border: selected
+                      ? Border.all(
+                          color: Colors.white.withValues(alpha: 0.22),
+                          width: 1,
+                        )
+                      : null,
+                ),
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  alignment: Alignment.center,
+                  children: [
+                    AnimatedOpacity(
+                      opacity: iconOpacityExpanded,
+                      duration: const Duration(milliseconds: 160),
+                      child: Icon(
+                        widget.item.icon,
+                        size: 18,
+                        color: onBase,
+                      ),
+                    ),
+                    if (widget.item.showIndicator)
+                      Positioned(
+                        right: -2,
+                        top: -2,
+                        child: Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.error,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 1.5),
+                            boxShadow: [
+                              BoxShadow(
+                                color: theme.colorScheme.error
+                                    .withValues(alpha: 0.50),
+                                blurRadius: 4,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 11),
+              // Label
+              Expanded(
+                child: Text(
+                  widget.item.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                    color: labelColor,
+                    fontSize: 13.5,
+                    letterSpacing: selected ? 0.15 : 0,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    Widget wrapped = MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) {
+        if (mounted) setState(() => _hovered = true);
+      },
+      onExit: (_) {
+        if (mounted) setState(() => _hovered = false);
+      },
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: content,
       ),
     );
 
-    return Tooltip(
-      message: widget.collapsed ? widget.item.title : '',
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(18),
-          onTap: widget.onTap,
-          hoverColor: hoverBg,
-          child: Center(child: child),
+    // Collapsed: styled tooltip to the right
+    if (collapsed) {
+      return Tooltip(
+        message: widget.item.title,
+        preferBelow: false,
+        verticalOffset: 30,
+        textStyle: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w800,
+          fontSize: 12,
+          letterSpacing: 0.2,
         ),
-      ),
-    );
+        decoration: BoxDecoration(
+          color: const Color(0xFF0F172A),
+          borderRadius: BorderRadius.circular(8),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.30),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: wrapped,
+      );
+    }
+    return wrapped;
   }
 }
