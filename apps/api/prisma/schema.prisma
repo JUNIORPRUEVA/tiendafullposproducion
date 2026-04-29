@@ -446,9 +446,71 @@ model UserWhatsappInstance {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user          User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversations WhatsappConversation[]
 
   @@map("user_whatsapp_instances")
+}
+
+// ─── WhatsApp CRM Inbox ────────────────────────────────────────────────────
+
+enum WhatsappMessageDirection {
+  INCOMING
+  OUTGOING
+
+  @@map("whatsapp_message_direction")
+}
+
+enum WhatsappMessageType {
+  TEXT
+  IMAGE
+  AUDIO
+  VIDEO
+  DOCUMENT
+  STICKER
+  OTHER
+
+  @@map("whatsapp_message_type")
+}
+
+model WhatsappConversation {
+  id            String    @id @default(uuid()) @db.Uuid
+  instanceId    String    @db.Uuid @map("instance_id")
+  remoteJid     String    @map("remote_jid")
+  remotePhone   String?   @map("remote_phone")
+  remoteName    String?   @map("remote_name")
+  lastMessageAt DateTime? @map("last_message_at")
+  unreadCount   Int       @default(0) @map("unread_count")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  instance UserWhatsappInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  messages WhatsappMessage[]
+
+  @@unique([instanceId, remoteJid])
+  @@index([instanceId, lastMessageAt(sort: Desc)])
+  @@map("whatsapp_conversations")
+}
+
+model WhatsappMessage {
+  id             String                   @id @default(uuid()) @db.Uuid
+  conversationId String                   @db.Uuid @map("conversation_id")
+  evolutionId    String?                  @unique @map("evolution_id")
+  direction      WhatsappMessageDirection
+  messageType    WhatsappMessageType      @default(TEXT) @map("message_type")
+  body           String?                  @db.Text
+  mediaUrl       String?                  @db.Text @map("media_url")
+  mediaMimeType  String?                  @map("media_mime_type")
+  caption        String?                  @db.Text
+  senderName     String?                  @map("sender_name")
+  sentAt         DateTime                 @map("sent_at")
+  createdAt      DateTime                 @default(now()) @map("created_at")
+  rawPayload     Json?                    @map("raw_payload")
+
+  conversation WhatsappConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, sentAt(sort: Desc)])
+  @@map("whatsapp_messages")
 }
 
 model UserLocation {

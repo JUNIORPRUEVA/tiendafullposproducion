@@ -163,6 +163,12 @@ List<AppNavigationSection> buildAppNavigationSections(
             title: 'WhatsApp',
             route: Routes.whatsapp,
           ),
+        if (can(AppPermission.viewWhatsappCrm))
+          const AppNavigationItem(
+            icon: Icons.support_agent_rounded,
+            title: 'CRM WhatsApp',
+            route: Routes.whatsappCrm,
+          ),
         if (can(AppPermission.viewCompanyManual))
           AppNavigationItem(
             icon: Icons.menu_book_outlined,
@@ -241,6 +247,7 @@ String resolveNavigationTitle(
   if (path == Routes.cotizacionesHistorial) return 'Historial de cotizaciones';
   if (path == Routes.clienteNuevo) return 'Nuevo cliente';
   if (path == Routes.ai) return 'IA';
+  if (path == Routes.whatsappCrm) return 'CRM WhatsApp';
   if (path == Routes.profile) return 'Perfil';
   if (path.startsWith('${Routes.serviceOrders}/')) return 'Detalle de orden';
   if (path.startsWith('${Routes.documentFlows}/')) return 'Detalle documental';

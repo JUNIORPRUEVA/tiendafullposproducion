@@ -83,7 +83,7 @@ export class WhatsappService {
   }
 
   private buildWebhookUrl(instanceName: string): string {
-    return `${this.resolvePublicBaseUrl()}/whatsapp/webhook/${encodeURIComponent(instanceName)}`;
+    return `${this.resolvePublicBaseUrl()}/whatsapp-inbox/webhook/${encodeURIComponent(instanceName)}`;
   }
 
   private async isGlobalWebhookEnabled(): Promise<boolean> {
@@ -585,5 +585,17 @@ export class WhatsappService {
           }
         : null,
     }));
+  }
+
+  // ─── Send text message via Evolution API ────────────────────────────────
+
+  async sendTextMessage(instanceName: string, remoteJid: string, text: string): Promise<unknown> {
+    return this.fetchEvolution(`/message/sendText/${encodeURIComponent(instanceName)}`, {
+      method: 'POST',
+      body: JSON.stringify({
+        number: remoteJid,
+        text,
+      }),
+    });
   }
 }

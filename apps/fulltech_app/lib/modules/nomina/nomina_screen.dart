@@ -69,115 +69,75 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
       (sum, employee) => sum + employee.cuotaMinima,
     );
 
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0xFFEAF6F8), Color(0xFFF5F8FB), Color(0xFFF5F8FB)],
-          stops: [0, 0.22, 0.22],
-        ),
-      ),
-      child: RefreshIndicator(
-        onRefresh: ref.read(nominaHomeControllerProvider.notifier).load,
-        child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 1360),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _NominaPremiumHeroCard(
-                    title: openPeriod?.title ?? 'Nomina sin quincena abierta',
-                    range: openPeriod == null
-                        ? 'Abre una quincena para comenzar'
-                        : '${DateFormat('dd/MM/yyyy').format(openPeriod.startDate)} - ${DateFormat('dd/MM/yyyy').format(openPeriod.endDate)}',
-                    totalLabel: money.format(state.openPeriodTotal ?? 0),
-                    activeEmployees: activeEmployees,
-                    onHistory: state.loading
-                        ? null
-                        : () => _openPayrollHistoryDialog(context, ref, state),
-                    onTotals: state.loading
-                        ? null
-                        : () =>
-                              _openOpenPeriodTotalsDialog(context, ref, state),
-                    onPdf: state.loading
-                        ? null
-                        : () => _exportOpenPeriodPdf(context, ref, state),
-                    onSendAllPayroll:
-                      state.loading || _sendingPayrollToAll || openPeriod == null
-                      ? null
-                      : () => _sendOpenPeriodPayrollToAll(context, ref, state),
-                    onAddEmployee: () => _showEmployeeDialog(context, ref),
-                    onClosePeriod: openPeriod == null
-                        ? null
-                        : () => _confirmClosePeriod(context, ref, openPeriod),
-                    onCreatePeriod: openPeriod == null
-                        ? () => _showCreatePeriodDialog(context, ref)
-                        : null,
-                  ),
-                  if (state.error != null) ...[
-                    const SizedBox(height: 10),
-                    _NominaErrorBanner(message: state.error!),
-                  ],
-                  const SizedBox(height: 10),
-                  _NominaPrimaryBoard(
-                    openPeriod: openPeriod,
-                    totalAbierto: state.openPeriodTotal ?? 0,
-                    payrollBase: payrollBase,
-                    payrollQuota: payrollQuota,
-                    activeEmployees: activeEmployees,
-                    money: money,
-                  ),
-                  const SizedBox(height: 10),
-                  _NominaUsersSectionCard(
-                    expanded: _showEmployeesSection,
-                    employees: activePayrollEmployees,
-                    onToggle: () => setState(
-                      () => _showEmployeesSection = !_showEmployeesSection,
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // ── Main scrollable content ──────────────────────────────────────────
+        Expanded(
+          child: ColoredBox(
+            color: const Color(0xFFF2F5F8),
+            child: RefreshIndicator(
+              onRefresh:
+                  ref.read(nominaHomeControllerProvider.notifier).load,
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(20, 16, 16, 28),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (state.error != null) ...[
+                      _NominaErrorBanner(message: state.error!),
+                      const SizedBox(height: 10),
+                    ],
+                    _NominaDesktopEmployeePanel(
+                      employees: activePayrollEmployees,
+                      loading: state.loading,
+                      onAdd: () => _showEmployeeDialog(context, ref),
+                      onManage: (e) =>
+                          _showEmployeePayrollDialog(context, ref, e),
+                      onEdit: (e) =>
+                          _showEmployeeDialog(context, ref, employee: e),
+                      onDelete: (e) =>
+                          _confirmDeleteEmployee(context, ref, e),
                     ),
-                    onAdd: () => _showEmployeeDialog(context, ref),
-                    child: activePayrollEmployees.isEmpty
-                        ? _NominaEmptyState(
-                            icon: Icons.groups_outlined,
-                            title: 'No hay usuarios en nomina',
-                            message: 'Agrega el primer usuario para comenzar.',
-                            actionLabel: 'Agregar usuario',
-                            onAction: () => _showEmployeeDialog(context, ref),
-                          )
-                        : Column(
-                            children: activePayrollEmployees
-                                .map(
-                                  (employee) => _EmployeeCard(
-                                    employee: employee,
-                                    onManage: () => _showEmployeePayrollDialog(
-                                      context,
-                                      ref,
-                                      employee,
-                                    ),
-                                    onEdit: () => _showEmployeeDialog(
-                                      context,
-                                      ref,
-                                      employee: employee,
-                                    ),
-                                    onDelete: () => _confirmDeleteEmployee(
-                                      context,
-                                      ref,
-                                      employee,
-                                    ),
-                                  ),
-                                )
-                                .toList(growable: false),
-                          ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
         ),
-      ),
+        // ── Right sidebar ────────────────────────────────────────────────────
+        _NominaDesktopSidebar(
+          openPeriod: openPeriod,
+          totalAbierto: state.openPeriodTotal ?? 0,
+          payrollBase: payrollBase,
+          payrollQuota: payrollQuota,
+          activeEmployees: activeEmployees,
+          money: money,
+          loading: state.loading,
+          sendingToAll: _sendingPayrollToAll,
+          onHistory: state.loading
+              ? null
+              : () => _openPayrollHistoryDialog(context, ref, state),
+          onTotals: state.loading
+              ? null
+              : () => _openOpenPeriodTotalsDialog(context, ref, state),
+          onPdf: state.loading
+              ? null
+              : () => _exportOpenPeriodPdf(context, ref, state),
+          onSendAll:
+              state.loading || _sendingPayrollToAll || openPeriod == null
+                  ? null
+                  : () => _sendOpenPeriodPayrollToAll(context, ref, state),
+          onAddEmployee: () => _showEmployeeDialog(context, ref),
+          onClosePeriod: openPeriod == null
+              ? null
+              : () => _confirmClosePeriod(context, ref, openPeriod),
+          onCreatePeriod: openPeriod == null
+              ? () => _showCreatePeriodDialog(context, ref)
+              : null,
+        ),
+      ],
     );
   }
 
@@ -332,7 +292,7 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final nominaTheme = theme.copyWith(
-      scaffoldBackgroundColor: scheme.primary,
+      scaffoldBackgroundColor: const Color(0xFFF2F5F8),
       appBarTheme: theme.appBarTheme.copyWith(
         backgroundColor: theme.appBarTheme.backgroundColor,
         foregroundColor: Colors.white,
@@ -1954,6 +1914,7 @@ class _PayrollEmployeeDialogState
       final alreadyExists = ref
           .read(nominaHomeControllerProvider)
           .employees
+          .where((e) => e.activo)
           .any((item) => item.id == widget.selectedUser!.id);
       if (alreadyExists) {
         validationError = 'Este usuario ya esta agregado en nomina';
@@ -2272,96 +2233,675 @@ class _PayrollUserPickerDialogState
   }
 }
 
-class _EmployeeCard extends StatelessWidget {
+class _EmployeeCard extends ConsumerStatefulWidget {
   const _EmployeeCard({
     required this.employee,
     required this.onEdit,
     required this.onManage,
     required this.onDelete,
+    this.showDetail = false,
   });
 
   final PayrollEmployee employee;
   final VoidCallback onEdit;
   final VoidCallback onManage;
   final VoidCallback onDelete;
+  /// When true, shows the expandable detail & movements buttons (desktop only).
+  final bool showDetail;
+
+  @override
+  ConsumerState<_EmployeeCard> createState() => _EmployeeCardState();
+}
+
+class _EmployeeCardState extends ConsumerState<_EmployeeCard>
+    with TickerProviderStateMixin {
+  // ── Info panel ──────────────────────────────────────────────────────────
+  bool _expandedInfo = false;
+  late final AnimationController _infoCtrl;
+  late final Animation<double> _infoAnim;
+
+  // ── Movements panel ─────────────────────────────────────────────────────
+  bool _expandedMovements = false;
+  late final AnimationController _movCtrl;
+  late final Animation<double> _movAnim;
+
+  // Lazy loaded data
+  List<PayrollEntry>? _entries;
+  PayrollTotals? _totals;
+  bool _movLoading = false;
+  String? _movError;
+
+  @override
+  void initState() {
+    super.initState();
+    _infoCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 200),
+    );
+    _infoAnim = CurvedAnimation(parent: _infoCtrl, curve: Curves.easeInOut);
+
+    _movCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 220),
+    );
+    _movAnim = CurvedAnimation(parent: _movCtrl, curve: Curves.easeInOut);
+  }
+
+  @override
+  void dispose() {
+    _infoCtrl.dispose();
+    _movCtrl.dispose();
+    super.dispose();
+  }
+
+  void _toggleInfo() {
+    setState(() => _expandedInfo = !_expandedInfo);
+    _expandedInfo ? _infoCtrl.forward() : _infoCtrl.reverse();
+  }
+
+  Future<void> _toggleMovements() async {
+    setState(() => _expandedMovements = !_expandedMovements);
+    if (_expandedMovements) {
+      _movCtrl.forward();
+      if (_entries == null) {
+        await _loadMovements();
+      }
+    } else {
+      _movCtrl.reverse();
+    }
+  }
+
+  Future<void> _loadMovements() async {
+    final open = ref.read(nominaHomeControllerProvider).openPeriod;
+    if (open == null) {
+      setState(() {
+        _movError = 'Sin quincena abierta';
+        _movLoading = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _movLoading = true;
+      _movError = null;
+    });
+
+    try {
+      final repo = ref.read(nominaRepositoryProvider);
+      final entries = await repo.listEntries(open.id, widget.employee.id);
+      final totals = await repo.computeTotals(open.id, widget.employee.id);
+      if (!mounted) return;
+      setState(() {
+        _entries = entries;
+        _totals = totals;
+        _movLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _movError = 'No se pudieron cargar: $e';
+        _movLoading = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
+    final employee = widget.employee;
+    final anyExpanded = _expandedInfo || _expandedMovements;
+
     return Card(
       elevation: 0,
       margin: const EdgeInsets.only(bottom: 6),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(
-          color: scheme.outlineVariant.withValues(alpha: 0.55),
-          width: 0.8,
+          color: anyExpanded
+              ? scheme.primary.withValues(alpha: 0.35)
+              : scheme.outlineVariant.withValues(alpha: 0.55),
+          width: anyExpanded ? 1.0 : 0.8,
         ),
       ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        child: Row(
-          children: [
-            CircleAvatar(
-              radius: 18,
-              backgroundColor: scheme.primaryContainer,
-              child: Text(
-                _compactInitials(employee.nombre),
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  color: scheme.onPrimaryContainer,
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    employee.nombre,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      height: 1.2,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // ── Header row ─────────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 18,
+                  backgroundColor: scheme.primaryContainer,
+                  child: Text(
+                    _compactInitials(employee.nombre),
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: scheme.onPrimaryContainer,
                     ),
                   ),
-                  const SizedBox(height: 3),
-                  Text(
-                    '${employee.puesto ?? 'Sin puesto'} · Base ${money.format(employee.salarioBaseQuincenal)} · Cuota ${money.format(employee.cuotaMinima)}',
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        employee.nombre,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          height: 1.2,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        '${employee.puesto ?? 'Sin puesto'} · Base ${money.format(employee.salarioBaseQuincenal)} · Cuota ${money.format(employee.cuotaMinima)}',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 4),
+                // ── Desktop-only expand buttons ───────────────────────
+                if (widget.showDetail) ...[
+                  // Info toggle
+                  Tooltip(
+                    message: _expandedInfo ? 'Ocultar datos' : 'Ver datos',
+                    child: _ExpandToggleChip(
+                      icon: Icons.person_outline_rounded,
+                      active: _expandedInfo,
+                      onTap: _toggleInfo,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  // Movements toggle
+                  Tooltip(
+                    message: _expandedMovements
+                        ? 'Ocultar movimientos'
+                        : 'Ver movimientos',
+                    child: _ExpandToggleChip(
+                      icon: Icons.receipt_long_outlined,
+                      active: _expandedMovements,
+                      onTap: _toggleMovements,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                ],
+                _CompactIconActionButton(
+                  tooltip: 'Agregar movimiento',
+                  onPressed: widget.onManage,
+                  icon: Icons.calculate_outlined,
+                  color: scheme.primary,
+                ),
+                _CompactIconActionButton(
+                  tooltip: 'Editar',
+                  onPressed: widget.onEdit,
+                  icon: Icons.edit_outlined,
+                  color: scheme.primary,
+                ),
+                _CompactIconActionButton(
+                  tooltip: 'Eliminar',
+                  onPressed: widget.onDelete,
+                  icon: Icons.delete_outline,
+                  color: scheme.error.withValues(alpha: 0.75),
+                ),
+              ],
+            ),
+          ),
+
+          // ── Info panel ─────────────────────────────────────────────────
+          if (widget.showDetail)
+            SizeTransition(
+              sizeFactor: _infoAnim,
+              axisAlignment: -1,
+              child: _EmployeeInfoPanel(employee: employee, money: money),
+            ),
+
+          // ── Movements panel ────────────────────────────────────────────
+          if (widget.showDetail)
+            SizeTransition(
+              sizeFactor: _movAnim,
+              axisAlignment: -1,
+              child: _EmployeeMovementsPanel(
+                loading: _movLoading,
+                error: _movError,
+                entries: _entries,
+                totals: _totals,
+                money: money,
+                onReload: _loadMovements,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Small chip-style toggle button ──────────────────────────────────────────
+class _ExpandToggleChip extends StatelessWidget {
+  const _ExpandToggleChip({
+    required this.icon,
+    required this.active,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 170),
+        width: 28,
+        height: 28,
+        decoration: BoxDecoration(
+          color: active
+              ? scheme.primary.withValues(alpha: 0.14)
+              : scheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: active
+                ? scheme.primary.withValues(alpha: 0.4)
+                : scheme.outlineVariant.withValues(alpha: 0.5),
+          ),
+        ),
+        child: Icon(
+          icon,
+          size: 14,
+          color: active ? scheme.primary : scheme.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+}
+
+// ── Employee static info panel ───────────────────────────────────────────────
+class _EmployeeInfoPanel extends StatelessWidget {
+  const _EmployeeInfoPanel({
+    required this.employee,
+    required this.money,
+  });
+
+  final PayrollEmployee employee;
+  final NumberFormat money;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Divider(height: 1, color: scheme.outlineVariant.withValues(alpha: 0.4)),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'DATOS DEL EMPLEADO',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: scheme.primary,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.6,
+                ),
+              ),
+              const SizedBox(height: 8),
+              _EmployeeDetailRow(
+                icon: Icons.badge_outlined,
+                label: 'Puesto',
+                value: employee.puesto?.isNotEmpty == true
+                    ? employee.puesto!
+                    : 'Sin puesto',
+              ),
+              _EmployeeDetailRow(
+                icon: Icons.phone_outlined,
+                label: 'Teléfono',
+                value: employee.telefono?.isNotEmpty == true
+                    ? employee.telefono!
+                    : 'Sin teléfono',
+              ),
+              _EmployeeDetailRow(
+                icon: Icons.account_balance_wallet_outlined,
+                label: 'Salario base quincenal',
+                value: money.format(employee.salarioBaseQuincenal),
+                highlight: true,
+              ),
+              _EmployeeDetailRow(
+                icon: Icons.flag_outlined,
+                label: 'Cuota mínima (meta)',
+                value: money.format(employee.cuotaMinima),
+              ),
+              _EmployeeDetailRow(
+                icon: Icons.health_and_safety_outlined,
+                label: 'Seguro de ley',
+                value: money.format(employee.seguroLeyMonto),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ── Payroll movements/entries panel ─────────────────────────────────────────
+class _EmployeeMovementsPanel extends StatelessWidget {
+  const _EmployeeMovementsPanel({
+    required this.loading,
+    required this.error,
+    required this.entries,
+    required this.totals,
+    required this.money,
+    required this.onReload,
+  });
+
+  final bool loading;
+  final String? error;
+  final List<PayrollEntry>? entries;
+  final PayrollTotals? totals;
+  final NumberFormat money;
+  final VoidCallback onReload;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Divider(height: 1, color: scheme.outlineVariant.withValues(alpha: 0.4)),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'MOVIMIENTOS — QUINCENA ACTUAL',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: scheme.secondary,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.6,
+                      ),
+                    ),
+                  ),
+                  if (!loading)
+                    GestureDetector(
+                      onTap: onReload,
+                      child: Icon(
+                        Icons.refresh_rounded,
+                        size: 14,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+
+              // Totals summary row
+              if (totals != null) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 7,
+                  ),
+                  decoration: BoxDecoration(
+                    color: scheme.surfaceContainerLowest,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: scheme.outlineVariant.withValues(alpha: 0.5),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      _MovTotalChip(
+                        label: 'Base',
+                        value: money.format(totals!.baseSalary),
+                        color: scheme.primary,
+                      ),
+                      const SizedBox(width: 8),
+                      _MovTotalChip(
+                        label: 'Comisión',
+                        value: money.format(totals!.commissions),
+                        color: scheme.tertiary,
+                      ),
+                      const SizedBox(width: 8),
+                      _MovTotalChip(
+                        label: 'Deducciones',
+                        value: money.format(totals!.deductions.abs()),
+                        color: scheme.error,
+                      ),
+                      const Spacer(),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            'Neto',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                          Text(
+                            money.format(totals!.total),
+                            style: theme.textTheme.labelLarge?.copyWith(
+                              fontWeight: FontWeight.w900,
+                              color: totals!.total < 0
+                                  ? scheme.error
+                                  : scheme.primary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+
+              // Entries list
+              if (loading)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 10),
+                  child: Center(
+                    child: SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                )
+              else if (error != null)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: Text(
+                    error!,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.error,
+                    ),
+                  ),
+                )
+              else if (entries == null || entries!.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: Text(
+                    'Sin movimientos registrados en la quincena actual.',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: scheme.onSurfaceVariant,
                     ),
                   ),
-                ],
+                )
+              else
+                ...entries!.map(
+                  (entry) => _EntryRow(entry: entry, money: money),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _MovTotalChip extends StatelessWidget {
+  const _MovTotalChip({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: color.withValues(alpha: 0.8),
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        Text(
+          value,
+          style: theme.textTheme.labelMedium?.copyWith(
+            fontWeight: FontWeight.w800,
+            color: color,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _EntryRow extends StatelessWidget {
+  const _EntryRow({required this.entry, required this.money});
+
+  final PayrollEntry entry;
+  final NumberFormat money;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDeduction = entry.amount < 0;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            margin: const EdgeInsets.only(right: 8, top: 1),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: isDeduction
+                  ? scheme.error.withValues(alpha: 0.85)
+                  : scheme.primary.withValues(alpha: 0.85),
+            ),
+          ),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${entry.type.label}: ${entry.concept}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    height: 1.2,
+                  ),
+                ),
+                Text(
+                  DateFormat('dd/MM/yyyy').format(entry.date),
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            money.format(entry.amount),
+            style: theme.textTheme.labelMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+              color: isDeduction ? scheme.error : scheme.primary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmployeeDetailRow extends StatelessWidget {
+  const _EmployeeDetailRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.highlight = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final bool highlight;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 5),
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            size: 13,
+            color: highlight ? scheme.primary : scheme.onSurfaceVariant,
+          ),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Text(
+              label,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+                fontWeight: FontWeight.w500,
               ),
             ),
-            const SizedBox(width: 8),
-            _CompactIconActionButton(
-              tooltip: 'Movimientos',
-              onPressed: onManage,
-              icon: Icons.calculate_outlined,
-              color: scheme.primary,
+          ),
+          Text(
+            value,
+            style: theme.textTheme.bodySmall?.copyWith(
+              fontWeight: highlight ? FontWeight.w800 : FontWeight.w600,
+              color: highlight ? scheme.primary : scheme.onSurface,
             ),
-            _CompactIconActionButton(
-              tooltip: 'Editar',
-              onPressed: onEdit,
-              icon: Icons.edit_outlined,
-              color: scheme.primary,
-            ),
-            _CompactIconActionButton(
-              tooltip: 'Eliminar',
-              onPressed: onDelete,
-              icon: Icons.delete_outline,
-              color: scheme.error.withValues(alpha: 0.75),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -2961,7 +3501,7 @@ enum _PayrollDetailEmployeeFilter {
   final String label;
 }
 
-class _PayrollHistoryFullScreen extends StatefulWidget {
+class _PayrollHistoryFullScreen extends ConsumerStatefulWidget {
   const _PayrollHistoryFullScreen({
     required this.items,
     required this.onOpenDetails,
@@ -2971,26 +3511,39 @@ class _PayrollHistoryFullScreen extends StatefulWidget {
   final Future<void> Function(PayrollPeriod period) onOpenDetails;
 
   @override
-  State<_PayrollHistoryFullScreen> createState() =>
+  ConsumerState<_PayrollHistoryFullScreen> createState() =>
       _PayrollHistoryFullScreenState();
 }
 
-class _PayrollHistoryFullScreenState extends State<_PayrollHistoryFullScreen> {
+class _PayrollHistoryFullScreenState
+    extends ConsumerState<_PayrollHistoryFullScreen> {
+  // ── List filters ────────────────────────────────────────────────────────
   late final TextEditingController _searchController;
   DateTime? _from;
   DateTime? _to;
   _PayrollHistoryQuickFilter _quickFilter = _PayrollHistoryQuickFilter.all;
+
+  // ── Desktop inline detail ────────────────────────────────────────────────
+  _PayrollHistoryPeriodSummary? _selectedItem;
+  List<_PayrollPeriodRow>? _detailRows;
+  bool _detailLoading = false;
+  String? _detailError;
+  late final TextEditingController _detailSearchCtrl;
+  _PayrollDetailEmployeeFilter _detailFilter = _PayrollDetailEmployeeFilter.all;
 
   @override
   void initState() {
     super.initState();
     _searchController = TextEditingController();
     _searchController.addListener(() => setState(() {}));
+    _detailSearchCtrl = TextEditingController();
+    _detailSearchCtrl.addListener(() => setState(() {}));
   }
 
   @override
   void dispose() {
     _searchController.dispose();
+    _detailSearchCtrl.dispose();
     super.dispose();
   }
 
@@ -3009,14 +3562,10 @@ class _PayrollHistoryFullScreenState extends State<_PayrollHistoryFullScreen> {
     setState(() {
       if (isFrom) {
         _from = picked;
-        if (_to != null && _to!.isBefore(picked)) {
-          _to = picked;
-        }
+        if (_to != null && _to!.isBefore(picked)) _to = picked;
       } else {
         _to = picked;
-        if (_from != null && picked.isBefore(_from!)) {
-          _from = picked;
-        }
+        if (_from != null && picked.isBefore(_from!)) _from = picked;
       }
     });
   }
@@ -3039,59 +3588,341 @@ class _PayrollHistoryFullScreenState extends State<_PayrollHistoryFullScreen> {
               !item.period.title.toLowerCase().contains(query)) {
             return false;
           }
-
           if (_quickFilter == _PayrollHistoryQuickFilter.last90Days) {
             final pivot = now.subtract(const Duration(days: 90));
             if (item.period.endDate.isBefore(pivot)) return false;
           }
-
           if (_quickFilter == _PayrollHistoryQuickFilter.currentYear &&
               item.period.endDate.year != now.year) {
             return false;
           }
-
           if (_from != null) {
             final from = DateTime(_from!.year, _from!.month, _from!.day);
             if (item.period.endDate.isBefore(from)) return false;
           }
-
           if (_to != null) {
-            final to = DateTime(_to!.year, _to!.month, _to!.day, 23, 59, 59);
+            final to =
+                DateTime(_to!.year, _to!.month, _to!.day, 23, 59, 59);
             if (item.period.startDate.isAfter(to)) return false;
           }
-
           return true;
         })
         .toList(growable: false)
       ..sort((a, b) => b.period.endDate.compareTo(a.period.endDate));
   }
 
+  Future<void> _selectPeriod(_PayrollHistoryPeriodSummary item) async {
+    setState(() {
+      _selectedItem = item;
+      _detailRows = null;
+      _detailLoading = true;
+      _detailError = null;
+      _detailSearchCtrl.clear();
+      _detailFilter = _PayrollDetailEmployeeFilter.all;
+    });
+    try {
+      final repo = ref.read(nominaRepositoryProvider);
+      final employees = [
+        ...ref.read(nominaHomeControllerProvider).employees,
+      ]..sort((a, b) => a.nombre.compareTo(b.nombre));
+      final rows = <_PayrollPeriodRow>[];
+      for (final employee in employees) {
+        final totals = await repo.computeTotals(item.period.id, employee.id);
+        rows.add((employee: employee, totals: totals));
+      }
+      if (!mounted) return;
+      setState(() {
+        _detailRows = rows;
+        _detailLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _detailError = 'Error al cargar: $e';
+        _detailLoading = false;
+      });
+    }
+  }
+
+  List<_PayrollPeriodRow> get _filteredDetailRows {
+    final rows = _detailRows ?? [];
+    final query = _detailSearchCtrl.text.trim().toLowerCase();
+    return rows
+        .where((row) {
+          if (query.isNotEmpty &&
+              !row.employee.nombre.toLowerCase().contains(query)) {
+            return false;
+          }
+          switch (_detailFilter) {
+            case _PayrollDetailEmployeeFilter.withCommission:
+              return row.totals.commissions > 0;
+            case _PayrollDetailEmployeeFilter.withDeductions:
+              return row.totals.deductions > 0;
+            case _PayrollDetailEmployeeFilter.all:
+              return true;
+          }
+        })
+        .toList(growable: false)
+      ..sort((a, b) => b.totals.total.compareTo(a.totals.total));
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isDesktop = MediaQuery.sizeOf(context).width >= 900;
+    return isDesktop ? _buildDesktop(context) : _buildMobile(context);
+  }
+
+  // ── DESKTOP layout ───────────────────────────────────────────────────────
+  Widget _buildDesktop(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final filtered = _filteredItems;
+    final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
+    final visibleTotal =
+        filtered.fold<double>(0, (s, i) => s + i.total);
     final activeFilters = [
       if (_searchController.text.trim().isNotEmpty) 1,
       if (_from != null) 1,
       if (_to != null) 1,
       if (_quickFilter != _PayrollHistoryQuickFilter.all) 1,
     ].length;
-    final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
-    final visibleTotal = filtered.fold<double>(
-      0,
-      (sum, item) => sum + item.total,
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF2F5F8),
+      appBar: AppBar(
+        title: const Text('Historial de nóminas'),
+        backgroundColor: theme.appBarTheme.backgroundColor,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        actions: [
+          if (activeFilters > 0)
+            TextButton(
+              onPressed: _resetFilters,
+              child: const Text(
+                'Limpiar filtros',
+                style: TextStyle(color: Colors.white70),
+              ),
+            ),
+        ],
+      ),
+      body: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // ── LEFT: period list ──────────────────────────────────────────
+          Container(
+            width: 300,
+            decoration: BoxDecoration(
+              color: scheme.surface,
+              border: Border(
+                right: BorderSide(
+                  color: scheme.outlineVariant.withValues(alpha: 0.4),
+                ),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Summary header
+                Container(
+                  padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
+                  decoration: BoxDecoration(
+                    color: scheme.surfaceContainerLowest,
+                    border: Border(
+                      bottom: BorderSide(
+                        color: scheme.outlineVariant.withValues(alpha: 0.4),
+                      ),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Quincenas cerradas',
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${filtered.length} resultados · ${money.format(visibleTotal)}',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      // Search
+                      TextField(
+                        controller: _searchController,
+                        style: theme.textTheme.bodySmall,
+                        decoration: InputDecoration(
+                          hintText: 'Buscar quincena...',
+                          hintStyle: theme.textTheme.bodySmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
+                          prefixIcon: const Icon(Icons.search_rounded, size: 16),
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 9,
+                          ),
+                          filled: true,
+                          fillColor: scheme.surface,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide:
+                                BorderSide(color: scheme.outlineVariant),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide:
+                                BorderSide(color: scheme.outlineVariant),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      // Quick filter chips
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: _PayrollHistoryQuickFilter.values
+                              .map(
+                                (f) => Padding(
+                                  padding: const EdgeInsets.only(right: 6),
+                                  child: _PayrollFilterChip(
+                                    label: f.label,
+                                    selected: _quickFilter == f,
+                                    onTap: () =>
+                                        setState(() => _quickFilter = f),
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      // Date pickers
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _HistoryDateButton(
+                              label: 'Desde',
+                              value: _from == null
+                                  ? '—'
+                                  : DateFormat('dd/MM/yy').format(_from!),
+                              onTap: () => _pickDate(isFrom: true),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: _HistoryDateButton(
+                              label: 'Hasta',
+                              value: _to == null
+                                  ? '—'
+                                  : DateFormat('dd/MM/yy').format(_to!),
+                              onTap: () => _pickDate(isFrom: false),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                // Period list
+                Expanded(
+                  child: filtered.isEmpty
+                      ? Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(20),
+                            child: Text(
+                              'Sin resultados',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: scheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        )
+                      : ListView.separated(
+                          padding: const EdgeInsets.symmetric(vertical: 6),
+                          itemCount: filtered.length,
+                          separatorBuilder: (_, __) => Divider(
+                            height: 1,
+                            indent: 14,
+                            endIndent: 14,
+                            color:
+                                scheme.outlineVariant.withValues(alpha: 0.3),
+                          ),
+                          itemBuilder: (context, index) {
+                            final item = filtered[index];
+                            final isSelected =
+                                _selectedItem?.period.id == item.period.id;
+                            return _HistoryPeriodListTile(
+                              item: item,
+                              money: money,
+                              selected: isSelected,
+                              onTap: () => _selectPeriod(item),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+          ),
+
+          // ── RIGHT: inline detail ─────────────────────────────────────
+          Expanded(
+            child: _selectedItem == null
+                ? _HistoryEmptyDetail()
+                : _HistoryInlineDetail(
+                    item: _selectedItem!,
+                    rows: _detailRows,
+                    loading: _detailLoading,
+                    error: _detailError,
+                    searchCtrl: _detailSearchCtrl,
+                    filter: _detailFilter,
+                    filteredRows: _filteredDetailRows,
+                    money: money,
+                    onFilterChange: (f) =>
+                        setState(() => _detailFilter = f),
+                    onSendPayroll: (row) async {
+                      await widget.onOpenDetails(_selectedItem!.period);
+                    },
+                    onExportPdf: () async {
+                      await widget.onOpenDetails(_selectedItem!.period);
+                    },
+                  ),
+          ),
+        ],
+      ),
     );
+  }
+
+  // ── MOBILE layout (unchanged behavior) ──────────────────────────────────
+  Widget _buildMobile(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final filtered = _filteredItems;
+    final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
+    final visibleTotal =
+        filtered.fold<double>(0, (s, i) => s + i.total);
     final latestClose = filtered.isEmpty
         ? null
         : DateFormat('dd/MM/yyyy').format(filtered.first.period.endDate);
+    final activeFilters = [
+      if (_searchController.text.trim().isNotEmpty) 1,
+      if (_from != null) 1,
+      if (_to != null) 1,
+      if (_quickFilter != _PayrollHistoryQuickFilter.all) 1,
+    ].length;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Historial de nominas'),
         actions: [
           if (activeFilters > 0)
-            TextButton(onPressed: _resetFilters, child: const Text('Limpiar')),
+            TextButton(
+              onPressed: _resetFilters,
+              child: const Text('Limpiar'),
+            ),
         ],
       ),
       body: Column(
@@ -3251,6 +4082,480 @@ class _PayrollHistoryFullScreenState extends State<_PayrollHistoryFullScreen> {
                       );
                     },
                   ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Desktop helper widgets ────────────────────────────────────────────────────
+
+class _HistoryDateButton extends StatelessWidget {
+  const _HistoryDateButton({
+    required this.label,
+    required this.value,
+    required this.onTap,
+  });
+  final String label;
+  final String value;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        decoration: BoxDecoration(
+          color: scheme.surface,
+          borderRadius: BorderRadius.circular(9),
+          border: Border.all(
+            color: scheme.outlineVariant.withValues(alpha: 0.7),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.calendar_today_outlined,
+                size: 12, color: scheme.onSurfaceVariant),
+            const SizedBox(width: 5),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  Text(
+                    value,
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HistoryPeriodListTile extends StatelessWidget {
+  const _HistoryPeriodListTile({
+    required this.item,
+    required this.money,
+    required this.selected,
+    required this.onTap,
+  });
+  final _PayrollHistoryPeriodSummary item;
+  final NumberFormat money;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final range =
+        '${DateFormat('dd/MM/yyyy').format(item.period.startDate)} – '
+        '${DateFormat('dd/MM/yyyy').format(item.period.endDate)}';
+
+    return InkWell(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+        color: selected
+            ? scheme.primary.withValues(alpha: 0.08)
+            : Colors.transparent,
+        child: Row(
+          children: [
+            if (selected)
+              Container(
+                width: 3,
+                height: 36,
+                margin: const EdgeInsets.only(right: 10),
+                decoration: BoxDecoration(
+                  color: scheme.primary,
+                  borderRadius: BorderRadius.circular(99),
+                ),
+              ),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item.period.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight:
+                          selected ? FontWeight.w800 : FontWeight.w600,
+                      color: selected ? scheme.primary : scheme.onSurface,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    range,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              money.format(item.total),
+              style: theme.textTheme.labelMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+                color: selected ? scheme.primary : scheme.onSurface,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HistoryEmptyDetail extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.touch_app_outlined,
+            size: 40,
+            color: scheme.onSurfaceVariant.withValues(alpha: 0.4),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Selecciona una quincena',
+            style: theme.textTheme.titleSmall?.copyWith(
+              color: scheme.onSurfaceVariant.withValues(alpha: 0.6),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'El detalle y los pagos aparecerán aquí.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: scheme.onSurfaceVariant.withValues(alpha: 0.5),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HistoryInlineDetail extends StatelessWidget {
+  const _HistoryInlineDetail({
+    required this.item,
+    required this.rows,
+    required this.loading,
+    required this.error,
+    required this.searchCtrl,
+    required this.filter,
+    required this.filteredRows,
+    required this.money,
+    required this.onFilterChange,
+    required this.onSendPayroll,
+    required this.onExportPdf,
+  });
+
+  final _PayrollHistoryPeriodSummary item;
+  final List<_PayrollPeriodRow>? rows;
+  final bool loading;
+  final String? error;
+  final TextEditingController searchCtrl;
+  final _PayrollDetailEmployeeFilter filter;
+  final List<_PayrollPeriodRow> filteredRows;
+  final NumberFormat money;
+  final void Function(_PayrollDetailEmployeeFilter) onFilterChange;
+  final Future<void> Function(_PayrollPeriodRow) onSendPayroll;
+  final Future<void> Function() onExportPdf;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final range =
+        '${DateFormat('dd/MM/yyyy').format(item.period.startDate)} – '
+        '${DateFormat('dd/MM/yyyy').format(item.period.endDate)}';
+
+    final totalBase = filteredRows.fold<double>(
+        0, (s, r) => s + r.totals.baseSalary);
+    final totalCommissions = filteredRows.fold<double>(
+        0, (s, r) => s + r.totals.commissions);
+    final totalExtras = filteredRows.fold<double>(
+        0, (s, r) => s + r.totals.bonuses + r.totals.otherAdditions);
+    final totalDeductions = filteredRows.fold<double>(
+        0, (s, r) => s + r.totals.deductions);
+    final totalNeto =
+        filteredRows.fold<double>(0, (s, r) => s + r.totals.total);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // ── Detail header bar ─────────────────────────────────────────
+        Container(
+          padding: const EdgeInsets.fromLTRB(18, 14, 14, 12),
+          color: scheme.surface,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          item.period.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          range,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: onExportPdf,
+                    icon: const Icon(Icons.picture_as_pdf_outlined, size: 14),
+                    label: const Text('PDF'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: scheme.onSurface,
+                      side: BorderSide(
+                        color: scheme.outlineVariant.withValues(alpha: 0.7),
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
+                      textStyle: theme.textTheme.labelSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(9),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              // Totals summary strip
+              if (rows != null && !loading) ...[
+                const SizedBox(height: 12),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      _HistoryStatChip(
+                        label: 'Total neto',
+                        value: money.format(totalNeto),
+                        primary: true,
+                      ),
+                      const SizedBox(width: 6),
+                      _HistoryStatChip(
+                        label: 'Base',
+                        value: money.format(totalBase),
+                      ),
+                      const SizedBox(width: 6),
+                      _HistoryStatChip(
+                        label: 'Comisión',
+                        value: money.format(totalCommissions),
+                      ),
+                      const SizedBox(width: 6),
+                      _HistoryStatChip(
+                        label: 'Extras',
+                        value: money.format(totalExtras),
+                      ),
+                      const SizedBox(width: 6),
+                      _HistoryStatChip(
+                        label: 'Deducciones',
+                        value: money.format(totalDeductions),
+                        danger: true,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              // Search + filters
+              if (rows != null && !loading) ...[
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: searchCtrl,
+                        style: theme.textTheme.bodySmall,
+                        decoration: InputDecoration(
+                          hintText: 'Buscar empleado...',
+                          hintStyle: theme.textTheme.bodySmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
+                          prefixIcon:
+                              const Icon(Icons.search_rounded, size: 15),
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 9,
+                          ),
+                          filled: true,
+                          fillColor: scheme.surfaceContainerLowest,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(9),
+                            borderSide:
+                                BorderSide(color: scheme.outlineVariant),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(9),
+                            borderSide:
+                                BorderSide(color: scheme.outlineVariant),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    ...(_PayrollDetailEmployeeFilter.values.map(
+                      (f) => Padding(
+                        padding: const EdgeInsets.only(left: 4),
+                        child: _PayrollFilterChip(
+                          label: f.label,
+                          selected: filter == f,
+                          onTap: () => onFilterChange(f),
+                        ),
+                      ),
+                    )),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+        Divider(
+          height: 1,
+          color: scheme.outlineVariant.withValues(alpha: 0.4),
+        ),
+
+        // ── Employee rows ─────────────────────────────────────────────
+        Expanded(
+          child: loading
+              ? const Center(child: CircularProgressIndicator())
+              : error != null
+                  ? Center(
+                      child: Text(
+                        error!,
+                        style: TextStyle(color: scheme.error),
+                      ),
+                    )
+                  : filteredRows.isEmpty
+                      ? Center(
+                          child: Text(
+                            'Sin empleados con este filtro.',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                        )
+                      : ListView.separated(
+                          padding:
+                              const EdgeInsets.fromLTRB(14, 10, 14, 24),
+                          itemCount: filteredRows.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 6),
+                          itemBuilder: (context, index) {
+                            final row = filteredRows[index];
+                            return _PayrollPeriodEmployeeCard(
+                              row: row,
+                              money: money,
+                              onSendPayroll: () => onSendPayroll(row),
+                            );
+                          },
+                        ),
+        ),
+      ],
+    );
+  }
+}
+
+class _HistoryStatChip extends StatelessWidget {
+  const _HistoryStatChip({
+    required this.label,
+    required this.value,
+    this.primary = false,
+    this.danger = false,
+  });
+
+  final String label;
+  final String value;
+  final bool primary;
+  final bool danger;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final color = primary
+        ? scheme.primary
+        : danger
+            ? scheme.error
+            : scheme.onSurface;
+    final bg = primary
+        ? scheme.primary.withValues(alpha: 0.08)
+        : danger
+            ? scheme.error.withValues(alpha: 0.06)
+            : scheme.surfaceContainerLowest;
+    final border = primary
+        ? scheme.primary.withValues(alpha: 0.25)
+        : danger
+            ? scheme.error.withValues(alpha: 0.2)
+            : scheme.outlineVariant.withValues(alpha: 0.5);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: color.withValues(alpha: 0.75),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          Text(
+            value,
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w800,
+            ),
           ),
         ],
       ),
@@ -4025,7 +5330,7 @@ class _PayrollHistoryPeriodCard extends StatelessWidget {
   }
 }
 
-class _PayrollPeriodEmployeeCard extends StatelessWidget {
+class _PayrollPeriodEmployeeCard extends StatefulWidget {
   const _PayrollPeriodEmployeeCard({
     required this.row,
     required this.money,
@@ -4037,152 +5342,479 @@ class _PayrollPeriodEmployeeCard extends StatelessWidget {
   final Future<void> Function() onSendPayroll;
 
   @override
+  State<_PayrollPeriodEmployeeCard> createState() =>
+      _PayrollPeriodEmployeeCardState();
+}
+
+class _PayrollPeriodEmployeeCardState
+    extends State<_PayrollPeriodEmployeeCard>
+    with SingleTickerProviderStateMixin {
+  bool _expanded = false;
+  late final AnimationController _ctrl;
+  late final Animation<double> _anim;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 210),
+    );
+    _anim = CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _toggle() {
+    setState(() => _expanded = !_expanded);
+    _expanded ? _ctrl.forward() : _ctrl.reverse();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final isCompact = MediaQuery.sizeOf(context).width < 420;
-    final extras = row.totals.bonuses + row.totals.otherAdditions;
-    final breakdownParts = <String>[
-      'Base ${money.format(row.totals.baseSalary)}',
-      'Comision ${money.format(row.totals.commissions)}',
-      if (extras > 0) 'Extras ${money.format(extras)}',
-      'Deducciones ${money.format(row.totals.deductions)}',
-    ];
+    final totals = widget.row.totals;
+    final employee = widget.row.employee;
+    final money = widget.money;
+    final extras = totals.bonuses + totals.otherAdditions;
+    final isNegative = totals.total < 0;
 
     return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [scheme.surface, scheme.surfaceContainerLowest],
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: _expanded
+              ? scheme.primary.withValues(alpha: 0.3)
+              : scheme.outlineVariant.withValues(alpha: 0.5),
+          width: _expanded ? 1.0 : 0.7,
         ),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.6)),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x10000000),
-            blurRadius: 14,
-            offset: Offset(0, 5),
-          ),
-        ],
       ),
-      child: Padding(
-        padding: EdgeInsets.symmetric(
-          horizontal: isCompact ? 10 : 12,
-          vertical: isCompact ? 9 : 11,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // ── Compact header row (always visible) ──────────────────────
+          InkWell(
+            borderRadius: _expanded
+                ? const BorderRadius.vertical(top: Radius.circular(10))
+                : BorderRadius.circular(10),
+            onTap: _toggle,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+              child: Row(
+                children: [
+                  // Left accent bar
+                  Container(
+                    width: 3,
+                    height: 32,
+                    margin: const EdgeInsets.only(right: 10),
+                    decoration: BoxDecoration(
+                      color: isNegative
+                          ? scheme.error
+                          : scheme.primary.withValues(alpha: 0.8),
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                  ),
+                  // Avatar
+                  CircleAvatar(
+                    radius: 15,
+                    backgroundColor: scheme.secondaryContainer,
+                    child: Text(
+                      _compactInitials(employee.nombre),
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        color: scheme.onSecondaryContainer,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  // Name + subtitle
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          employee.nombre,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            height: 1.1,
+                          ),
+                        ),
+                        Text(
+                          employee.puesto ?? 'Sin puesto',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  // Neto badge
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 9, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: isNegative
+                          ? scheme.errorContainer
+                          : scheme.primaryContainer,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          money.format(totals.total),
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            fontWeight: FontWeight.w900,
+                            color: isNegative
+                                ? scheme.onErrorContainer
+                                : scheme.onPrimaryContainer,
+                          ),
+                        ),
+                        Text(
+                          'Neto',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
+                            color: isNegative
+                                ? scheme.onErrorContainer
+                                    .withValues(alpha: 0.7)
+                                : scheme.onPrimaryContainer
+                                    .withValues(alpha: 0.7),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  // Expand arrow
+                  AnimatedRotation(
+                    turns: _expanded ? 0.5 : 0.0,
+                    duration: const Duration(milliseconds: 200),
+                    child: Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      size: 18,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // ── Expandable detail ─────────────────────────────────────────
+          SizeTransition(
+            sizeFactor: _anim,
+            axisAlignment: -1,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Container(
-                  width: 4,
-                  height: isCompact ? 42 : 46,
-                  decoration: BoxDecoration(
-                    color: row.totals.total < 0
-                        ? scheme.error
-                        : scheme.primary.withValues(alpha: 0.85),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
+                Divider(
+                  height: 1,
+                  color: scheme.outlineVariant.withValues(alpha: 0.4),
                 ),
-                const SizedBox(width: 10),
-                CircleAvatar(
-                  radius: isCompact ? 17 : 18,
-                  backgroundColor: scheme.secondaryContainer,
-                  child: Text(
-                    _compactInitials(row.employee.nombre),
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w800,
-                      color: scheme.onSecondaryContainer,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 10, 14, 6),
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Text(
-                        row.employee.nombre,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodyLarge?.copyWith(
-                          fontWeight: FontWeight.w800,
-                          height: 1.05,
+                      // ── ADICIONES ──────────────────────────────────
+                      _BreakdownSection(
+                        label: 'ADICIONES',
+                        color: scheme.primary,
+                        rows: [
+                          _BreakdownLine(
+                            label: 'Salario base',
+                            value: money.format(totals.baseSalary),
+                            bold: true,
+                          ),
+                          if (totals.commissions > 0)
+                            _BreakdownLine(
+                              label: 'Comisión por ventas',
+                              value: money.format(totals.commissions),
+                            ),
+                          if (totals.bonuses > 0)
+                            _BreakdownLine(
+                              label: 'Bonificaciones',
+                              value: money.format(totals.bonuses),
+                            ),
+                          if (totals.otherAdditions > 0)
+                            _BreakdownLine(
+                              label: 'Otros ingresos',
+                              value: money.format(totals.otherAdditions),
+                            ),
+                          _BreakdownLine(
+                            label: 'Total adiciones',
+                            value: money.format(totals.additions),
+                            bold: true,
+                            isTotal: true,
+                            color: scheme.primary,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      // ── DEDUCCIONES ────────────────────────────────
+                      _BreakdownSection(
+                        label: 'DEDUCCIONES',
+                        color: scheme.error,
+                        rows: [
+                          if (totals.seguroLey > 0)
+                            _BreakdownLine(
+                              label: 'Seguro de ley',
+                              value: money.format(totals.seguroLey),
+                              danger: true,
+                            ),
+                          if (totals.absences > 0)
+                            _BreakdownLine(
+                              label: 'Ausencias',
+                              value: money.format(totals.absences),
+                              danger: true,
+                            ),
+                          if (totals.advances > 0)
+                            _BreakdownLine(
+                              label: 'Adelantos',
+                              value: money.format(totals.advances),
+                              danger: true,
+                            ),
+                          if (totals.late > 0)
+                            _BreakdownLine(
+                              label: 'Tardanzas',
+                              value: money.format(totals.late),
+                              danger: true,
+                            ),
+                          if (totals.otherDeductions > 0)
+                            _BreakdownLine(
+                              label: 'Otros descuentos',
+                              value: money.format(totals.otherDeductions),
+                              danger: true,
+                            ),
+                          if (totals.deductions == 0)
+                            _BreakdownLine(
+                              label: 'Sin deducciones',
+                              value: '—',
+                              muted: true,
+                            )
+                          else
+                            _BreakdownLine(
+                              label: 'Total deducciones',
+                              value: money.format(totals.deductions.abs()),
+                              bold: true,
+                              isTotal: true,
+                              danger: true,
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      // ── NETO FINAL ─────────────────────────────────
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: isNegative
+                              ? scheme.errorContainer
+                                  .withValues(alpha: 0.5)
+                              : scheme.primaryContainer
+                                  .withValues(alpha: 0.5),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: isNegative
+                                ? scheme.error.withValues(alpha: 0.2)
+                                : scheme.primary.withValues(alpha: 0.2),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                'NETO A PAGAR',
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 0.5,
+                                  color: isNegative
+                                      ? scheme.error
+                                      : scheme.primary,
+                                ),
+                              ),
+                            ),
+                            Text(
+                              money.format(totals.total),
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w900,
+                                color: isNegative
+                                    ? scheme.error
+                                    : scheme.primary,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        breakdownParts.join(' · '),
-                        maxLines: isCompact ? 2 : 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                          height: 1.2,
+                      const SizedBox(height: 8),
+                      // ── Send button ────────────────────────────────
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: OutlinedButton.icon(
+                          onPressed: widget.onSendPayroll,
+                          icon: const Icon(
+                              Icons.send_to_mobile_outlined,
+                              size: 14),
+                          label: const Text('Enviar nómina'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: scheme.primary,
+                            side: BorderSide(
+                              color: scheme.primary.withValues(alpha: 0.4),
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 6),
+                            textStyle: theme.textTheme.labelSmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
                         ),
                       ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 7,
-                  ),
-                  decoration: BoxDecoration(
-                    color: row.totals.total < 0
-                        ? scheme.errorContainer
-                        : scheme.primaryContainer,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: row.totals.total < 0
-                          ? scheme.error.withValues(alpha: 0.18)
-                          : scheme.primary.withValues(alpha: 0.18),
-                    ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        money.format(row.totals.total),
-                        style: theme.textTheme.labelLarge?.copyWith(
-                          fontWeight: FontWeight.w900,
-                          color: row.totals.total < 0
-                              ? scheme.onErrorContainer
-                              : scheme.onPrimaryContainer,
-                        ),
-                      ),
-                      Text(
-                        'Neto',
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: row.totals.total < 0
-                              ? scheme.onErrorContainer.withValues(alpha: 0.78)
-                              : scheme.onPrimaryContainer.withValues(alpha: 0.78),
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
+                      const SizedBox(height: 4),
                     ],
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 10),
-            Align(
-              alignment: Alignment.centerRight,
-              child: OutlinedButton.icon(
-                onPressed: onSendPayroll,
-                icon: const Icon(Icons.send_to_mobile_outlined, size: 18),
-                label: const Text('Enviar nómina'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Breakdown helpers ─────────────────────────────────────────────────────────
+
+class _BreakdownSection extends StatelessWidget {
+  const _BreakdownSection({
+    required this.label,
+    required this.color,
+    required this.rows,
+  });
+
+  final String label;
+  final Color color;
+  final List<Widget> rows;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 3,
+              height: 11,
+              margin: const EdgeInsets.only(right: 5),
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(99),
+              ),
+            ),
+            Text(
+              label,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: color,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.5,
               ),
             ),
           ],
         ),
+        const SizedBox(height: 5),
+        ...rows,
+      ],
+    );
+  }
+}
+
+class _BreakdownLine extends StatelessWidget {
+  const _BreakdownLine({
+    required this.label,
+    required this.value,
+    this.bold = false,
+    this.danger = false,
+    this.muted = false,
+    this.isTotal = false,
+    this.color,
+  });
+
+  final String label;
+  final String value;
+  final bool bold;
+  final bool danger;
+  final bool muted;
+  final bool isTotal;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final labelColor = muted
+        ? scheme.onSurfaceVariant.withValues(alpha: 0.5)
+        : danger
+            ? scheme.error.withValues(alpha: 0.85)
+            : color ?? scheme.onSurfaceVariant;
+    final valueColor = muted
+        ? scheme.onSurfaceVariant.withValues(alpha: 0.4)
+        : danger
+            ? scheme.error
+            : color ?? scheme.onSurface;
+
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: isTotal ? 0 : 3,
+        top: isTotal ? 3 : 0,
       ),
+      child: Row(
+        children: [
+          if (isTotal)
+            Divider(
+              height: 0,
+              color: scheme.outlineVariant.withValues(alpha: 0.4),
+            ),
+          Expanded(
+            child: Text(
+              label,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: labelColor,
+                fontWeight: bold ? FontWeight.w700 : FontWeight.w500,
+                fontSize: 11,
+              ),
+            ),
+          ),
+          Text(
+            value,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: valueColor,
+              fontWeight: bold ? FontWeight.w800 : FontWeight.w600,
+              fontSize: 11,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
     );
   }
 }
@@ -4282,6 +5914,463 @@ class _NominaEmptyState extends StatelessWidget {
             icon: const Icon(Icons.add),
             label: Text(actionLabel),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DESKTOP-ONLY WIDGETS
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _NominaDesktopSidebar extends StatelessWidget {
+  const _NominaDesktopSidebar({
+    required this.openPeriod,
+    required this.totalAbierto,
+    required this.payrollBase,
+    required this.payrollQuota,
+    required this.activeEmployees,
+    required this.money,
+    required this.loading,
+    required this.sendingToAll,
+    required this.onAddEmployee,
+    this.onHistory,
+    this.onTotals,
+    this.onPdf,
+    this.onSendAll,
+    this.onClosePeriod,
+    this.onCreatePeriod,
+  });
+
+  final PayrollPeriod? openPeriod;
+  final double totalAbierto;
+  final double payrollBase;
+  final double payrollQuota;
+  final int activeEmployees;
+  final NumberFormat money;
+  final bool loading;
+  final bool sendingToAll;
+  final VoidCallback onAddEmployee;
+  final VoidCallback? onHistory;
+  final VoidCallback? onTotals;
+  final VoidCallback? onPdf;
+  final VoidCallback? onSendAll;
+  final VoidCallback? onClosePeriod;
+  final VoidCallback? onCreatePeriod;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isOpen = openPeriod != null;
+    final range = isOpen
+        ? '${DateFormat('dd/MM/yyyy').format(openPeriod!.startDate)} – '
+            '${DateFormat('dd/MM/yyyy').format(openPeriod!.endDate)}'
+        : null;
+
+    return Container(
+      width: 272,
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        border: Border(
+          left: BorderSide(
+            color: scheme.outlineVariant.withValues(alpha: 0.45),
+          ),
+        ),
+      ),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(16, 18, 16, 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // ── Period header ──────────────────────────────────────────
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: isOpen
+                    ? const Color(0xFFE8F5FA)
+                    : scheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: isOpen
+                      ? const Color(0xFFB7D9E6)
+                      : scheme.outlineVariant.withValues(alpha: 0.5),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          openPeriod?.title ?? 'Sin quincena abierta',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: isOpen
+                                ? const Color(0xFF0D3141)
+                                : scheme.onSurfaceVariant,
+                            height: 1.25,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: isOpen
+                              ? const Color(0xFF0F6F8B).withValues(alpha: 0.12)
+                              : scheme.surfaceContainerHigh,
+                          borderRadius: BorderRadius.circular(99),
+                        ),
+                        child: Text(
+                          isOpen ? 'Abierta' : 'Cerrada',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: isOpen
+                                ? const Color(0xFF0F6F8B)
+                                : scheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (range != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      range,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFF4D6773),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 18),
+
+            // ── Resumen section ─────────────────────────────────────────
+            _SidebarSectionLabel(label: 'Resumen'),
+            const SizedBox(height: 8),
+            _SidebarStatRow(
+              icon: Icons.account_balance_wallet_outlined,
+              label: 'Total a pagar',
+              value: money.format(totalAbierto),
+              highlight: true,
+            ),
+            _SidebarStatRow(
+              icon: Icons.badge_outlined,
+              label: 'Base total',
+              value: money.format(payrollBase),
+            ),
+            _SidebarStatRow(
+              icon: Icons.flag_outlined,
+              label: 'Cuota total',
+              value: money.format(payrollQuota),
+            ),
+            _SidebarStatRow(
+              icon: Icons.groups_outlined,
+              label: 'Empleados activos',
+              value: activeEmployees.toString(),
+            ),
+
+            const SizedBox(height: 18),
+            Divider(
+              height: 1,
+              color: scheme.outlineVariant.withValues(alpha: 0.4),
+            ),
+            const SizedBox(height: 18),
+
+            // ── Acciones section ────────────────────────────────────────
+            _SidebarSectionLabel(label: 'Acciones'),
+            const SizedBox(height: 8),
+
+            FilledButton.icon(
+              onPressed: onAddEmployee,
+              icon: const Icon(Icons.person_add_alt_1_outlined, size: 15),
+              label: const Text('Agregar empleado'),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF0F6F8B),
+                foregroundColor: Colors.white,
+                minimumSize: const Size.fromHeight(36),
+                textStyle: theme.textTheme.labelMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+            const SizedBox(height: 6),
+
+            _SidebarActionButton(
+              icon: Icons.history,
+              label: 'Historial',
+              onPressed: onHistory,
+            ),
+            _SidebarActionButton(
+              icon: Icons.summarize_outlined,
+              label: 'Totales',
+              onPressed: onTotals,
+            ),
+            _SidebarActionButton(
+              icon: Icons.picture_as_pdf_outlined,
+              label: 'PDF',
+              onPressed: onPdf,
+            ),
+            _SidebarActionButton(
+              icon: sendingToAll
+                  ? Icons.hourglass_empty_outlined
+                  : Icons.mark_chat_unread_outlined,
+              label: sendingToAll ? 'Enviando...' : 'Enviar a todos',
+              onPressed: onSendAll,
+            ),
+            if (onClosePeriod != null)
+              _SidebarActionButton(
+                icon: Icons.task_alt_outlined,
+                label: 'Cerrar quincena',
+                onPressed: onClosePeriod,
+              ),
+            if (onCreatePeriod != null)
+              _SidebarActionButton(
+                icon: Icons.add_circle_outline,
+                label: 'Abrir quincena',
+                onPressed: onCreatePeriod,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SidebarSectionLabel extends StatelessWidget {
+  const _SidebarSectionLabel({required this.label});
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Text(
+      label.toUpperCase(),
+      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+        color: scheme.onSurfaceVariant,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 0.8,
+      ),
+    );
+  }
+}
+
+class _SidebarStatRow extends StatelessWidget {
+  const _SidebarStatRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.highlight = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final bool highlight;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        children: [
+          Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: highlight
+                  ? scheme.primary.withValues(alpha: 0.12)
+                  : scheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(
+              icon,
+              size: 14,
+              color: highlight ? scheme.primary : scheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              label,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          Text(
+            value,
+            style: theme.textTheme.labelMedium?.copyWith(
+              fontWeight: highlight ? FontWeight.w900 : FontWeight.w700,
+              color: highlight ? scheme.primary : scheme.onSurface,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SidebarActionButton extends StatelessWidget {
+  const _SidebarActionButton({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: SizedBox(
+        height: 34,
+        width: double.infinity,
+        child: OutlinedButton.icon(
+          onPressed: onPressed,
+          icon: Icon(icon, size: 14),
+          label: Text(label),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: scheme.onSurface,
+            side: BorderSide(
+              color: scheme.outlineVariant.withValues(alpha: 0.7),
+            ),
+            alignment: Alignment.centerLeft,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            textStyle: theme.textTheme.labelMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(9),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NominaDesktopEmployeePanel extends StatelessWidget {
+  const _NominaDesktopEmployeePanel({
+    required this.employees,
+    required this.loading,
+    required this.onAdd,
+    required this.onManage,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final List<PayrollEmployee> employees;
+  final bool loading;
+  final VoidCallback onAdd;
+  final void Function(PayrollEmployee) onManage;
+  final void Function(PayrollEmployee) onEdit;
+  final void Function(PayrollEmployee) onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: scheme.outlineVariant.withValues(alpha: 0.5),
+        ),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x08000000),
+            blurRadius: 8,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // ── Header ──────────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 11, 10, 11),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Empleados en nómina',
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 1),
+                      Text(
+                        '${employees.length} activos',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (loading)
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+              ],
+            ),
+          ),
+          Divider(
+            height: 1,
+            color: scheme.outlineVariant.withValues(alpha: 0.5),
+          ),
+          // ── Content ──────────────────────────────────────────────────
+          if (employees.isEmpty)
+            _NominaEmptyState(
+              icon: Icons.groups_outlined,
+              title: 'No hay empleados en nómina',
+              message: 'Agrega el primer empleado para comenzar.',
+              actionLabel: 'Agregar empleado',
+              onAction: onAdd,
+            )
+          else
+            ...employees.map(
+              (employee) => _EmployeeCard(
+                employee: employee,
+                showDetail: true,
+                onManage: () => onManage(employee),
+                onEdit: () => onEdit(employee),
+                onDelete: () => onDelete(employee),
+              ),
+            ),
         ],
       ),
     );

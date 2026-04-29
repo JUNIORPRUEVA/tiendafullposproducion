@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -8,10 +9,35 @@ import '../../core/auth/auth_provider.dart';
 import '../../core/debug/debug_admin_action.dart';
 import '../../core/routing/app_navigator.dart';
 import '../../core/routing/routes.dart';
+import '../../core/widgets/app_navigation.dart';
 import '../../core/widgets/sync_status_banner.dart';
 import 'application/clientes_controller.dart';
 import 'cliente_model.dart';
 import 'data/clientes_repository.dart';
+import '../service_orders/service_order_models.dart';
+
+bool _shouldUseClientesDesktopLayout(double width) {
+  if (width >= kDesktopShellBreakpoint) return true;
+
+  final isDesktopPlatform = switch (defaultTargetPlatform) {
+    TargetPlatform.windows ||
+    TargetPlatform.macOS ||
+    TargetPlatform.linux => true,
+    TargetPlatform.android ||
+    TargetPlatform.iOS ||
+    TargetPlatform.fuchsia => false,
+  };
+
+  return isDesktopPlatform && width >= 720;
+}
+
+double _clientesInfoColumnWidth(double width) {
+  if (width >= 1600) return 480;
+  if (width >= 1360) return 440;
+  if (width >= 1040) return 400;
+  if (width >= 900) return 370;
+  return 340;
+}
 
 class ClientesScreen extends ConsumerStatefulWidget {
   const ClientesScreen({super.key});
@@ -24,6 +50,7 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
   final TextEditingController _searchCtrl = TextEditingController();
   Timer? _debounce;
   bool _purgingAllDebug = false;
+  String? _selectedClientId;
 
   Future<void> _openFilters(ClientesState state) async {
     final next = await showModalBottomSheet<_ClientesFilterState>(
@@ -66,6 +93,17 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
     });
   }
 
+  ClienteModel? _resolveSelectedClient(List<ClienteModel> items) {
+    if (items.isEmpty) return null;
+    final selectedId = (_selectedClientId ?? '').trim();
+    if (selectedId.isNotEmpty) {
+      for (final client in items) {
+        if (client.id == selectedId) return client;
+      }
+    }
+    return items.first;
+  }
+
   Future<void> _purgeAllDebug() async {
     final confirmed = await confirmDebugAdminPurge(
       context,
@@ -101,6 +139,9 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
     final state = ref.watch(clientesControllerProvider);
     final controller = ref.read(clientesControllerProvider.notifier);
     final theme = Theme.of(context);
+    final width = MediaQuery.sizeOf(context).width;
+    final isDesktop = _shouldUseClientesDesktopLayout(width);
+    final selectedClient = _resolveSelectedClient(state.items);
     final activeFilterCount = [
       state.order != ClientesOrder.az,
       state.correoFilter != CorreoFilter.todos,
@@ -110,137 +151,305 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
     return Scaffold(
       body: SafeArea(
         bottom: false,
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(0, 10, 0, 8),
-              child: _ClientesTopPanel(
-                searchController: _searchCtrl,
-                refreshing: state.refreshing,
-                purgingAllDebug: _purgingAllDebug,
-                activeFilterCount: activeFilterCount,
-                canShowDebugAction: canUseDebugAdminAction(currentUser),
-                onBack: () => AppNavigator.goBack(
-                  context,
-                  fallbackRoute: Routes.home,
-                ),
-                onSearchChanged: _handleSearch,
-                onOpenMap: () => context.push(Routes.clientesMapa),
-                onOpenFilters: () => _openFilters(state),
-                onMenuActionSelected: (action) async {
-                  switch (action) {
-                    case _ClientesTopAction.newClient:
-                      context.push(Routes.clienteNuevo);
-                      break;
-                    case _ClientesTopAction.refresh:
-                      if (!state.refreshing) {
-                        await controller.refresh();
-                      }
-                      break;
-                    case _ClientesTopAction.clearFilters:
-                      await controller.applyFilters(
-                        order: ClientesOrder.az,
-                        correoFilter: CorreoFilter.todos,
-                        estadoFilter: EstadoFilter.activos,
-                      );
-                      break;
-                    case _ClientesTopAction.purgeDebug:
-                      if (!_purgingAllDebug) {
-                        await _purgeAllDebug();
-                      }
-                      break;
-                  }
-                },
-                showClearFiltersAction: activeFilterCount > 0,
-              ),
-            ),
-            SyncStatusBanner(
-              visible: state.refreshing,
-              label: 'Sincronizando clientes...',
-            ),
-            if (state.error != null)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 8, 14, 4),
-                child: Material(
-                  color: theme.colorScheme.errorContainer,
-                  borderRadius: BorderRadius.circular(16),
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.error_outline_rounded,
-                          color: theme.colorScheme.onErrorContainer,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            state.error!,
-                            style: TextStyle(
-                              color: theme.colorScheme.onErrorContainer,
-                            ),
-                          ),
-                        ),
-                      ],
+        child: isDesktop
+            ? Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: _buildClientesMainColumn(
+                      state: state,
+                      controller: controller,
+                      theme: theme,
+                      activeFilterCount: activeFilterCount,
+                      canShowDebugAction: canUseDebugAdminAction(currentUser),
+                      desktopLayout: true,
+                      selectedClient: selectedClient,
                     ),
                   ),
+                  SizedBox(
+                    width: _clientesInfoColumnWidth(width),
+                    child: _ClienteFixedInfoColumn(
+                      client: selectedClient,
+                      totalClients: state.items.length,
+                      refreshing: state.refreshing,
+                      onOpenDetail: selectedClient == null
+                          ? null
+                          : () => context.push(
+                              Routes.clienteDetail(selectedClient.id),
+                            ),
+                      onCreateService: selectedClient == null
+                          ? null
+                          : () => context.push(
+                              Routes.serviceOrderCreate,
+                              extra: ServiceOrderCreateArgs(
+                                initialClientId: selectedClient.id,
+                              ),
+                            ),
+                      onNewClient: () => context.push(Routes.clienteNuevo),
+                      onOpenMap: () => context.push(Routes.clientesMapa),
+                    ),
+                  ),
+                ],
+              )
+            : _buildClientesMainColumn(
+                state: state,
+                controller: controller,
+                theme: theme,
+                activeFilterCount: activeFilterCount,
+                canShowDebugAction: canUseDebugAdminAction(currentUser),
+                desktopLayout: false,
+                selectedClient: selectedClient,
+              ),
+      ),
+    );
+  }
+
+  Widget _buildClientesMainColumn({
+    required ClientesState state,
+    required ClientesController controller,
+    required ThemeData theme,
+    required int activeFilterCount,
+    required bool canShowDebugAction,
+    required bool desktopLayout,
+    required ClienteModel? selectedClient,
+  }) {
+    return Column(
+      children: [
+        Padding(
+          padding: EdgeInsets.fromLTRB(
+            desktopLayout ? 12 : 0,
+            10,
+            desktopLayout ? 12 : 0,
+            8,
+          ),
+          child: _ClientesTopPanel(
+            searchController: _searchCtrl,
+            refreshing: state.refreshing,
+            purgingAllDebug: _purgingAllDebug,
+            activeFilterCount: activeFilterCount,
+            canShowDebugAction: canShowDebugAction,
+            onBack: () =>
+                AppNavigator.goBack(context, fallbackRoute: Routes.home),
+            onSearchChanged: _handleSearch,
+            onOpenMap: () => context.push(Routes.clientesMapa),
+            onOpenFilters: () => _openFilters(state),
+            onMenuActionSelected: (action) async {
+              switch (action) {
+                case _ClientesTopAction.newClient:
+                  context.push(Routes.clienteNuevo);
+                  break;
+                case _ClientesTopAction.refresh:
+                  if (!state.refreshing) {
+                    await controller.refresh();
+                  }
+                  break;
+                case _ClientesTopAction.clearFilters:
+                  await controller.applyFilters(
+                    order: ClientesOrder.az,
+                    correoFilter: CorreoFilter.todos,
+                    estadoFilter: EstadoFilter.activos,
+                  );
+                  break;
+                case _ClientesTopAction.purgeDebug:
+                  if (!_purgingAllDebug) {
+                    await _purgeAllDebug();
+                  }
+                  break;
+              }
+            },
+            showClearFiltersAction: activeFilterCount > 0,
+          ),
+        ),
+        SyncStatusBanner(
+          visible: state.refreshing,
+          label: 'Sincronizando clientes...',
+        ),
+        if (state.error != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 8, 14, 4),
+            child: Material(
+              color: theme.colorScheme.errorContainer,
+              borderRadius: BorderRadius.circular(16),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.error_outline_rounded,
+                      color: theme.colorScheme.onErrorContainer,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        state.error!,
+                        style: TextStyle(
+                          color: theme.colorScheme.onErrorContainer,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            Expanded(
-              child: state.loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : RefreshIndicator(
-                      onRefresh: controller.refresh,
-                      child: state.items.isEmpty
-                          ? ListView(
-                              padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
-                              physics: const AlwaysScrollableScrollPhysics(),
-                              children: const [
-                                SizedBox(height: 120),
-                                Center(
-                                  child: Text('No hay clientes disponibles.'),
-                                ),
-                              ],
-                            )
-                          : ListView.separated(
-                              padding: const EdgeInsets.fromLTRB(14, 8, 14, 24),
-                              itemCount: state.items.length,
-                              separatorBuilder: (context, index) => Divider(
-                                height: 1,
-                                color: theme.colorScheme.outlineVariant
-                                    .withValues(alpha: 0.35),
-                              ),
-                              itemBuilder: (context, index) {
-                                final client = state.items[index];
-                                return _ClienteCard(client: client);
-                              },
-                            ),
-                    ),
             ),
-          ],
+          ),
+        Expanded(
+          child: state.loading
+              ? const Center(child: CircularProgressIndicator())
+              : RefreshIndicator(
+                  onRefresh: controller.refresh,
+                  child: state.items.isEmpty
+                      ? ListView(
+                          padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          children: const [
+                            SizedBox(height: 120),
+                            Center(child: Text('No hay clientes disponibles.')),
+                          ],
+                        )
+                      : ListView.separated(
+                          padding: EdgeInsets.fromLTRB(
+                            desktopLayout ? 14 : 14,
+                            desktopLayout ? 4 : 8,
+                            desktopLayout ? 14 : 14,
+                            24,
+                          ),
+                          itemCount: state.items.length,
+                          separatorBuilder: (context, index) => Divider(
+                            height: 1,
+                            color: theme.colorScheme.outlineVariant.withValues(
+                              alpha: desktopLayout ? 0.48 : 0.35,
+                            ),
+                          ),
+                          itemBuilder: (context, index) {
+                            final client = state.items[index];
+                            return _ClienteCard(
+                              client: client,
+                              compact: desktopLayout,
+                              selected:
+                                  desktopLayout &&
+                                  selectedClient?.id == client.id,
+                              onTap: desktopLayout
+                                  ? () => setState(() {
+                                      _selectedClientId = client.id;
+                                    })
+                                  : () => context.push(
+                                      Routes.clienteDetail(client.id),
+                                    ),
+                            );
+                          },
+                        ),
+                ),
         ),
-      ),
+      ],
     );
   }
 }
 
 class _ClienteCard extends ConsumerWidget {
-  const _ClienteCard({required this.client});
+  const _ClienteCard({
+    required this.client,
+    this.compact = false,
+    this.selected = false,
+    this.onTap,
+  });
 
   final ClienteModel client;
+  final bool compact;
+  final bool selected;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     final phone = client.telefono.trim();
     final createdAt = client.createdAt == null
         ? null
         : _formatClientDate(client.createdAt!);
 
+    if (compact) {
+      return Material(
+        color: selected
+            ? colorScheme.primary.withValues(alpha: 0.08)
+            : Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          hoverColor: colorScheme.primary.withValues(alpha: 0.05),
+          child: Container(
+            height: 46,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(
+              border: Border(
+                left: BorderSide(
+                  color: selected ? colorScheme.primary : Colors.transparent,
+                  width: 3,
+                ),
+              ),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  flex: 5,
+                  child: Text(
+                    client.nombre.trim().isEmpty
+                        ? 'Cliente sin nombre'
+                        : client.nombre,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: selected ? FontWeight.w900 : FontWeight.w800,
+                      letterSpacing: -0.08,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  flex: 3,
+                  child: Text(
+                    phone.isEmpty ? 'Sin teléfono' : phone,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                SizedBox(
+                  width: 86,
+                  child: Text(
+                    createdAt ?? 'Sin fecha',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.right,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                if (client.isDeleted) ...[
+                  const SizedBox(width: 8),
+                  Text(
+                    'Eliminado',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: colorScheme.error,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: () => context.push(Routes.clienteDetail(client.id)),
+        onTap: onTap ?? () => context.push(Routes.clienteDetail(client.id)),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 12),
           child: Row(
@@ -312,6 +521,440 @@ class _ClienteCard extends ConsumerWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _ClienteFixedInfoColumn extends StatelessWidget {
+  const _ClienteFixedInfoColumn({
+    required this.client,
+    required this.totalClients,
+    required this.refreshing,
+    required this.onOpenDetail,
+    required this.onCreateService,
+    required this.onNewClient,
+    required this.onOpenMap,
+  });
+
+  final ClienteModel? client;
+  final int totalClients;
+  final bool refreshing;
+  final VoidCallback? onOpenDetail;
+  final VoidCallback? onCreateService;
+  final VoidCallback onNewClient;
+  final VoidCallback onOpenMap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final selected = client;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            colorScheme.surface,
+            colorScheme.surfaceContainerLowest,
+            Color.alphaBlend(
+              colorScheme.primary.withValues(alpha: 0.025),
+              colorScheme.surface,
+            ),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        border: Border(
+          left: BorderSide(
+            color: colorScheme.primary.withValues(alpha: 0.16),
+            width: 1.2,
+          ),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: colorScheme.shadow.withValues(alpha: 0.075),
+            blurRadius: 30,
+            offset: const Offset(-10, 0),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 18),
+            child: Row(
+              children: [
+                Container(
+                  width: 54,
+                  height: 54,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [colorScheme.primary, colorScheme.tertiary],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: colorScheme.primary.withValues(alpha: 0.24),
+                        blurRadius: 18,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.person_search_rounded,
+                    color: Colors.white,
+                    size: 27,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Cliente seleccionado',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: -0.25,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        refreshing
+                            ? 'Sincronizando · $totalClients clientes'
+                            : '$totalClients clientes visibles',
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Divider(
+            height: 1,
+            color: colorScheme.outlineVariant.withValues(alpha: 0.44),
+          ),
+          Expanded(
+            child: selected == null
+                ? _ClienteInfoEmptyState(onNewClient: onNewClient)
+                : SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          selected.nombre.trim().isEmpty
+                              ? 'Cliente sin nombre'
+                              : selected.nombre.trim(),
+                          style: theme.textTheme.headlineMedium?.copyWith(
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -0.8,
+                            height: 1.0,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            _ClientStatusDot(
+                              label: selected.isDeleted
+                                  ? 'Eliminado'
+                                  : 'Activo',
+                              color: selected.isDeleted
+                                  ? colorScheme.error
+                                  : const Color(0xFF059669),
+                            ),
+                            if (selected.updatedLocal) ...[
+                              const SizedBox(width: 8),
+                              _ClientStatusDot(
+                                label: 'Local',
+                                color: colorScheme.primary,
+                              ),
+                            ],
+                          ],
+                        ),
+                        const SizedBox(height: 28),
+                        _ClientInfoLine(
+                          icon: Icons.call_outlined,
+                          label: 'Teléfono',
+                          value: selected.telefono.trim().isEmpty
+                              ? 'Sin teléfono'
+                              : selected.telefono.trim(),
+                        ),
+                        _ClientInfoLine(
+                          icon: Icons.email_outlined,
+                          label: 'Correo',
+                          value: (selected.correo ?? '').trim().isEmpty
+                              ? 'Sin correo'
+                              : selected.correo!.trim(),
+                        ),
+                        _ClientInfoLine(
+                          icon: Icons.place_outlined,
+                          label: 'Dirección',
+                          value: (selected.direccion ?? '').trim().isEmpty
+                              ? 'Sin dirección registrada'
+                              : selected.direccion!.trim(),
+                          maxLines: 3,
+                        ),
+                        _ClientInfoLine(
+                          icon: Icons.map_outlined,
+                          label: 'Ubicación',
+                          value: (selected.locationUrl ?? '').trim().isEmpty
+                              ? 'Sin enlace GPS'
+                              : 'GPS disponible',
+                        ),
+                        _ClientInfoLine(
+                          icon: Icons.calendar_today_outlined,
+                          label: 'Creado',
+                          value: selected.createdAt == null
+                              ? 'Sin fecha'
+                              : _formatClientDate(selected.createdAt!),
+                        ),
+                        _ClientInfoLine(
+                          icon: Icons.update_rounded,
+                          label: 'Actualizado',
+                          value: selected.updatedAt == null
+                              ? 'Sin fecha'
+                              : _formatClientDate(selected.updatedAt!),
+                        ),
+                      ],
+                    ),
+                  ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _ClientColumnAction(
+                  icon: Icons.open_in_new_rounded,
+                  label: 'Abrir perfil completo',
+                  onPressed: onOpenDetail,
+                  prominent: true,
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _ClientColumnAction(
+                        icon: Icons.add_business_rounded,
+                        label: 'Orden',
+                        onPressed: onCreateService,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _ClientColumnAction(
+                        icon: Icons.person_add_alt_1_rounded,
+                        label: 'Nuevo',
+                        onPressed: onNewClient,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                _ClientColumnAction(
+                  icon: Icons.map_rounded,
+                  label: 'Ver mapa de clientes',
+                  onPressed: onOpenMap,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ClienteInfoEmptyState extends StatelessWidget {
+  const _ClienteInfoEmptyState({required this.onNewClient});
+
+  final VoidCallback onNewClient;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.person_off_outlined,
+              size: 36,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Selecciona un cliente',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'La información aparecerá fija en esta columna.',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: onNewClient,
+              icon: const Icon(Icons.person_add_alt_1_rounded),
+              label: const Text('Nuevo cliente'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ClientInfoLine extends StatelessWidget {
+  const _ClientInfoLine({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.maxLines = 1,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final int maxLines;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 20),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: colorScheme.primary.withValues(alpha: 0.09),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: colorScheme.primary.withValues(alpha: 0.13),
+              ),
+            ),
+            child: Icon(icon, size: 19, color: colorScheme.primary),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.18,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  value,
+                  maxLines: maxLines,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    height: 1.16,
+                    letterSpacing: -0.08,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ClientStatusDot extends StatelessWidget {
+  const _ClientStatusDot({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+            color: color,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ClientColumnAction extends StatelessWidget {
+  const _ClientColumnAction({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+    this.prominent = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onPressed;
+  final bool prominent;
+
+  @override
+  Widget build(BuildContext context) {
+    if (prominent) {
+      return FilledButton.icon(
+        onPressed: onPressed,
+        style: FilledButton.styleFrom(
+          minimumSize: const Size.fromHeight(48),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
+        icon: Icon(icon, size: 18),
+        label: Text(label),
+      );
+    }
+    return OutlinedButton.icon(
+      onPressed: onPressed,
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size.fromHeight(44),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+      ),
+      icon: Icon(icon, size: 17),
+      label: Text(label),
     );
   }
 }
@@ -521,11 +1164,7 @@ class _TopCircleButton extends StatelessWidget {
           child: SizedBox(
             width: 40,
             height: 40,
-            child: Icon(
-              icon,
-              size: 20,
-              color: theme.colorScheme.onSurface,
-            ),
+            child: Icon(icon, size: 20, color: theme.colorScheme.onSurface),
           ),
         ),
       ),
@@ -558,7 +1197,9 @@ class _SearchFilterButton extends StatelessWidget {
       clipBehavior: Clip.none,
       children: [
         Material(
-          color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
+          color: theme.colorScheme.surfaceContainerHighest.withValues(
+            alpha: 0.45,
+          ),
           borderRadius: BorderRadius.circular(18),
           child: InkWell(
             borderRadius: BorderRadius.circular(18),

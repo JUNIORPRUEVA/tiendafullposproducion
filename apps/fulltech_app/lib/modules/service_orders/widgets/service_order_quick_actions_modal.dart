@@ -182,6 +182,7 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
           onTap: () => _openExternalAction(
             context,
             actionConfig.clientWhatsAppUri!,
+            isWhatsApp: true,
             copiedMessage: 'No se pudo abrir WhatsApp. Enlace copiado.',
           ),
         ),
@@ -568,8 +569,16 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
   Future<void> _openExternalAction(
     BuildContext sheetContext,
     Uri uri, {
+    bool isWhatsApp = false,
     required String copiedMessage,
   }) {
+    if (isWhatsApp) {
+      return safeOpenWhatsApp(
+        sheetContext,
+        uri,
+        copiedMessage: copiedMessage,
+      );
+    }
     return safeOpenUrl(sheetContext, uri, copiedMessage: copiedMessage);
   }
 

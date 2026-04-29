@@ -58,6 +58,8 @@ class RouteAccess {
         return AppPermission.manageSettings;
       case Routes.whatsapp:
         return AppPermission.viewWhatsapp;
+      case Routes.whatsappCrm:
+        return AppPermission.viewWhatsappCrm;
       case Routes.users:
       case Routes.user:
         return AppPermission.manageUsers;

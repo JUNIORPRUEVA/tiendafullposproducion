@@ -66,8 +66,8 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
   bool _searching = false;
   String _searchQuery = '';
   _UserStatusFilter _statusFilter = _UserStatusFilter.todos;
-  _UserRoleFilter _roleFilter = _UserRoleFilter.todos;
-  _UserSortOption _sortOption = _UserSortOption.nombre;
+  final _UserRoleFilter _roleFilter = _UserRoleFilter.todos;
+  final _UserSortOption _sortOption = _UserSortOption.nombre;
   String? _selectedDesktopUserId;
 
   @override
@@ -146,31 +146,6 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
       }
     });
     return sorted;
-  }
-
-  UserModel? _resolveSelectedDesktopUser(List<UserModel> users) {
-    if (users.isEmpty) {
-      if (_selectedDesktopUserId != null) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          setState(() => _selectedDesktopUserId = null);
-        });
-      }
-      return null;
-    }
-
-    for (final user in users) {
-      if (user.id == _selectedDesktopUserId) return user;
-    }
-
-    final fallback = users.first;
-    if (_selectedDesktopUserId != fallback.id) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        setState(() => _selectedDesktopUserId = fallback.id);
-      });
-    }
-    return fallback;
   }
 
   Future<void> _openWorkContractPreview(
@@ -414,7 +389,7 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
 
     return Scaffold(
       appBar: CustomAppBar(
-        title: 'Gestión de Usuarios',
+        title: 'Empleados',
         showLogo: false,
         trailing: currentUser == null
             ? null
@@ -439,6 +414,11 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                 ),
               ),
         actions: [
+          IconButton(
+            tooltip: 'Agregar empleado',
+            onPressed: () => _showUserDialog(context, ref),
+            icon: const Icon(Icons.person_add_alt_1_outlined),
+          ),
           IconButton(
             tooltip: 'Actualizar',
             onPressed: () =>
@@ -469,158 +449,54 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
             ),
           ),
           data: (users) {
-            final filteredUsers = _filterUsers(users, desktop: true);
-            final selectedUser = _resolveSelectedDesktopUser(filteredUsers);
-            final activeUsers = users.where((user) => !user.blocked).length;
-            final blockedUsers = users.where((user) => user.blocked).length;
-            final techUsers = users
-                .where((user) => user.appRole == AppRole.tecnico)
-                .length;
-            final adminUsers = users
-                .where((user) => user.appRole == AppRole.admin)
-                .length;
-            final vendorUsers = users
-                .where((user) => user.appRole == AppRole.vendedor)
-                .length;
-            final currentSelection = selectedUser;
+            final desktopUsers = [...users]
+              ..sort(
+                (left, right) => left.nombreCompleto.toLowerCase().compareTo(
+                  right.nombreCompleto.toLowerCase(),
+                ),
+              );
 
             return Padding(
-              padding: const EdgeInsets.fromLTRB(28, 24, 28, 28),
-              child: Column(
-                children: [
-                  _UsersHeaderSection(
-                    searchController: _searchCtrl,
-                    searchQuery: _searchQuery,
-                    statusFilter: _statusFilter,
-                    roleFilter: _roleFilter,
-                    sortOption: _sortOption,
-                    totalUsers: users.length,
-                    activeUsers: activeUsers,
-                    blockedUsers: blockedUsers,
-                    onSearchChanged: (value) =>
-                        setState(() => _searchQuery = value),
-                    onStatusFilterChanged: (value) =>
-                        setState(() => _statusFilter = value),
-                    onRoleFilterChanged: (value) =>
-                        setState(() => _roleFilter = value),
-                    onSortChanged: (value) =>
-                        setState(() => _sortOption = value),
-                    onAddUser: () => _showUserDialog(context, ref),
-                    onClearFilters: () {
-                      setState(() {
-                        _searchQuery = '';
-                        _searchCtrl.clear();
-                        _statusFilter = _UserStatusFilter.todos;
-                        _roleFilter = _UserRoleFilter.todos;
-                        _sortOption = _UserSortOption.nombre;
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 18),
-                  _UsersStatsRow(
-                    items: [
-                      _UsersStatData(
-                        label: 'Total de usuarios',
-                        value: users.length.toString(),
-                        icon: Icons.groups_2_outlined,
-                        accent: const Color(0xFF0F766E),
+              padding: const EdgeInsets.fromLTRB(28, 22, 28, 28),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final preferredWidth = constraints.maxWidth >= 1320
+                      ? 980.0
+                      : constraints.maxWidth >= 1120
+                      ? 920.0
+                      : 860.0;
+                  final listWidth = constraints.maxWidth < preferredWidth
+                      ? constraints.maxWidth
+                      : preferredWidth;
+
+                  return Align(
+                    alignment: Alignment.topCenter,
+                    child: SizedBox(
+                      width: listWidth,
+                      height: constraints.maxHeight,
+                      child: _UsersTable(
+                        users: desktopUsers,
+                        selectedUserId: _selectedDesktopUserId,
+                        onSelectUser: (user) {
+                          setState(() => _selectedDesktopUserId = user.id);
+                          _showUserDetailsSheet(context, user);
+                        },
+                        onViewUser: (user) {
+                          setState(() => _selectedDesktopUserId = user.id);
+                          _showUserDetailsSheet(context, user);
+                        },
+                        onEditUser: (user) =>
+                            _showUserDialog(context, ref, user),
+                        onDeleteUser: (user) =>
+                            _showDeleteDialog(context, ref, user),
+                        onToggleBlock: (user) =>
+                            _toggleBlock(context, ref, user),
+                        onOpenContract: (user) =>
+                            _openWorkContractPreview(context, user),
                       ),
-                      _UsersStatData(
-                        label: 'Usuarios activos',
-                        value: activeUsers.toString(),
-                        icon: Icons.verified_user_outlined,
-                        accent: const Color(0xFF15803D),
-                      ),
-                      _UsersStatData(
-                        label: 'Usuarios bloqueados',
-                        value: blockedUsers.toString(),
-                        icon: Icons.lock_person_outlined,
-                        accent: const Color(0xFFB45309),
-                      ),
-                      _UsersStatData(
-                        label: 'Tecnicos',
-                        value: techUsers.toString(),
-                        icon: Icons.build_circle_outlined,
-                        accent: const Color(0xFF2563EB),
-                      ),
-                      _UsersStatData(
-                        label: 'Administradores',
-                        value: adminUsers.toString(),
-                        icon: Icons.admin_panel_settings_outlined,
-                        accent: const Color(0xFF7C3AED),
-                      ),
-                      _UsersStatData(
-                        label: 'Vendedores',
-                        value: vendorUsers.toString(),
-                        icon: Icons.point_of_sale_outlined,
-                        accent: const Color(0xFFEA580C),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 18),
-                  Expanded(
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Expanded(
-                          flex: 9,
-                          child: _UsersTable(
-                            users: filteredUsers,
-                            selectedUserId: currentSelection?.id,
-                            onSelectUser: (user) => setState(
-                              () => _selectedDesktopUserId = user.id,
-                            ),
-                            onViewUser: (user) => setState(
-                              () => _selectedDesktopUserId = user.id,
-                            ),
-                            onEditUser: (user) =>
-                                _showUserDialog(context, ref, user),
-                            onDeleteUser: (user) =>
-                                _showDeleteDialog(context, ref, user),
-                            onToggleBlock: (user) =>
-                                _toggleBlock(context, ref, user),
-                            onOpenContract: (user) =>
-                                _openWorkContractPreview(context, user),
-                          ),
-                        ),
-                        const SizedBox(width: 18),
-                        SizedBox(
-                          width: 360,
-                          child: _UserDetailPanel(
-                            user: currentSelection,
-                            onEdit: currentSelection == null
-                                ? null
-                                : () => _showUserDialog(
-                                    context,
-                                    ref,
-                                    currentSelection,
-                                  ),
-                            onDelete: currentSelection == null
-                                ? null
-                                : () => _showDeleteDialog(
-                                    context,
-                                    ref,
-                                    currentSelection,
-                                  ),
-                            onToggleBlock: currentSelection == null
-                                ? null
-                                : () => _toggleBlock(
-                                    context,
-                                    ref,
-                                    currentSelection,
-                                  ),
-                            onOpenContract: currentSelection == null
-                                ? null
-                                : () => _openWorkContractPreview(
-                                    context,
-                                    currentSelection,
-                                  ),
-                          ),
-                        ),
-                      ],
                     ),
-                  ),
-                ],
+                  );
+                },
               ),
             );
           },
@@ -1640,520 +1516,6 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
   }
 }
 
-class _UsersHeaderSection extends StatelessWidget {
-  const _UsersHeaderSection({
-    required this.searchController,
-    required this.searchQuery,
-    required this.statusFilter,
-    required this.roleFilter,
-    required this.sortOption,
-    required this.totalUsers,
-    required this.activeUsers,
-    required this.blockedUsers,
-    required this.onSearchChanged,
-    required this.onStatusFilterChanged,
-    required this.onRoleFilterChanged,
-    required this.onSortChanged,
-    required this.onAddUser,
-    required this.onClearFilters,
-  });
-
-  final TextEditingController searchController;
-  final String searchQuery;
-  final _UserStatusFilter statusFilter;
-  final _UserRoleFilter roleFilter;
-  final _UserSortOption sortOption;
-  final int totalUsers;
-  final int activeUsers;
-  final int blockedUsers;
-  final ValueChanged<String> onSearchChanged;
-  final ValueChanged<_UserStatusFilter> onStatusFilterChanged;
-  final ValueChanged<_UserRoleFilter> onRoleFilterChanged;
-  final ValueChanged<_UserSortOption> onSortChanged;
-  final VoidCallback onAddUser;
-  final VoidCallback onClearFilters;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final hasFilters =
-        searchQuery.trim().isNotEmpty ||
-        statusFilter != _UserStatusFilter.todos ||
-        roleFilter != _UserRoleFilter.todos ||
-        sortOption != _UserSortOption.nombre;
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFFF8FAFC), Color(0xFFF0F9FF)],
-        ),
-        border: Border.all(color: const Color(0xFFBFDBFE)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 18,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final compact = constraints.maxWidth < 1320;
-          final searchWidth = compact ? 280.0 : 360.0;
-          final showMiniStats = constraints.maxWidth >= 1180;
-
-          return Row(
-            children: [
-              Expanded(
-                child: Row(
-                  children: [
-                    Container(
-                      width: 42,
-                      height: 42,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFDBEAFE),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: const Icon(
-                        Icons.manage_accounts_outlined,
-                        color: Color(0xFF1D4ED8),
-                        size: 22,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Flexible(
-                      child: Text(
-                        'Gestión de Usuarios',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w800,
-                          color: const Color(0xFF0F172A),
-                        ),
-                      ),
-                    ),
-                    if (showMiniStats) ...[
-                      const SizedBox(width: 14),
-                      _CompactHeaderStat(
-                        label: 'Total',
-                        value: totalUsers.toString(),
-                      ),
-                      const SizedBox(width: 8),
-                      _CompactHeaderStat(
-                        label: 'Activos',
-                        value: activeUsers.toString(),
-                        accent: const Color(0xFF166534),
-                        background: const Color(0xFFDCFCE7),
-                      ),
-                      const SizedBox(width: 8),
-                      _CompactHeaderStat(
-                        label: 'Bloq.',
-                        value: blockedUsers.toString(),
-                        accent: const Color(0xFFB45309),
-                        background: const Color(0xFFFFEDD5),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              const SizedBox(width: 12),
-              SizedBox(
-                width: searchWidth,
-                child: TextField(
-                  controller: searchController,
-                  onChanged: onSearchChanged,
-                  decoration: InputDecoration(
-                    hintText: 'Buscar usuario',
-                    isDense: true,
-                    prefixIcon: const Icon(Icons.search, size: 20),
-                    suffixIcon: searchQuery.trim().isEmpty
-                        ? null
-                        : IconButton(
-                            tooltip: 'Limpiar búsqueda',
-                            onPressed: () {
-                              searchController.clear();
-                              onSearchChanged('');
-                            },
-                            icon: const Icon(Icons.close, size: 18),
-                          ),
-                    filled: true,
-                    fillColor: Colors.white,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: BorderSide.none,
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 12,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              _UsersHeaderFiltersButton(
-                hasFilters: hasFilters,
-                statusFilter: statusFilter,
-                roleFilter: roleFilter,
-                sortOption: sortOption,
-                onStatusFilterChanged: onStatusFilterChanged,
-                onRoleFilterChanged: onRoleFilterChanged,
-                onSortChanged: onSortChanged,
-                onClearFilters: onClearFilters,
-              ),
-              const SizedBox(width: 10),
-              FilledButton.icon(
-                onPressed: onAddUser,
-                icon: const Icon(Icons.person_add_alt_1, size: 18),
-                label: const Text('Agregar usuario'),
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 14,
-                  ),
-                  backgroundColor: const Color(0xFF0F172A),
-                  foregroundColor: Colors.white,
-                ),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _CompactHeaderStat extends StatelessWidget {
-  const _CompactHeaderStat({
-    required this.label,
-    required this.value,
-    this.accent = const Color(0xFF0F172A),
-    this.background = const Color(0xFFFFFFFF),
-  });
-
-  final String label;
-  final String value;
-  final Color accent;
-  final Color background;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: background,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-      ),
-      child: RichText(
-        text: TextSpan(
-          style: Theme.of(context).textTheme.labelLarge?.copyWith(
-            color: accent,
-            fontWeight: FontWeight.w700,
-          ),
-          children: [
-            TextSpan(text: '$label '),
-            TextSpan(
-              text: value,
-              style: TextStyle(color: accent, fontWeight: FontWeight.w800),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _UsersHeaderFiltersButton extends StatelessWidget {
-  const _UsersHeaderFiltersButton({
-    required this.hasFilters,
-    required this.statusFilter,
-    required this.roleFilter,
-    required this.sortOption,
-    required this.onStatusFilterChanged,
-    required this.onRoleFilterChanged,
-    required this.onSortChanged,
-    required this.onClearFilters,
-  });
-
-  final bool hasFilters;
-  final _UserStatusFilter statusFilter;
-  final _UserRoleFilter roleFilter;
-  final _UserSortOption sortOption;
-  final ValueChanged<_UserStatusFilter> onStatusFilterChanged;
-  final ValueChanged<_UserRoleFilter> onRoleFilterChanged;
-  final ValueChanged<_UserSortOption> onSortChanged;
-  final VoidCallback onClearFilters;
-
-  @override
-  Widget build(BuildContext context) {
-    return Badge(
-      isLabelVisible: hasFilters,
-      backgroundColor: const Color(0xFF1D4ED8),
-      smallSize: 8,
-      child: OutlinedButton(
-        onPressed: () => showDialog<void>(
-          context: context,
-          builder: (dialogContext) => AlertDialog(
-            insetPadding: const EdgeInsets.symmetric(
-              horizontal: 24,
-              vertical: 24,
-            ),
-            titlePadding: const EdgeInsets.fromLTRB(20, 18, 12, 8),
-            contentPadding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-            title: Row(
-              children: [
-                const Expanded(child: Text('Filtros de usuarios')),
-                IconButton(
-                  tooltip: 'Cerrar',
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  icon: const Icon(Icons.close),
-                ),
-              ],
-            ),
-            content: SizedBox(
-              width: 320,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  DropdownButtonFormField<_UserStatusFilter>(
-                    initialValue: statusFilter,
-                    decoration: const InputDecoration(labelText: 'Estado'),
-                    items: const [
-                      DropdownMenuItem(
-                        value: _UserStatusFilter.todos,
-                        child: Text('Todos'),
-                      ),
-                      DropdownMenuItem(
-                        value: _UserStatusFilter.activos,
-                        child: Text('Activos'),
-                      ),
-                      DropdownMenuItem(
-                        value: _UserStatusFilter.bloqueados,
-                        child: Text('Bloqueados'),
-                      ),
-                    ],
-                    onChanged: (value) {
-                      if (value != null) onStatusFilterChanged(value);
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<_UserRoleFilter>(
-                    initialValue: roleFilter,
-                    decoration: const InputDecoration(labelText: 'Rol'),
-                    items: const [
-                      DropdownMenuItem(
-                        value: _UserRoleFilter.todos,
-                        child: Text('Todos los roles'),
-                      ),
-                      DropdownMenuItem(
-                        value: _UserRoleFilter.administradores,
-                        child: Text('Administradores'),
-                      ),
-                      DropdownMenuItem(
-                        value: _UserRoleFilter.tecnicos,
-                        child: Text('Tecnicos'),
-                      ),
-                      DropdownMenuItem(
-                        value: _UserRoleFilter.vendedores,
-                        child: Text('Vendedores'),
-                      ),
-                      DropdownMenuItem(
-                        value: _UserRoleFilter.asistentes,
-                        child: Text('Asistentes'),
-                      ),
-                      DropdownMenuItem(
-                        value: _UserRoleFilter.marketing,
-                        child: Text('Marketing'),
-                      ),
-                    ],
-                    onChanged: (value) {
-                      if (value != null) onRoleFilterChanged(value);
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<_UserSortOption>(
-                    initialValue: sortOption,
-                    decoration: const InputDecoration(labelText: 'Ordenar por'),
-                    items: const [
-                      DropdownMenuItem(
-                        value: _UserSortOption.nombre,
-                        child: Text('Nombre'),
-                      ),
-                      DropdownMenuItem(
-                        value: _UserSortOption.fechaCreacion,
-                        child: Text('Fecha de creacion'),
-                      ),
-                      DropdownMenuItem(
-                        value: _UserSortOption.rol,
-                        child: Text('Rol'),
-                      ),
-                      DropdownMenuItem(
-                        value: _UserSortOption.estado,
-                        child: Text('Estado'),
-                      ),
-                    ],
-                    onChanged: (value) {
-                      if (value != null) onSortChanged(value);
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: hasFilters ? onClearFilters : null,
-                          icon: const Icon(Icons.filter_alt_off_outlined),
-                          label: const Text('Limpiar'),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: FilledButton.icon(
-                          onPressed: () => Navigator.of(dialogContext).pop(),
-                          icon: const Icon(Icons.check),
-                          label: const Text('Aplicar'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-        style: OutlinedButton.styleFrom(
-          minimumSize: const Size(46, 46),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          backgroundColor: Colors.white,
-          side: BorderSide(
-            color: hasFilters
-                ? const Color(0xFF93C5FD)
-                : const Color(0xFFCBD5E1),
-          ),
-        ),
-        child: Icon(
-          hasFilters ? Icons.tune : Icons.filter_alt_outlined,
-          size: 20,
-        ),
-      ),
-    );
-  }
-}
-
-class _UsersStatData {
-  const _UsersStatData({
-    required this.label,
-    required this.value,
-    required this.icon,
-    required this.accent,
-  });
-
-  final String label;
-  final String value;
-  final IconData icon;
-  final Color accent;
-}
-
-class _UsersStatsRow extends StatelessWidget {
-  const _UsersStatsRow({required this.items});
-
-  final List<_UsersStatData> items;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final columns = constraints.maxWidth >= 1500
-            ? 6
-            : constraints.maxWidth >= 1150
-            ? 3
-            : 2;
-        final spacing = 14.0;
-        final width =
-            (constraints.maxWidth - (spacing * (columns - 1))) / columns;
-
-        return Wrap(
-          spacing: spacing,
-          runSpacing: spacing,
-          children: items
-              .map(
-                (item) => SizedBox(
-                  width: width.clamp(180.0, 320.0),
-                  child: _UsersStatCard(item: item),
-                ),
-              )
-              .toList(growable: false),
-        );
-      },
-    );
-  }
-}
-
-class _UsersStatCard extends StatelessWidget {
-  const _UsersStatCard({required this.item});
-
-  final _UsersStatData item;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 18,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: item.accent.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Icon(item.icon, color: item.accent),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  item.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.labelLarge,
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  item.value,
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    color: const Color(0xFF0F172A),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _UsersTable extends StatelessWidget {
   const _UsersTable({
     required this.users,
@@ -2177,109 +1539,36 @@ class _UsersTable extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 20,
-            offset: const Offset(0, 12),
+    if (users.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: _DesktopUsersEmptyState(
+            icon: Icons.group_off_outlined,
+            title: 'Sin empleados',
+            message: 'Aún no hay empleados registrados.',
           ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.fromLTRB(22, 20, 22, 16),
-            decoration: const BoxDecoration(
-              borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-              color: Color(0xFFF8FAFC),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Directorio de usuarios',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  users.isEmpty
-                      ? 'No hay usuarios para mostrar con los filtros actuales.'
-                      : '${users.length} usuario${users.length == 1 ? '' : 's'} visible${users.length == 1 ? '' : 's'} en escritorio.',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: const Color(0xFF64748B),
-                  ),
-                ),
-                const SizedBox(height: 18),
-                const _UsersTableHeader(),
-              ],
-            ),
-          ),
-          Expanded(
-            child: users.isEmpty
-                ? const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(24),
-                      child: _DesktopUsersEmptyState(
-                        icon: Icons.group_off_outlined,
-                        title: 'Sin resultados',
-                        message:
-                            'Prueba otro término de búsqueda o ajusta los filtros para encontrar usuarios.',
-                      ),
-                    ),
-                  )
-                : ListView.separated(
-                    padding: const EdgeInsets.all(14),
-                    itemCount: users.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 10),
-                    itemBuilder: (context, index) {
-                      final user = users[index];
-                      return _UserRowCard(
-                        user: user,
-                        selected: user.id == selectedUserId,
-                        onSelect: () => onSelectUser(user),
-                        onView: () => onViewUser(user),
-                        onEdit: () => onEditUser(user),
-                        onDelete: () => onDeleteUser(user),
-                        onToggleBlock: () => onToggleBlock(user),
-                        onOpenContract: () => onOpenContract(user),
-                      );
-                    },
-                  ),
-          ),
-        ],
-      ),
-    );
-  }
-}
+        ),
+      );
+    }
 
-class _UsersTableHeader extends StatelessWidget {
-  const _UsersTableHeader();
-
-  @override
-  Widget build(BuildContext context) {
-    return DefaultTextStyle(
-      style: Theme.of(context).textTheme.labelLarge!.copyWith(
-        color: const Color(0xFF64748B),
-        fontWeight: FontWeight.w700,
-      ),
-      child: const Row(
-        children: [
-          Expanded(flex: 33, child: Text('Usuario')),
-          Expanded(flex: 16, child: Text('Telefono')),
-          Expanded(flex: 14, child: Text('Rol')),
-          Expanded(flex: 14, child: Text('Estado')),
-          Expanded(flex: 11, child: Text('Creado')),
-          Expanded(flex: 12, child: Text('Ultima actividad')),
-          SizedBox(width: 172, child: Text('Acciones')),
-        ],
-      ),
+    return ListView.separated(
+      padding: const EdgeInsets.only(top: 4, bottom: 24),
+      itemCount: users.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      itemBuilder: (context, index) {
+        final user = users[index];
+        return _UserRowCard(
+          user: user,
+          selected: user.id == selectedUserId,
+          onSelect: () => onSelectUser(user),
+          onView: () => onViewUser(user),
+          onEdit: () => onEditUser(user),
+          onDelete: () => onDeleteUser(user),
+          onToggleBlock: () => onToggleBlock(user),
+          onOpenContract: () => onOpenContract(user),
+        );
+      },
     );
   }
 }
@@ -2341,9 +1630,9 @@ class _UserRowCardState extends State<_UserRowCard> {
           onTap: widget.onSelect,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 160),
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(22),
+              borderRadius: BorderRadius.circular(18),
               border: Border.all(
                 color: widget.selected
                     ? const Color(0xFF93C5FD)
@@ -2353,11 +1642,11 @@ class _UserRowCardState extends State<_UserRowCard> {
             child: Row(
               children: [
                 Expanded(
-                  flex: 33,
+                  flex: 43,
                   child: Row(
                     children: [
-                      _UserAvatar(user: widget.user, radius: 24),
-                      const SizedBox(width: 12),
+                      _UserAvatar(user: widget.user, radius: 20),
+                      const SizedBox(width: 10),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -2366,16 +1655,17 @@ class _UserRowCardState extends State<_UserRowCard> {
                               widget.user.nombreCompleto,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.titleMedium?.copyWith(
+                              style: theme.textTheme.titleSmall?.copyWith(
                                 fontWeight: FontWeight.w800,
+                                letterSpacing: -0.1,
                               ),
                             ),
-                            const SizedBox(height: 4),
+                            const SizedBox(height: 2),
                             Text(
                               widget.user.email,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.bodyMedium?.copyWith(
+                              style: theme.textTheme.bodySmall?.copyWith(
                                 color: const Color(0xFF64748B),
                               ),
                             ),
@@ -2386,11 +1676,15 @@ class _UserRowCardState extends State<_UserRowCard> {
                   ),
                 ),
                 Expanded(
-                  flex: 16,
+                  flex: 17,
                   child: Text(
                     widget.user.telefono,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF334155),
+                    ),
                   ),
                 ),
                 Expanded(
@@ -2407,27 +1701,23 @@ class _UserRowCardState extends State<_UserRowCard> {
                     child: _UserStatusBadge(blocked: widget.user.blocked),
                   ),
                 ),
-                Expanded(
-                  flex: 11,
-                  child: Text(_formatOptionalDate(widget.user.createdAt)),
-                ),
-                const Expanded(flex: 12, child: Text('Sin datos')),
                 SizedBox(
-                  width: 172,
+                  width: 142,
                   child: Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       _RowActionButton(
                         tooltip: 'Ver detalle',
                         icon: Icons.visibility_outlined,
                         onPressed: widget.onView,
                       ),
-                      const SizedBox(width: 4),
+                      const SizedBox(width: 5),
                       _RowActionButton(
                         tooltip: 'Editar usuario',
                         icon: Icons.edit_outlined,
                         onPressed: widget.onEdit,
                       ),
-                      const SizedBox(width: 4),
+                      const SizedBox(width: 5),
                       _RowActionButton(
                         tooltip: widget.user.blocked
                             ? 'Desbloquear usuario'
@@ -2437,7 +1727,6 @@ class _UserRowCardState extends State<_UserRowCard> {
                             : Icons.lock_outline,
                         onPressed: widget.onToggleBlock,
                       ),
-                      const SizedBox(width: 4),
                       _UserActionsMenu(
                         user: widget.user,
                         onView: widget.onView,
@@ -2477,13 +1766,13 @@ class _RowActionButton extends StatelessWidget {
         onTap: onPressed,
         borderRadius: BorderRadius.circular(12),
         child: Container(
-          width: 36,
-          height: 36,
+          width: 32,
+          height: 32,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(10),
             color: Theme.of(context).colorScheme.surfaceContainerHighest,
           ),
-          child: Icon(icon, size: 18),
+          child: Icon(icon, size: 17),
         ),
       ),
     );
@@ -2519,65 +1808,71 @@ class _UserActionsMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return PopupMenuButton<_DesktopUserMenuAction>(
-      tooltip: 'Mas acciones',
-      icon: const Icon(Icons.more_horiz),
-      onSelected: (value) {
-        switch (value) {
-          case _DesktopUserMenuAction.ver:
-            onView();
-            break;
-          case _DesktopUserMenuAction.editar:
-            onEdit();
-            break;
-          case _DesktopUserMenuAction.bloquear:
-            onToggleBlock();
-            break;
-          case _DesktopUserMenuAction.contrato:
-            onOpenContract();
-            break;
-          case _DesktopUserMenuAction.cambiarRol:
-            onEdit();
-            break;
-          case _DesktopUserMenuAction.resetearAcceso:
-            onEdit();
-            break;
-          case _DesktopUserMenuAction.eliminar:
-            onDelete();
-            break;
-        }
-      },
-      itemBuilder: (context) => [
-        const PopupMenuItem(
-          value: _DesktopUserMenuAction.ver,
-          child: Text('Ver detalle'),
-        ),
-        const PopupMenuItem(
-          value: _DesktopUserMenuAction.editar,
-          child: Text('Editar usuario'),
-        ),
-        PopupMenuItem(
-          value: _DesktopUserMenuAction.bloquear,
-          child: Text(user.blocked ? 'Desbloquear' : 'Bloquear'),
-        ),
-        const PopupMenuItem(
-          value: _DesktopUserMenuAction.contrato,
-          child: Text('Abrir contrato'),
-        ),
-        const PopupMenuItem(
-          value: _DesktopUserMenuAction.cambiarRol,
-          child: Text('Cambiar rol'),
-        ),
-        const PopupMenuItem(
-          value: _DesktopUserMenuAction.resetearAcceso,
-          child: Text('Resetear acceso'),
-        ),
-        const PopupMenuDivider(),
-        const PopupMenuItem(
-          value: _DesktopUserMenuAction.eliminar,
-          child: Text('Eliminar'),
-        ),
-      ],
+    return SizedBox(
+      width: 32,
+      height: 32,
+      child: PopupMenuButton<_DesktopUserMenuAction>(
+        tooltip: 'Mas acciones',
+        padding: EdgeInsets.zero,
+        iconSize: 20,
+        icon: const Icon(Icons.more_horiz),
+        onSelected: (value) {
+          switch (value) {
+            case _DesktopUserMenuAction.ver:
+              onView();
+              break;
+            case _DesktopUserMenuAction.editar:
+              onEdit();
+              break;
+            case _DesktopUserMenuAction.bloquear:
+              onToggleBlock();
+              break;
+            case _DesktopUserMenuAction.contrato:
+              onOpenContract();
+              break;
+            case _DesktopUserMenuAction.cambiarRol:
+              onEdit();
+              break;
+            case _DesktopUserMenuAction.resetearAcceso:
+              onEdit();
+              break;
+            case _DesktopUserMenuAction.eliminar:
+              onDelete();
+              break;
+          }
+        },
+        itemBuilder: (context) => [
+          const PopupMenuItem(
+            value: _DesktopUserMenuAction.ver,
+            child: Text('Ver detalle'),
+          ),
+          const PopupMenuItem(
+            value: _DesktopUserMenuAction.editar,
+            child: Text('Editar usuario'),
+          ),
+          PopupMenuItem(
+            value: _DesktopUserMenuAction.bloquear,
+            child: Text(user.blocked ? 'Desbloquear' : 'Bloquear'),
+          ),
+          const PopupMenuItem(
+            value: _DesktopUserMenuAction.contrato,
+            child: Text('Abrir contrato'),
+          ),
+          const PopupMenuItem(
+            value: _DesktopUserMenuAction.cambiarRol,
+            child: Text('Cambiar rol'),
+          ),
+          const PopupMenuItem(
+            value: _DesktopUserMenuAction.resetearAcceso,
+            child: Text('Resetear acceso'),
+          ),
+          const PopupMenuDivider(),
+          const PopupMenuItem(
+            value: _DesktopUserMenuAction.eliminar,
+            child: Text('Eliminar'),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -2597,14 +1892,14 @@ class _UserStatusBadge extends StatelessWidget {
         : const Color(0xFF166534);
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: background,
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
         blocked ? 'Bloqueado' : 'Activo',
-        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+        style: Theme.of(context).textTheme.labelMedium?.copyWith(
           color: foreground,
           fontWeight: FontWeight.w700,
         ),
@@ -2630,297 +1925,17 @@ class _UserRoleBadge extends StatelessWidget {
     };
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: colors.$1,
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
         role.label.isEmpty ? 'Sin rol' : role.label,
-        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+        style: Theme.of(context).textTheme.labelMedium?.copyWith(
           color: colors.$2,
           fontWeight: FontWeight.w700,
         ),
-      ),
-    );
-  }
-}
-
-class _UserDetailPanel extends StatelessWidget {
-  const _UserDetailPanel({
-    required this.user,
-    required this.onEdit,
-    required this.onDelete,
-    required this.onToggleBlock,
-    required this.onOpenContract,
-  });
-
-  final UserModel? user;
-  final VoidCallback? onEdit;
-  final VoidCallback? onDelete;
-  final VoidCallback? onToggleBlock;
-  final VoidCallback? onOpenContract;
-
-  @override
-  Widget build(BuildContext context) {
-    if (user == null) {
-      return const _DesktopUsersEmptyState(
-        icon: Icons.person_search_outlined,
-        title: 'Selecciona un usuario',
-        message:
-            'Haz clic en una fila para revisar su perfil, estado, documentos y acciones disponibles.',
-      );
-    }
-
-    final theme = Theme.of(context);
-
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: theme.colorScheme.outlineVariant),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 20,
-            offset: const Offset(0, 12),
-          ),
-        ],
-      ),
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(22),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _UserAvatar(user: user!, radius: 30),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        user!.nombreCompleto,
-                        style: theme.textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        user!.email,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: const Color(0xFF64748B),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          _UserRoleBadge(role: user!.appRole),
-                          _UserStatusBadge(blocked: user!.blocked),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 18),
-            Row(
-              children: [
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: onEdit,
-                    icon: const Icon(Icons.edit_outlined),
-                    label: const Text('Editar'),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: onToggleBlock,
-                    icon: Icon(
-                      user!.blocked
-                          ? Icons.lock_open_outlined
-                          : Icons.lock_outline,
-                    ),
-                    label: Text(user!.blocked ? 'Desbloquear' : 'Bloquear'),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: onOpenContract,
-                    icon: const Icon(Icons.picture_as_pdf_outlined),
-                    label: const Text('Contrato'),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: onDelete,
-                    icon: const Icon(Icons.delete_outline),
-                    label: const Text('Eliminar'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: theme.colorScheme.error,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 18),
-            Text(
-              'Cambio de rol y reseteo de acceso se gestionan desde Editar usuario para mantener la lógica existente.',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: const Color(0xFF64748B),
-                height: 1.4,
-              ),
-            ),
-            const SizedBox(height: 20),
-            _DetailSection(
-              title: 'Resumen',
-              children: [
-                _DetailLine(label: 'Telefono', value: user!.telefono),
-                _DetailLine(
-                  label: 'Telefono familiar',
-                  value: _fallbackText(user!.telefonoFamiliar),
-                ),
-                _DetailLine(
-                  label: 'Cedula',
-                  value: _fallbackText(user!.cedula),
-                ),
-                _DetailLine(
-                  label: 'Fecha de registro',
-                  value: _formatOptionalDate(user!.createdAt),
-                ),
-                const _DetailLine(
-                  label: 'Ultima actividad',
-                  value: 'Sin datos',
-                ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            _DetailSection(
-              title: 'Contexto laboral',
-              children: [
-                _DetailLine(
-                  label: 'Fecha de ingreso',
-                  value: _formatOptionalDate(user!.fechaIngreso),
-                ),
-                _DetailLine(
-                  label: 'Dias en empresa',
-                  value: user!.diasEnEmpresa?.toString() ?? 'Sin datos',
-                ),
-                _DetailLine(
-                  label: 'Cuenta nomina',
-                  value: _fallbackText(user!.cuentaNominaPreferencial),
-                ),
-                _DetailLine(
-                  label: 'Permisos / habilidades',
-                  value: user!.habilidades.isEmpty
-                      ? 'Sin datos'
-                      : user!.habilidades.join(', '),
-                ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            _DetailSection(
-              title: 'Documentos',
-              children: [
-                _UserDocumentPreviewCard(
-                  title: 'Foto de cédula',
-                  imageUrl: _resolveUserDocUrl(user!.fotoCedulaUrl),
-                ),
-                const SizedBox(height: 10),
-                _UserDocumentPreviewCard(
-                  title: 'Foto de licencia',
-                  imageUrl: _resolveUserDocUrl(user!.fotoLicenciaUrl),
-                ),
-                const SizedBox(height: 10),
-                _UserDocumentPreviewCard(
-                  title: 'Foto personal',
-                  imageUrl: _resolveUserDocUrl(user!.fotoPersonalUrl),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _DetailSection extends StatelessWidget {
-  const _DetailSection({required this.title, required this.children});
-
-  final String title;
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerLowest,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 12),
-          ...children,
-        ],
-      ),
-    );
-  }
-}
-
-class _DetailLine extends StatelessWidget {
-  const _DetailLine({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 120,
-            child: Text(
-              label,
-              style: Theme.of(
-                context,
-              ).textTheme.labelLarge?.copyWith(color: const Color(0xFF64748B)),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -3023,16 +2038,6 @@ class _DesktopUsersEmptyState extends StatelessWidget {
       ),
     );
   }
-}
-
-String _formatOptionalDate(DateTime? date) {
-  if (date == null) return 'Sin datos';
-  return DateFormat('dd/MM/yyyy').format(date);
-}
-
-String _fallbackText(String? value) {
-  final text = value?.trim() ?? '';
-  return text.isEmpty ? 'Sin datos' : text;
 }
 
 enum _UserMenuAction { editar, bloquear, eliminar }

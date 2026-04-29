@@ -35,6 +35,7 @@ enum AppPermission {
   managePayroll,
   manageCompanyManual,
   viewAdminTechDepartures,
+  viewWhatsappCrm,
 }
 
 /// Role → permissions map. This is the *only* place to change access rules.
@@ -63,6 +64,7 @@ const Map<AppRole, Set<AppPermission>> rolePermissions = {
     AppPermission.managePayroll,
     AppPermission.manageCompanyManual,
     AppPermission.viewAdminTechDepartures,
+    AppPermission.viewWhatsappCrm,
   },
   AppRole.asistente: {
     AppPermission.viewProfile,

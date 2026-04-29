@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -26,6 +27,29 @@ import 'service_order_models.dart';
 import 'widgets/client_location_card.dart';
 import 'widgets/service_order_quick_actions_modal.dart';
 import 'widgets/service_order_status_confirmation_dialog.dart';
+
+bool _shouldUseOperationsDesktopLayout(double width) {
+  if (width >= kDesktopShellBreakpoint) {
+    return true;
+  }
+
+  final isDesktopPlatform = switch (defaultTargetPlatform) {
+    TargetPlatform.windows ||
+    TargetPlatform.macOS ||
+    TargetPlatform.linux => true,
+    TargetPlatform.android ||
+    TargetPlatform.iOS ||
+    TargetPlatform.fuchsia => false,
+  };
+
+  return isDesktopPlatform && width >= 720;
+}
+
+double _operationsDesktopSidebarWidth(double width) {
+  if (width >= 1320) return 292;
+  if (width >= 980) return 268;
+  return 244;
+}
 
 class ServiceOrdersListScreen extends ConsumerStatefulWidget {
   const ServiceOrdersListScreen({super.key});
@@ -280,7 +304,7 @@ class _ServiceOrdersListScreenState
       state.usersById,
     );
     final width = MediaQuery.sizeOf(context).width;
-    final isDesktop = width >= kDesktopShellBreakpoint;
+    final isDesktop = _shouldUseOperationsDesktopLayout(width);
     final visibleOrders = _applyCollapsedQuickSearch(
       orders: _filter.apply(state.items),
       clientsById: state.clientsById,
@@ -415,212 +439,274 @@ class _ServiceOrdersListScreenState
           ),
         ),
       ),
-      body: RefreshIndicator(
-        onRefresh: controller.refresh,
-        child: state.error != null && state.items.isEmpty && !state.refreshing
-            ? ListView(
-                children: [
-                  const SizedBox(height: 120),
-                  Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.error_outline_rounded,
-                            size: 30,
-                            color: Theme.of(context).colorScheme.error,
-                          ),
-                          const SizedBox(height: 10),
-                          Text(state.error!, textAlign: TextAlign.center),
-                          const SizedBox(height: 14),
-                          FilledButton.icon(
-                            onPressed: state.refreshing
-                                ? null
-                                : controller.retry,
-                            icon: const Icon(Icons.refresh_rounded),
-                            label: const Text('Reintentar'),
-                          ),
-                        ],
-                      ),
+      body: isDesktop
+          ? Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: _buildOrdersRefreshContent(
+                    state: state,
+                    controller: controller,
+                    currentUser: currentUser,
+                    canManageStatusAsRole: canManageStatusAsRole,
+                    isAdmin: isAdmin,
+                    currentUserId: currentUserId,
+                    supportConversationUri: supportConversationUri,
+                    visibleOrders: visibleOrders,
+                    contentMaxWidth: contentMaxWidth,
+                    desktopLayout: true,
+                    availableCreators: availableCreators,
+                    availableTechnicians: availableTechnicians,
+                    pendingCount: pendingCount,
+                    inProgressCount: inProgressCount,
+                    gpsReadyCount: gpsReadyCount,
+                    scheduledCount: scheduledCount,
+                  ),
+                ),
+                SizedBox(
+                  width: _operationsDesktopSidebarWidth(width),
+                  child: _DesktopOperationsFilterSidebar(
+                    filter: _filter,
+                    activeCount: visibleOrders.length,
+                    refreshing: state.refreshing,
+                    searchController: _collapsedQuickSearchCtrl,
+                    availableCreators: availableCreators,
+                    availableTechnicians: availableTechnicians,
+                    onSearchChanged: (_) => setState(() {}),
+                    onClearSearch: () {
+                      _collapsedQuickSearchCtrl.clear();
+                      setState(() {});
+                    },
+                    onReset: () => setState(() {
+                      _collapsedQuickSearchCtrl.clear();
+                      _filter = const ServiceOrdersFilter.mainDefault();
+                    }),
+                    onFilterChanged: (next) => setState(() {
+                      _filter = next;
+                    }),
+                    onPickCustomRange: _pickDesktopCustomRange,
+                  ),
+                ),
+              ],
+            )
+          : _buildOrdersRefreshContent(
+              state: state,
+              controller: controller,
+              currentUser: currentUser,
+              canManageStatusAsRole: canManageStatusAsRole,
+              isAdmin: isAdmin,
+              currentUserId: currentUserId,
+              supportConversationUri: supportConversationUri,
+              visibleOrders: visibleOrders,
+              contentMaxWidth: contentMaxWidth,
+              desktopLayout: false,
+              availableCreators: availableCreators,
+              availableTechnicians: availableTechnicians,
+              pendingCount: pendingCount,
+              inProgressCount: inProgressCount,
+              gpsReadyCount: gpsReadyCount,
+              scheduledCount: scheduledCount,
+            ),
+    );
+  }
+
+  Widget _buildOrdersRefreshContent({
+    required ServiceOrdersListState state,
+    required ServiceOrdersListController controller,
+    required UserModel? currentUser,
+    required bool canManageStatusAsRole,
+    required bool isAdmin,
+    required String currentUserId,
+    required Uri? supportConversationUri,
+    required List<ServiceOrderModel> visibleOrders,
+    required double contentMaxWidth,
+    required bool desktopLayout,
+    required List<_FilterUserOption> availableCreators,
+    required List<_FilterUserOption> availableTechnicians,
+    required int pendingCount,
+    required int inProgressCount,
+    required int gpsReadyCount,
+    required int scheduledCount,
+  }) {
+    return RefreshIndicator(
+      onRefresh: controller.refresh,
+      child: state.error != null && state.items.isEmpty && !state.refreshing
+          ? ListView(
+              children: [
+                const SizedBox(height: 120),
+                Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.error_outline_rounded,
+                          size: 30,
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                        const SizedBox(height: 10),
+                        Text(state.error!, textAlign: TextAlign.center),
+                        const SizedBox(height: 14),
+                        FilledButton.icon(
+                          onPressed: state.refreshing ? null : controller.retry,
+                          icon: const Icon(Icons.refresh_rounded),
+                          label: const Text('Reintentar'),
+                        ),
+                      ],
                     ),
                   ),
-                ],
-              )
-            : ListView.builder(
-                padding: const EdgeInsets.fromLTRB(12, 8, 12, 88),
-                itemCount: visibleOrders.isEmpty ? 2 : visibleOrders.length + 1,
-                itemBuilder: (context, index) {
-                  if (index == 0) {
-                    return Center(
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(maxWidth: contentMaxWidth),
-                        child: Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: isDesktop
-                              ? Column(
-                                  children: [
-                                    _DesktopOperationsOverviewPanel(
-                                      filter: _filter,
-                                      activeCount: visibleOrders.length,
-                                      pendingCount: pendingCount,
-                                      inProgressCount: inProgressCount,
-                                      gpsReadyCount: gpsReadyCount,
-                                      scheduledCount: scheduledCount,
-                                      refreshing: state.refreshing,
-                                    ),
-                                    const SizedBox(height: 12),
-                                    Align(
-                                      alignment: Alignment.centerRight,
-                                      child: _CollapsedOperationsPanelToggle(
-                                        activeCount: visibleOrders.length,
-                                        hasActiveFilters:
-                                            _filter.hasActiveFilters,
-                                        searchController:
-                                            _collapsedQuickSearchCtrl,
-                                        onSearchChanged: (_) {
-                                          setState(() {});
-                                        },
-                                        onClearSearch: () {
-                                          _collapsedQuickSearchCtrl.clear();
-                                          setState(() {});
-                                        },
-                                        onOpenFilters: () {
-                                          _openFiltersSheet(
-                                            availableCreators:
-                                                availableCreators,
-                                            availableTechnicians:
-                                                availableTechnicians,
-                                          );
-                                        },
-                                        onTap: () {
-                                          _openControlPanelDialog(
-                                            activeCount: visibleOrders.length,
-                                            refreshing: state.refreshing,
-                                            availableCreators:
-                                                availableCreators,
-                                            availableTechnicians:
-                                                availableTechnicians,
-                                          );
-                                        },
-                                      ),
-                                    ),
-                                  ],
-                                )
-                              : Align(
-                                  alignment: Alignment.centerRight,
-                                  child: _CollapsedOperationsPanelToggle(
-                                    activeCount: visibleOrders.length,
-                                    hasActiveFilters: _filter.hasActiveFilters,
-                                    searchController: _collapsedQuickSearchCtrl,
-                                    onSearchChanged: (_) {
-                                      setState(() {});
-                                    },
-                                    onClearSearch: () {
-                                      _collapsedQuickSearchCtrl.clear();
-                                      setState(() {});
-                                    },
-                                    onOpenFilters: () {
-                                      _openFiltersSheet(
-                                        availableCreators: availableCreators,
-                                        availableTechnicians:
-                                            availableTechnicians,
-                                      );
-                                    },
-                                    onTap: () {
-                                      _openControlPanelDialog(
-                                        activeCount: visibleOrders.length,
-                                        refreshing: state.refreshing,
-                                        availableCreators: availableCreators,
-                                        availableTechnicians:
-                                            availableTechnicians,
-                                      );
-                                    },
-                                  ),
-                                ),
-                        ),
-                      ),
-                    );
-                  }
-
-                  if (visibleOrders.isEmpty) {
-                    return Center(
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(maxWidth: contentMaxWidth),
-                        child: const Padding(
-                          padding: EdgeInsets.only(top: 28),
-                          child: _EmptyOrdersState(),
-                        ),
-                      ),
-                    );
-                  }
-
-                  final order = visibleOrders[index - 1];
-                  final canChangeOrderStatus =
-                      canManageStatusAsRole ||
-                      currentUserId == order.createdById;
-                  final client =
-                      order.client ?? state.clientsById[order.clientId];
-                  final assignedToId = (order.assignedToId ?? '').trim();
-                  final technicianName = assignedToId.isEmpty
-                      ? ''
-                      : (state.usersById[assignedToId]?.nombreCompleto ??
-                            assignedToId);
-                  final sellerConversationUri = _buildWhatsAppUri(
-                    state.usersById[order.createdById]?.telefono ?? '',
-                  );
+                ),
+              ],
+            )
+          : ListView.builder(
+              padding: EdgeInsets.fromLTRB(
+                desktopLayout ? 18 : 12,
+                desktopLayout ? 12 : 8,
+                desktopLayout ? 14 : 12,
+                88,
+              ),
+              itemCount: visibleOrders.isEmpty ? 2 : visibleOrders.length + 1,
+              itemBuilder: (context, index) {
+                if (index == 0) {
                   return Center(
                     child: ConstrainedBox(
                       constraints: BoxConstraints(maxWidth: contentMaxWidth),
                       child: Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: _ServiceOrderListCard(
-                          order: order,
-                          client: client,
-                          clientName:
-                              client?.nombre ?? 'Cliente ${order.clientId}',
-                          creatorName:
-                              state
-                                  .usersById[order.createdById]
-                                  ?.nombreCompleto ??
-                              order.createdById,
-                          technicianName: technicianName,
-                          sellerConversationUri: sellerConversationUri,
-                          supportConversationUri: supportConversationUri,
-                          statusBusy: _busyOrderIds.contains(order.id),
-                          isTechnician:
-                              currentUser?.appRole.isTechnician ?? false,
-                          canPromoteStatus: canManageStatusAsRole,
-                          onChangeStatus: canChangeOrderStatus
-                              ? (status) => _changeOrderStatus(order, status)
-                              : null,
-                          creatingNewOrder: _creatingFromOrderIds.contains(
-                            order.id,
-                          ),
-                          onCreateNewOrder: order.isCloneSourceAllowed
-                              ? () => _createOrderFromSource(order)
-                              : null,
-                          onEdit:
-                              (isAdmin || currentUserId == order.createdById)
-                              ? () => _editOrder(order)
-                              : null,
-                          onDelete: isAdmin ? () => _deleteOrder(order) : null,
-                          onTap: () async {
-                            final updated = await context.push<bool>(
-                              Routes.serviceOrderById(order.id),
-                            );
-                            if (updated == true) {
-                              await controller.refresh();
-                            }
-                          },
+                        padding: EdgeInsets.only(
+                          bottom: desktopLayout ? 10 : 8,
                         ),
+                        child: desktopLayout
+                            ? _DesktopOperationsOverviewPanel(
+                                filter: _filter,
+                                activeCount: visibleOrders.length,
+                                pendingCount: pendingCount,
+                                inProgressCount: inProgressCount,
+                                gpsReadyCount: gpsReadyCount,
+                                scheduledCount: scheduledCount,
+                                refreshing: state.refreshing,
+                              )
+                            : Align(
+                                alignment: Alignment.centerRight,
+                                child: _CollapsedOperationsPanelToggle(
+                                  activeCount: visibleOrders.length,
+                                  hasActiveFilters: _filter.hasActiveFilters,
+                                  searchController: _collapsedQuickSearchCtrl,
+                                  onSearchChanged: (_) {
+                                    setState(() {});
+                                  },
+                                  onClearSearch: () {
+                                    _collapsedQuickSearchCtrl.clear();
+                                    setState(() {});
+                                  },
+                                  onOpenFilters: () {
+                                    _openFiltersSheet(
+                                      availableCreators: availableCreators,
+                                      availableTechnicians:
+                                          availableTechnicians,
+                                    );
+                                  },
+                                  onTap: () {
+                                    _openControlPanelDialog(
+                                      activeCount: visibleOrders.length,
+                                      refreshing: state.refreshing,
+                                      availableCreators: availableCreators,
+                                      availableTechnicians:
+                                          availableTechnicians,
+                                    );
+                                  },
+                                ),
+                              ),
                       ),
                     ),
                   );
-                },
-              ),
-      ),
+                }
+
+                if (visibleOrders.isEmpty) {
+                  return Center(
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(maxWidth: contentMaxWidth),
+                      child: const Padding(
+                        padding: EdgeInsets.only(top: 28),
+                        child: _EmptyOrdersState(),
+                      ),
+                    ),
+                  );
+                }
+
+                final order = visibleOrders[index - 1];
+                final canChangeOrderStatus =
+                    canManageStatusAsRole || currentUserId == order.createdById;
+                final client =
+                    order.client ?? state.clientsById[order.clientId];
+                final assignedToId = (order.assignedToId ?? '').trim();
+                final technicianName = assignedToId.isEmpty
+                    ? ''
+                    : (state.usersById[assignedToId]?.nombreCompleto ??
+                          assignedToId);
+                final sellerConversationUri = _buildWhatsAppUri(
+                  state.usersById[order.createdById]?.telefono ?? '',
+                );
+                return Center(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: contentMaxWidth),
+                    child: Padding(
+                      padding: EdgeInsets.only(bottom: desktopLayout ? 2 : 8),
+                      child: _ServiceOrderListCard(
+                        order: order,
+                        client: client,
+                        clientName:
+                            client?.nombre ?? 'Cliente ${order.clientId}',
+                        creatorName:
+                            state
+                                .usersById[order.createdById]
+                                ?.nombreCompleto ??
+                            order.createdById,
+                        technicianName: technicianName,
+                        sellerConversationUri: sellerConversationUri,
+                        supportConversationUri: supportConversationUri,
+                        statusBusy: _busyOrderIds.contains(order.id),
+                        isTechnician:
+                            currentUser?.appRole.isTechnician ?? false,
+                        canPromoteStatus: canManageStatusAsRole,
+                        onChangeStatus: canChangeOrderStatus
+                            ? (status) => _changeOrderStatus(order, status)
+                            : null,
+                        creatingNewOrder: _creatingFromOrderIds.contains(
+                          order.id,
+                        ),
+                        onCreateNewOrder: order.isCloneSourceAllowed
+                            ? () => _createOrderFromSource(order)
+                            : null,
+                        onEdit: (isAdmin || currentUserId == order.createdById)
+                            ? () => _editOrder(order)
+                            : null,
+                        onDelete: isAdmin ? () => _deleteOrder(order) : null,
+                        onTap: () async {
+                          final updated = await context.push<bool>(
+                            Routes.serviceOrderById(order.id),
+                          );
+                          if (updated == true) {
+                            await controller.refresh();
+                          }
+                        },
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+    );
+  }
+
+  Future<DateTimeRange?> _pickDesktopCustomRange() async {
+    final now = DateTime.now();
+    return showDateRangePicker(
+      context: context,
+      firstDate: DateTime(now.year - 1),
+      lastDate: DateTime(now.year + 1),
+      initialDateRange: _filter.customRange,
+      helpText: 'Selecciona el rango',
     );
   }
 
@@ -1808,25 +1894,30 @@ class _ChoiceFilterTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final isCompact = compact;
     return InkWell(
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(isCompact ? 999 : 18),
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
         curve: Curves.easeOut,
         padding: EdgeInsets.symmetric(
-          horizontal: compact ? 12 : 14,
-          vertical: compact ? 9 : 12,
+          horizontal: isCompact ? 11 : 14,
+          vertical: isCompact ? 7 : 12,
         ),
         decoration: BoxDecoration(
           color: selected
-              ? colorScheme.primary.withValues(alpha: 0.1)
+              ? colorScheme.primary.withValues(alpha: isCompact ? 0.08 : 0.1)
+              : isCompact
+              ? Colors.transparent
               : colorScheme.surfaceContainerLowest,
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(isCompact ? 999 : 18),
           border: Border.all(
             color: selected
-                ? colorScheme.primary.withValues(alpha: 0.36)
-                : colorScheme.outlineVariant,
+                ? colorScheme.primary.withValues(alpha: isCompact ? 0.30 : 0.36)
+                : colorScheme.outlineVariant.withValues(
+                    alpha: isCompact ? 0.9 : 1,
+                  ),
           ),
         ),
         child: Row(
@@ -1834,12 +1925,12 @@ class _ChoiceFilterTile extends StatelessWidget {
           children: [
             Icon(
               icon,
-              size: compact ? 16 : 18,
+              size: isCompact ? 14 : 18,
               color: selected
                   ? colorScheme.primary
                   : colorScheme.onSurfaceVariant,
             ),
-            SizedBox(width: compact ? 6 : 8),
+            SizedBox(width: isCompact ? 5 : 8),
             Text(
               label,
               style: Theme.of(context).textTheme.labelLarge?.copyWith(
@@ -1847,7 +1938,8 @@ class _ChoiceFilterTile extends StatelessWidget {
                     ? colorScheme.primary
                     : colorScheme.onSurfaceVariant,
                 fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-                fontSize: compact ? 13 : null,
+                fontSize: isCompact ? 12.2 : null,
+                height: 1,
               ),
             ),
           ],
@@ -2221,8 +2313,9 @@ class _OperationsControlPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final isDesktop =
-        MediaQuery.sizeOf(context).width >= kDesktopShellBreakpoint;
+    final isDesktop = _shouldUseOperationsDesktopLayout(
+      MediaQuery.sizeOf(context).width,
+    );
     final now = DateTime.now();
     final dateLabel = DateFormat('EEEE d MMM', 'es_DO').format(now);
     final timeLabel = DateFormat('h:mm a', 'es_DO').format(now);
@@ -2513,6 +2606,616 @@ class _CollapsedOperationsPanelToggle extends StatelessWidget {
   }
 }
 
+class _DesktopOperationsFilterSidebar extends StatefulWidget {
+  const _DesktopOperationsFilterSidebar({
+    required this.filter,
+    required this.activeCount,
+    required this.refreshing,
+    required this.searchController,
+    required this.availableCreators,
+    required this.availableTechnicians,
+    required this.onSearchChanged,
+    required this.onClearSearch,
+    required this.onReset,
+    required this.onFilterChanged,
+    required this.onPickCustomRange,
+  });
+
+  final ServiceOrdersFilter filter;
+  final int activeCount;
+  final bool refreshing;
+  final TextEditingController searchController;
+  final List<_FilterUserOption> availableCreators;
+  final List<_FilterUserOption> availableTechnicians;
+  final ValueChanged<String> onSearchChanged;
+  final VoidCallback onClearSearch;
+  final VoidCallback onReset;
+  final ValueChanged<ServiceOrdersFilter> onFilterChanged;
+  final Future<DateTimeRange?> Function() onPickCustomRange;
+
+  @override
+  State<_DesktopOperationsFilterSidebar> createState() =>
+      _DesktopOperationsFilterSidebarState();
+}
+
+class _DesktopOperationsFilterSidebarState
+    extends State<_DesktopOperationsFilterSidebar> {
+  final ScrollController _scrollController = ScrollController();
+
+  ServiceOrdersFilter get filter => widget.filter;
+  int get activeCount => widget.activeCount;
+  bool get refreshing => widget.refreshing;
+  TextEditingController get searchController => widget.searchController;
+  List<_FilterUserOption> get availableCreators => widget.availableCreators;
+  List<_FilterUserOption> get availableTechnicians =>
+      widget.availableTechnicians;
+  ValueChanged<String> get onSearchChanged => widget.onSearchChanged;
+  VoidCallback get onClearSearch => widget.onClearSearch;
+  VoidCallback get onReset => widget.onReset;
+  ValueChanged<ServiceOrdersFilter> get onFilterChanged =>
+      widget.onFilterChanged;
+  Future<DateTimeRange?> Function() get onPickCustomRange =>
+      widget.onPickCustomRange;
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _toggleStatus(ServiceOrderStatus status) {
+    final next = {...filter.statuses};
+    if (next.contains(status)) {
+      next.remove(status);
+    } else {
+      next.add(status);
+    }
+    onFilterChanged(filter.copyWith(statuses: next));
+  }
+
+  void _toggleServiceType(ServiceOrderType serviceType) {
+    final next = {...filter.serviceTypes};
+    if (next.contains(serviceType)) {
+      next.remove(serviceType);
+    } else {
+      next.add(serviceType);
+    }
+    onFilterChanged(filter.copyWith(serviceTypes: next));
+  }
+
+  void _toggleCreator(String id) {
+    final next = {...filter.creatorIds};
+    if (next.contains(id)) {
+      next.remove(id);
+    } else {
+      next.add(id);
+    }
+    onFilterChanged(filter.copyWith(creatorIds: next));
+  }
+
+  void _toggleTechnician(String id) {
+    final next = {...filter.technicianIds};
+    if (next.contains(id)) {
+      next.remove(id);
+    } else {
+      next.add(id);
+    }
+    onFilterChanged(filter.copyWith(technicianIds: next));
+  }
+
+  Future<void> _selectDatePreset(ServiceOrdersDatePreset preset) async {
+    if (preset != ServiceOrdersDatePreset.custom) {
+      onFilterChanged(
+        filter.copyWith(datePreset: preset, clearCustomRange: true),
+      );
+      return;
+    }
+    final range = await onPickCustomRange();
+    if (range == null) return;
+    onFilterChanged(
+      filter.copyWith(
+        datePreset: ServiceOrdersDatePreset.custom,
+        customRange: range,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final canReset =
+        filter.hasActiveFilters || searchController.text.trim().isNotEmpty;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        border: Border(
+          left: BorderSide(
+            color: colorScheme.outlineVariant.withValues(alpha: 0.78),
+          ),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: colorScheme.shadow.withValues(alpha: 0.05),
+            blurRadius: 18,
+            offset: const Offset(-6, 0),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [colorScheme.primary, colorScheme.tertiary],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(13),
+                        ),
+                        child: const Icon(
+                          Icons.tune_rounded,
+                          color: Colors.white,
+                          size: 19,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Filtros de operaciones',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: -0.1,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              refreshing
+                                  ? 'Sincronizando · $activeCount visibles'
+                                  : '$activeCount órdenes visibles',
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: colorScheme.onSurfaceVariant,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _OperationsQuickSearchField(
+                    controller: searchController,
+                    onChanged: onSearchChanged,
+                    onClear: onClearSearch,
+                    onOpenFilters: null,
+                    hasActiveFilters: filter.hasActiveFilters,
+                    hintText: 'Buscar orden, cliente, técnico',
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: PrimaryScrollController(
+                controller: _scrollController,
+                child: Scrollbar(
+                  thumbVisibility: true,
+                  child: SingleChildScrollView(
+                    primary: true,
+                  padding: const EdgeInsets.fromLTRB(14, 2, 14, 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _SidebarFilterSection(
+                        title: 'Cierre',
+                        child: Wrap(
+                          spacing: 7,
+                          runSpacing: 7,
+                          children: ServiceOrdersCompletionFilter.values
+                              .map(
+                                (value) => _ChoiceFilterTile(
+                                  label: value.label,
+                                  icon: value.icon,
+                                  selected: filter.completionFilter == value,
+                                  compact: true,
+                                  onTap: () => onFilterChanged(
+                                    filter.copyWith(completionFilter: value),
+                                  ),
+                                ),
+                              )
+                              .toList(growable: false),
+                        ),
+                      ),
+                      _SidebarFilterSection(
+                        title: 'Estado',
+                        child: Wrap(
+                          spacing: 7,
+                          runSpacing: 7,
+                          children: ServiceOrderStatus.values
+                              .map(
+                                (status) => _CompactFilterChip(
+                                  label: status.label,
+                                  selected: filter.statuses.contains(status),
+                                  accent: status.color,
+                                  onTap: () => _toggleStatus(status),
+                                ),
+                              )
+                              .toList(growable: false),
+                        ),
+                      ),
+                      _SidebarFilterSection(
+                        title: 'Servicio',
+                        child: Wrap(
+                          spacing: 7,
+                          runSpacing: 7,
+                          children: ServiceOrderType.values
+                              .map(
+                                (serviceType) => _CompactFilterChip(
+                                  label: serviceType.label,
+                                  selected: filter.serviceTypes.contains(
+                                    serviceType,
+                                  ),
+                                  onTap: () => _toggleServiceType(serviceType),
+                                ),
+                              )
+                              .toList(growable: false),
+                        ),
+                      ),
+                      _SidebarFilterSection(
+                        title: 'Fecha',
+                        child: Wrap(
+                          spacing: 7,
+                          runSpacing: 7,
+                          children: [
+                            _ChoiceFilterTile(
+                              label: 'Todas',
+                              icon: Icons.all_inbox_rounded,
+                              selected:
+                                  filter.datePreset ==
+                                  ServiceOrdersDatePreset.all,
+                              compact: true,
+                              onTap: () => _selectDatePreset(
+                                ServiceOrdersDatePreset.all,
+                              ),
+                            ),
+                            _ChoiceFilterTile(
+                              label: 'Hoy',
+                              icon: Icons.today_rounded,
+                              selected:
+                                  filter.datePreset ==
+                                  ServiceOrdersDatePreset.today,
+                              compact: true,
+                              onTap: () => _selectDatePreset(
+                                ServiceOrdersDatePreset.today,
+                              ),
+                            ),
+                            _ChoiceFilterTile(
+                              label: 'Semana',
+                              icon: Icons.date_range_rounded,
+                              selected:
+                                  filter.datePreset ==
+                                  ServiceOrdersDatePreset.thisWeek,
+                              compact: true,
+                              onTap: () => _selectDatePreset(
+                                ServiceOrdersDatePreset.thisWeek,
+                              ),
+                            ),
+                            _ChoiceFilterTile(
+                              label: 'Rango',
+                              icon: Icons.edit_calendar_rounded,
+                              selected:
+                                  filter.datePreset ==
+                                  ServiceOrdersDatePreset.custom,
+                              compact: true,
+                              onTap: () => _selectDatePreset(
+                                ServiceOrdersDatePreset.custom,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (filter.datePreset == ServiceOrdersDatePreset.custom)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: _CustomDateRangeBanner(
+                            range: filter.customRange,
+                            compact: true,
+                            onTap: () => _selectDatePreset(
+                              ServiceOrdersDatePreset.custom,
+                            ),
+                          ),
+                        ),
+                      _SidebarFilterSection(
+                        title: 'Usuarios / vendedores',
+                        badge: '${availableCreators.length}',
+                        child: availableCreators.isEmpty
+                            ? const _SidebarEmptyFilterText(
+                                text: 'No hay usuarios disponibles',
+                              )
+                            : _SidebarIdentityGrid(
+                                options: availableCreators,
+                                selectedIds: filter.creatorIds,
+                                accent: colorScheme.primary,
+                                onTap: _toggleCreator,
+                              ),
+                      ),
+                      _SidebarFilterSection(
+                        title: 'Técnicos',
+                        badge: '${availableTechnicians.length}',
+                        child: availableTechnicians.isEmpty
+                            ? const _SidebarEmptyFilterText(
+                                text: 'No hay técnicos asignados',
+                              )
+                            : _SidebarIdentityGrid(
+                                options: availableTechnicians,
+                                selectedIds: filter.technicianIds,
+                                accent: const Color(0xFF0F766E),
+                                onTap: _toggleTechnician,
+                              ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
+              child: SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: canReset ? onReset : null,
+                  icon: const Icon(Icons.restart_alt_rounded, size: 18),
+                  label: const Text('Restablecer filtros'),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SidebarFilterSection extends StatelessWidget {
+  const _SidebarFilterSection({
+    required this.title,
+    required this.child,
+    this.badge,
+  });
+
+  final String title;
+  final Widget child;
+  final String? badge;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    color: theme.colorScheme.onSurface,
+                    letterSpacing: -0.1,
+                  ),
+                ),
+              ),
+              if ((badge ?? '').trim().isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerHighest
+                        .withValues(alpha: 0.55),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    badge!,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 7),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _SidebarIdentityGrid extends StatelessWidget {
+  const _SidebarIdentityGrid({
+    required this.options,
+    required this.selectedIds,
+    required this.accent,
+    required this.onTap,
+  });
+
+  final List<_FilterUserOption> options;
+  final Set<String> selectedIds;
+  final Color accent;
+  final ValueChanged<String> onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxWidth = constraints.maxWidth;
+        final itemWidth = maxWidth >= 220 ? (maxWidth - 8) / 2 : maxWidth;
+        return Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: options
+              .map(
+                (option) => SizedBox(
+                  width: itemWidth,
+                  child: _SidebarIdentityOption(
+                    option: option,
+                    selected: selectedIds.contains(option.id),
+                    accent: accent,
+                    onTap: () => onTap(option.id),
+                  ),
+                ),
+              )
+              .toList(growable: false),
+        );
+      },
+    );
+  }
+}
+
+class _SidebarIdentityOption extends StatelessWidget {
+  const _SidebarIdentityOption({
+    required this.option,
+    required this.selected,
+    required this.accent,
+    required this.onTap,
+  });
+
+  final _FilterUserOption option;
+  final bool selected;
+  final Color accent;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+          decoration: BoxDecoration(
+            color: selected
+                ? accent.withValues(alpha: 0.09)
+                : colorScheme.surfaceContainerLowest.withValues(alpha: 0.36),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: selected
+                  ? accent.withValues(alpha: 0.38)
+                  : colorScheme.outlineVariant.withValues(alpha: 0.86),
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: selected ? 0.18 : 0.10),
+                  shape: BoxShape.circle,
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  option.initials,
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: accent,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      option.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        color: selected ? accent : colorScheme.onSurface,
+                        letterSpacing: -0.1,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      option.roleLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                        fontSize: 10.8,
+                        fontWeight: FontWeight.w600,
+                        height: 1,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              AnimatedOpacity(
+                duration: const Duration(milliseconds: 180),
+                opacity: selected ? 1 : 0,
+                child: Icon(
+                  Icons.check_circle_rounded,
+                  size: 16,
+                  color: accent,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SidebarEmptyFilterText extends StatelessWidget {
+  const _SidebarEmptyFilterText({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+        fontWeight: FontWeight.w600,
+      ),
+    );
+  }
+}
+
 class _OperationsQuickSearchField extends StatelessWidget {
   const _OperationsQuickSearchField({
     required this.controller,
@@ -2526,7 +3229,7 @@ class _OperationsQuickSearchField extends StatelessWidget {
   final TextEditingController controller;
   final ValueChanged<String> onChanged;
   final VoidCallback onClear;
-  final VoidCallback onOpenFilters;
+  final VoidCallback? onOpenFilters;
   final bool hasActiveFilters;
   final String hintText;
 
@@ -2605,46 +3308,48 @@ class _OperationsQuickSearchField extends StatelessWidget {
                       ),
                     ),
                   if (hasSearchText) const SizedBox(width: 2),
-                  Container(
-                    width: 1,
-                    height: 12,
-                    color: colorScheme.outlineVariant.withValues(alpha: 0.38),
-                  ),
-                  const SizedBox(width: 4),
-                  _SearchFieldIconButton(
-                    tooltip: 'Filtros',
-                    onPressed: onOpenFilters,
-                    size: 30,
-                    icon: Stack(
-                      clipBehavior: Clip.none,
-                      children: [
-                        Icon(
-                          Icons.filter_alt_outlined,
-                          size: 17,
-                          color: hasActiveFilters
-                              ? colorScheme.primary
-                              : colorScheme.onSurfaceVariant,
-                        ),
-                        if (hasActiveFilters)
-                          Positioned(
-                            right: -1,
-                            top: -1,
-                            child: Container(
-                              width: 7,
-                              height: 7,
-                              decoration: BoxDecoration(
-                                color: colorScheme.primary,
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: colorScheme.surface,
-                                  width: 1,
+                  if (onOpenFilters != null) ...[
+                    Container(
+                      width: 1,
+                      height: 12,
+                      color: colorScheme.outlineVariant.withValues(alpha: 0.38),
+                    ),
+                    const SizedBox(width: 4),
+                    _SearchFieldIconButton(
+                      tooltip: 'Filtros',
+                      onPressed: onOpenFilters,
+                      size: 30,
+                      icon: Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          Icon(
+                            Icons.filter_alt_outlined,
+                            size: 17,
+                            color: hasActiveFilters
+                                ? colorScheme.primary
+                                : colorScheme.onSurfaceVariant,
+                          ),
+                          if (hasActiveFilters)
+                            Positioned(
+                              right: -1,
+                              top: -1,
+                              child: Container(
+                                width: 7,
+                                height: 7,
+                                decoration: BoxDecoration(
+                                  color: colorScheme.primary,
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: colorScheme.surface,
+                                    width: 1,
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ],
@@ -3059,8 +3764,9 @@ class _ServiceOrderListCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isDesktop =
-        MediaQuery.sizeOf(context).width >= kDesktopShellBreakpoint;
+    final isDesktop = _shouldUseOperationsDesktopLayout(
+      MediaQuery.sizeOf(context).width,
+    );
     final locationUrl = client?.locationUrl;
     final locationPreview = parseClientLocationPreview(locationUrl);
     final locationUri = buildClientNavigationUri(locationPreview, locationUrl);
@@ -3076,7 +3782,6 @@ class _ServiceOrderListCard extends StatelessWidget {
     final hasCreatorName = creatorDisplayName.isNotEmpty;
     final clientDisplayName = clientName.trim();
     final clientPhone = (client?.telefono ?? '').trim();
-    final hasClientPhone = clientPhone.isNotEmpty;
     final serviceCityLabel = _extractServiceCity(
       address: client?.direccion,
       locationUrl: client?.locationUrl,
@@ -3092,285 +3797,28 @@ class _ServiceOrderListCard extends StatelessWidget {
     );
 
     if (isDesktop) {
-      final assignedLabel = technicianName.trim().isEmpty
-          ? 'Sin técnico asignado'
-          : technicianName.trim();
-      final scheduleLabel = order.scheduledFor == null
-          ? 'Sin agenda definida'
-          : DateFormat(
-              'dd/MM/yyyy · h:mm a',
-              'es_DO',
-            ).format(order.scheduledFor!.toLocal());
-      final detailSummary = _firstMeaningfulText(
-        order.extraRequirements,
-        order.technicalNote,
-      );
-      final gpsLabel =
-          locationPreview.latitude != null && locationPreview.longitude != null
-          ? '${locationPreview.latitude!.toStringAsFixed(5)}, ${locationPreview.longitude!.toStringAsFixed(5)}'
-          : (locationUri != null ? 'Ubicación vinculada' : 'Sin GPS');
-
-      final filesLabel =
-          '${order.referenceItems.length} ref. · ${order.technicalEvidenceItems.length} evid.';
-      final creatorLabel = hasCreatorName
-          ? 'Creó $creatorFirstName'
-          : 'Sin creador visible';
-
-      return Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(18),
-          onTap: onTap,
-          child: Ink(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  Color.alphaBlend(
-                    priorityStyle.backgroundTint.withValues(alpha: 0.45),
-                    const Color(0xFFFAFBFD),
-                  ),
-                  Color.alphaBlend(
-                    priorityStyle.backgroundTint.withValues(alpha: 0.18),
-                    const Color(0xFFF4F7FB),
-                  ),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(
-                color: priorityStyle.borderColor.withValues(alpha: 0.5),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: theme.colorScheme.shadow.withValues(alpha: 0.03),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: 4,
-                    margin: const EdgeInsets.only(top: 1, right: 10),
-                    decoration: BoxDecoration(
-                      color: priorityStyle.edgeColor.withValues(alpha: 0.92),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                  ),
-                  Expanded(
-                    flex: 6,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Wrap(
-                                spacing: 6,
-                                runSpacing: 6,
-                                children: [
-                                  _PanelMetaPill(
-                                    icon: Icons.tag_rounded,
-                                    text: '#${_compactOrderId(order.id)}',
-                                    accent: theme.colorScheme.primary,
-                                  ),
-                                  _PanelMetaPill(
-                                    icon: Icons.calendar_today_outlined,
-                                    text: topLineText,
-                                  ),
-                                  if (hasCreatorName)
-                                    _PanelMetaPill(
-                                      icon: Icons.person_outline_rounded,
-                                      text: 'Vendedor: $creatorFirstName',
-                                      accent: theme.colorScheme.tertiary,
-                                    ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            _StatusBadge(status: order.status, compact: true),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          clientDisplayName.isEmpty
-                              ? 'Cliente sin nombre'
-                              : clientDisplayName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: -0.2,
-                          ),
-                        ),
-                        const SizedBox(height: 3),
-                        if (detailSummary != null) ...[
-                          Text(
-                            detailSummary,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                              fontWeight: FontWeight.w600,
-                              height: 1.2,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                        ],
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _DesktopInfoBlock(
-                                icon: Icons.build_circle_outlined,
-                                label: 'Servicio',
-                                primary:
-                                    '${order.category.label} · ${order.serviceType.label}',
-                                secondary: scheduleLabel,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: _DesktopInfoBlock(
-                                icon: Icons.location_on_outlined,
-                                label: 'Ubicación',
-                                primary: gpsLabel,
-                                secondary: filesLabel,
-                                accent: locationUri != null
-                                    ? const Color(0xFF047857)
-                                    : null,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: _DesktopInfoBlock(
-                                icon: Icons.engineering_outlined,
-                                label: 'Responsables',
-                                primary: assignedLabel,
-                                secondary: creatorLabel,
-                              ),
-                            ),
-                          ],
-                        ),
-                        if (hasClientPhone) ...[
-                          const SizedBox(height: 6),
-                          _DesktopInlineInfoChip(
-                            icon: Icons.phone_outlined,
-                            text: clientPhone,
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Container(
-                    width: 124,
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.surface.withValues(alpha: 0.82),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                        color: theme.colorScheme.outlineVariant.withValues(
-                          alpha: 0.65,
-                        ),
-                      ),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        if (onChangeStatus != null)
-                          Align(
-                            alignment: Alignment.centerLeft,
-                            child: _InlineStatusButton(
-                              order: order,
-                              busy: statusBusy,
-                              canPromoteStatus: canPromoteStatus,
-                              onSelected: onChangeStatus!,
-                            ),
-                          ),
-                        if (onEdit != null && !isTechnician) ...[
-                          const SizedBox(height: 6),
-                          Align(
-                            alignment: Alignment.centerLeft,
-                            child: _OrderActionsMenu(
-                              busy: statusBusy,
-                              onEdit: onEdit!,
-                              onDelete: onDelete,
-                            ),
-                          ),
-                        ],
-                        if (onCreateNewOrder != null) ...[
-                          const SizedBox(height: 6),
-                          FilledButton.tonalIcon(
-                            onPressed: creatingNewOrder
-                                ? null
-                                : onCreateNewOrder,
-                            style: FilledButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 7,
-                              ),
-                              minimumSize: const Size.fromHeight(32),
-                            ),
-                            icon: creatingNewOrder
-                                ? const SizedBox(
-                                    width: 14,
-                                    height: 14,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : const Icon(Icons.add_rounded, size: 16),
-                            label: const Text('Nueva'),
-                          ),
-                        ],
-                        const SizedBox(height: 6),
-                        Wrap(
-                          spacing: 6,
-                          runSpacing: 6,
-                          children: [
-                            if (callUri != null)
-                              _ContactIconButton(
-                                icon: Icons.call_outlined,
-                                tooltip: 'Llamar cliente',
-                                onTap: () => safeOpenUrl(context, callUri),
-                                size: 36,
-                              ),
-                            if (whatsappUri != null)
-                              _ContactIconButton(
-                                icon: Icons.chat_bubble_outline_rounded,
-                                tooltip: 'Escribir por WhatsApp',
-                                onTap: () => safeOpenUrl(context, whatsappUri),
-                                size: 36,
-                              ),
-                            if (locationUri != null)
-                              _ContactIconButton(
-                                icon: Icons.location_searching_rounded,
-                                tooltip: 'Abrir GPS',
-                                onTap: () => safeOpenUrl(context, locationUri),
-                                size: 36,
-                              ),
-                          ],
-                        ),
-                        if (isTechnician) ...[
-                          const SizedBox(height: 8),
-                          _TechnicianQuickActionButton(
-                            order: order,
-                            actionConfig: technicianActionConfig,
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
+      return _DesktopServiceOrderLine(
+        order: order,
+        clientDisplayName: clientDisplayName,
+        clientPhone: clientPhone,
+        creatorFirstName: creatorFirstName,
+        hasCreatorName: hasCreatorName,
+        technicianName: technicianName,
+        createdAtLabel: topLineText,
+        locationUri: locationUri,
+        callUri: callUri,
+        whatsappUri: whatsappUri,
+        priorityStyle: priorityStyle,
+        technicianActionConfig: technicianActionConfig,
+        statusBusy: statusBusy,
+        creatingNewOrder: creatingNewOrder,
+        isTechnician: isTechnician,
+        canPromoteStatus: canPromoteStatus,
+        onTap: onTap,
+        onChangeStatus: onChangeStatus,
+        onCreateNewOrder: onCreateNewOrder,
+        onEdit: onEdit,
+        onDelete: onDelete,
       );
     }
 
@@ -3479,7 +3927,7 @@ class _ServiceOrderListCard extends StatelessWidget {
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: theme.textTheme.labelSmall?.copyWith(
-                                    fontSize: 10,
+                                    fontSize: 11,
                                     fontWeight: FontWeight.w600,
                                     color: theme.colorScheme.onSurfaceVariant,
                                     letterSpacing: 0.12,
@@ -3531,6 +3979,294 @@ class _ServiceOrderListCard extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _DesktopServiceOrderLine extends ConsumerWidget {
+  const _DesktopServiceOrderLine({
+    required this.order,
+    required this.clientDisplayName,
+    required this.clientPhone,
+    required this.creatorFirstName,
+    required this.hasCreatorName,
+    required this.technicianName,
+    required this.createdAtLabel,
+    required this.locationUri,
+    required this.callUri,
+    required this.whatsappUri,
+    required this.priorityStyle,
+    required this.technicianActionConfig,
+    required this.statusBusy,
+    required this.creatingNewOrder,
+    required this.isTechnician,
+    required this.canPromoteStatus,
+    required this.onTap,
+    this.onChangeStatus,
+    this.onCreateNewOrder,
+    this.onEdit,
+    this.onDelete,
+  });
+
+  final ServiceOrderModel order;
+  final String clientDisplayName;
+  final String clientPhone;
+  final String creatorFirstName;
+  final bool hasCreatorName;
+  final String technicianName;
+  final String createdAtLabel;
+  final Uri? locationUri;
+  final Uri? callUri;
+  final Uri? whatsappUri;
+  final _ServiceTypePriorityStyle priorityStyle;
+  final ServiceOrderQuickActionsConfig technicianActionConfig;
+  final bool statusBusy;
+  final bool creatingNewOrder;
+  final bool isTechnician;
+  final bool canPromoteStatus;
+  final VoidCallback onTap;
+  final ValueChanged<ServiceOrderStatus>? onChangeStatus;
+  final VoidCallback? onCreateNewOrder;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final assignedLabel = technicianName.trim().isEmpty
+        ? 'Sin técnico'
+        : technicianName.trim();
+    final scheduledLabel = order.scheduledFor == null
+        ? 'Sin agenda'
+        : DateFormat(
+            'dd/MM · h:mm a',
+            'es_DO',
+          ).format(order.scheduledFor!.toLocal());
+    final detailSummary = _firstMeaningfulText(
+      order.extraRequirements,
+      order.technicalNote,
+    );
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        hoverColor: priorityStyle.backgroundTint.withValues(alpha: 0.26),
+        child: Ink(
+          height: 64,
+          decoration: BoxDecoration(
+            color: Color.alphaBlend(
+              priorityStyle.backgroundTint.withValues(alpha: 0.16),
+              colorScheme.surface,
+            ),
+            border: Border(
+              bottom: BorderSide(
+                color: colorScheme.outlineVariant.withValues(alpha: 0.74),
+              ),
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(width: 4, color: priorityStyle.edgeColor),
+              const SizedBox(width: 10),
+              SizedBox(
+                width: 92,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '#${_compactOrderId(order.id)}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: colorScheme.primary,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.15,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      createdAtLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                        fontSize: 10.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              SizedBox(
+                width: 116,
+                child: _StatusBadge(status: order.status, compact: true),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                flex: 4,
+                child: _DesktopLineTextBlock(
+                  title: clientDisplayName.isEmpty
+                      ? 'Cliente sin nombre'
+                      : clientDisplayName,
+                  subtitle: detailSummary ?? clientPhone,
+                  icon: Icons.business_rounded,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                flex: 3,
+                child: _DesktopLineTextBlock(
+                  title: '${order.serviceType.label} · ${order.category.label}',
+                  subtitle: scheduledLabel,
+                  icon: Icons.construction_rounded,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                flex: 3,
+                child: _DesktopLineTextBlock(
+                  title: assignedLabel,
+                  subtitle: hasCreatorName ? 'Vendedor: $creatorFirstName' : '',
+                  icon: Icons.engineering_rounded,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (callUri != null)
+                    _ContactIconButton(
+                      icon: Icons.call_outlined,
+                      tooltip: 'Llamar cliente',
+                      onTap: () => safeOpenUrl(context, callUri!),
+                      size: 30,
+                    ),
+                  if (whatsappUri != null) ...[
+                    const SizedBox(width: 5),
+                    _ContactIconButton(
+                      icon: Icons.chat_bubble_outline_rounded,
+                      tooltip: 'WhatsApp cliente',
+                      onTap: () => safeOpenWhatsApp(context, whatsappUri!),
+                      size: 30,
+                    ),
+                  ],
+                  if (locationUri != null) ...[
+                    const SizedBox(width: 5),
+                    _ContactIconButton(
+                      icon: Icons.location_searching_rounded,
+                      tooltip: 'Abrir GPS',
+                      onTap: () => safeOpenUrl(context, locationUri!),
+                      size: 30,
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(width: 8),
+              if (onChangeStatus != null)
+                _InlineStatusButton(
+                  order: order,
+                  busy: statusBusy,
+                  canPromoteStatus: canPromoteStatus,
+                  onSelected: onChangeStatus!,
+                ),
+              if (onCreateNewOrder != null) ...[
+                const SizedBox(width: 6),
+                Tooltip(
+                  message: 'Crear nueva orden desde esta',
+                  child: IconButton.filledTonal(
+                    visualDensity: VisualDensity.compact,
+                    onPressed: creatingNewOrder ? null : onCreateNewOrder,
+                    icon: creatingNewOrder
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.add_rounded, size: 18),
+                  ),
+                ),
+              ],
+              if (isTechnician) ...[
+                const SizedBox(width: 6),
+                _TechnicianQuickActionButton(
+                  order: order,
+                  actionConfig: technicianActionConfig,
+                ),
+              ] else if (onEdit != null) ...[
+                const SizedBox(width: 4),
+                _OrderActionsMenu(
+                  busy: statusBusy,
+                  onEdit: onEdit!,
+                  onDelete: onDelete,
+                ),
+              ],
+              const SizedBox(width: 10),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DesktopLineTextBlock extends StatelessWidget {
+  const _DesktopLineTextBlock({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return Row(
+      children: [
+        Container(
+          width: 30,
+          height: 30,
+          decoration: BoxDecoration(
+            color: colorScheme.primary.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(icon, size: 15, color: colorScheme.primary),
+        ),
+        const SizedBox(width: 9),
+        Expanded(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.08,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                subtitle.isEmpty ? '—' : subtitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -3766,7 +4502,7 @@ class _MobileOrderActionsButton extends ConsumerWidget {
             value: _OrderMenuAction.whatsapp,
             child: _OrderMenuRow(
               icon: Icons.chat_bubble_outline_rounded,
-              label: 'WhatsApp',
+              label: 'WhatsApp cliente',
             ),
           ),
         if (locationUri != null)
@@ -3811,7 +4547,7 @@ class _MobileOrderActionsButton extends ConsumerWidget {
         }
       case _OrderMenuAction.whatsapp:
         if (whatsappUri != null) {
-          safeOpenUrl(context, whatsappUri!);
+          safeOpenWhatsApp(context, whatsappUri!);
         }
       case _OrderMenuAction.location:
         if (locationUri != null) {
@@ -3919,128 +4655,6 @@ class _OrderMenuRow extends StatelessWidget {
         if (trailing != null)
           Icon(trailing, size: 16, color: colorScheme.onSurfaceVariant),
       ],
-    );
-  }
-}
-
-class _DesktopInlineInfoChip extends StatelessWidget {
-  const _DesktopInlineInfoChip({required this.icon, required this.text});
-
-  final IconData icon;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerLowest.withValues(alpha: 0.9),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.6),
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 13, color: theme.colorScheme.onSurfaceVariant),
-          const SizedBox(width: 5),
-          Text(
-            text,
-            style: theme.textTheme.labelSmall?.copyWith(
-              fontWeight: FontWeight.w700,
-              color: theme.colorScheme.onSurface,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DesktopInfoBlock extends StatelessWidget {
-  const _DesktopInfoBlock({
-    required this.icon,
-    required this.label,
-    required this.primary,
-    required this.secondary,
-    this.accent,
-  });
-
-  final IconData icon;
-  final String label;
-  final String primary;
-  final String secondary;
-  final Color? accent;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final effectiveAccent = accent ?? theme.colorScheme.primary;
-
-    return Container(
-      padding: const EdgeInsets.fromLTRB(10, 9, 10, 9),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerLowest.withValues(alpha: 0.92),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.65),
-        ),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 26,
-            height: 26,
-            decoration: BoxDecoration(
-              color: effectiveAccent.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(9),
-            ),
-            child: Icon(icon, size: 14, color: effectiveAccent),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  primary,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    color: theme.colorScheme.onSurface,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  secondary,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                    fontSize: 10.5,
-                    height: 1.1,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
@@ -4448,7 +5062,7 @@ class _StatusBadge extends StatelessWidget {
         style: TextStyle(
           color: status.color,
           fontWeight: FontWeight.w700,
-          fontSize: compact ? 12 : 12,
+          fontSize: compact ? 13 : 13,
         ),
       ),
     );

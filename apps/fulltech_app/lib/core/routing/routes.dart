@@ -42,6 +42,7 @@ class Routes {
   static const administracionVentas = '/administracion/ventas';
   static const administracionComisiones = '/administracion/comisiones';
   static const administracionCotizaciones = '/administracion/cotizaciones';
+  static const whatsappCrm = '/whatsapp-crm';
 
   static String clienteDetail(String id) => '/clientes/$id';
   static String clienteEdit(String id) => '/clientes/$id/editar';

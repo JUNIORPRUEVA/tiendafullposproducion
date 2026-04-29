@@ -29,6 +29,21 @@ bool _isAbsoluteUrl(String value) {
   return uri != null && uri.hasScheme && (uri.scheme == 'http' || uri.scheme == 'https');
 }
 
+bool _hasDifferentHost(String value, String baseUrl) {
+  if (!_isAbsoluteUrl(value) || !_isAbsoluteUrl(baseUrl)) {
+    return false;
+  }
+
+  final valueUri = Uri.tryParse(value);
+  final baseUri = Uri.tryParse(baseUrl);
+  if (valueUri == null || baseUri == null) {
+    return false;
+  }
+
+  return valueUri.host.trim().toLowerCase() !=
+      baseUri.host.trim().toLowerCase();
+}
+
 String? _extractUploadsPath(String value) {
   final normalized = value.replaceAll('\\', '/').trim();
   const marker = '/uploads/';
@@ -85,7 +100,10 @@ String normalizeProductImageUrl({
   if (_isAbsoluteUrl(raw)) {
     final absolute = _stringifyUri(raw);
     final uploadsPath = _extractUploadsPath(raw);
-    if (proxyUploadsOnWeb && normalizedBase.isNotEmpty && uploadsPath != null) {
+    final shouldProxyUploads = normalizedBase.isNotEmpty &&
+        uploadsPath != null &&
+        (proxyUploadsOnWeb || _hasDifferentHost(absolute, normalizedBase));
+    if (shouldProxyUploads) {
       final encodedUrl = Uri.encodeQueryComponent(absolute);
       return _stringifyUri('$normalizedBase/products/image-proxy?url=$encodedUrl');
     }

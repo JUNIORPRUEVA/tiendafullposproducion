@@ -44,12 +44,20 @@ class OperationsRealtimeService {
       StreamController<OperationsRealtimeMessage>.broadcast();
   final StreamController<ClientsRealtimeMessage> _clientsController =
       StreamController<ClientsRealtimeMessage>.broadcast();
+  final StreamController<Map<String, dynamic>> _whatsappController =
+      StreamController<Map<String, dynamic>>.broadcast();
   final Set<String> _seenEventIds = <String>{};
 
   io.Socket? _socket;
 
   Stream<OperationsRealtimeMessage> get stream => _controller.stream;
   Stream<ClientsRealtimeMessage> get clientStream => _clientsController.stream;
+  Stream<Map<String, dynamic>> get whatsappStream => _whatsappController.stream;
+
+  /// Register a callback for incoming WhatsApp CRM messages.
+  void onWhatsappMessage(void Function(Map<String, dynamic> data) callback) {
+    _whatsappController.stream.listen(callback);
+  }
 
   Future<void> connect(AuthState authState) async {
     if (!authState.isAuthenticated) {
@@ -120,10 +128,17 @@ class OperationsRealtimeService {
       );
     });
 
-    socket.on('client.event', (data) {
+    socket.on('whatsapp.message', (data) {
       if (data is! Map) return;
       final payload = Map<String, dynamic>.from(data);
-      final eventId = payload['eventId']?.toString() ?? '';
+      if (!_whatsappController.isClosed) {
+        _whatsappController.add(payload);
+      }
+    });
+
+    socket.on('client.event', (data) {
+      if (data is! Map) return;
+      final payload = Map<String, dynamic>.from(data);      final eventId = payload['eventId']?.toString() ?? '';
       if (eventId.isNotEmpty && !_seenEventIds.add(eventId)) {
         return;
       }
