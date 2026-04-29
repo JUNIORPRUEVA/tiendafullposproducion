@@ -114,7 +114,7 @@ export class WhatsappService {
         enabled,
         url: webhookUrl,
         byEvents: false,
-        base64: false,
+        base64: true,          // include base64 media so images/audio/docs arrive in the webhook
         events: ['MESSAGES_UPSERT'],
       },
     };
