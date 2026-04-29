@@ -11,6 +11,7 @@ import '../../core/company/company_settings_model.dart';
 import '../../core/company/company_settings_repository.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
+import '../whatsapp/company_whatsapp_panel.dart';
 import 'configuracion_usuarios_screen.dart';
 
 class ConfiguracionScreen extends ConsumerStatefulWidget {
@@ -635,55 +636,12 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Warning banner
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: scheme.errorContainer.withValues(alpha: 0.4),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: scheme.error.withValues(alpha: 0.3),
-            ),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(Icons.warning_amber_rounded,
-                  size: 18, color: scheme.error),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Esta instancia es EXCLUSIVA para notificaciones automáticas del sistema (recordatorios, alertas, etc.). '
-                  'Debe ser DIFERENTE a la instancia personal de cada usuario. '
-                  'Cada usuario gestiona su propia instancia desde la pantalla de WhatsApp.',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: scheme.onErrorContainer,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 16),
+        // Infrastructure fields (always shown — needed before creating instance)
         _field(
           _evolutionApiBaseUrlCtrl,
           'URL base de Evolution API',
           hint: 'https://evolution.tudominio.com',
           keyboard: TextInputType.url,
-        ),
-        const SizedBox(height: 12),
-        _field(
-          _evolutionApiInstanceNameCtrl,
-          'Instancia de la empresa (notificaciones)',
-          hint: 'Ej: fulltech-empresa',
-        ),
-        const SizedBox(height: 4),
-        Text(
-          'Usa un nombre único que NO sea el nombre de ningún usuario del sistema.',
-          style: theme.textTheme.labelSmall?.copyWith(
-            color: scheme.onSurfaceVariant,
-          ),
         ),
         const SizedBox(height: 12),
         _field(
@@ -700,7 +658,38 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
                 : Icons.visibility_outlined),
           ),
         ),
+        const SizedBox(height: 8),
+        Text(
+          'Guarda primero la configuración antes de crear la instancia.',
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: scheme.onSurfaceVariant,
+          ),
+        ),
         const SizedBox(height: 16),
+        Divider(color: scheme.outlineVariant.withValues(alpha: 0.5)),
+        const SizedBox(height: 16),
+        // Instance management panel
+        Text(
+          'INSTANCIA DE LA EMPRESA',
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: scheme.onSurfaceVariant,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 1.1,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Esta instancia es exclusiva para notificaciones automáticas del sistema. '
+          'Es completamente SEPARADA de la instancia personal de cada usuario.',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: scheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 12),
+        const CompanyWhatsappPanel(),
+        const SizedBox(height: 16),
+        Divider(color: scheme.outlineVariant.withValues(alpha: 0.5)),
+        const SizedBox(height: 12),
         Row(
           children: [
             Switch(

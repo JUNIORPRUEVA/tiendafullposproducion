@@ -598,6 +598,158 @@ export class WhatsappService {
     }));
   }
 
+  // ─── Company instance (stored in AppConfig) ─────────────────────────────
+
+  private async getCompanyInstanceName(): Promise<string> {
+    const row = await this.prisma.appConfig.findUnique({
+      where: { id: 'global' },
+      select: { evolutionApiInstanceName: true },
+    });
+    return (row?.evolutionApiInstanceName ?? '').trim();
+  }
+
+  private async setCompanyInstanceName(name: string): Promise<void> {
+    await this.prisma.appConfig.upsert({
+      where: { id: 'global' },
+      create: { id: 'global', evolutionApiInstanceName: name },
+      update: { evolutionApiInstanceName: name },
+    });
+  }
+
+  async createCompanyInstance(dto: CreateWhatsappInstanceDto) {
+    const existing = await this.getCompanyInstanceName();
+    if (existing) {
+      throw new ConflictException(
+        'Ya existe una instancia de la empresa. Elimínala primero para crear una nueva.',
+      );
+    }
+
+    const sanitized = (dto.instanceName ?? '')
+      .trim()
+      .replace(/[^a-zA-Z0-9_-]/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_+|_+$/g, '');
+
+    const instanceName = sanitized.length >= 3 ? sanitized : 'empresa';
+
+    if (this.evolutionBaseUrl) {
+      try {
+        await this.fetchEvolution(`/instance/create`, {
+          method: 'POST',
+          body: JSON.stringify({
+            instanceName,
+            qrcode: true,
+            integration: 'WHATSAPP-BAILEYS',
+            ...(dto.phoneNumber ? { number: dto.phoneNumber } : {}),
+          }),
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!msg.includes('409') && !msg.toLowerCase().includes('already')) {
+          console.error(`[WhatsApp][Company] createCompanyInstance Evolution error: ${msg}`);
+        }
+      }
+    }
+
+    await this.setCompanyInstanceName(instanceName);
+
+    const webhookEnabled = await this.isGlobalWebhookEnabled();
+    await this.configureInstanceWebhook(instanceName, webhookEnabled);
+
+    return { instanceName, status: 'pending' };
+  }
+
+  async getCompanyInstanceStatus() {
+    const instanceName = await this.getCompanyInstanceName();
+    if (!instanceName) {
+      return { exists: false, instanceName: null, status: null };
+    }
+
+    if (this.evolutionBaseUrl) {
+      try {
+        const data = await this.fetchEvolution<{
+          instance?: { state?: string };
+        }>(`/instance/connectionState/${encodeURIComponent(instanceName)}`);
+        const state = data?.instance?.state ?? '';
+        const isConnected = state === 'open';
+        return { exists: true, instanceName, status: isConnected ? 'connected' : 'pending' };
+      } catch {
+        // fall through to return stored
+      }
+    }
+
+    return { exists: true, instanceName, status: 'pending' };
+  }
+
+  async getCompanyInstanceQr() {
+    const instanceName = await this.getCompanyInstanceName();
+    if (!instanceName) {
+      throw new NotFoundException(
+        'No hay instancia de la empresa registrada. Crea una instancia primero.',
+      );
+    }
+
+    if (!this.evolutionBaseUrl) {
+      throw new BadRequestException('Evolution API no configurada en el servidor.');
+    }
+
+    type QrPayload = { base64?: string; code?: string; qrcode?: { base64?: string; code?: string } };
+    const extractBase64 = (qrData: QrPayload) =>
+      qrData?.base64 ?? qrData?.qrcode?.base64 ?? '';
+
+    const tryConnect = () =>
+      this.fetchEvolution<QrPayload>(
+        `/instance/connect/${encodeURIComponent(instanceName)}`,
+      );
+
+    try {
+      const qrData = await tryConnect();
+      return { instanceName, qrBase64: extractBase64(qrData), status: 'pending' };
+    } catch (firstErr) {
+      if (this.isEvolutionUnavailableError(firstErr)) throw firstErr;
+
+      // Try to recreate in Evolution API
+      try {
+        await this.fetchEvolution(`/instance/create`, {
+          method: 'POST',
+          body: JSON.stringify({ instanceName, qrcode: true, integration: 'WHATSAPP-BAILEYS' }),
+        });
+        await this.configureInstanceWebhook(instanceName, await this.isGlobalWebhookEnabled());
+      } catch (createErr) {
+        const msg = createErr instanceof Error ? createErr.message : String(createErr);
+        if (!msg.includes('409') && !msg.toLowerCase().includes('already')) {
+          throw new BadRequestException(`No se pudo obtener el QR: ${msg}`);
+        }
+      }
+
+      const qrData = await tryConnect();
+      return { instanceName, qrBase64: extractBase64(qrData), status: 'pending' };
+    }
+  }
+
+  async deleteCompanyInstance() {
+    const instanceName = await this.getCompanyInstanceName();
+    if (!instanceName) {
+      throw new NotFoundException('No hay instancia de la empresa para eliminar.');
+    }
+
+    if (this.evolutionBaseUrl) {
+      try {
+        await this.fetchEvolution(
+          `/instance/delete/${encodeURIComponent(instanceName)}`,
+          { method: 'DELETE' },
+        );
+      } catch (err) {
+        console.error(
+          `[WhatsApp][Company] deleteCompanyInstance Evolution error: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }
+
+    await this.setCompanyInstanceName('');
+    return { deleted: true };
+  }
+
   // ─── Send text message via Evolution API ────────────────────────────────
 
   async sendTextMessage(instanceName: string, remoteJid: string, text: string): Promise<unknown> {

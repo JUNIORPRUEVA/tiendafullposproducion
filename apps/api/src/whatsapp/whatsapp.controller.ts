@@ -54,6 +54,36 @@ export class WhatsappController {
   listAdminUsers() {
     return this.whatsapp.listUsersWithWhatsappStatus();
   }
+
+  // ─── Company instance ──────────────────────────────────────────────────
+
+  @Post('company-instance')
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN)
+  createCompanyInstance(@Body() dto: CreateWhatsappInstanceDto) {
+    return this.whatsapp.createCompanyInstance(dto);
+  }
+
+  @Get('company-instance/status')
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN)
+  getCompanyInstanceStatus() {
+    return this.whatsapp.getCompanyInstanceStatus();
+  }
+
+  @Get('company-instance/qr')
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN)
+  getCompanyInstanceQr() {
+    return this.whatsapp.getCompanyInstanceQr();
+  }
+
+  @Delete('company-instance')
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN)
+  deleteCompanyInstance() {
+    return this.whatsapp.deleteCompanyInstance();
+  }
 }
 
 @Controller('whatsapp/webhook')

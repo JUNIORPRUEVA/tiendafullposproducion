@@ -14,6 +14,8 @@ import '../ponche/models/attendance_models.dart';
 
 enum _AdminRegistryMenuAction { filters, sync, panel }
 
+enum _UserDetailDatePreset { hoy, manana, quincena, mes, personalizado }
+
 class AdminPunchRegistryScreen extends ConsumerStatefulWidget {
   const AdminPunchRegistryScreen({super.key});
 
