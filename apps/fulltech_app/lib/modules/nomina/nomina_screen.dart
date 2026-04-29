@@ -5381,6 +5381,7 @@ class _PayrollPeriodEmployeeCardState
     final totals = widget.row.totals;
     final employee = widget.row.employee;
     final money = widget.money;
+    // ignore: unused_local_variable
     final extras = totals.bonuses + totals.otherAdditions;
     final isNegative = totals.total < 0;
 
@@ -5812,9 +5813,6 @@ class _BreakdownLine extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
     );
   }
 }

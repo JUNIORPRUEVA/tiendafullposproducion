@@ -178,4 +178,22 @@ class CompanySettingsRepository {
       return true;
     }
   }
+
+  /// POST /whatsapp/admin/sync-webhooks — reconfigures webhooks for all user instances.
+  Future<void> syncWhatsappWebhooks({required bool enabled}) async {
+    try {
+      await _dio
+          .post(
+            '/whatsapp/admin/sync-webhooks',
+            data: {'enabled': enabled},
+            options: Options(extra: const {'skipLoader': true}),
+          )
+          .timeout(_settingsTimeout);
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo sincronizar los webhooks'),
+        e.response?.statusCode,
+      );
+    }
+  }
 }

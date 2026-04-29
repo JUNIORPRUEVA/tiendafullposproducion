@@ -51,6 +51,8 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
   bool _refreshing = false;
   bool _saving = false;
   bool _showApiKey = false;
+  bool _showEvolutionApiKey = false;
+  bool _syncingWebhooks = false;
   bool _whatsappWebhookEnabled = false;
   String? _logoBase64;
   String? _openSection;
@@ -613,6 +615,138 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
     );
   }
 
+  Future<void> _syncWebhooks() async {
+    if (_syncingWebhooks) return;
+    setState(() => _syncingWebhooks = true);
+    try {
+      final repo = ref.read(companySettingsRepositoryProvider);
+      await repo.syncWhatsappWebhooks(enabled: _whatsappWebhookEnabled);
+      _showMessage('Webhooks sincronizados correctamente.');
+    } catch (e) {
+      _showMessage('Error al sincronizar webhooks: $e');
+    } finally {
+      if (mounted) setState(() => _syncingWebhooks = false);
+    }
+  }
+
+  Widget _buildWhatsappSection() {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Warning banner
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: scheme.errorContainer.withValues(alpha: 0.4),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: scheme.error.withValues(alpha: 0.3),
+            ),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.warning_amber_rounded,
+                  size: 18, color: scheme.error),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Esta instancia es EXCLUSIVA para notificaciones automáticas del sistema (recordatorios, alertas, etc.). '
+                  'Debe ser DIFERENTE a la instancia personal de cada usuario. '
+                  'Cada usuario gestiona su propia instancia desde la pantalla de WhatsApp.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: scheme.onErrorContainer,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        _field(
+          _evolutionApiBaseUrlCtrl,
+          'URL base de Evolution API',
+          hint: 'https://evolution.tudominio.com',
+          keyboard: TextInputType.url,
+        ),
+        const SizedBox(height: 12),
+        _field(
+          _evolutionApiInstanceNameCtrl,
+          'Instancia de la empresa (notificaciones)',
+          hint: 'Ej: fulltech-empresa',
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Usa un nombre único que NO sea el nombre de ningún usuario del sistema.',
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: scheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 12),
+        _field(
+          _evolutionApiApiKeyCtrl,
+          'API Key de Evolution API',
+          hint: 'tu-api-key',
+          obscure: !_showEvolutionApiKey,
+          suffix: IconButton(
+            tooltip: _showEvolutionApiKey ? 'Ocultar clave' : 'Mostrar clave',
+            onPressed: () =>
+                setState(() => _showEvolutionApiKey = !_showEvolutionApiKey),
+            icon: Icon(_showEvolutionApiKey
+                ? Icons.visibility_off_outlined
+                : Icons.visibility_outlined),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Switch(
+              value: _whatsappWebhookEnabled,
+              onChanged: (v) => setState(() => _whatsappWebhookEnabled = v),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Webhooks activos',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  Text(
+                    'Activa para recibir mensajes entrantes en el CRM.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        OutlinedButton.icon(
+          onPressed: _syncingWebhooks ? null : _syncWebhooks,
+          icon: _syncingWebhooks
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.sync_rounded, size: 18),
+          label: Text(_syncingWebhooks
+              ? 'Sincronizando...'
+              : 'Sincronizar webhooks de usuarios'),
+        ),
+      ],
+    );
+  }
+
   Widget _buildBody() {
     return SafeArea(
       child: Align(
@@ -662,6 +796,14 @@ class _ConfiguracionScreenState extends ConsumerState<ConfiguracionScreen> {
                   title: 'OpenAI',
                   subtitle: 'Credenciales para el asistente de IA.',
                   child: _buildOpenAiSection(),
+                ),
+                _accordion(
+                  key: 'whatsapp',
+                  icon: Icons.chat_rounded,
+                  title: 'WhatsApp de la empresa',
+                  subtitle:
+                      'Instancia de notificaciones automáticas — separada de la instancia personal de cada usuario.',
+                  child: _buildWhatsappSection(),
                 ),
                 const SizedBox(height: 24),
                 Align(

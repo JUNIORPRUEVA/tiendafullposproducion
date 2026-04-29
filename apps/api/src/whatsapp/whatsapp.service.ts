@@ -311,7 +311,18 @@ export class WhatsappService {
       );
     }
 
+    // Guard: instance name must not clash with the company's dedicated instance.
+    const appConfig = await this.prisma.appConfig.findUnique({
+      where: { id: 'global' },
+      select: { evolutionApiInstanceName: true },
+    });
+    const companyInstanceName = (appConfig?.evolutionApiInstanceName ?? '').trim().toLowerCase();
     const instanceName = this.buildInstanceName(userId, dto.instanceName);
+    if (companyInstanceName && instanceName.toLowerCase() === companyInstanceName) {
+      throw new ConflictException(
+        'El nombre de instancia coincide con la instancia de la empresa. Usa un nombre diferente.',
+      );
+    }
     const webhookEnabled = await this.isGlobalWebhookEnabled();
 
     // Create instance in Evolution API (if configured)

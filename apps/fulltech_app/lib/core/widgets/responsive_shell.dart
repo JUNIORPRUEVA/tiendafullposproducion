@@ -63,16 +63,21 @@ class _ResponsiveShellState extends ConsumerState<ResponsiveShell> {
     final title = resolveNavigationTitle(location, sections);
     final showShellAppBar = desktopShellShouldShowOwnAppBar(location);
 
+    // Force sidebar collapsed and locked on CRM WhatsApp screen.
+    final isCrmScreen = location == Routes.whatsappCrm;
+    final effectiveCollapsed = isCrmScreen ? true : _collapsed;
+    final effectiveToggle = isCrmScreen ? () {} : _toggleSidebar;
+
     return Material(
       color: Colors.transparent,
       child: Row(
         children: [
           DesktopSidebar(
-            collapsed: _collapsed,
+            collapsed: effectiveCollapsed,
             currentUser: user,
             sections: sections,
             currentLocation: location,
-            onToggleSidebar: _toggleSidebar,
+            onToggleSidebar: effectiveToggle,
             onNavigate: (route) => context.go(route),
           ),
           Expanded(
@@ -82,10 +87,10 @@ class _ResponsiveShellState extends ConsumerState<ResponsiveShell> {
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
                     child: DesktopShellAppBar(
-                      collapsed: _collapsed,
+                      collapsed: effectiveCollapsed,
                       title: title,
                       currentUser: user,
-                      onToggleSidebar: _toggleSidebar,
+                      onToggleSidebar: effectiveToggle,
                     ),
                   ),
                 Expanded(
