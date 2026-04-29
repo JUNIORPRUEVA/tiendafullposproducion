@@ -1222,9 +1222,9 @@ class _ChatPanel extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    if (conv.remotePhone != null)
+                    if (conv.displayPhone != null)
                       Text(
-                        '+${conv.remotePhone}',
+                        conv.displayPhone!,
                         style: theme.textTheme.bodySmall?.copyWith(
                           color:
                               theme.colorScheme.onSurface.withValues(alpha: 0.5),
@@ -2116,16 +2116,11 @@ class _ActionsPanel extends StatelessWidget {
               label: 'Contacto',
               value: conv.displayName,
             ),
-            if (conv.remotePhone != null)
+            if (conv.displayPhone != null)
               _InfoRow(
                 icon: Icons.phone_outlined,
                 label: 'Teléfono',
-                value: '+${conv.remotePhone!}',
-              ),
-            _InfoRow(
-              icon: Icons.message_outlined,
-              label: 'JID',
-              value: conv.remoteJid,
+                value: conv.displayPhone!,
             ),
             if (conv.lastMessageAt != null)
               _InfoRow(

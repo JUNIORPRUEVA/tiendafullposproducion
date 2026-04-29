@@ -21,10 +21,37 @@ class WaCrmConversation {
   final int unreadCount;
   final WaCrmMessage? lastMessage;
 
-  String get displayName =>
-      remoteName?.isNotEmpty == true
-          ? remoteName!
-          : (remotePhone?.isNotEmpty == true ? remotePhone! : remoteJid);
+  String? get cleanPhone {
+    final candidates = [remotePhone, remoteJid];
+    for (final value in candidates) {
+      final raw = (value ?? '').trim();
+      if (raw.isEmpty) continue;
+      final beforeAt = raw.split('@').first;
+      final digits = beforeAt.replaceAll(RegExp(r'\D'), '');
+      if (digits.length >= 7 && digits.length <= 15) return digits;
+    }
+    return null;
+  }
+
+  String? get displayPhone {
+    final phone = cleanPhone;
+    if (phone == null) return null;
+    return '+$phone';
+  }
+
+  bool _looksTechnicalId(String value) {
+    if (value.contains('@')) return true;
+    final digits = value.replaceAll(RegExp(r'\D'), '');
+    return digits.length > 15;
+  }
+
+  String get displayName {
+    final name = (remoteName ?? '').trim();
+    if (name.isNotEmpty && !_looksTechnicalId(name)) return name;
+    final phone = displayPhone;
+    if (phone != null) return phone;
+    return 'Contacto WhatsApp';
+  }
 
   factory WaCrmConversation.fromJson(Map<String, dynamic> json) {
     final msgs = json['messages'] as List<dynamic>?;

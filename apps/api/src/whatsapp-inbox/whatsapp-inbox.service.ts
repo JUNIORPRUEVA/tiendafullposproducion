@@ -6,6 +6,7 @@ import { CatalogRealtimeRelayService } from '../products/catalog-realtime-relay.
 export interface ParsedWhatsappMessage {
   evolutionId: string;
   remoteJid: string;
+  remotePhone: string | null;
   fromMe: boolean;
   messageType: WhatsappMessageType;
   body: string | null;
@@ -17,12 +18,121 @@ export interface ParsedWhatsappMessage {
   rawPayload: unknown;
 }
 
+type JsonRecord = Record<string, unknown>;
+
+function asRecord(value: unknown): JsonRecord | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as JsonRecord)
+    : undefined;
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0
+    ? value.trim()
+    : undefined;
+}
+
+function stripWhatsappSuffix(value: unknown): string | null {
+  const raw = asString(value);
+  if (!raw) return null;
+  return raw.split('@')[0]?.trim() || null;
+}
+
+function phoneFromIdentifier(value: unknown): string | null {
+  const base = stripWhatsappSuffix(value);
+  if (!base) return null;
+  const digits = base.replace(/\D/g, '');
+  // Human phone numbers are normally 7-15 digits. Longer numeric IDs are often LID/internal IDs.
+  if (digits.length < 7 || digits.length > 15) return null;
+  return digits;
+}
+
+function firstPhone(...values: unknown[]): string | null {
+  for (const value of values) {
+    const phone = phoneFromIdentifier(value);
+    if (phone) return phone;
+  }
+  return null;
+}
+
+function readableSenderName(name: unknown, fallbackPhone: string | null): string | null {
+  const raw = asString(name);
+  if (!raw) return fallbackPhone;
+  if (raw.includes('@')) return fallbackPhone;
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length > 15) return fallbackPhone;
+  return raw;
+}
+
+function mediaMime(media: JsonRecord | undefined, data: JsonRecord, fallback: string | null) {
+  return (
+    asString(media?.mimetype) ??
+    asString(media?.mimeType) ??
+    asString(data.mimetype) ??
+    asString(data.mimeType) ??
+    fallback
+  );
+}
+
+function mediaUrlFromPayload(
+  media: JsonRecord | undefined,
+  messageObj: JsonRecord,
+  data: JsonRecord,
+  mimeType: string | null,
+) {
+  const base64 =
+    asString(media?.base64) ??
+    asString(messageObj.base64) ??
+    asString(data.base64) ??
+    null;
+  if (base64) {
+    if (base64.startsWith('data:')) return base64;
+    return `data:${mimeType ?? 'application/octet-stream'};base64,${base64}`;
+  }
+
+  return (
+    asString(media?.mediaUrl) ??
+    asString(media?.url) ??
+    asString(messageObj.mediaUrl) ??
+    asString(messageObj.url) ??
+    asString(data.mediaUrl) ??
+    asString(data.url) ??
+    null
+  );
+}
+
 @Injectable()
 export class WhatsappInboxService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtime: CatalogRealtimeRelayService,
   ) {}
+
+  private normalizeConversationForResponse<T extends { remoteJid: string; remotePhone: string | null; remoteName: string | null }>(
+    conversation: T,
+  ): T {
+    const cleanPhone =
+      phoneFromIdentifier(conversation.remotePhone) ??
+      phoneFromIdentifier(conversation.remoteJid);
+    return {
+      ...conversation,
+      remotePhone: cleanPhone,
+      remoteName: readableSenderName(conversation.remoteName, cleanPhone),
+    };
+  }
+
+  private hydrateMessageMedia<T extends { mediaUrl: string | null; mediaMimeType: string | null; rawPayload?: unknown }>(
+    message: T,
+  ): T {
+    if (message.mediaUrl || !message.rawPayload) return message;
+    const parsed = this.parseEvolutionPayload(message.rawPayload);
+    if (!parsed?.mediaUrl) return message;
+    return {
+      ...message,
+      mediaUrl: parsed.mediaUrl,
+      mediaMimeType: parsed.mediaMimeType ?? message.mediaMimeType,
+    };
+  }
 
   // ─── Parse Evolution API webhook payload ───────────────────────────────
 
@@ -42,10 +152,21 @@ export class WhatsappInboxService {
       const pushName = (data.pushName as string | undefined) ?? null;
       const rawMessageType = (data.messageType as string | undefined) ?? '';
       const messageObj = (data.message as Record<string, unknown> | undefined) ?? {};
-      const fallbackBase64 =
-        (messageObj.base64 as string | undefined) ??
-        (data.base64 as string | undefined) ??
+      const participantJid =
+        asString(key.participant) ??
+        asString(data.participant) ??
+        asString(data.sender) ??
+        asString(data.senderPn) ??
         null;
+      const remotePhone = firstPhone(
+        data.senderPn,
+        data.phone,
+        data.remotePhone,
+        participantJid,
+        remoteJid,
+      );
+      const senderName = fromMe ? null : readableSenderName(pushName, remotePhone);
+      const normalizedMessageType = rawMessageType.toLowerCase();
       const ts = data.messageTimestamp;
       const sentAt = ts
         ? new Date(typeof ts === 'number' ? ts * 1000 : Number(ts) * 1000)
@@ -58,8 +179,9 @@ export class WhatsappInboxService {
       let caption: string | null = null;
 
       if (
-        rawMessageType === 'conversation' ||
-        rawMessageType === 'extendedTextMessage'
+        normalizedMessageType === 'conversation' ||
+        normalizedMessageType === 'extendedtextmessage' ||
+        normalizedMessageType === 'text'
       ) {
         messageType = WhatsappMessageType.TEXT;
         body =
@@ -67,54 +189,44 @@ export class WhatsappInboxService {
           ((messageObj.extendedTextMessage as Record<string, unknown> | undefined)
             ?.text as string | undefined) ??
           null;
-      } else if (rawMessageType === 'imageMessage') {
+      } else if (normalizedMessageType === 'imagemessage' || normalizedMessageType === 'image' || messageObj.imageMessage) {
         messageType = WhatsappMessageType.IMAGE;
-        const img = messageObj.imageMessage as Record<string, unknown> | undefined;
-        mediaMimeType = (img?.mimetype as string | undefined) ?? 'image/jpeg';
-        const imgBase64 = (img?.base64 as string | undefined) ?? fallbackBase64;
-        mediaUrl = imgBase64
-          ? `data:${mediaMimeType};base64,${imgBase64}`
-          : (img?.url as string | undefined) ?? null;
+        const img = asRecord(messageObj.imageMessage) ?? messageObj;
+        mediaMimeType = mediaMime(img, data, 'image/jpeg');
+        mediaUrl = mediaUrlFromPayload(img, messageObj, data, mediaMimeType);
         caption = (img?.caption as string | undefined) ?? null;
         body = caption;
-      } else if (rawMessageType === 'audioMessage' || rawMessageType === 'pttMessage') {
+      } else if (
+        normalizedMessageType === 'audiomessage' ||
+        normalizedMessageType === 'pttmessage' ||
+        normalizedMessageType === 'audio' ||
+        normalizedMessageType === 'ptt' ||
+        messageObj.audioMessage ||
+        messageObj.pttMessage
+      ) {
         messageType = WhatsappMessageType.AUDIO;
         const audio =
-          (messageObj.audioMessage ?? messageObj.pttMessage) as
-            | Record<string, unknown>
-            | undefined;
-        mediaMimeType = (audio?.mimetype as string | undefined) ?? 'audio/ogg';
-        const audioBase64 = (audio?.base64 as string | undefined) ?? fallbackBase64;
-        mediaUrl = audioBase64
-          ? `data:${mediaMimeType};base64,${audioBase64}`
-          : (audio?.url as string | undefined) ?? null;
-      } else if (rawMessageType === 'videoMessage') {
+          asRecord(messageObj.audioMessage) ?? asRecord(messageObj.pttMessage) ?? messageObj;
+        mediaMimeType = mediaMime(audio, data, 'audio/ogg');
+        mediaUrl = mediaUrlFromPayload(audio, messageObj, data, mediaMimeType);
+      } else if (normalizedMessageType === 'videomessage' || normalizedMessageType === 'video' || messageObj.videoMessage) {
         messageType = WhatsappMessageType.VIDEO;
-        const vid = messageObj.videoMessage as Record<string, unknown> | undefined;
-        mediaMimeType = (vid?.mimetype as string | undefined) ?? 'video/mp4';
-        const vidBase64 = (vid?.base64 as string | undefined) ?? fallbackBase64;
-        mediaUrl = vidBase64
-          ? `data:${mediaMimeType};base64,${vidBase64}`
-          : (vid?.url as string | undefined) ?? null;
+        const vid = asRecord(messageObj.videoMessage) ?? messageObj;
+        mediaMimeType = mediaMime(vid, data, 'video/mp4');
+        mediaUrl = mediaUrlFromPayload(vid, messageObj, data, mediaMimeType);
         caption = (vid?.caption as string | undefined) ?? null;
         body = caption;
-      } else if (rawMessageType === 'documentMessage') {
+      } else if (normalizedMessageType === 'documentmessage' || normalizedMessageType === 'document' || messageObj.documentMessage) {
         messageType = WhatsappMessageType.DOCUMENT;
-        const doc = messageObj.documentMessage as Record<string, unknown> | undefined;
-        mediaMimeType = (doc?.mimetype as string | undefined) ?? null;
-        const docBase64 = (doc?.base64 as string | undefined) ?? fallbackBase64;
-        mediaUrl = docBase64
-          ? `data:${mediaMimeType ?? 'application/octet-stream'};base64,${docBase64}`
-          : (doc?.url as string | undefined) ?? null;
+        const doc = asRecord(messageObj.documentMessage) ?? messageObj;
+        mediaMimeType = mediaMime(doc, data, null);
+        mediaUrl = mediaUrlFromPayload(doc, messageObj, data, mediaMimeType);
         body = (doc?.fileName as string | undefined) ?? null;
-      } else if (rawMessageType === 'stickerMessage') {
+      } else if (normalizedMessageType === 'stickermessage' || normalizedMessageType === 'sticker' || messageObj.stickerMessage) {
         messageType = WhatsappMessageType.STICKER;
-        const sticker = messageObj.stickerMessage as Record<string, unknown> | undefined;
-        const stickerMime = (sticker?.mimetype as string | undefined) ?? 'image/webp';
-        const stickerBase64 = (sticker?.base64 as string | undefined) ?? fallbackBase64;
-        mediaUrl = stickerBase64
-          ? `data:${stickerMime};base64,${stickerBase64}`
-          : (sticker?.url as string | undefined) ?? null;
+        const sticker = asRecord(messageObj.stickerMessage) ?? messageObj;
+        mediaMimeType = mediaMime(sticker, data, 'image/webp');
+        mediaUrl = mediaUrlFromPayload(sticker, messageObj, data, mediaMimeType);
       } else {
         // Unknown type: store raw body if possible
         body = JSON.stringify(messageObj).substring(0, 500);
@@ -123,13 +235,14 @@ export class WhatsappInboxService {
       return {
         evolutionId,
         remoteJid,
+        remotePhone,
         fromMe,
         messageType,
         body,
         mediaUrl,
         mediaMimeType,
         caption,
-        senderName: fromMe ? null : pushName,
+        senderName,
         sentAt,
         rawPayload: payload,
       };
@@ -146,7 +259,8 @@ export class WhatsappInboxService {
       ? WhatsappMessageDirection.OUTGOING
       : WhatsappMessageDirection.INCOMING;
 
-    const remotePhone = parsed.remoteJid.replace(/@.*$/, '');
+    const remotePhone = parsed.remotePhone ?? phoneFromIdentifier(parsed.remoteJid);
+    const remoteName = parsed.senderName ?? remotePhone;
 
     // Upsert conversation
     const conversation = await this.prisma.whatsappConversation.upsert({
@@ -155,13 +269,14 @@ export class WhatsappInboxService {
         instanceId,
         remoteJid: parsed.remoteJid,
         remotePhone,
-        remoteName: parsed.senderName,
+        remoteName,
         lastMessageAt: parsed.sentAt,
         unreadCount: direction === WhatsappMessageDirection.INCOMING ? 1 : 0,
       },
       update: {
         lastMessageAt: parsed.sentAt,
-        ...(parsed.senderName ? { remoteName: parsed.senderName } : {}),
+        ...(remotePhone ? { remotePhone } : {}),
+        ...(remoteName ? { remoteName } : {}),
         ...(direction === WhatsappMessageDirection.INCOMING
           ? { unreadCount: { increment: 1 } }
           : {}),
@@ -254,7 +369,7 @@ export class WhatsappInboxService {
   // ─── Query conversations for an instance ──────────────────────────────
 
   async getConversations(instanceId: string, limit = 50) {
-    return this.prisma.whatsappConversation.findMany({
+    const conversations = await this.prisma.whatsappConversation.findMany({
       where: { instanceId },
       orderBy: { lastMessageAt: 'desc' },
       take: limit,
@@ -273,12 +388,15 @@ export class WhatsappInboxService {
         },
       },
     });
+    return conversations.map((conversation) =>
+      this.normalizeConversationForResponse(conversation),
+    );
   }
 
   // ─── Query messages for a conversation ───────────────────────────────
 
   async getMessages(conversationId: string, limit = 50, before?: Date) {
-    return this.prisma.whatsappMessage.findMany({
+    const messages = await this.prisma.whatsappMessage.findMany({
       where: {
         conversationId,
         ...(before ? { sentAt: { lt: before } } : {}),
@@ -286,6 +404,7 @@ export class WhatsappInboxService {
       orderBy: { sentAt: 'desc' },
       take: limit,
     });
+    return messages.map((message) => this.hydrateMessageMedia(message));
   }
 
   // ─── Mark conversation as read ────────────────────────────────────────
@@ -331,6 +450,7 @@ export class WhatsappInboxService {
     const parsed: ParsedWhatsappMessage = {
       evolutionId: evolutionId ?? '',
       remoteJid,
+      remotePhone: phoneFromIdentifier(remoteJid),
       fromMe: true,
       messageType: WhatsappMessageType.TEXT,
       body,
