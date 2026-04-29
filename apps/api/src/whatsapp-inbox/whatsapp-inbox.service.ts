@@ -171,6 +171,33 @@ export class WhatsappInboxService {
         select: { id: true },
       });
       if (existing) return { conversation, message: existing, duplicate: true };
+
+      // For outgoing messages: if a local optimistic record exists (null evolutionId,
+      // same body, sent within the last 90 seconds), update it instead of creating a duplicate.
+      if (direction === WhatsappMessageDirection.OUTGOING) {
+        const since = new Date(Date.now() - 90_000);
+        const optimistic = await this.prisma.whatsappMessage.findFirst({
+          where: {
+            conversationId: conversation.id,
+            direction: WhatsappMessageDirection.OUTGOING,
+            evolutionId: null,
+            sentAt: { gte: since },
+            body: parsed.body,
+          },
+          orderBy: { sentAt: 'desc' },
+        });
+        if (optimistic) {
+          const updated = await this.prisma.whatsappMessage.update({
+            where: { id: optimistic.id },
+            data: {
+              evolutionId: parsed.evolutionId,
+              mediaUrl: parsed.mediaUrl ?? optimistic.mediaUrl,
+              mediaMimeType: parsed.mediaMimeType ?? optimistic.mediaMimeType,
+            },
+          });
+          return { conversation, message: updated, duplicate: false };
+        }
+      }
     }
 
     const message = await this.prisma.whatsappMessage.create({

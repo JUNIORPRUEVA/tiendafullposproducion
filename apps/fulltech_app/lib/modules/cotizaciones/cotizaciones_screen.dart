@@ -3928,154 +3928,117 @@ class _DesktopQuotePanel extends StatelessWidget {
           children: [
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               decoration: BoxDecoration(
                 color: theme.colorScheme.surfaceContainerLow,
-                borderRadius: BorderRadius.circular(22),
+                borderRadius: BorderRadius.circular(18),
                 border: Border.all(
-                  color: theme.colorScheme.outlineVariant.withValues(
-                    alpha: 0.55,
-                  ),
+                  color: theme.colorScheme.outlineVariant.withValues(alpha: 0.55),
                 ),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Row(
                 children: [
-                  Row(
-                    children: [
-                      PopupMenuButton<String>(
-                        tooltip: 'Cambiar ticket',
-                        onSelected: onSwitchTicket,
-                        itemBuilder: (context) {
-                          return [
-                            for (var index = 0; index < tickets.length; index++)
-                              PopupMenuItem<String>(
-                                value: tickets[index].id,
-                                child: Text(tickets[index].label(index)),
-                              ),
-                          ];
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 8,
+                  // ── Ticket selector (client name / ticket label) ──────────
+                  Expanded(
+                    child: PopupMenuButton<String>(
+                      tooltip: 'Cambiar ticket',
+                      onSelected: onSwitchTicket,
+                      itemBuilder: (context) => [
+                        for (var i = 0; i < tickets.length; i++)
+                          PopupMenuItem<String>(
+                            value: tickets[i].id,
+                            child: Text(tickets[i].label(i)),
                           ),
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.surface,
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.receipt_long_outlined, size: 16),
-                              const SizedBox(width: 6),
-                              Text(
+                      ],
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 6),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.receipt_long_outlined, size: 15),
+                            const SizedBox(width: 6),
+                            Flexible(
+                              child: Text(
                                 activeLabel,
-                                style: theme.textTheme.labelMedium?.copyWith(
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.titleSmall?.copyWith(
                                   fontWeight: FontWeight.w800,
                                 ),
                               ),
-                              const SizedBox(width: 4),
-                              const Icon(Icons.expand_more, size: 16),
-                            ],
-                          ),
+                            ),
+                            const SizedBox(width: 3),
+                            Icon(
+                              Icons.expand_more,
+                              size: 15,
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      IconButton(
-                        tooltip: 'Nuevo ticket',
-                        onPressed: onCreateTicket,
-                        icon: const Icon(Icons.add_circle_outline),
-                      ),
-                      const Spacer(),
-                      IconButton(
-                        tooltip: 'Cliente',
-                        onPressed: onPickClient,
-                        icon: const Icon(Icons.person_outline),
-                      ),
-                      IconButton(
-                        tooltip: 'Agregar fuera de inventario',
-                        onPressed: onAddExternalItem,
-                        icon: const Icon(Icons.add_box_outlined),
-                      ),
-                      IconButton(
-                        tooltip: note.trim().isEmpty
-                            ? 'Agregar nota'
-                            : 'Editar nota',
-                        onPressed: onEditNote,
-                        icon: Icon(
-                          note.trim().isEmpty
-                              ? Icons.sticky_note_2_outlined
-                              : Icons.sticky_note_2,
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: 'PDF',
-                        onPressed: onOpenPdf,
-                        icon: const Icon(Icons.picture_as_pdf_outlined),
-                      ),
-                      IconButton(
-                        tooltip: 'Historial',
-                        onPressed: onOpenHistory,
-                        icon: const Icon(Icons.history),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    selectedClientName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w900,
                     ),
                   ),
-                  const SizedBox(height: 6),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.surface,
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: Text(
-                          editingId == null
-                              ? '${items.length} productos agregados'
-                              : 'Editando cotización · ${items.length} productos',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
+                  // ── Status pill ───────────────────────────────────────────
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surface,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      editingId == null
+                          ? '${items.length} items'
+                          : 'Edit · ${items.length}',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: theme.colorScheme.onSurfaceVariant,
                       ),
-                      if (note.trim().isNotEmpty)
-                        Container(
-                          constraints: const BoxConstraints(maxWidth: 240),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.surface,
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Text(
-                            note,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                    ],
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  // ── Action icons ──────────────────────────────────────────
+                  IconButton(
+                    tooltip: 'Nuevo ticket',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: onCreateTicket,
+                    icon: const Icon(Icons.add_circle_outline, size: 18),
+                  ),
+                  IconButton(
+                    tooltip: 'Cliente',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: onPickClient,
+                    icon: const Icon(Icons.person_outline, size: 18),
+                  ),
+                  IconButton(
+                    tooltip: 'Fuera de inventario',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: onAddExternalItem,
+                    icon: const Icon(Icons.add_box_outlined, size: 18),
+                  ),
+                  IconButton(
+                    tooltip: note.trim().isEmpty ? 'Agregar nota' : 'Editar nota',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: onEditNote,
+                    icon: Icon(
+                      note.trim().isEmpty
+                          ? Icons.sticky_note_2_outlined
+                          : Icons.sticky_note_2,
+                      size: 18,
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'PDF',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: onOpenPdf,
+                    icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
+                  ),
+                  IconButton(
+                    tooltip: 'Historial',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: onOpenHistory,
+                    icon: const Icon(Icons.history, size: 18),
                   ),
                 ],
               ),

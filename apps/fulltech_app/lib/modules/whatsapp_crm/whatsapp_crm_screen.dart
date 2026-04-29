@@ -1,10 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/auth/auth_provider.dart';
 import '../../core/auth/app_role.dart';
@@ -1029,6 +1032,70 @@ class _ConversationTile extends StatelessWidget {
 
 // ─── Chat Panel (Column 2) ───────────────────────────────────────────────────
 
+// ─── Media helpers ────────────────────────────────────────────────────────────
+
+String _mimeToExtension(String? mime) {
+  switch (mime) {
+    case 'audio/ogg':
+    case 'audio/ogg; codecs=opus':
+      return '.ogg';
+    case 'audio/mpeg':
+      return '.mp3';
+    case 'audio/mp4':
+    case 'audio/aac':
+      return '.m4a';
+    case 'audio/wav':
+      return '.wav';
+    case 'video/mp4':
+      return '.mp4';
+    case 'video/webm':
+      return '.webm';
+    case 'video/3gpp':
+      return '.3gp';
+    case 'image/jpeg':
+      return '.jpg';
+    case 'image/png':
+      return '.png';
+    case 'image/webp':
+      return '.webp';
+    case 'application/pdf':
+      return '.pdf';
+    default:
+      return '';
+  }
+}
+
+Future<void> _openMedia(String mediaUrl, String? mimeType) async {
+  try {
+    if (mediaUrl.startsWith('data:')) {
+      final commaIdx = mediaUrl.indexOf(',');
+      if (commaIdx == -1) return;
+
+      // Detect mime from the data URI header if not provided
+      String? detectedMime = mimeType;
+      if (detectedMime == null) {
+        final header = mediaUrl.substring(5, commaIdx); // strip 'data:'
+        final semiIdx = header.indexOf(';');
+        if (semiIdx != -1) detectedMime = header.substring(0, semiIdx);
+      }
+
+      final bytes = base64Decode(mediaUrl.substring(commaIdx + 1));
+      final ext = _mimeToExtension(detectedMime);
+      final tempDir = await getTemporaryDirectory();
+      final hash = mediaUrl.hashCode.abs();
+      final file = File('${tempDir.path}${Platform.pathSeparator}wa_media_$hash$ext');
+      await file.writeAsBytes(bytes, flush: true);
+      await launchUrl(Uri.file(file.path), mode: LaunchMode.externalApplication);
+    } else {
+      await launchUrl(Uri.parse(mediaUrl), mode: LaunchMode.externalApplication);
+    }
+  } catch (e) {
+    debugPrint('[WaCrm] _openMedia error: $e');
+  }
+}
+
+// ─── Chat Panel ───────────────────────────────────────────────────────────────
+
 class _ChatPanel extends StatelessWidget {
   const _ChatPanel({
     required this.state,
@@ -1206,6 +1273,17 @@ class _MessageBubble extends StatelessWidget {
                 msg.senderName!,
                 style: theme.textTheme.labelSmall?.copyWith(
                   color: theme.colorScheme.primary,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          if (isOut)
+            Padding(
+              padding: const EdgeInsets.only(right: 8, bottom: 2),
+              child: Text(
+                'Tú',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.7),
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -1391,96 +1469,199 @@ class _ImageContent extends StatelessWidget {
   }
 }
 
-class _AudioContent extends StatelessWidget {
+class _AudioContent extends StatefulWidget {
   const _AudioContent({required this.msg, required this.textColor});
   final WaCrmMessage msg;
   final Color textColor;
+  @override
+  State<_AudioContent> createState() => _AudioContentState();
+}
+
+class _AudioContentState extends State<_AudioContent> {
+  bool _loading = false;
+
+  Future<void> _play() async {
+    if (widget.msg.mediaUrl == null) return;
+    setState(() => _loading = true);
+    await _openMedia(widget.msg.mediaUrl!, widget.msg.mediaMimeType);
+    if (mounted) setState(() => _loading = false);
+  }
 
   @override
   Widget build(BuildContext context) {
+    final color = widget.textColor;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(Icons.headphones_rounded, color: textColor, size: 18),
-        const SizedBox(width: 8),
-        Text(
-          'Audio',
-          style: TextStyle(color: textColor, fontSize: 13),
-        ),
-        if (msg.mediaUrl != null) ...[
-          const SizedBox(width: 8),
-          GestureDetector(
-            onTap: () => _openAudio(context, msg.mediaUrl!),
-            child: Icon(
-              Icons.open_in_new_rounded,
-              size: 14,
-              color: textColor.withValues(alpha: 0.7),
+        _loading
+            ? SizedBox(
+                width: 28,
+                height: 28,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: color,
+                ),
+              )
+            : GestureDetector(
+                onTap: widget.msg.mediaUrl != null ? _play : null,
+                child: Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: color.withValues(alpha: 0.15),
+                  ),
+                  child: Icon(
+                    Icons.play_arrow_rounded,
+                    color: color,
+                    size: 22,
+                  ),
+                ),
+              ),
+        const SizedBox(width: 10),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Audio',
+              style: TextStyle(
+                color: color,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
             ),
-          ),
-        ],
+            Text(
+              widget.msg.mediaUrl != null ? 'Toca para escuchar' : 'No disponible',
+              style: TextStyle(
+                color: color.withValues(alpha: 0.6),
+                fontSize: 10,
+              ),
+            ),
+          ],
+        ),
       ],
-    );
-  }
-
-  void _openAudio(BuildContext context, String url) {
-    // Open in browser / system player
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Audio'),
-        content: SelectableText(url),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cerrar'),
-          ),
-        ],
-      ),
     );
   }
 }
 
-class _VideoContent extends StatelessWidget {
+class _VideoContent extends StatefulWidget {
   const _VideoContent({required this.msg, required this.textColor});
   final WaCrmMessage msg;
   final Color textColor;
+  @override
+  State<_VideoContent> createState() => _VideoContentState();
+}
+
+class _VideoContentState extends State<_VideoContent> {
+  bool _loading = false;
+
+  Future<void> _play() async {
+    if (widget.msg.mediaUrl == null) return;
+    setState(() => _loading = true);
+    await _openMedia(widget.msg.mediaUrl!, widget.msg.mediaMimeType ?? 'video/mp4');
+    if (mounted) setState(() => _loading = false);
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    final color = widget.textColor;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(Icons.videocam_rounded, color: textColor, size: 18),
-        const SizedBox(width: 8),
-        Text(
-          msg.caption?.isNotEmpty == true ? msg.caption! : 'Video',
-          style: TextStyle(color: textColor, fontSize: 13),
+        GestureDetector(
+          onTap: widget.msg.mediaUrl != null ? _play : null,
+          child: Container(
+            width: 220,
+            height: 130,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              color: Colors.black54,
+            ),
+            child: _loading
+                ? const Center(
+                    child: CircularProgressIndicator(color: Colors.white),
+                  )
+                : Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      const Icon(Icons.videocam_rounded,
+                          color: Colors.white54, size: 40),
+                      Container(
+                        width: 52,
+                        height: 52,
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.black45,
+                        ),
+                        child: const Icon(Icons.play_arrow_rounded,
+                            color: Colors.white, size: 34),
+                      ),
+                    ],
+                  ),
+          ),
         ),
+        if (widget.msg.caption?.isNotEmpty == true)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              widget.msg.caption!,
+              style: TextStyle(color: color, fontSize: 13),
+            ),
+          ),
       ],
     );
   }
 }
 
-class _DocumentContent extends StatelessWidget {
+class _DocumentContent extends StatefulWidget {
   const _DocumentContent({required this.msg, required this.textColor});
   final WaCrmMessage msg;
   final Color textColor;
+  @override
+  State<_DocumentContent> createState() => _DocumentContentState();
+}
+
+class _DocumentContentState extends State<_DocumentContent> {
+  bool _loading = false;
+
+  Future<void> _open() async {
+    if (widget.msg.mediaUrl == null) return;
+    setState(() => _loading = true);
+    await _openMedia(widget.msg.mediaUrl!, widget.msg.mediaMimeType);
+    if (mounted) setState(() => _loading = false);
+  }
 
   @override
   Widget build(BuildContext context) {
+    final color = widget.textColor;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(Icons.insert_drive_file_rounded, color: textColor, size: 18),
+        _loading
+            ? SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2, color: color),
+              )
+            : Icon(Icons.insert_drive_file_rounded, color: color, size: 18),
         const SizedBox(width: 8),
         Flexible(
           child: Text(
-            msg.body ?? 'Documento',
-            style: TextStyle(color: textColor, fontSize: 13),
+            widget.msg.body ?? 'Documento',
+            style: TextStyle(color: color, fontSize: 13),
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
           ),
         ),
+        if (widget.msg.mediaUrl != null) ...[
+          const SizedBox(width: 6),
+          GestureDetector(
+            onTap: _open,
+            child: Icon(Icons.download_rounded, color: color, size: 16),
+          ),
+        ],
       ],
     );
   }

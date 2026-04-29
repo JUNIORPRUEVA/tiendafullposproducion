@@ -330,9 +330,9 @@ class WaCrmController extends StateNotifier<WaCrmState> {
     state = state.copyWith(sending: true, error: () => null);
     try {
       await _repo.reply(conv.id, text.trim());
-      // Reload messages after send
-      await loadMessages(conv.id);
       state = state.copyWith(sending: false);
+      // Silently refresh without clearing state or showing spinner
+      _silentRefreshMessages(conv.id);
     } catch (e, st) {
       print('[WaCrm] sendReply error: $e\n$st');
       state = state.copyWith(
@@ -340,6 +340,17 @@ class WaCrmController extends StateNotifier<WaCrmState> {
         error: () => 'Error enviando mensaje: $e',
       );
     }
+  }
+
+  /// Refreshes messages in the background without the loading spinner.
+  void _silentRefreshMessages(String conversationId) {
+    _repo.getMessages(conversationId).then((msgs) {
+      if (state.selectedConversation?.id == conversationId) {
+        state = state.copyWith(messages: msgs);
+      }
+    }).catchError((e) {
+      print('[WaCrm] _silentRefreshMessages error: $e');
+    });
   }
 
   // ─── Real-time message push ───────────────────────────────────────────
