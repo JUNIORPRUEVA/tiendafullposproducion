@@ -767,7 +767,7 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
     final companyPhone = settings.phone.trim();
     final range =
         '${DateFormat('dd/MM/yyyy').format(period.startDate)} - ${DateFormat('dd/MM/yyyy').format(period.endDate)}';
-    final extras = totals.bonuses + totals.otherAdditions;
+    final extras = totals.bonuses + totals.holidayWorked + totals.otherAdditions;
     final roleLabel = (employee.puesto ?? '').trim().isEmpty
         ? 'Empleado'
         : employee.puesto!.trim();
@@ -818,6 +818,10 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
               pw.Text('Salario quincenal: ${money.format(totals.baseSalary)}'),
               pw.Text('Comisión: ${money.format(totals.commissions)}'),
               pw.Text('Extras: ${money.format(extras)}'),
+              if (totals.holidayWorked > 0)
+                pw.Text(
+                  'Feriados trabajados: ${money.format(totals.holidayWorked)}',
+                ),
               pw.Text(
                 'Beneficios: ${money.format(totals.commissions + extras)}',
               ),
@@ -1234,6 +1238,8 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
     final amountCtrl = TextEditingController();
     final qtyCtrl = TextEditingController(text: '1');
     PayrollEntryType selectedType = PayrollEntryType.descuento;
+    var holidayWasWorked = true;
+    var notifyUser = false;
     var isSavingEntry = false;
     var isSendingPayroll = false;
 
@@ -1282,6 +1288,10 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                     Text('Seguro ley: ${money.format(totals.seguroLey)}'),
+                    if (totals.holidayWorked > 0)
+                      Text(
+                        'Feriado trabajado: ${money.format(totals.holidayWorked)}',
+                      ),
                     Text(
                       'Total neto: ${money.format(totals.total)}',
                       style: const TextStyle(fontWeight: FontWeight.w700),
@@ -1307,7 +1317,15 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                           .toList(),
                       onChanged: (value) {
                         if (value != null) {
-                          setStateDialog(() => selectedType = value);
+                          setStateDialog(() {
+                            selectedType = value;
+                            if (value == PayrollEntryType.feriadoTrabajado) {
+                              holidayWasWorked = true;
+                              if (conceptCtrl.text.trim().isEmpty) {
+                                conceptCtrl.text = 'Feriado trabajado';
+                              }
+                            }
+                          });
                         }
                       },
                       decoration: const InputDecoration(labelText: 'Tipo'),
@@ -1343,11 +1361,37 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                               decimal: true,
                             ),
                             decoration: const InputDecoration(
-                              labelText: 'Monto (opcional en ausencia)',
+                              labelText: 'Monto',
+                              helperText:
+                                  'Ausencia y feriado se calculan automatico',
                             ),
                           ),
                         ),
                       ],
+                    ),
+                    if (selectedType == PayrollEntryType.feriadoTrabajado) ...[
+                      const SizedBox(height: 8),
+                      SwitchListTile.adaptive(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Se trabajo'),
+                        subtitle: const Text(
+                          'Aplica el 100% adicional del salario diario para completar el pago doble.',
+                        ),
+                        value: holidayWasWorked,
+                        onChanged: (value) =>
+                            setStateDialog(() => holidayWasWorked = value),
+                      ),
+                    ],
+                    const SizedBox(height: 4),
+                    SwitchListTile.adaptive(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Enviar notificacion al usuario'),
+                      subtitle: const Text(
+                        'Activalo solo cuando quieras avisarle por WhatsApp.',
+                      ),
+                      value: notifyUser,
+                      onChanged: (value) =>
+                          setStateDialog(() => notifyUser = value),
                     ),
                     const SizedBox(height: 8),
                     FilledButton.icon(
@@ -1386,13 +1430,21 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                               );
                               double amount;
 
-                              if (selectedType == PayrollEntryType.ausencia &&
-                                  parsedAmount == null) {
-                                final daily =
-                                    (config?.baseSalary ??
-                                        employee.salarioBaseQuincenal) /
-                                    15;
-                                amount = -(daily * qty);
+                              if (selectedType ==
+                                  PayrollEntryType.feriadoTrabajado) {
+                                if (!holidayWasWorked) {
+                                  await AppFeedback.showError(
+                                    scaffoldContext,
+                                    'Marca "Se trabajo" para registrar un feriado trabajado',
+                                    fallbackContext: context,
+                                    scope: 'NominaEmployeePayrollDialog',
+                                  );
+                                  return;
+                                }
+                                amount = 0;
+                              } else if (selectedType ==
+                                  PayrollEntryType.ausencia) {
+                                amount = 0;
                               } else {
                                 if (parsedAmount == null) {
                                   await AppFeedback.showError(
@@ -1429,12 +1481,17 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                                     concept: concept,
                                     amount: amount,
                                     cantidad: qty,
+                                    notifyUser: notifyUser,
                                   ),
                                 );
 
                                 conceptCtrl.clear();
                                 amountCtrl.clear();
                                 qtyCtrl.text = '1';
+                                setStateDialog(() {
+                                  notifyUser = false;
+                                  holidayWasWorked = true;
+                                });
                                 await reload(setStateDialog);
                                 TraceLog.log(
                                   'NominaEmployeePayrollDialog',
@@ -1846,6 +1903,7 @@ class _PayrollEmployeeDialogState
   late final TextEditingController _cuotaCtrl;
 
   bool _isSubmitting = false;
+  late bool _editingSeguroLey;
   String? _errorText;
 
   @override
@@ -1874,6 +1932,8 @@ class _PayrollEmployeeDialogState
     _cuotaCtrl = TextEditingController(
       text: (widget.employee?.cuotaMinima ?? 0).toStringAsFixed(2),
     );
+    _editingSeguroLey =
+        widget.employee == null || !widget.employee!.seguroLeyMontoLocked;
   }
 
   @override
@@ -1944,6 +2004,7 @@ class _PayrollEmployeeDialogState
             salarioBase: salary,
             cuotaMinima: cuota,
             seguroLeyMonto: seguroLey,
+            allowSeguroLeyMontoEdit: _editingSeguroLey,
             activo: widget.employee?.activo ?? true,
           );
 
@@ -2048,12 +2109,27 @@ class _PayrollEmployeeDialogState
               const SizedBox(height: 10),
               TextField(
                 controller: _seguroLeyCtrl,
-                enabled: !_isSubmitting,
+                enabled: !_isSubmitting && _editingSeguroLey,
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Seguro de ley (monto)',
+                  suffixIcon: widget.employee == null
+                      ? null
+                      : IconButton(
+                          tooltip: _editingSeguroLey
+                              ? 'Editando seguro de ley'
+                              : 'Editar seguro de ley',
+                          onPressed: _isSubmitting || _editingSeguroLey
+                              ? null
+                              : () => setState(() => _editingSeguroLey = true),
+                          icon: Icon(
+                            _editingSeguroLey
+                                ? Icons.lock_open_outlined
+                                : Icons.edit_outlined,
+                          ),
+                        ),
                   helperText: 'Deducción fija por quincena',
                 ),
               ),
@@ -5382,7 +5458,7 @@ class _PayrollPeriodEmployeeCardState
     final employee = widget.row.employee;
     final money = widget.money;
     // ignore: unused_local_variable
-    final extras = totals.bonuses + totals.otherAdditions;
+    final extras = totals.bonuses + totals.holidayWorked + totals.otherAdditions;
     final isNegative = totals.total < 0;
 
     return Container(

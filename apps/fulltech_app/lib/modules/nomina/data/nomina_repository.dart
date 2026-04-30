@@ -115,6 +115,7 @@ class NominaRepository {
       'salarioBaseQuincenal': employee.salarioBaseQuincenal,
       'cuotaMinima': employee.cuotaMinima,
       'seguroLeyMonto': employee.seguroLeyMonto,
+      'allowSeguroLeyMontoEdit': employee.seguroLeyMontoLocked == false,
       'activo': employee.activo,
     });
     return PayrollEmployee.fromMap(data);
@@ -187,6 +188,7 @@ class NominaRepository {
       'concept': entry.concept,
       'amount': entry.amount,
       'cantidad': entry.cantidad,
+      'notifyUser': entry.notifyUser,
     });
     return PayrollEntry.fromMap(data);
   }
@@ -260,6 +262,7 @@ class NominaRepository {
       salesCommissionSource: (map['salesCommissionSource'] ?? 'manual')
           .toString(),
       bonuses: _num(map['bonuses']),
+      holidayWorked: _num(map['holidayWorked']),
       otherAdditions: _num(map['otherAdditions']),
       absences: _num(map['absences']),
       late: _num(map['late']),

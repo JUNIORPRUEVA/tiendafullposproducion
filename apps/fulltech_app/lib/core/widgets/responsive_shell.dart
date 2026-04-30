@@ -326,9 +326,7 @@ class DesktopShellAppBar extends StatelessWidget {
               ],
               const SizedBox(width: 10),
               ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: showUserMeta ? 260 : 56,
-                ),
+                constraints: BoxConstraints(maxWidth: showUserMeta ? 260 : 56),
                 child: Container(
                   padding: EdgeInsets.symmetric(
                     horizontal: collapsed ? 8 : 10,
@@ -446,9 +444,7 @@ class DesktopSidebar extends ConsumerWidget {
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
                 height: 64,
-                padding: EdgeInsets.symmetric(
-                  horizontal: collapsed ? 0 : 14,
-                ),
+                padding: EdgeInsets.symmetric(horizontal: collapsed ? 0 : 14),
                 child: collapsed
                     ? Center(
                         child: Tooltip(
@@ -534,10 +530,7 @@ class DesktopSidebar extends ConsumerWidget {
             ),
 
             // ── Top separator ────────────────────────────────────────
-            Divider(
-              height: 1,
-              color: onBase.withValues(alpha: 0.08),
-            ),
+            Divider(height: 1, color: onBase.withValues(alpha: 0.08)),
 
             // ── Navigation items ─────────────────────────────────────
             Expanded(
@@ -571,7 +564,9 @@ class DesktopSidebar extends ConsumerWidget {
                     else
                       Padding(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 5),
+                          horizontal: 14,
+                          vertical: 5,
+                        ),
                         child: Divider(
                           height: 1,
                           color: onBase.withValues(alpha: 0.08),
@@ -595,10 +590,7 @@ class DesktopSidebar extends ConsumerWidget {
             ),
 
             // ── Bottom separator ────────────────────────────────────
-            Divider(
-              height: 1,
-              color: onBase.withValues(alpha: 0.08),
-            ),
+            Divider(height: 1, color: onBase.withValues(alpha: 0.08)),
 
             // ── User / logout footer ─────────────────────────────────
             Padding(
@@ -683,30 +675,24 @@ class _SidebarFooterButtonState extends State<_SidebarFooterButton> {
     final bg = _hovered
         ? Colors.white.withValues(alpha: widget.isDestructive ? 0.12 : 0.10)
         : Colors.white.withValues(alpha: 0.06);
-    final fgColor = widget.isDestructive
-        ? Colors.red.shade200
-        : onBase;
+    final fgColor = widget.isDestructive ? Colors.red.shade200 : onBase;
 
     Widget content = Container(
       height: 40,
-      padding: EdgeInsets.symmetric(
-          horizontal: widget.collapsed ? 0 : 10),
+      padding: EdgeInsets.symmetric(horizontal: widget.collapsed ? 0 : 10),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(11),
         border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
       ),
       child: widget.collapsed
-          ? Center(
-              child: Icon(widget.icon, size: 18, color: fgColor),
-            )
+          ? Center(child: Icon(widget.icon, size: 18, color: fgColor))
           : Row(
               children: [
                 widget.useAvatar
                     ? CircleAvatar(
                         radius: 13,
-                        backgroundColor:
-                            Colors.white.withValues(alpha: 0.14),
+                        backgroundColor: Colors.white.withValues(alpha: 0.14),
                         child: Text(
                           widget.avatarInitials,
                           style: TextStyle(
@@ -776,10 +762,7 @@ class _SidebarFooterButtonState extends State<_SidebarFooterButton> {
       onExit: (_) {
         if (mounted) setState(() => _hovered = false);
       },
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: content,
-      ),
+      child: GestureDetector(onTap: widget.onTap, child: content),
     );
   }
 }
@@ -823,8 +806,8 @@ class _DesktopSidebarItemState extends State<_DesktopSidebarItem> {
       final containerBg = selected
           ? Colors.white.withValues(alpha: 0.18)
           : _hovered
-              ? Colors.white.withValues(alpha: 0.10)
-              : Colors.transparent;
+          ? Colors.white.withValues(alpha: 0.10)
+          : Colors.transparent;
 
       content = SizedBox(
         height: 50,
@@ -838,16 +821,10 @@ class _DesktopSidebarItemState extends State<_DesktopSidebarItem> {
               color: containerBg,
               borderRadius: BorderRadius.circular(15),
               border: selected
-                  ? Border.all(
-                      color: onBase.withValues(alpha: 0.28),
-                      width: 1,
-                    )
+                  ? Border.all(color: onBase.withValues(alpha: 0.28), width: 1)
                   : _hovered
-                      ? Border.all(
-                          color: onBase.withValues(alpha: 0.10),
-                          width: 1,
-                        )
-                      : null,
+                  ? Border.all(color: onBase.withValues(alpha: 0.10), width: 1)
+                  : null,
               boxShadow: selected
                   ? [
                       BoxShadow(
@@ -868,11 +845,7 @@ class _DesktopSidebarItemState extends State<_DesktopSidebarItem> {
                   child: AnimatedOpacity(
                     opacity: iconOpacity,
                     duration: const Duration(milliseconds: 180),
-                    child: Icon(
-                      widget.item.icon,
-                      size: 22,
-                      color: onBase,
-                    ),
+                    child: Icon(widget.item.icon, size: 22, color: onBase),
                   ),
                 ),
                 if (widget.item.showIndicator)
@@ -885,14 +858,12 @@ class _DesktopSidebarItemState extends State<_DesktopSidebarItem> {
                       decoration: BoxDecoration(
                         color: theme.colorScheme.error,
                         shape: BoxShape.circle,
-                        border: Border.all(
-                          color: Colors.white,
-                          width: 1.5,
-                        ),
+                        border: Border.all(color: Colors.white, width: 1.5),
                         boxShadow: [
                           BoxShadow(
-                            color: theme.colorScheme.error
-                                .withValues(alpha: 0.50),
+                            color: theme.colorScheme.error.withValues(
+                              alpha: 0.50,
+                            ),
                             blurRadius: 4,
                           ),
                         ],
@@ -908,21 +879,18 @@ class _DesktopSidebarItemState extends State<_DesktopSidebarItem> {
       // ─────────────────────────────────────────────────────────────
       // EXPANDED: icon pill + label, premium look
       // ─────────────────────────────────────────────────────────────
-      final iconOpacityExpanded =
-          selected ? 1.0 : (_hovered ? 0.90 : 0.60);
-      final labelColor = selected
-          ? onBase
-          : (_hovered ? onBase.withValues(alpha: 0.90) : onBase.withValues(alpha: 0.58));
+      final iconOpacityExpanded = selected ? 1.0 : (_hovered ? 0.92 : 0.68);
+      final labelColor = Colors.white;
       final expandedBg = selected
           ? Colors.white.withValues(alpha: 0.14)
           : _hovered
-              ? Colors.white.withValues(alpha: 0.07)
-              : Colors.transparent;
+              ? Colors.white.withValues(alpha: 0.09)
+              : Colors.white.withValues(alpha: 0.04);
       final iconBoxBg = selected
-          ? Colors.white.withValues(alpha: 0.20)
+          ? Colors.white.withValues(alpha: 0.22)
           : _hovered
-              ? Colors.white.withValues(alpha: 0.10)
-              : Colors.white.withValues(alpha: 0.06);
+              ? Colors.white.withValues(alpha: 0.13)
+              : Colors.white.withValues(alpha: 0.08);
 
       content = SizedBox(
         height: 44,
@@ -935,7 +903,7 @@ class _DesktopSidebarItemState extends State<_DesktopSidebarItem> {
             borderRadius: BorderRadius.circular(12),
             border: selected
                 ? Border.all(
-                    color: Colors.white.withValues(alpha: 0.14),
+                    color: Colors.black.withValues(alpha: 0.13),
                     width: 1,
                   )
                 : null,
@@ -950,12 +918,12 @@ class _DesktopSidebarItemState extends State<_DesktopSidebarItem> {
                 height: 20,
                 margin: const EdgeInsets.only(left: 6),
                 decoration: BoxDecoration(
-                  color: onBase,
+                  color: Colors.black,
                   borderRadius: BorderRadius.circular(99),
                   boxShadow: selected
                       ? [
                           BoxShadow(
-                            color: Colors.white.withValues(alpha: 0.40),
+                            color: Colors.black.withValues(alpha: 0.40),
                             blurRadius: 6,
                           ),
                         ]
@@ -973,7 +941,7 @@ class _DesktopSidebarItemState extends State<_DesktopSidebarItem> {
                   borderRadius: BorderRadius.circular(10),
                   border: selected
                       ? Border.all(
-                          color: Colors.white.withValues(alpha: 0.22),
+                          color: Colors.black.withValues(alpha: 0.18),
                           width: 1,
                         )
                       : null,
@@ -988,7 +956,7 @@ class _DesktopSidebarItemState extends State<_DesktopSidebarItem> {
                       child: Icon(
                         widget.item.icon,
                         size: 18,
-                        color: onBase,
+                        color: Colors.black,
                       ),
                     ),
                     if (widget.item.showIndicator)
@@ -1001,11 +969,12 @@ class _DesktopSidebarItemState extends State<_DesktopSidebarItem> {
                           decoration: BoxDecoration(
                             color: theme.colorScheme.error,
                             shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white, width: 1.5),
+                            border: Border.all(color: Colors.black, width: 1.5),
                             boxShadow: [
                               BoxShadow(
-                                color: theme.colorScheme.error
-                                    .withValues(alpha: 0.50),
+                                color: theme.colorScheme.error.withValues(
+                                  alpha: 0.50,
+                                ),
                                 blurRadius: 4,
                               ),
                             ],
@@ -1023,10 +992,17 @@ class _DesktopSidebarItemState extends State<_DesktopSidebarItem> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                    fontWeight: selected ? FontWeight.w900 : FontWeight.w700,
                     color: labelColor,
-                    fontSize: 13.5,
-                    letterSpacing: selected ? 0.15 : 0,
+                    fontSize: 15.0,
+                    letterSpacing: selected ? 0.18 : 0.02,
+                    shadows: [
+                      Shadow(
+                        color: Colors.black.withValues(alpha: 0.18),
+                        blurRadius: 2.5,
+                        offset: const Offset(0, 1),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -1044,10 +1020,7 @@ class _DesktopSidebarItemState extends State<_DesktopSidebarItem> {
       onExit: (_) {
         if (mounted) setState(() => _hovered = false);
       },
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: content,
-      ),
+      child: GestureDetector(onTap: widget.onTap, child: content),
     );
 
     // Collapsed: styled tooltip to the right

@@ -236,6 +236,7 @@ export class PayrollController {
     salarioBaseQuincenal: unknown;
     cuotaMinima: unknown;
     seguroLeyMonto: unknown;
+    seguroLeyMontoLocked?: boolean;
     activo: boolean;
     createdAt: Date;
     updatedAt: Date;
@@ -250,6 +251,7 @@ export class PayrollController {
       salario_base_quincenal: Number(employee.salarioBaseQuincenal ?? 0),
       cuota_minima: Number(employee.cuotaMinima ?? 0),
       seguro_ley_monto: Number(employee.seguroLeyMonto ?? 0),
+      seguro_ley_monto_locked: employee.seguroLeyMontoLocked === true ? 1 : 0,
       activo: employee.activo ? 1 : 0,
       created_at: employee.createdAt.toISOString(),
       updated_at: employee.updatedAt.toISOString(),

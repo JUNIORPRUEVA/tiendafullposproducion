@@ -11,7 +11,7 @@ class NominaDatabaseHelper {
   static final NominaDatabaseHelper instance = NominaDatabaseHelper._();
 
   static const String _dbName = 'fulltech_nomina.db';
-  static const int _dbVersion = 4;
+  static const int _dbVersion = 5;
 
   Database? _database;
 
@@ -45,6 +45,7 @@ class NominaDatabaseHelper {
         puesto TEXT,
         cuota_minima REAL NOT NULL DEFAULT 0,
         seguro_ley_pct REAL NOT NULL DEFAULT 0,
+        seguro_ley_monto_locked INTEGER NOT NULL DEFAULT 0,
         activo INTEGER NOT NULL DEFAULT 1,
         created_at TEXT,
         updated_at TEXT
@@ -153,6 +154,11 @@ class NominaDatabaseHelper {
           PRIMARY KEY (cache_user_id, period_id)
         )
       ''');
+    }
+    if (oldVersion < 5) {
+      await db.execute(
+        'ALTER TABLE employees_payroll ADD COLUMN seguro_ley_monto_locked INTEGER NOT NULL DEFAULT 0',
+      );
     }
     await _createIndexes(db);
   }
@@ -613,6 +619,7 @@ class NominaDatabaseHelper {
     final base = config?.baseSalary ?? 0;
     double commissions = 0;
     double bonuses = 0;
+    double holidayWorked = 0;
     double otherAdditions = 0;
     double absences = 0;
     double late = 0;
@@ -629,6 +636,9 @@ class NominaDatabaseHelper {
         case PayrollEntryType.bonificacion:
         case PayrollEntryType.pagoCombustible:
           if (amount >= 0) bonuses += amount;
+          break;
+        case PayrollEntryType.feriadoTrabajado:
+          holidayWorked += amount.abs();
           break;
         case PayrollEntryType.ausencia:
           absences += amount.abs();
@@ -656,7 +666,7 @@ class NominaDatabaseHelper {
         .clamp(0, double.infinity)
         .toDouble();
 
-    final additions = commissions + bonuses + otherAdditions;
+    final additions = commissions + bonuses + holidayWorked + otherAdditions;
     final deductions = absences + late + advances + otherDeductions + seguroLey;
 
     final total = base + additions - deductions;
@@ -665,6 +675,7 @@ class NominaDatabaseHelper {
       baseSalary: base,
       commissions: commissions,
       bonuses: bonuses,
+      holidayWorked: holidayWorked,
       otherAdditions: otherAdditions,
       absences: absences,
       late: late,
@@ -714,6 +725,7 @@ class NominaDatabaseHelper {
       double commissionFromSales = 0;
       double overtimeAmount = 0;
       double bonusesAmount = 0;
+      double holidayWorkedAmount = 0;
       double deductionsAmount = 0;
       double benefitsAmount = 0;
 
@@ -727,6 +739,9 @@ class NominaDatabaseHelper {
           case PayrollEntryType.bonificacion:
           case PayrollEntryType.pagoCombustible:
             bonusesAmount += amount;
+            break;
+          case PayrollEntryType.feriadoTrabajado:
+            holidayWorkedAmount += amount.abs();
             break;
           case PayrollEntryType.ausencia:
           case PayrollEntryType.tarde:
@@ -745,7 +760,11 @@ class NominaDatabaseHelper {
       }
 
       final additions =
-          commissionFromSales + overtimeAmount + bonusesAmount + benefitsAmount;
+          commissionFromSales +
+          overtimeAmount +
+          bonusesAmount +
+          holidayWorkedAmount +
+          benefitsAmount;
       final grossTotal = baseSalary + additions;
       final totalDeductions = deductionsAmount + seguroLey;
       final netTotal = grossTotal - totalDeductions;

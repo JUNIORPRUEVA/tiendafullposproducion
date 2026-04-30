@@ -366,7 +366,7 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                 final user = filteredUsers[index];
                 return _UserCard(
                   user: user,
-                  onView: () => _showUserDetailsSheet(context, user),
+                  onView: () => _openUserDetailsScreen(context, user),
                   onEdit: () => _showUserDialog(context, ref, user),
                   onDelete: () => _showDeleteDialog(context, ref, user),
                   onToggleBlock: () => _toggleBlock(context, ref, user),
@@ -479,11 +479,11 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
                         selectedUserId: _selectedDesktopUserId,
                         onSelectUser: (user) {
                           setState(() => _selectedDesktopUserId = user.id);
-                          _showUserDetailsSheet(context, user);
+                          _openUserDetailsScreen(context, user);
                         },
                         onViewUser: (user) {
                           setState(() => _selectedDesktopUserId = user.id);
-                          _showUserDetailsSheet(context, user);
+                          _openUserDetailsScreen(context, user);
                         },
                         onEditUser: (user) =>
                             _showUserDialog(context, ref, user),
@@ -1346,172 +1346,165 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
     );
   }
 
-  void _showUserDetailsSheet(BuildContext context, UserModel user) {
-    final parentContext = context;
+  void _openUserDetailsScreen(BuildContext context, UserModel user) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _UserDetailsScreen(
+          user: user,
+          onOpenContract: () => _openWorkContractPreview(context, user),
+        ),
+      ),
+    );
+  }
+}
 
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (context) {
-        final theme = Theme.of(context);
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+class _UserDetailsScreen extends StatelessWidget {
+  const _UserDetailsScreen({required this.user, required this.onOpenContract});
+
+  final UserModel user;
+  final Future<void> Function() onOpenContract;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Detalle de usuario'),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: FilledButton.tonalIcon(
+              onPressed: onOpenContract,
+              icon: const Icon(Icons.picture_as_pdf_outlined),
+              label: const Text('Contrato'),
+            ),
+          ),
+        ],
+      ),
+      body: Container(
+        color: theme.colorScheme.surfaceContainerLowest,
+        child: SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 980),
+              child: ListView(
+                padding: const EdgeInsets.all(20),
                 children: [
-                  Text('Detalle de usuario', style: theme.textTheme.titleLarge),
-                  const SizedBox(height: 12),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: OutlinedButton.icon(
-                      icon: const Icon(Icons.picture_as_pdf_outlined),
-                      label: const Text('Contrato (PDF)'),
-                      onPressed: () async {
-                        try {
-                          if (!context.mounted) return;
-                          final navigator = Navigator.of(context);
-                          navigator.pop();
-                          await _openWorkContractPreview(parentContext, user);
-                        } catch (e) {
-                          if (!context.mounted) return;
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('No se pudo generar: $e')),
-                          );
-                        }
-                      },
+                  Container(
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surface,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: theme.colorScheme.outlineVariant),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: Column(
-                        children: [
-                          _DetailRow('Nombre', user.nombreCompleto),
-                          _DetailRow('Email', user.email),
-                          _DetailRow('Rol', user.role ?? '—'),
-                          _DetailRow(
-                            'Estado',
-                            user.blocked ? 'Bloqueado' : 'Activo',
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: Column(
-                        children: [
-                          _DetailRow('Teléfono', user.telefono),
-                          _DetailRow(
-                            'Teléfono familiar',
-                            user.telefonoFamiliar ?? '—',
-                          ),
-                          _DetailRow('Cédula', user.cedula ?? '—'),
-                          _DetailRow('Edad', user.edad?.toString() ?? '—'),
-                          _DetailRow(
-                            'Tiene hijos',
-                            user.tieneHijos ? 'Sí' : 'No',
-                          ),
-                          _DetailRow(
-                            'Estado civil',
-                            user.estaCasado ? 'Casado/a' : 'Soltero/a',
-                          ),
-                          _DetailRow(
-                            'Casa propia',
-                            user.casaPropia ? 'Sí' : 'No',
-                          ),
-                          _DetailRow('Vehículo', user.vehiculo ? 'Sí' : 'No'),
-                          _DetailRow(
-                            'Licencia',
-                            user.licenciaConducir ? 'Sí' : 'No',
-                          ),
-                          _DetailRow(
-                            'Fecha de ingreso',
-                            user.fechaIngreso != null
-                                ? DateFormat(
-                                    'dd/MM/yyyy',
-                                  ).format(user.fechaIngreso!)
-                                : '—',
-                          ),
-                          _DetailRow(
-                            'Días en la empresa',
-                            user.diasEnEmpresa?.toString() ?? '—',
-                          ),
-                          _DetailRow(
-                            'Cuenta nómina preferencial',
-                            (user.cuentaNominaPreferencial ?? '').trim().isEmpty
-                                ? '—'
-                                : user.cuentaNominaPreferencial!.trim(),
-                          ),
-                          _DetailRow(
-                            'Habilidades',
-                            user.habilidades.isEmpty
-                                ? '—'
-                                : user.habilidades.join(', '),
-                          ),
-                          _DetailRow(
-                            'Creado',
-                            user.createdAt != null
-                                ? DateFormat(
-                                    'dd/MM/yyyy',
-                                  ).format(user.createdAt!)
-                                : '—',
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: Column(
-                        children: [
-                          Row(
+                    child: Row(
+                      children: [
+                        _UserAvatar(user: user, radius: 30),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Icon(
-                                Icons.photo_library_outlined,
-                                color: theme.colorScheme.primary,
-                                size: 20,
-                              ),
-                              const SizedBox(width: 8),
                               Text(
-                                'Documentos subidos',
-                                style: theme.textTheme.titleMedium,
+                                user.nombreCompleto,
+                                style: theme.textTheme.titleLarge?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                user.email,
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 12),
-                          _UserDocumentPreviewCard(
-                            title: 'Foto de cédula',
-                            imageUrl: _resolveUserDocUrl(user.fotoCedulaUrl),
-                          ),
-                          const SizedBox(height: 10),
-                          _UserDocumentPreviewCard(
-                            title: 'Foto de licencia',
-                            imageUrl: _resolveUserDocUrl(user.fotoLicenciaUrl),
-                          ),
-                          const SizedBox(height: 10),
-                          _UserDocumentPreviewCard(
-                            title: 'Foto personal',
-                            imageUrl: _resolveUserDocUrl(user.fotoPersonalUrl),
-                          ),
-                        ],
-                      ),
+                        ),
+                        _UserStatusBadge(blocked: user.blocked),
+                      ],
                     ),
+                  ),
+                  const SizedBox(height: 14),
+                  _DetailSection(
+                    title: 'Información principal',
+                    children: [
+                      _DetailRow('Nombre', user.nombreCompleto),
+                      _DetailRow('Email', user.email),
+                      _DetailRow('Rol', user.role ?? '—'),
+                      _DetailRow('Teléfono', user.telefono),
+                      _DetailRow('Teléfono familiar', user.telefonoFamiliar ?? '—'),
+                      _DetailRow('Cédula', user.cedula ?? '—'),
+                      _DetailRow('Edad', user.edad?.toString() ?? '—'),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _DetailSection(
+                    title: 'Datos laborales y personales',
+                    children: [
+                      _DetailRow('Tiene hijos', user.tieneHijos ? 'Sí' : 'No'),
+                      _DetailRow(
+                        'Estado civil',
+                        user.estaCasado ? 'Casado/a' : 'Soltero/a',
+                      ),
+                      _DetailRow('Casa propia', user.casaPropia ? 'Sí' : 'No'),
+                      _DetailRow('Vehículo', user.vehiculo ? 'Sí' : 'No'),
+                      _DetailRow('Licencia', user.licenciaConducir ? 'Sí' : 'No'),
+                      _DetailRow(
+                        'Fecha de ingreso',
+                        user.fechaIngreso != null
+                            ? DateFormat('dd/MM/yyyy').format(user.fechaIngreso!)
+                            : '—',
+                      ),
+                      _DetailRow(
+                        'Días en la empresa',
+                        user.diasEnEmpresa?.toString() ?? '—',
+                      ),
+                      _DetailRow(
+                        'Cuenta nómina preferencial',
+                        (user.cuentaNominaPreferencial ?? '').trim().isEmpty
+                            ? '—'
+                            : user.cuentaNominaPreferencial!.trim(),
+                      ),
+                      _DetailRow(
+                        'Habilidades',
+                        user.habilidades.isEmpty ? '—' : user.habilidades.join(', '),
+                      ),
+                      _DetailRow(
+                        'Creado',
+                        user.createdAt != null
+                            ? DateFormat('dd/MM/yyyy').format(user.createdAt!)
+                            : '—',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _DetailSection(
+                    title: 'Documentos',
+                    children: [
+                      _UserDocumentPreviewCard(
+                        title: 'Foto de cédula',
+                        imageUrl: _resolveUserDocUrl(user.fotoCedulaUrl),
+                      ),
+                      const SizedBox(height: 10),
+                      _UserDocumentPreviewCard(
+                        title: 'Foto de licencia',
+                        imageUrl: _resolveUserDocUrl(user.fotoLicenciaUrl),
+                      ),
+                      const SizedBox(height: 10),
+                      _UserDocumentPreviewCard(
+                        title: 'Foto personal',
+                        imageUrl: _resolveUserDocUrl(user.fotoPersonalUrl),
+                      ),
+                    ],
                   ),
                 ],
               ),
             ),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }
@@ -2162,6 +2155,40 @@ class _DetailRow extends StatelessWidget {
             ),
           ),
           Expanded(child: Text(value)),
+        ],
+      ),
+    );
+  }
+}
+
+class _DetailSection extends StatelessWidget {
+  const _DetailSection({required this.title, required this.children});
+
+  final String title;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 10),
+          ...children,
         ],
       ),
     );

@@ -61,6 +61,7 @@ enum PayrollPeriodStatus {
 enum PayrollEntryType {
   AUSENCIA
   TARDE
+  FERIADO_TRABAJADO
   COMISION_SERVICIO
   COMISION_VENTAS
   BONIFICACION
@@ -988,6 +989,7 @@ model PayrollEmployee {
   salarioBaseQuincenal Decimal @default(0) @db.Decimal(12, 2)
   cuotaMinima Decimal @default(0) @db.Decimal(12, 2)
   seguroLeyMonto Decimal @default(0) @db.Decimal(12, 2)
+  seguroLeyMontoLocked Boolean @default(false) @map("seguro_ley_monto_locked")
   activo    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

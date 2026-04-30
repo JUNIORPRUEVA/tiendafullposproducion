@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/wa_crm_repository.dart';
@@ -185,7 +186,7 @@ class WaCrmController extends StateNotifier<WaCrmState> {
       final instances = raw.map(WaCrmInstanceEntry.fromJson).toList();
       state = state.copyWith(allInstances: instances, loadingInstances: false);
     } catch (e, st) {
-      print('[WaCrm] loadAllInstances error: $e\n$st');
+      debugPrint('[WaCrm] loadAllInstances error: $e\n$st');
       state = state.copyWith(loadingInstances: false);
     }
   }
@@ -208,7 +209,7 @@ class WaCrmController extends StateNotifier<WaCrmState> {
       final webhookUrl = await _repo.setInstanceWebhook(instanceName, enabled: enabled);
       return webhookUrl;
     } catch (e, st) {
-      print('[WaCrm] setInstanceWebhook error: $e\n$st');
+      debugPrint('[WaCrm] setInstanceWebhook error: $e\n$st');
       // Revert on error
       final reverted = state.allInstances.map((inst) {
         return inst.instanceName == instanceName
@@ -236,7 +237,7 @@ class WaCrmController extends StateNotifier<WaCrmState> {
         await selectUser(users.first);
       }
     } catch (e, st) {
-      print('[WaCrm] loadUsers error: $e\n$st');
+      debugPrint('[WaCrm] loadUsers error: $e\n$st');
       state = state.copyWith(
         loadingUsers: false,
         error: () => 'Error cargando usuarios: $e',
@@ -269,7 +270,7 @@ class WaCrmController extends StateNotifier<WaCrmState> {
         loadingConversations: false,
       );
     } catch (e, st) {
-      print('[WaCrm] loadConversations error: $e\n$st');
+      debugPrint('[WaCrm] loadConversations error: $e\n$st');
       state = state.copyWith(
         loadingConversations: false,
         error: () => 'Error cargando conversaciones: $e',
@@ -313,7 +314,7 @@ class WaCrmController extends StateNotifier<WaCrmState> {
       final msgs = await _repo.getMessages(conversationId);
       state = state.copyWith(messages: msgs, loadingMessages: false);
     } catch (e, st) {
-      print('[WaCrm] loadMessages error: $e\n$st');
+      debugPrint('[WaCrm] loadMessages error: $e\n$st');
       state = state.copyWith(
         loadingMessages: false,
         error: () => 'Error cargando mensajes: $e',
@@ -334,7 +335,7 @@ class WaCrmController extends StateNotifier<WaCrmState> {
       // Silently refresh without clearing state or showing spinner
       _silentRefreshMessages(conv.id);
     } catch (e, st) {
-      print('[WaCrm] sendReply error: $e\n$st');
+      debugPrint('[WaCrm] sendReply error: $e\n$st');
       state = state.copyWith(
         sending: false,
         error: () => 'Error enviando mensaje: $e',
@@ -349,7 +350,7 @@ class WaCrmController extends StateNotifier<WaCrmState> {
         state = state.copyWith(messages: msgs);
       }
     }).catchError((e) {
-      print('[WaCrm] _silentRefreshMessages error: $e');
+      debugPrint('[WaCrm] _silentRefreshMessages error: $e');
     });
   }
 
@@ -390,7 +391,7 @@ class WaCrmController extends StateNotifier<WaCrmState> {
         state = state.copyWith(conversations: updatedList);
       }
     } catch (e) {
-      print('[WaCrm] handleRealtimeMessage error: $e');
+      debugPrint('[WaCrm] handleRealtimeMessage error: $e');
     }
   }
 }

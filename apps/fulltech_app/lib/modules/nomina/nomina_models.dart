@@ -3,6 +3,7 @@ enum PayrollPeriodStatus { open, closed }
 enum PayrollEntryType {
   ausencia,
   tarde,
+  feriadoTrabajado,
   comisionServicio,
   comisionVentas,
   bonificacion,
@@ -31,6 +32,8 @@ extension PayrollEntryTypeX on PayrollEntryType {
         return 'AUSENCIA';
       case PayrollEntryType.tarde:
         return 'TARDE';
+      case PayrollEntryType.feriadoTrabajado:
+        return 'FERIADO_TRABAJADO';
       case PayrollEntryType.comisionServicio:
         return 'COMISION_SERVICIO';
       case PayrollEntryType.comisionVentas:
@@ -54,6 +57,8 @@ extension PayrollEntryTypeX on PayrollEntryType {
         return 'Ausencia';
       case PayrollEntryType.tarde:
         return 'Llegada tarde';
+      case PayrollEntryType.feriadoTrabajado:
+        return 'Feriado trabajado';
       case PayrollEntryType.comisionServicio:
         return 'Comisión por servicio';
       case PayrollEntryType.comisionVentas:
@@ -85,6 +90,8 @@ extension PayrollEntryTypeX on PayrollEntryType {
         return PayrollEntryType.ausencia;
       case 'TARDE':
         return PayrollEntryType.tarde;
+      case 'FERIADO_TRABAJADO':
+        return PayrollEntryType.feriadoTrabajado;
       case 'COMISION_SERVICIO':
         return PayrollEntryType.comisionServicio;
       case 'COMISION_VENTAS':
@@ -116,6 +123,7 @@ class PayrollEmployee {
   final double salarioBaseQuincenal;
   final double cuotaMinima;
   final double seguroLeyMonto;
+  final bool seguroLeyMontoLocked;
   final bool activo;
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -130,6 +138,7 @@ class PayrollEmployee {
     this.salarioBaseQuincenal = 0,
     this.cuotaMinima = 0,
     this.seguroLeyMonto = 0,
+    this.seguroLeyMontoLocked = false,
     this.activo = true,
     this.createdAt,
     this.updatedAt,
@@ -145,6 +154,7 @@ class PayrollEmployee {
     double? salarioBaseQuincenal,
     double? cuotaMinima,
     double? seguroLeyMonto,
+    bool? seguroLeyMontoLocked,
     bool? activo,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -161,6 +171,7 @@ class PayrollEmployee {
       salarioBaseQuincenal: salarioBaseQuincenal ?? this.salarioBaseQuincenal,
       cuotaMinima: cuotaMinima ?? this.cuotaMinima,
       seguroLeyMonto: seguroLeyMonto ?? this.seguroLeyMonto,
+      seguroLeyMontoLocked: seguroLeyMontoLocked ?? this.seguroLeyMontoLocked,
       activo: activo ?? this.activo,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -182,6 +193,8 @@ class PayrollEmployee {
           (map['seguro_ley_monto'] as num?)?.toDouble() ??
           (map['seguro_ley_pct'] as num?)?.toDouble() ??
           0,
+      seguroLeyMontoLocked: (map['seguro_ley_monto_locked'] ?? 0) == 1 ||
+          map['seguro_ley_monto_locked'] == true,
       activo: (map['activo'] ?? 1) == 1,
       createdAt: map['created_at'] != null
           ? DateTime.tryParse(map['created_at'].toString())
@@ -203,6 +216,7 @@ class PayrollEmployee {
       'salario_base_quincenal': salarioBaseQuincenal,
       'cuota_minima': cuotaMinima,
       'seguro_ley_monto': seguroLeyMonto,
+      'seguro_ley_monto_locked': seguroLeyMontoLocked ? 1 : 0,
       'seguro_ley_pct': seguroLeyMonto,
       'activo': activo ? 1 : 0,
       'created_at': createdAt?.toIso8601String(),
@@ -332,6 +346,7 @@ class PayrollEntry {
   final String concept;
   final double amount;
   final double? cantidad;
+  final bool notifyUser;
   final DateTime? createdAt;
 
   const PayrollEntry({
@@ -345,6 +360,7 @@ class PayrollEntry {
     required this.concept,
     required this.amount,
     this.cantidad,
+    this.notifyUser = false,
     this.createdAt,
   });
 
@@ -360,6 +376,7 @@ class PayrollEntry {
       concept: (map['concept'] ?? '').toString(),
       amount: (map['amount'] as num?)?.toDouble() ?? 0,
       cantidad: (map['cantidad'] as num?)?.toDouble(),
+      notifyUser: (map['notify_user'] ?? 0) == 1 || map['notify_user'] == true,
       createdAt: map['created_at'] != null
           ? DateTime.tryParse(map['created_at'].toString())
           : null,
@@ -378,6 +395,7 @@ class PayrollEntry {
       'concept': concept,
       'amount': amount,
       'cantidad': cantidad,
+      'notify_user': notifyUser ? 1 : 0,
       'created_at': createdAt?.toIso8601String(),
     };
   }
@@ -392,6 +410,7 @@ class PayrollTotals {
   final bool salesGoalReached;
   final String salesCommissionSource;
   final double bonuses;
+  final double holidayWorked;
   final double otherAdditions;
   final double absences;
   final double late;
@@ -411,6 +430,7 @@ class PayrollTotals {
     this.salesGoalReached = false,
     this.salesCommissionSource = 'manual',
     this.bonuses = 0,
+    this.holidayWorked = 0,
     this.otherAdditions = 0,
     this.absences = 0,
     this.late = 0,

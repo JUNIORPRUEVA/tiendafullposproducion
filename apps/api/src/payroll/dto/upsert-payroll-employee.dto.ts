@@ -38,5 +38,10 @@ export class UpsertPayrollEmployeeDto {
   @IsOptional()
   @Type(() => Boolean)
   @IsBoolean()
+  allowSeguroLeyMontoEdit?: boolean;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
   activo?: boolean;
 }

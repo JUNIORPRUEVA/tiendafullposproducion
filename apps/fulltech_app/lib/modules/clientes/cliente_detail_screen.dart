@@ -187,11 +187,12 @@ class _ClienteDetailScreenState extends ConsumerState<ClienteDetailScreen> {
         }
       });
     } finally {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _refreshing = false;
-      });
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _refreshing = false;
+        });
+      }
     }
   }
 

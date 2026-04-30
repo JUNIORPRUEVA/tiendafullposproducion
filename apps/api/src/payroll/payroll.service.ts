@@ -185,6 +185,33 @@ export class PayrollService {
         })
       : null;
 
+    const existing = dto.id
+      ? await this.prisma.payrollEmployee.findFirst({
+          where: { ownerId, id: dto.id },
+          select: {
+            id: true,
+            seguroLeyMonto: true,
+            seguroLeyMontoLocked: true,
+          },
+        })
+      : null;
+
+    const requestedSeguroLeyMonto = Math.max(0, dto.seguroLeyMonto ?? 0);
+    const currentSeguroLeyMonto = this.toNumber(existing?.seguroLeyMonto);
+    const canEditSeguroLeyMonto =
+      !existing?.seguroLeyMontoLocked || dto.allowSeguroLeyMontoEdit === true;
+    const seguroLeyMonto = existing && !canEditSeguroLeyMonto
+      ? currentSeguroLeyMonto
+      : requestedSeguroLeyMonto;
+
+    if (
+      existing?.seguroLeyMontoLocked &&
+      dto.allowSeguroLeyMontoEdit !== true &&
+      requestedSeguroLeyMonto !== currentSeguroLeyMonto
+    ) {
+      throw new BadRequestException('El seguro de ley ya esta fijado. Usa la opcion de editar para modificarlo.');
+    }
+
     const payload = {
       ownerId,
       userId: linkedUser?.id,
@@ -193,16 +220,12 @@ export class PayrollService {
       puesto: dto.puesto?.trim() ? dto.puesto.trim() : null,
       salarioBaseQuincenal: new Prisma.Decimal(dto.salarioBaseQuincenal ?? 0),
       cuotaMinima: new Prisma.Decimal(dto.cuotaMinima ?? 0),
-      seguroLeyMonto: new Prisma.Decimal(dto.seguroLeyMonto ?? 0),
+      seguroLeyMonto: new Prisma.Decimal(seguroLeyMonto),
+      seguroLeyMontoLocked: true,
       activo: dto.activo ?? true,
     };
 
     if (dto.id) {
-      const existing = await this.prisma.payrollEmployee.findFirst({
-        where: { ownerId, id: dto.id },
-        select: { id: true },
-      });
-
       if (existing) {
         return this.prisma.payrollEmployee.update({
           where: { id: dto.id },
@@ -284,6 +307,23 @@ export class PayrollService {
   }
 
   async addEntry(ownerId: string, dto: AddPayrollEntryDto) {
+    const [employee, config] = await Promise.all([
+      this.getEmployeeById(ownerId, dto.employeeId),
+      this.getEmployeeConfig(ownerId, dto.periodId, dto.employeeId),
+    ]);
+    if (!employee) {
+      throw new NotFoundException('Empleado de nomina no encontrado');
+    }
+
+    const quantity = dto.cantidad == null ? null : Math.max(0, dto.cantidad);
+    const resolvedAmount = this.resolvePayrollEntryAmount({
+      type: dto.type,
+      requestedAmount: dto.amount,
+      quantity: quantity ?? 1,
+      employee,
+      config,
+    });
+
     const entry = await this.prisma.payrollEntry.create({
       data: {
         ownerId,
@@ -292,17 +332,19 @@ export class PayrollService {
         date: new Date(dto.date),
         type: dto.type,
         concept: dto.concept.trim(),
-        amount: new Prisma.Decimal(dto.amount),
-        cantidad: dto.cantidad == null ? null : new Prisma.Decimal(dto.cantidad),
+        amount: new Prisma.Decimal(resolvedAmount),
+        cantidad: quantity == null ? null : new Prisma.Decimal(quantity),
       },
     });
 
-    void this.notifyPayrollEntryIfNeeded(ownerId, entry.id).catch((error) => {
-      this.logger.error(
-        `Payroll entry notification dispatch failed entry=${entry.id} employee=${entry.employeeId}`,
-        error instanceof Error ? error.stack : undefined,
-      );
-    });
+    if (dto.notifyUser === true) {
+      void this.notifyPayrollEntryIfNeeded(ownerId, entry.id).catch((error) => {
+        this.logger.error(
+          `Payroll entry notification dispatch failed entry=${entry.id} employee=${entry.employeeId}`,
+          error instanceof Error ? error.stack : undefined,
+        );
+      });
+    }
     return entry;
   }
 
@@ -671,6 +713,7 @@ export class PayrollService {
     let manualSalesCommissions = 0;
     let bonuses = 0;
     let otherAdditions = 0;
+    let holidayWorked = 0;
     let absences = 0;
     let late = 0;
     let advances = 0;
@@ -688,6 +731,9 @@ export class PayrollService {
         case PayrollEntryType.BONIFICACION:
         case PayrollEntryType.PAGO_COMBUSTIBLE:
           if (amount >= 0) bonuses += amount;
+          break;
+        case PayrollEntryType.FERIADO_TRABAJADO:
+          holidayWorked += Math.abs(amount);
           break;
         case PayrollEntryType.AUSENCIA:
           absences += Math.abs(amount);
@@ -732,7 +778,7 @@ export class PayrollService {
           ?.seguroLeyMonto,
       ),
     );
-    const additions = commissions + manualServiceCommissions + bonuses + otherAdditions;
+    const additions = commissions + manualServiceCommissions + bonuses + holidayWorked + otherAdditions;
     const deductions = absences + late + advances + otherDeductions + seguroLey;
     const total = base + additions - deductions;
 
@@ -741,6 +787,7 @@ export class PayrollService {
       commissions,
       serviceCommissions: manualServiceCommissions,
       bonuses,
+      holidayWorked,
       otherAdditions,
       absences,
       late,
@@ -808,9 +855,10 @@ export class PayrollService {
         ),
       );
           let manualServiceCommissions = 0;
-          let manualSalesCommissions = 0;
+      let manualSalesCommissions = 0;
       let overtimeAmount = 0;
       let bonusesAmount = 0;
+      let holidayWorkedAmount = 0;
       let deductionsAmount = 0;
       let benefitsAmount = 0;
 
@@ -826,6 +874,9 @@ export class PayrollService {
           case PayrollEntryType.BONIFICACION:
           case PayrollEntryType.PAGO_COMBUSTIBLE:
             bonusesAmount += amount;
+            break;
+          case PayrollEntryType.FERIADO_TRABAJADO:
+            holidayWorkedAmount += Math.abs(amount);
             break;
           case PayrollEntryType.AUSENCIA:
           case PayrollEntryType.TARDE:
@@ -850,7 +901,7 @@ export class PayrollService {
 
       benefitsAmount += manualServiceCommissions;
 
-      const additions = commissionFromSales + overtimeAmount + bonusesAmount + benefitsAmount;
+      const additions = commissionFromSales + overtimeAmount + bonusesAmount + holidayWorkedAmount + benefitsAmount;
       const grossTotal = baseSalary + additions;
       const totalDeductions = deductionsAmount + seguroLey;
       const netTotal = grossTotal - totalDeductions;
@@ -867,6 +918,7 @@ export class PayrollService {
         commission_from_sales: commissionFromSales,
         overtime_amount: overtimeAmount,
         bonuses_amount: bonusesAmount,
+        holiday_worked_amount: holidayWorkedAmount,
         deductions_amount: totalDeductions,
         benefits_amount: benefitsAmount,
         gross_total: grossTotal,
@@ -981,6 +1033,43 @@ export class PayrollService {
     }
 
     return 0;
+  }
+
+  private resolvePayrollEntryAmount(params: {
+    type: PayrollEntryType;
+    requestedAmount?: number;
+    quantity: number;
+    employee: {
+      salarioBaseQuincenal?: Prisma.Decimal | number | string | null;
+    } | null;
+    config?: { baseSalary?: Prisma.Decimal | number | string | null } | null;
+  }) {
+    const quantity = params.quantity > 0 ? params.quantity : 1;
+    const dailySalary = this.computeDominicanDailySalary(
+      params.config?.baseSalary ?? params.employee?.salarioBaseQuincenal,
+    );
+    const manualAmount = params.requestedAmount;
+
+    if (params.type === PayrollEntryType.AUSENCIA) {
+      return -this.round2(dailySalary * quantity);
+    }
+
+    if (params.type === PayrollEntryType.FERIADO_TRABAJADO) {
+      return this.round2(dailySalary * quantity);
+    }
+
+    if (manualAmount == null || !Number.isFinite(manualAmount)) {
+      throw new BadRequestException('El monto es obligatorio para este tipo de movimiento');
+    }
+
+    return this.round2(manualAmount);
+  }
+
+  private computeDominicanDailySalary(baseSalary: Prisma.Decimal | number | string | null | undefined) {
+    const biweeklySalary = Math.max(0, this.toNumber(baseSalary));
+    if (biweeklySalary <= 0) return 0;
+    const monthlySalary = biweeklySalary * 2;
+    return monthlySalary / 23.83;
   }
 
   private async computeAutomaticSalesCommissionForEmployee(params: {
@@ -1224,7 +1313,8 @@ export class PayrollService {
     return (
       type === PayrollEntryType.ADELANTO ||
       type === PayrollEntryType.BONIFICACION ||
-      type === PayrollEntryType.AUSENCIA
+      type === PayrollEntryType.AUSENCIA ||
+      type === PayrollEntryType.FERIADO_TRABAJADO
     );
   }
 
@@ -1311,6 +1401,16 @@ Administración de nómina` : 'Administración de nómina';
           concept.length > 0 ? `Concepto registrado: ${concept}.` : null,
           periodTitle.length > 0 ? `Quincena aplicada: ${periodTitle}.` : null,
           'Si tienes alguna duda, por favor comunícate con administración.',
+          signature,
+        );
+      case PayrollEntryType.FERIADO_TRABAJADO:
+        return joinLines(
+          `Hola ${employeeName},`,
+          `Te informamos que se registro un feriado trabajado en tu nomina${quantity > 0 ? ` (${this.formatQuantity(quantity)}).` : '.'}`,
+          `Monto adicional aplicado: ${amountLabel}.`,
+          concept.length > 0 ? `Concepto registrado: ${concept}.` : null,
+          periodTitle.length > 0 ? `Quincena aplicada: ${periodTitle}.` : null,
+          'Si tienes alguna duda, por favor comunicate con administracion.',
           signature,
         );
       default:

@@ -8,6 +8,7 @@ import '../models/user_model.dart';
 import '../routing/routes.dart';
 import '../theme/role_branding.dart';
 import 'app_navigation.dart';
+import 'user_avatar.dart';
 
 class AppDrawer extends ConsumerWidget {
   final UserModel? currentUser;
@@ -72,23 +73,22 @@ class AppDrawer extends ConsumerWidget {
                     children: [
                       Row(
                         children: [
-                          Container(
-                            width: isCompactMobile ? 38 : 42,
-                            height: isCompactMobile ? 38 : 42,
-                            decoration: BoxDecoration(
-                              color: onBase.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(
-                                color: onBase.withValues(alpha: 0.10),
-                              ),
-                            ),
-                            alignment: Alignment.center,
-                            child: Text(
-                              userInitials(currentUser),
-                              style: theme.textTheme.titleSmall?.copyWith(
-                                color: onBase,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: 0.6,
+                          GestureDetector(
+                            onTap: () {
+                              Navigator.pop(context);
+                              context.go(Routes.profile);
+                            },
+                            child: UserAvatar(
+                              imageUrl: currentUser?.fotoPersonalUrl,
+                              radius: isCompactMobile ? 19 : 21,
+                              backgroundColor: onBase.withValues(alpha: 0.18),
+                              child: Text(
+                                userInitials(currentUser),
+                                style: theme.textTheme.titleSmall?.copyWith(
+                                  color: onBase,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 0.6,
+                                ),
                               ),
                             ),
                           ),

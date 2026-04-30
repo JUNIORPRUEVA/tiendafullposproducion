@@ -1,6 +1,6 @@
 import { PayrollEntryType } from '@prisma/client';
 import { Type } from 'class-transformer';
-import { IsDateString, IsEnum, IsNumber, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsBoolean, IsDateString, IsEnum, IsNumber, IsOptional, IsString, IsUUID } from 'class-validator';
 
 export class PayrollEntriesQueryDto {
   @IsUUID()
@@ -26,12 +26,18 @@ export class AddPayrollEntryDto {
   @IsString()
   concept!: string;
 
+  @IsOptional()
   @Type(() => Number)
   @IsNumber()
-  amount!: number;
+  amount?: number;
 
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
   cantidad?: number;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  notifyUser?: boolean;
 }

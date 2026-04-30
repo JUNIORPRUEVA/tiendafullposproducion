@@ -147,6 +147,7 @@ class NominaHomeController extends StateNotifier<NominaHomeState> {
     String? puesto,
     double cuotaMinima = 0,
     double seguroLeyMonto = 0,
+    bool allowSeguroLeyMontoEdit = false,
     double? salarioBase,
     bool activo = true,
   }) async {
@@ -178,6 +179,7 @@ class NominaHomeController extends StateNotifier<NominaHomeState> {
       salarioBaseQuincenal: salarioBase ?? existing?.salarioBaseQuincenal ?? 0,
       cuotaMinima: cuotaMinima,
       seguroLeyMonto: seguroLeyMonto,
+      seguroLeyMontoLocked: !allowSeguroLeyMontoEdit,
       activo: activo,
       createdAt: existing?.createdAt,
       updatedAt: DateTime.now(),

@@ -123,29 +123,7 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
     return filtered;
   }
 
-  Future<void> _openSearch(bool canManage) async {
-    final result = await showSearch<_ManualSearchResult?>(
-      context: context,
-      delegate: _ManualSearchDelegate(
-        entries: _kindFilter == null
-            ? _entries
-            : _entries
-                  .where((entry) => entry.kind == _kindFilter)
-                  .toList(growable: false),
-        initialQuery: _searchQuery,
-      ),
-    );
-    if (!mounted || result == null) return;
-
-    setState(() {
-      _searchQuery = result.query.trim();
-    });
-
-    final selectedEntry = result.selectedEntry;
-    if (selectedEntry != null) {
-      _openEntryDetail(selectedEntry, canManage);
-    }
-  }
+  // Eliminada función de búsqueda avanzada (showSearch) y referencias a tipos eliminados.
 
   void _clearSearch() {
     if (_searchQuery.isEmpty) return;
@@ -289,9 +267,7 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
         actions: [
           IconButton(
             tooltip: 'Buscar',
-            onPressed: _entries.isEmpty && _loading
-                ? null
-                : () => _openSearch(canManage),
+            onPressed: null, // Búsqueda avanzada eliminada
             icon: const Icon(Icons.search_rounded),
           ),
           PopupMenuButton<CompanyManualEntryKind?>(
@@ -376,19 +352,31 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
                             return listPane;
                           }
 
+                          // Desktop split view: left = list, right = detail
                           return Padding(
                             padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                            child: _ManualDesktopSplitView(
-                              entries: entries,
-                              selectedEntry: selectedEntry,
-                              selectedFilter:
-                                  _kindFilter?.label ?? 'Todo el manual',
-                              canManage: canManage,
-                              onOpenEntry: (entry) =>
-                                  _openEntryDetail(entry, canManage),
-                              onEditEntry: (entry) => _openEditor(entry: entry),
-                              onDeleteEntry: _deleteEntry,
-                              formatDate: _formatDate,
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // Left: List
+                                SizedBox(width: 340, child: listPane),
+                                const SizedBox(width: 22),
+                                // Right: Detail/content
+                                Expanded(
+                                  child: _ManualEntryDetailPane(
+                                    entry: selectedEntry,
+                                    canManage: canManage,
+                                    onEdit: selectedEntry == null
+                                        ? null
+                                        : () =>
+                                              _openEditor(entry: selectedEntry),
+                                    onDelete: selectedEntry == null
+                                        ? null
+                                        : () => _deleteEntry(selectedEntry),
+                                    formatDate: _formatDate,
+                                  ),
+                                ),
+                              ],
                             ),
                           );
                         },
@@ -501,321 +489,6 @@ class _ManualRemovableChip extends StatelessWidget {
             ),
           ],
         ],
-      ),
-    );
-  }
-}
-
-class _ManualSummaryPill extends StatelessWidget {
-  const _ManualSummaryPill({required this.icon, required this.label});
-
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: scheme.primary.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: scheme.primary.withValues(alpha: 0.14)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: scheme.primary, size: 15),
-          const SizedBox(width: 7),
-          Text(
-            label,
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              color: scheme.primary,
-              fontWeight: FontWeight.w700,
-              height: 1,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ManualDesktopSplitView extends StatelessWidget {
-  const _ManualDesktopSplitView({
-    required this.entries,
-    required this.selectedEntry,
-    required this.selectedFilter,
-    required this.canManage,
-    required this.onOpenEntry,
-    required this.onEditEntry,
-    required this.onDeleteEntry,
-    required this.formatDate,
-  });
-
-  final List<CompanyManualEntry> entries;
-  final CompanyManualEntry? selectedEntry;
-  final String selectedFilter;
-  final bool canManage;
-  final ValueChanged<CompanyManualEntry> onOpenEntry;
-  final Future<bool> Function(CompanyManualEntry entry) onEditEntry;
-  final Future<bool> Function(CompanyManualEntry entry) onDeleteEntry;
-  final String Function(DateTime? value) formatDate;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(
-          width: 430,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface,
-              borderRadius: BorderRadius.circular(28),
-              border: Border.all(
-                color: Theme.of(context).colorScheme.outlineVariant,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.05),
-                  blurRadius: 20,
-                  offset: const Offset(0, 12),
-                ),
-              ],
-            ),
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Normas y guias',
-                              style: Theme.of(context).textTheme.titleLarge
-                                  ?.copyWith(fontWeight: FontWeight.w800),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              'Selecciona una tarjeta para abrir automaticamente el detalle completo.',
-                              style: Theme.of(context).textTheme.bodyMedium,
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      _ManualSummaryPill(
-                        icon: Icons.article_outlined,
-                        label: '${entries.length} visibles',
-                      ),
-                    ],
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: _ManualDesktopBadge(label: selectedFilter),
-                  ),
-                ),
-                const Divider(height: 1),
-                Expanded(
-                  child: ListView.separated(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.all(16),
-                    itemCount: entries.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 10),
-                    itemBuilder: (context, index) {
-                      final entry = entries[index];
-                      return _ManualDesktopEntryTile(
-                        entry: entry,
-                        selected: entry.id == selectedEntry?.id,
-                        canManage: canManage,
-                        onTap: () => onOpenEntry(entry),
-                        onEdit: () => onEditEntry(entry),
-                        onDelete: () => onDeleteEntry(entry),
-                        formatDate: formatDate,
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(width: 18),
-        Expanded(
-          child: Column(
-            children: [
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 16,
-                ),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surface,
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(
-                    color: Theme.of(context).colorScheme.outlineVariant,
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        selectedEntry?.title ?? 'Detalle de la norma',
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w800),
-                      ),
-                    ),
-                    if (selectedEntry != null) ...[
-                      _ManualDesktopBadge(label: selectedEntry!.kind.label),
-                      const SizedBox(width: 8),
-                      _ManualDesktopBadge(label: selectedEntry!.audience.label),
-                    ],
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              Expanded(
-                child: _ManualEntryDetailPane(
-                  entry: selectedEntry,
-                  canManage: canManage,
-                  onEdit: selectedEntry == null
-                      ? null
-                      : () => onEditEntry(selectedEntry!),
-                  onDelete: selectedEntry == null
-                      ? null
-                      : () => onDeleteEntry(selectedEntry!),
-                  formatDate: formatDate,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _ManualDesktopEntryTile extends StatelessWidget {
-  const _ManualDesktopEntryTile({
-    required this.entry,
-    required this.selected,
-    required this.canManage,
-    required this.onTap,
-    required this.onEdit,
-    required this.onDelete,
-    required this.formatDate,
-  });
-
-  final CompanyManualEntry entry;
-  final bool selected;
-  final bool canManage;
-  final VoidCallback onTap;
-  final Future<bool> Function() onEdit;
-  final Future<bool> Function() onDelete;
-  final String Function(DateTime? value) formatDate;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            color: selected
-                ? scheme.primary.withValues(alpha: 0.08)
-                : scheme.surfaceContainerLowest,
-            border: Border.all(
-              color: selected
-                  ? scheme.primary.withValues(alpha: 0.45)
-                  : scheme.outlineVariant,
-            ),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Container(
-                width: 9,
-                height: 9,
-                decoration: BoxDecoration(
-                  color: selected ? scheme.primary : scheme.outline,
-                  shape: BoxShape.circle,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _ManualCompactEntryBody(
-                  entry: entry,
-                  dense: true,
-                  emphasizeTitle: true,
-                ),
-              ),
-              const SizedBox(width: 10),
-              if (canManage)
-                PopupMenuButton<String>(
-                  onSelected: (value) async {
-                    if (value == 'edit') {
-                      await onEdit();
-                    } else if (value == 'delete') {
-                      await onDelete();
-                    }
-                  },
-                  itemBuilder: (context) => const [
-                    PopupMenuItem(value: 'edit', child: Text('Editar')),
-                    PopupMenuItem(value: 'delete', child: Text('Eliminar')),
-                  ],
-                )
-              else
-                Icon(
-                  selected
-                      ? Icons.visibility_outlined
-                      : Icons.arrow_forward_rounded,
-                  color: scheme.primary,
-                  size: 18,
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ManualDesktopBadge extends StatelessWidget {
-  const _ManualDesktopBadge({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: scheme.primary.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        label,
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-          color: scheme.primary,
-          fontWeight: FontWeight.w700,
-        ),
       ),
     );
   }
@@ -959,15 +632,10 @@ class _ManualTopicCard extends StatelessWidget {
 }
 
 class _ManualCompactEntryBody extends StatelessWidget {
-  const _ManualCompactEntryBody({
-    required this.entry,
-    required this.dense,
-    this.emphasizeTitle = false,
-  });
+  const _ManualCompactEntryBody({required this.entry, required this.dense});
 
   final CompanyManualEntry entry;
   final bool dense;
-  final bool emphasizeTitle;
 
   String _headline() {
     final audienceLabel = _audienceLabel(entry);
@@ -990,9 +658,7 @@ class _ManualCompactEntryBody extends StatelessWidget {
           style:
               (dense ? theme.textTheme.titleSmall : theme.textTheme.bodyLarge)
                   ?.copyWith(
-                    fontWeight: emphasizeTitle
-                        ? FontWeight.w800
-                        : FontWeight.w700,
+                    fontWeight: FontWeight.w700,
                     fontSize: dense ? 14 : 13.6,
                   ),
         ),
@@ -1017,168 +683,10 @@ String _audienceLabel(CompanyManualEntry entry) {
   if (entry.targetRoles.isNotEmpty) {
     return entry.targetRoles.map((role) => role.label).join(', ');
   }
-
   if (entry.audience == CompanyManualAudience.roleSpecific) {
     return 'Roles definidos';
   }
-
   return 'Todo el equipo';
-}
-
-class _ManualSearchResult {
-  const _ManualSearchResult({required this.query, this.selectedEntry});
-
-  final String query;
-  final CompanyManualEntry? selectedEntry;
-}
-
-class _ManualSearchDelegate extends SearchDelegate<_ManualSearchResult?> {
-  _ManualSearchDelegate({required this.entries, required String initialQuery})
-    : super(searchFieldLabel: 'Buscar reglas y políticas') {
-    query = initialQuery;
-  }
-
-  final List<CompanyManualEntry> entries;
-
-  List<CompanyManualEntry> get _filteredEntries {
-    final normalizedQuery = query.trim().toLowerCase();
-    final filtered = entries.where((entry) {
-      if (normalizedQuery.isEmpty) return true;
-      return entry.title.toLowerCase().contains(normalizedQuery) ||
-          (entry.summary ?? '').toLowerCase().contains(normalizedQuery) ||
-          entry.content.toLowerCase().contains(normalizedQuery) ||
-          (entry.moduleKey ?? '').toLowerCase().contains(normalizedQuery) ||
-          _audienceLabel(entry).toLowerCase().contains(normalizedQuery);
-    }).toList();
-
-    filtered.sort(
-      (left, right) =>
-          left.title.toLowerCase().compareTo(right.title.toLowerCase()),
-    );
-    return filtered;
-  }
-
-  @override
-  ThemeData appBarTheme(BuildContext context) {
-    final theme = Theme.of(context);
-    return theme.copyWith(
-      appBarTheme: theme.appBarTheme.copyWith(toolbarHeight: 64),
-      inputDecorationTheme: theme.inputDecorationTheme.copyWith(
-        filled: false,
-        border: InputBorder.none,
-        enabledBorder: InputBorder.none,
-        focusedBorder: InputBorder.none,
-      ),
-    );
-  }
-
-  @override
-  List<Widget>? buildActions(BuildContext context) {
-    return [
-      if (query.trim().isNotEmpty)
-        IconButton(
-          tooltip: 'Limpiar búsqueda',
-          onPressed: () {
-            query = '';
-            showSuggestions(context);
-          },
-          icon: const Icon(Icons.close_rounded),
-        ),
-      IconButton(
-        tooltip: 'Aplicar búsqueda',
-        onPressed: () =>
-            close(context, _ManualSearchResult(query: query.trim())),
-        icon: const Icon(Icons.check_rounded),
-      ),
-    ];
-  }
-
-  @override
-  Widget? buildLeading(BuildContext context) {
-    return IconButton(
-      tooltip: 'Cerrar',
-      onPressed: () => close(context, null),
-      icon: const Icon(Icons.arrow_back_rounded),
-    );
-  }
-
-  @override
-  Widget buildResults(BuildContext context) => _buildList(context);
-
-  @override
-  Widget buildSuggestions(BuildContext context) => _buildList(context);
-
-  Widget _buildList(BuildContext context) {
-    final filtered = _filteredEntries;
-    if (entries.isEmpty) {
-      return const Center(child: Text('No hay reglas disponibles'));
-    }
-    if (filtered.isEmpty) {
-      return const Center(child: Text('No se encontraron coincidencias'));
-    }
-
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
-      itemCount: filtered.length,
-      separatorBuilder: (_, _) => const SizedBox(height: 8),
-      itemBuilder: (context, index) {
-        final entry = filtered[index];
-        return ListTile(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          tileColor: Theme.of(context).colorScheme.surfaceContainerLowest,
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 14,
-            vertical: 4,
-          ),
-          title: Text(
-            entry.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(
-              context,
-            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
-          ),
-          subtitle: Text(
-            'Tipo: ${entry.kind.label} • ${_audienceLabel(entry)}',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          trailing: const Icon(Icons.arrow_forward_rounded),
-          onTap: () => close(
-            context,
-            _ManualSearchResult(query: query.trim(), selectedEntry: entry),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _ManualTag extends StatelessWidget {
-  const _ManualTag({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        label,
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-          color: Theme.of(context).colorScheme.primary,
-          fontWeight: FontWeight.w700,
-          fontSize: 11,
-        ),
-      ),
-    );
-  }
 }
 
 class _ManualEntryDetailPane extends StatelessWidget {
@@ -1267,7 +775,7 @@ class _ManualDetailHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final roles = entry.targetRoles.map((role) => role.label).join(', ');
+    // Variable roles eliminada porque no se usa.
     final updatedAt = entry.updatedAt ?? entry.createdAt;
 
     return Padding(
@@ -1310,18 +818,7 @@ class _ManualDetailHeader extends StatelessWidget {
             ],
           ),
           SizedBox(height: compact ? 8 : 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _ManualTag(label: entry.kind.label),
-              _ManualTag(label: entry.audience.label),
-              if (entry.moduleKey != null && entry.moduleKey!.isNotEmpty)
-                _ManualTag(label: 'Módulo ${entry.moduleKey}'),
-              if (roles.isNotEmpty) _ManualTag(label: 'Roles $roles'),
-              if (!entry.published) const _ManualTag(label: 'Oculto'),
-            ],
-          ),
+          // Etiquetas eliminadas para un diseño más limpio.
           SizedBox(height: compact ? 10 : 12),
           Text(
             'Última actualización ${formatDate(updatedAt)}',
