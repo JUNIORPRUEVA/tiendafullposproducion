@@ -843,10 +843,7 @@ export class PayrollService {
       periodEnd: period?.endDate,
     });
 
-    const commissions =
-      automaticSales.usedAutomatic
-        ? automaticSales.commissionAmount
-        : manualSalesCommissions;
+    const commissions = manualSalesCommissions + automaticSales.commissionAmount;
 
     const seguroLey = Math.max(
       0,
@@ -875,11 +872,15 @@ export class PayrollService {
       salesAmountThisPeriod: automaticSales.salesAmount,
       salesGoal: automaticSales.goal,
       salesGoalReached: automaticSales.goalReached,
-      salesCommissionSource: automaticSales.usedAutomatic
-        ? 'automatic'
-        : hasLinkedSalesUser
-          ? 'automatic_disabled'
-          : 'manual',
+      salesCommissionSource: manualSalesCommissions > 0
+        ? automaticSales.commissionAmount > 0
+          ? 'mixed'
+          : 'manual'
+        : automaticSales.usedAutomatic
+          ? 'automatic'
+          : hasLinkedSalesUser
+            ? 'automatic_disabled'
+            : 'manual',
       additions,
       deductions,
       total,
@@ -972,9 +973,7 @@ export class PayrollService {
       }
 
       const commissionFromSales =
-        automaticSales.usedAutomatic
-          ? automaticSales.commissionAmount
-          : manualSalesCommissions;
+        manualSalesCommissions + automaticSales.commissionAmount;
 
       benefitsAmount += manualServiceCommissions;
 
