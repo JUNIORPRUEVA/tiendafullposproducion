@@ -163,7 +163,7 @@ export class ContabilidadController {
   }
 
   @Post('closes/vouchers/upload')
-  @Roles('ADMIN', 'ASISTENTE')
+  @Roles(...CLOSING_ROLES)
   @UseInterceptors(
     FileInterceptor('file', {
       storage: memoryStorage(),

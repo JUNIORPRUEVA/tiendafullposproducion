@@ -12,6 +12,17 @@ import 'application/cierres_diarios_controller.dart';
 import 'data/contabilidad_repository.dart';
 import 'widgets/app_card.dart';
 import 'widgets/section_title.dart';
+import 'deposit_bank_catalog.dart';
+
+DepositBankOption? _resolveDepositBank(String? bankName) {
+  final normalized = (bankName ?? '').trim().toLowerCase();
+  for (final bank in depositBankCatalog) {
+    if (bank.id == normalized || bank.label.toLowerCase() == normalized) {
+      return bank;
+    }
+  }
+  return null;
+}
 
 class CierresDiariosScreen extends ConsumerStatefulWidget {
   const CierresDiariosScreen({super.key});
@@ -34,12 +45,16 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
   DateTime _date = DateTime.now();
   String? _editingId;
   final List<_TransferDraft> _transferEntries = [];
+  final List<_ExpenseDraft> _expenseEntries = [];
 
   @override
   void dispose() {
     _cashCtrl.dispose();
     for (final entry in _transferEntries) {
       entry.dispose();
+    }
+    for (final expense in _expenseEntries) {
+      expense.dispose();
     }
     _cardCtrl.dispose();
     _otherIncomeCtrl.dispose();
@@ -103,8 +118,6 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
-                  _buildCategoryButtons(selectedType, controller),
-                  const SizedBox(height: 12),
                   Center(
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 820),
@@ -135,41 +148,6 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
     );
   }
 
-  Widget _buildCategoryButtons(
-    CloseType selectedType,
-    CierresDiariosController controller,
-  ) {
-    return AppCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const SectionTitle(title: 'Historial por categoría'),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: _CategoryButton(
-                  label: 'Tienda',
-                  selected: selectedType == CloseType.tienda,
-                  onPressed: () => controller.setTypeFilter(CloseType.tienda),
-                ),
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: _CategoryButton(
-                  label: 'PhytoEmagry',
-                  selected: selectedType == CloseType.phytoemagry,
-                  onPressed: () =>
-                      controller.setTypeFilter(CloseType.phytoemagry),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildFormCard(
     BuildContext context,
     CierresDiariosState state,
@@ -184,7 +162,12 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
     final cash = _toMoney(_cashCtrl.text);
     final card = _toMoney(_cardCtrl.text);
     final otherIncome = _toMoney(_otherIncomeCtrl.text);
-    final expenses = _toMoney(_expensesCtrl.text);
+    final expenses = _expenseEntries.isEmpty
+        ? _toMoney(_expensesCtrl.text)
+        : _expenseEntries.fold<double>(
+            0,
+            (sum, expense) => sum + _toMoney(expense.amountCtrl.text),
+          );
     final delivered = _toMoney(_cashDeliveredCtrl.text);
     final totalIncome = cash + transfer + card + otherIncome;
     final netTotal = totalIncome - expenses;
@@ -200,28 +183,35 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             SectionTitle(
-              title: editing
-                  ? 'Editar cierre ${_type.label}'
-                  : 'Nuevo cierre ${_type.label}',
-              trailing: editing
-                  ? TextButton(
+              title: editing ? 'Editar cierre ${_type.label}' : 'Nuevo cierre',
+              trailing: Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  _UnitChipButton(
+                    label: 'Tienda',
+                    selected: _type == CloseType.tienda,
+                    onPressed: editing
+                        ? null
+                        : () => controller.setTypeFilter(CloseType.tienda),
+                  ),
+                  _UnitChipButton(
+                    label: 'PhytoEmagry',
+                    selected: _type == CloseType.phytoemagry,
+                    onPressed: editing
+                        ? null
+                        : () => controller.setTypeFilter(CloseType.phytoemagry),
+                  ),
+                  if (editing)
+                    TextButton(
                       onPressed: () {
                         controller.cancelEditing();
                         _resetForm();
                       },
                       child: const Text('Cancelar edición'),
-                    )
-                  : null,
-            ),
-            const SizedBox(height: 10),
-            InputDecorator(
-              decoration: const InputDecoration(labelText: 'Categoría activa'),
-              child: Text(
-                _type.label,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 15,
-                ),
+                    ),
+                ],
               ),
             ),
             const SizedBox(height: 10),
@@ -259,7 +249,7 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
             const SizedBox(height: 10),
             _moneyField(_otherIncomeCtrl, 'Otros ingresos'),
             const SizedBox(height: 10),
-            _moneyField(_expensesCtrl, 'Gastos del día'),
+            _buildExpensesSection(money),
             const SizedBox(height: 10),
             _moneyField(_cashDeliveredCtrl, 'Efectivo entregado'),
             const SizedBox(height: 10),
@@ -334,7 +324,7 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                           transfers: _transferPayload(),
                           card: _toMoney(_cardCtrl.text),
                           otherIncome: _toMoney(_otherIncomeCtrl.text),
-                          expenses: _toMoney(_expensesCtrl.text),
+                          expenses: expenses,
                           cashDelivered: _toMoney(_cashDeliveredCtrl.text),
                           notes: _notesCtrl.text,
                         );
@@ -440,6 +430,141 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
     );
   }
 
+  Widget _buildExpensesSection(NumberFormat money) {
+    final total = _expenseEntries.fold<double>(
+      0,
+      (sum, entry) => sum + _toMoney(entry.amountCtrl.text),
+    );
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Gastos del día ${money.format(total)}',
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
+              IconButton.filledTonal(
+                tooltip: 'Agregar gasto',
+                onPressed: () {
+                  setState(() => _expenseEntries.add(_ExpenseDraft()));
+                },
+                icon: const Icon(Icons.add),
+              ),
+            ],
+          ),
+          if (_expenseEntries.isEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: Text(
+                'Sin gastos registrados. Agrega concepto y monto.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            )
+          else ...[
+            const SizedBox(height: 10),
+            Table(
+              columnWidths: const {
+                0: FlexColumnWidth(2),
+                1: FlexColumnWidth(1),
+                2: IntrinsicColumnWidth(),
+              },
+              border: TableBorder.symmetric(
+                inside: BorderSide(
+                  color: Theme.of(context).colorScheme.outlineVariant,
+                ),
+              ),
+              children: [
+                TableRow(
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surfaceVariant,
+                  ),
+                  children: const [
+                    Padding(
+                      padding: EdgeInsets.all(8),
+                      child: Text('Concepto', style: TextStyle(fontWeight: FontWeight.w700)),
+                    ),
+                    Padding(
+                      padding: EdgeInsets.all(8),
+                      child: Text('Monto', style: TextStyle(fontWeight: FontWeight.w700)),
+                    ),
+                    Padding(
+                      padding: EdgeInsets.all(8),
+                      child: Text('Acciones', style: TextStyle(fontWeight: FontWeight.w700)),
+                    ),
+                  ],
+                ),
+                for (var index = 0; index < _expenseEntries.length; index++)
+                  TableRow(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: TextFormField(
+                          controller: _expenseEntries[index].conceptCtrl,
+                          decoration: const InputDecoration(
+                            border: InputBorder.none,
+                            hintText: 'Nombre del gasto',
+                          ),
+                          onChanged: (_) => setState(() {}),
+                          validator: (value) {
+                            if ((value ?? '').trim().isEmpty) {
+                              return 'Concepto requerido';
+                            }
+                            return null;
+                          },
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: TextFormField(
+                          controller: _expenseEntries[index].amountCtrl,
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          decoration: const InputDecoration(
+                            border: InputBorder.none,
+                            hintText: '0.00',
+                            prefixText: '\$ ',
+                          ),
+                          onChanged: (_) => setState(() {}),
+                          validator: (value) {
+                            final amount = _toMoney(value);
+                            if (amount <= 0) {
+                              return 'Mayor a 0';
+                            }
+                            return null;
+                          },
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: IconButton(
+                          icon: const Icon(Icons.delete_outline),
+                          tooltip: 'Eliminar gasto',
+                          onPressed: () {
+                            setState(() {
+                              _expenseEntries.removeAt(index).dispose();
+                            });
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Future<void> _pickVoucher(_TransferDraft draft) async {
     final result = await FilePicker.platform.pickFiles(
       allowMultiple: true,
@@ -522,6 +647,10 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
       _cardCtrl.text = close.card.toStringAsFixed(2);
       _otherIncomeCtrl.text = close.otherIncome.toStringAsFixed(2);
       _expensesCtrl.text = close.expenses.toStringAsFixed(2);
+      _expenseEntries.clear();
+      if (close.expenses > 0) {
+        _expenseEntries.add(_ExpenseDraft(amount: close.expenses.toStringAsFixed(2)));
+      }
       _cashDeliveredCtrl.text = close.cashDelivered.toStringAsFixed(2);
       _notesCtrl.text = close.notes ?? '';
     });
@@ -543,6 +672,10 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
       _cardCtrl.text = close.card.toStringAsFixed(2);
       _otherIncomeCtrl.text = close.otherIncome.toStringAsFixed(2);
       _expensesCtrl.text = close.expenses.toStringAsFixed(2);
+      _expenseEntries.clear();
+      if (close.expenses > 0) {
+        _expenseEntries.add(_ExpenseDraft(amount: close.expenses.toStringAsFixed(2)));
+      }
       _cashDeliveredCtrl.text = close.cashDelivered.toStringAsFixed(2);
       _notesCtrl.text = [
         if ((close.notes ?? '').trim().isNotEmpty) close.notes!.trim(),
@@ -563,6 +696,10 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
         entry.dispose();
       }
       _transferEntries.clear();
+      for (final expense in _expenseEntries) {
+        expense.dispose();
+      }
+      _expenseEntries.clear();
       _cardCtrl.text = '0';
       _otherIncomeCtrl.text = '0';
       _expensesCtrl.text = '0';
@@ -811,12 +948,12 @@ class _MoneyPill extends StatelessWidget {
   }
 }
 
-class _CategoryButton extends StatelessWidget {
+class _UnitChipButton extends StatelessWidget {
   final String label;
   final bool selected;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
 
-  const _CategoryButton({
+  const _UnitChipButton({
     required this.label,
     required this.selected,
     required this.onPressed,
@@ -824,20 +961,25 @@ class _CategoryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ElevatedButton(
+    return OutlinedButton(
       onPressed: onPressed,
-      style: ElevatedButton.styleFrom(
-        minimumSize: const Size.fromHeight(46),
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size(0, 34),
         backgroundColor: selected ? AppTheme.primaryColor : Colors.white,
         foregroundColor: selected ? Colors.white : AppTheme.primaryColor,
-        side: BorderSide(color: AppTheme.primaryColor),
+        disabledForegroundColor: selected
+            ? Colors.white
+            : AppTheme.primaryColor.withValues(alpha: 0.55),
+        side: BorderSide(
+          color: selected
+              ? AppTheme.primaryColor
+              : AppTheme.primaryColor.withValues(alpha: 0.45),
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         textStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
-        padding: const EdgeInsets.symmetric(horizontal: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 0),
       ),
-      child: FittedBox(
-        fit: BoxFit.scaleDown,
-        child: Text(label, textAlign: TextAlign.center, maxLines: 1),
-      ),
+      child: Text(label, textAlign: TextAlign.center, maxLines: 1),
     );
   }
 }
@@ -867,6 +1009,21 @@ class _TransferDraft {
     amountCtrl.dispose();
     referenceCtrl.dispose();
     noteCtrl.dispose();
+  }
+}
+
+class _ExpenseDraft {
+  final conceptCtrl = TextEditingController();
+  final amountCtrl = TextEditingController(text: '0');
+
+  _ExpenseDraft({String concept = '', String amount = '0'}) {
+    conceptCtrl.text = concept;
+    amountCtrl.text = amount;
+  }
+
+  void dispose() {
+    conceptCtrl.dispose();
+    amountCtrl.dispose();
   }
 }
 
@@ -916,12 +1073,28 @@ class _TransferEntryEditor extends StatelessWidget {
             Row(
               children: [
                 Expanded(
-                  child: TextFormField(
-                    controller: draft.bankCtrl,
+                  child: DropdownButtonFormField<String>(
+                    initialValue: _resolveDepositBank(draft.bankCtrl.text)?.id,
+                    items: depositBankCatalog
+                        .map(
+                          (bank) => DropdownMenuItem(
+                            value: bank.id,
+                            child: Text(bank.label),
+                          ),
+                        )
+                        .toList(),
                     decoration: const InputDecoration(labelText: 'Banco'),
-                    onChanged: (_) => onChanged(),
+                    onChanged: (value) {
+                      if (value == null) return;
+                      final bank = depositBankCatalog.firstWhere(
+                        (item) => item.id == value,
+                        orElse: () => depositBankCatalog.first,
+                      );
+                      draft.bankCtrl.text = bank.label;
+                      onChanged();
+                    },
                     validator: (value) =>
-                        (value ?? '').trim().isEmpty ? 'Banco requerido' : null,
+                        value == null ? 'Banco requerido' : null,
                   ),
                 ),
                 const SizedBox(width: 8),

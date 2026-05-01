@@ -57,6 +57,43 @@ function firstPhone(...values: unknown[]): string | null {
   return null;
 }
 
+async function findExistingWhatsappConversation(
+  prisma: PrismaService,
+  instanceId: string,
+  remoteJid: string,
+  remotePhone: string | null,
+) {
+  const exact = await prisma.whatsappConversation.findUnique({
+    where: {
+      instanceId_remoteJid: { instanceId, remoteJid },
+    },
+  });
+  if (exact) return exact;
+
+  if (!remotePhone) return null;
+
+  const byPhone = await prisma.whatsappConversation.findFirst({
+    where: {
+      instanceId,
+      remotePhone,
+    },
+    orderBy: { updatedAt: 'desc' },
+  });
+  if (!byPhone) return null;
+
+  if (byPhone.remoteJid !== remoteJid) {
+    return prisma.whatsappConversation.update({
+      where: { id: byPhone.id },
+      data: {
+        remoteJid,
+        ...(remotePhone ? { remotePhone } : {}),
+      },
+    });
+  }
+
+  return byPhone;
+}
+
 function readableSenderName(name: unknown, fallbackPhone: string | null): string | null {
   const raw = asString(name);
   if (!raw) return fallbackPhone;
@@ -337,26 +374,35 @@ export class WhatsappInboxService {
     const remotePhone = parsed.remotePhone ?? phoneFromIdentifier(parsed.remoteJid);
     const remoteName = parsed.senderName ?? remotePhone;
 
-    // Upsert conversation
-    const conversation = await this.prisma.whatsappConversation.upsert({
-      where: { instanceId_remoteJid: { instanceId, remoteJid: parsed.remoteJid } },
-      create: {
-        instanceId,
-        remoteJid: parsed.remoteJid,
-        remotePhone,
-        remoteName,
-        lastMessageAt: parsed.sentAt,
-        unreadCount: direction === WhatsappMessageDirection.INCOMING ? 1 : 0,
-      },
-      update: {
-        lastMessageAt: parsed.sentAt,
-        ...(remotePhone ? { remotePhone } : {}),
-        ...(remoteName ? { remoteName } : {}),
-        ...(direction === WhatsappMessageDirection.INCOMING
-          ? { unreadCount: { increment: 1 } }
-          : {}),
-      },
-    });
+    const existingConversation = await findExistingWhatsappConversation(
+      this.prisma,
+      instanceId,
+      parsed.remoteJid,
+      remotePhone,
+    );
+
+    const conversation = existingConversation
+      ? await this.prisma.whatsappConversation.update({
+          where: { id: existingConversation.id },
+          data: {
+            lastMessageAt: parsed.sentAt,
+            ...(remotePhone ? { remotePhone } : {}),
+            ...(remoteName ? { remoteName } : {}),
+            ...(direction === WhatsappMessageDirection.INCOMING
+              ? { unreadCount: { increment: 1 } }
+              : {}),
+          },
+        })
+      : await this.prisma.whatsappConversation.create({
+          data: {
+            instanceId,
+            remoteJid: parsed.remoteJid,
+            remotePhone,
+            remoteName,
+            lastMessageAt: parsed.sentAt,
+            unreadCount: direction === WhatsappMessageDirection.INCOMING ? 1 : 0,
+          },
+        });
 
     // Skip duplicate Evolution IDs
     if (parsed.evolutionId) {
