@@ -1608,9 +1608,93 @@ export class WhatsappInboxService {
         stats,
         summary:
           'No hay mensajes registrados para este usuario en la fecha seleccionada. Verifica que el webhook de la instancia este activo y que Evolution este enviando los eventos MESSAGES_UPSERT y SEND_MESSAGE.',
+        alerts: [],
+        conversationAnalysis: [],
       };
     }
 
+    const runtime = await this.getOpenAiRuntimeConfig();
+
+    // ─── Build per-conversation map ────────────────────────────────────
+    const convMap = new Map<
+      string,
+      {
+        contact: string;
+        msgs: Array<{
+          time: string;
+          direction: string;
+          type: string;
+          text: string;
+          mediaUrl: string | null;
+          mimeType: string | null;
+        }>;
+      }
+    >();
+    for (const m of messages) {
+      const contactName =
+        readableSenderName(
+          m.conversation.remoteName,
+          m.conversation.remotePhone,
+        ) ??
+        m.conversation.remotePhone ??
+        m.conversation.remoteJid;
+      if (!convMap.has(m.conversationId)) {
+        convMap.set(m.conversationId, { contact: contactName, msgs: [] });
+      }
+      convMap.get(m.conversationId)!.msgs.push({
+        time: m.sentAt.toISOString().slice(11, 16),
+        direction:
+          m.direction === WhatsappMessageDirection.OUTGOING
+            ? 'usuario'
+            : 'cliente',
+        type: m.messageType,
+        text: (m.body ?? m.caption ?? '').replace(/\s+/g, ' ').trim().slice(0, 800),
+        mediaUrl: m.mediaUrl,
+        mimeType: m.mediaMimeType,
+      });
+    }
+
+    // ─── Collect images & transcribe audio ────────────────────────────
+    const imageEntries: Array<{ contact: string; url: string }> = [];
+    const audioTranscriptions: Array<{ contact: string; text: string }> = [];
+
+    if (runtime.apiKey) {
+      for (const [, conv] of convMap) {
+        for (const msg of conv.msgs) {
+          if (
+            msg.type === WhatsappMessageType.IMAGE &&
+            msg.mediaUrl?.startsWith('data:image')
+          ) {
+            if (imageEntries.length < 5) {
+              imageEntries.push({ contact: conv.contact, url: msg.mediaUrl });
+            }
+          }
+          if (
+            (msg.type === WhatsappMessageType.AUDIO ||
+              msg.type === ('PTT' as WhatsappMessageType)) &&
+            msg.mediaUrl?.startsWith('data:audio')
+          ) {
+            if (audioTranscriptions.length < 4) {
+              const transcription = await this.transcribeAudioBase64(
+                msg.mediaUrl,
+                msg.mimeType ?? 'audio/ogg',
+                runtime.apiKey,
+              ).catch(() => null);
+              if (transcription) {
+                audioTranscriptions.push({
+                  contact: conv.contact,
+                  text: transcription,
+                });
+                // Replace the placeholder text in the transcript entry
+                msg.text = `[Audio transcrito: ${transcription.slice(0, 500)}]`;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // ─── Build flat transcript for AI ─────────────────────────────────
     const transcript = messages.map((m) => ({
       time: m.sentAt.toISOString().slice(11, 16),
       direction:
@@ -1625,18 +1709,20 @@ export class WhatsappInboxService {
         m.conversation.remotePhone ??
         m.conversation.remoteJid,
       type: m.messageType,
-      text: (m.body ?? m.caption ?? '')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .slice(0, 900),
+      text: convMap
+        .get(m.conversationId)
+        ?.msgs.find((x) => x.time === m.sentAt.toISOString().slice(11, 16) && x.direction === (m.direction === WhatsappMessageDirection.OUTGOING ? 'usuario' : 'cliente'))
+        ?.text ??
+        (m.body ?? m.caption ?? '').replace(/\s+/g, ' ').trim().slice(0, 800),
     }));
 
-    const runtime = await this.getOpenAiRuntimeConfig();
     if (!runtime.apiKey) {
       return {
         source: 'rules-only',
         stats,
         summary: this.buildDeterministicDailySummary(stats, transcript),
+        alerts: [],
+        conversationAnalysis: [],
       };
     }
 
@@ -1644,19 +1730,71 @@ export class WhatsappInboxService {
       const ai = await this.requestDailySummaryFromOpenAi(runtime, {
         stats,
         transcript,
+        images: imageEntries,
+        audioTranscriptions,
+        conversationIds: Array.from(convMap.entries()).map(([, v]) => ({
+          contact: v.contact,
+          messageCount: v.msgs.length,
+          hasIncoming: v.msgs.some((x) => x.direction === 'cliente'),
+          hasOutgoing: v.msgs.some((x) => x.direction === 'usuario'),
+          hasMedia: v.msgs.some((x) => x.type !== WhatsappMessageType.TEXT),
+        })),
       });
       return {
         source: 'openai',
         stats,
         summary:
           ai.summary || this.buildDeterministicDailySummary(stats, transcript),
+        alerts: ai.alerts ?? [],
+        conversationAnalysis: ai.conversationAnalysis ?? [],
       };
     } catch {
       return {
         source: 'rules-only',
         stats,
         summary: this.buildDeterministicDailySummary(stats, transcript),
+        alerts: [],
+        conversationAnalysis: [],
       };
+    }
+  }
+
+  private async transcribeAudioBase64(
+    dataUrl: string,
+    mimeType: string,
+    apiKey: string,
+  ): Promise<string | null> {
+    try {
+      const base64 = dataUrl.replace(/^data:[^;]+;base64,/, '');
+      const buffer = Buffer.from(base64, 'base64');
+      const ext = mimeType.includes('ogg')
+        ? 'ogg'
+        : mimeType.includes('mp4')
+          ? 'mp4'
+          : mimeType.includes('mpeg') || mimeType.includes('mp3')
+            ? 'mp3'
+            : 'ogg';
+      const form = new FormData();
+      form.append(
+        'file',
+        new Blob([buffer], { type: mimeType }),
+        `audio.${ext}`,
+      );
+      form.append('model', 'whisper-1');
+      form.append('language', 'es');
+      const response = await fetch(
+        'https://api.openai.com/v1/audio/transcriptions',
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${apiKey}` },
+          body: form,
+        },
+      );
+      if (!response.ok) return null;
+      const data = (await response.json()) as { text?: string };
+      return (data.text ?? '').trim() || null;
+    } catch {
+      return null;
     }
   }
 
@@ -1742,8 +1880,30 @@ export class WhatsappInboxService {
 
   private async requestDailySummaryFromOpenAi(
     runtime: { apiKey: string; model: string; companyName: string },
-    payload: unknown,
-  ): Promise<{ summary?: string }> {
+    payload: {
+      stats: unknown;
+      transcript: unknown;
+      images?: Array<{ contact: string; url: string }>;
+      audioTranscriptions?: Array<{ contact: string; text: string }>;
+      conversationIds?: Array<{
+        contact: string;
+        messageCount: number;
+        hasIncoming: boolean;
+        hasOutgoing: boolean;
+        hasMedia: boolean;
+      }>;
+    },
+  ): Promise<{
+    summary?: string;
+    alerts?: Array<{ type: string; severity: string; contact: string; description: string }>;
+    conversationAnalysis?: Array<{
+      contact: string;
+      messageCount: number;
+      status: string;
+      issues: string[];
+      summary: string;
+    }>;
+  }> {
     const candidates = [
       runtime.model,
       'gpt-5',
@@ -1751,15 +1911,60 @@ export class WhatsappInboxService {
       'gpt-4o',
       'gpt-4o-mini',
     ].filter((value, index, list) => value && list.indexOf(value) === index);
+
     const systemPrompt =
-      `Eres un analista CRM de ${runtime.companyName}. Resume actividad diaria de WhatsApp para auditar ventas y seguimiento. ` +
-      'Usa solo los mensajes enviados. No inventes ventas. Escribe en espanol profesional, claro y accionable.';
-    const userPrompt =
-      `${JSON.stringify(payload)}\n\n` +
-      'Devuelve JSON exacto {"summary":"string"}. El summary debe incluir: panorama del dia, rendimiento del usuario, clientes/interesados/no interesados si se puede inferir, categorias mencionadas, seguimientos dados/no dados, oportunidades y alertas.';
+      `Eres un analista CRM y auditor de cumplimiento de ${runtime.companyName}. ` +
+      'Analiza la actividad diaria de WhatsApp de un empleado para: ' +
+      '1) Evaluar desempeno de ventas y seguimiento. ' +
+      '2) Detectar conductas inapropiadas o falta de profesionalismo del usuario (empleado). ' +
+      '3) Detectar clientes enojados, frustrados o que no recibieron respuesta. ' +
+      '4) Detectar senales de fraude, acuerdos fuera del sistema, pagos informales, descuentos no autorizados. ' +
+      '5) Revisar ortografia y redaccion del empleado. ' +
+      '6) Generar alertas accionables con nivel de riesgo. ' +
+      'Basa tu analisis SOLO en los mensajes proporcionados. No inventes informacion. Escribe en espanol profesional.';
+
+    const textPayload = {
+      stats: payload.stats,
+      transcript: payload.transcript,
+      audioTranscriptions: payload.audioTranscriptions ?? [],
+      conversations: payload.conversationIds ?? [],
+    };
+
+    const outputSchema =
+      'Devuelve SOLO JSON con esta estructura exacta:\n' +
+      '{"summary":"resumen ejecutivo del dia",' +
+      '"alerts":[{"type":"fraud|misconduct|no_response|angry_customer|spelling|unanswered","severity":"high|medium|low","contact":"nombre del contacto o usuario","description":"descripcion especifica"}],' +
+      '"conversationAnalysis":[{"contact":"nombre","messageCount":0,"status":"interested|not_interested|angry|no_response|closed|pending","issues":["lista de problemas detectados"],"summary":"resumen de 1-2 lineas de esta conversacion"}]}';
+
+    // Build user message content — include images if available
+    const userContent: Array<{ type: string; text?: string; image_url?: { url: string; detail: string } }> = [];
+
+    userContent.push({
+      type: 'text',
+      text: `Datos de actividad:\n${JSON.stringify(textPayload, null, 0).slice(0, 28000)}\n\n${outputSchema}`,
+    });
+
+    // Add image frames if available (vision)
+    for (const img of payload.images ?? []) {
+      userContent.push({
+        type: 'text',
+        text: `[Imagen enviada por/a: ${img.contact}]`,
+      });
+      userContent.push({
+        type: 'image_url',
+        image_url: { url: img.url, detail: 'low' },
+      });
+    }
 
     for (const model of candidates) {
       try {
+        const isVisionModel =
+          model.includes('gpt-4') || model.includes('gpt-5');
+        const messageContent =
+          isVisionModel && (payload.images?.length ?? 0) > 0
+            ? userContent
+            : userContent.filter((c) => c.type === 'text').map((c) => c.text).join('\n');
+
         const response = await fetch(
           'https://api.openai.com/v1/chat/completions',
           {
@@ -1770,10 +1975,14 @@ export class WhatsappInboxService {
             },
             body: JSON.stringify({
               model,
-              temperature: 0.2,
+              temperature: 0.15,
+              max_tokens: 3000,
               messages: [
                 { role: 'system', content: systemPrompt },
-                { role: 'user', content: userPrompt },
+                {
+                  role: 'user',
+                  content: messageContent,
+                },
               ],
             }),
           },
@@ -1788,7 +1997,11 @@ export class WhatsappInboxService {
         const last = content.lastIndexOf('}');
         const json =
           first >= 0 && last > first ? content.slice(first, last + 1) : content;
-        return JSON.parse(json) as { summary?: string };
+        return JSON.parse(json) as {
+          summary?: string;
+          alerts?: Array<{ type: string; severity: string; contact: string; description: string }>;
+          conversationAnalysis?: Array<{ contact: string; messageCount: number; status: string; issues: string[]; summary: string }>;
+        };
       } catch {
         continue;
       }

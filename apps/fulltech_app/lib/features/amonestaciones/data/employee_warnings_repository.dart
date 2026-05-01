@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_routes.dart';
+import '../../../core/api/env.dart';
 import '../../../core/auth/auth_repository.dart';
 import 'employee_warning_model.dart';
 
@@ -106,23 +107,111 @@ class EmployeeWarningsRepository {
     return EmployeeWarning.fromJson(res.data as Map<String, dynamic>);
   }
 
-  /// Downloads the warning PDF bytes through the authenticated API endpoint.
-  /// Returns the raw bytes to be rendered with SfPdfViewer.memory().
-  Future<Uint8List> getMyWarningPdfBytes(String id) async {
-    final res = await _dio.get<List<int>>(
-      ApiRoutes.employeeWarningsMyPdf(id),
-      options: Options(responseType: ResponseType.bytes),
-    );
-    if (res.data == null || res.data!.isEmpty) {
-      throw Exception('El servidor no devolvió contenido del PDF');
+  List<String> _buildPdfCandidates(String rawUrl) {
+    final value = rawUrl.trim();
+    if (value.isEmpty) return const [];
+
+    final out = <String>[];
+    final seen = <String>{};
+    void addCandidate(String? v) {
+      final candidate = (v ?? '').trim();
+      if (candidate.isEmpty) return;
+      if (seen.add(candidate)) out.add(candidate);
     }
-    return Uint8List.fromList(res.data!);
+
+    final uri = Uri.tryParse(value);
+    if (uri != null && uri.hasScheme) {
+      addCandidate(uri.toString());
+    } else {
+      final normalized = value.replaceAll('\\', '/');
+      final baseUrl = Env.apiBaseUrl.trim().replaceAll(RegExp(r'/+$'), '');
+      if (baseUrl.isNotEmpty) {
+        if (normalized.startsWith('/')) {
+          addCandidate('$baseUrl$normalized');
+        } else if (normalized.startsWith('./')) {
+          addCandidate('$baseUrl/${normalized.substring(2)}');
+        } else {
+          addCandidate('$baseUrl/$normalized');
+        }
+      }
+      addCandidate(normalized);
+    }
+
+    final baseUri = Uri.tryParse(Env.apiBaseUrl.trim());
+    if (baseUri != null) {
+      final originals = List<String>.from(out);
+      for (final candidate in originals) {
+        final cUri = Uri.tryParse(candidate);
+        if (cUri == null || !cUri.hasScheme) continue;
+        if (cUri.host != baseUri.host) continue;
+
+        final segments = cUri.pathSegments.where((s) => s.isNotEmpty).toList();
+        if (segments.isEmpty) continue;
+        if (segments.first == 'api') {
+          final noApi = cUri.replace(pathSegments: segments.skip(1));
+          addCandidate(noApi.toString());
+        } else {
+          final withApi = cUri.replace(pathSegments: ['api', ...segments]);
+          addCandidate(withApi.toString());
+        }
+      }
+    }
+
+    return out;
+  }
+
+  /// Download PDF bytes with auth.
+  /// First tries /employee-warnings/me/:id/pdf; if it returns 404, falls back
+  /// to candidate URLs built from the warning pdfUrl field.
+  Future<Uint8List> getMyWarningPdfBytes({
+    required String id,
+    String? rawPdfUrl,
+  }) async {
+    try {
+      final res = await _dio.get<List<int>>(
+        ApiRoutes.employeeWarningsMyPdf(id),
+        options: Options(responseType: ResponseType.bytes),
+      );
+      if (res.data != null && res.data!.isNotEmpty) {
+        return Uint8List.fromList(res.data!);
+      }
+    } on DioException catch (e) {
+      final status = e.response?.statusCode ?? 0;
+      if (status != 404) rethrow;
+    }
+
+    final raw = (rawPdfUrl ?? '').trim();
+    if (raw.isEmpty) {
+      throw Exception('No hay URL de PDF disponible para esta amonestacion');
+    }
+
+    final candidates = _buildPdfCandidates(raw);
+    DioException? lastDioError;
+    for (final candidate in candidates) {
+      try {
+        final res = await _dio.get<List<int>>(
+          candidate,
+          options: Options(responseType: ResponseType.bytes),
+        );
+        if (res.data != null && res.data!.isNotEmpty) {
+          return Uint8List.fromList(res.data!);
+        }
+      } on DioException catch (e) {
+        lastDioError = e;
+      }
+    }
+
+    if (lastDioError != null) {
+      throw lastDioError;
+    }
+    throw Exception('No se pudo descargar el PDF');
   }
 
   Future<EmployeeWarning> sign(
     String id, {
     required String typedName,
     String? comment,
+    String? signatureImageUrl,
     String? deviceInfo,
   }) async {
     final res = await _dio.post(
@@ -130,6 +219,8 @@ class EmployeeWarningsRepository {
       data: {
         'typedName': typedName,
         if (comment != null && comment.isNotEmpty) 'comment': comment,
+        if (signatureImageUrl != null && signatureImageUrl.isNotEmpty)
+          'signatureImageUrl': signatureImageUrl,
         if (deviceInfo != null) 'deviceInfo': deviceInfo,
       },
     );

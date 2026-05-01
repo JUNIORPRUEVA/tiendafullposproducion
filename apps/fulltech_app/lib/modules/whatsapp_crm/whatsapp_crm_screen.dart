@@ -11,6 +11,7 @@ import 'package:media_kit_video/media_kit_video.dart' as media_kit_video;
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/api/env.dart';
 import '../../core/auth/auth_provider.dart';
 import '../../core/auth/app_role.dart';
 import '../../core/realtime/operations_realtime_service.dart';
@@ -36,6 +37,163 @@ String _waInitial(dynamic value, [String fallback = '?']) {
   if (text.isEmpty) return fallback;
   final firstRune = text.runes.first;
   return String.fromCharCode(firstRune).toUpperCase();
+}
+
+String _resolveChatAvatarUrl(String? rawUrl) {
+  final value = (rawUrl ?? '').trim();
+  if (value.isEmpty) return '';
+  if (value.startsWith('http://') || value.startsWith('https://')) {
+    return value;
+  }
+
+  final base = Env.apiBaseUrl.trim();
+  if (base.isEmpty) return value;
+
+  final normalizedBase = base.endsWith('/')
+      ? base.substring(0, base.length - 1)
+      : base;
+  final normalizedPath = value.startsWith('/')
+      ? value
+      : (value.startsWith('uploads/') ? '/$value' : '/uploads/$value');
+  return '$normalizedBase$normalizedPath';
+}
+
+Future<void> _showChatAvatarPreview(
+  BuildContext context,
+  WaCrmConversation conv,
+) async {
+  final resolvedUrl = _resolveChatAvatarUrl(conv.remoteAvatarUrl);
+  if (resolvedUrl.isEmpty) return;
+
+  final size = MediaQuery.sizeOf(context);
+  await showDialog<void>(
+    context: context,
+    barrierColor: Colors.black.withValues(alpha: 0.88),
+    builder: (dialogContext) {
+      return Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 20),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: size.width * 0.95,
+            maxHeight: size.height * 0.88,
+          ),
+          child: GestureDetector(
+            onDoubleTap: () => Navigator.of(dialogContext).pop(),
+            onVerticalDragEnd: (details) {
+              final velocity = details.primaryVelocity ?? 0;
+              if (velocity > 700) {
+                Navigator.of(dialogContext).pop();
+              }
+            },
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(20),
+                    child: Container(
+                      color: Colors.black,
+                      child: InteractiveViewer(
+                        minScale: 1,
+                        maxScale: 4,
+                        child: Center(
+                          child: Image.network(
+                            resolvedUrl,
+                            fit: BoxFit.contain,
+                            loadingBuilder: (context, child, loadingProgress) {
+                              if (loadingProgress == null) return child;
+                              return const Center(
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              );
+                            },
+                            errorBuilder: (context, _, __) => Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(
+                                    Icons.broken_image_outlined,
+                                    color: Colors.white70,
+                                    size: 46,
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Text(
+                                    'No se pudo cargar la foto',
+                                    style: Theme.of(dialogContext)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.copyWith(color: Colors.white70),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              Positioned(
+                top: 10,
+                right: 10,
+                child: Material(
+                  color: Colors.black45,
+                  shape: const CircleBorder(),
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: () => Navigator.of(dialogContext).pop(),
+                    child: const Padding(
+                      padding: EdgeInsets.all(8),
+                      child: Icon(Icons.close, color: Colors.white),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                left: 12,
+                right: 12,
+                bottom: 12,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _waText(conv.displayName),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(dialogContext)
+                              .textTheme
+                              .bodyMedium
+                              ?.copyWith(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                              ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        'Doble toque o desliza abajo para cerrar',
+                        style: Theme.of(dialogContext).textTheme.bodySmall
+                            ?.copyWith(color: Colors.white70),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              ],
+            ),
+          ),
+        ),
+      );
+    },
+  );
 }
 
 class WhatsappCrmScreen extends ConsumerStatefulWidget {
@@ -1197,15 +1355,25 @@ class _ConversationTile extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
           children: [
-            UserAvatar(
-              imageUrl: conv.remoteAvatarUrl,
-              radius: 22,
-              backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.15),
-              child: Text(
-                _waInitial(conv.displayName),
-                style: TextStyle(
-                  color: theme.colorScheme.primary,
-                  fontWeight: FontWeight.bold,
+            Material(
+              color: Colors.transparent,
+              shape: const CircleBorder(),
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: () => _showChatAvatarPreview(context, conv),
+                child: UserAvatar(
+                  imageUrl: conv.remoteAvatarUrl,
+                  radius: 22,
+                  backgroundColor: theme.colorScheme.primary.withValues(
+                    alpha: 0.15,
+                  ),
+                  child: Text(
+                    _waInitial(conv.displayName),
+                    style: TextStyle(
+                      color: theme.colorScheme.primary,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -1479,15 +1647,25 @@ class _ChatPanel extends StatelessWidget {
           ),
           child: Row(
             children: [
-              UserAvatar(
-                imageUrl: conv.remoteAvatarUrl,
-                radius: 18,
-                backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.15),
-                child: Text(
-                  _waInitial(conv.displayName),
-                  style: TextStyle(
-                    color: theme.colorScheme.primary,
-                    fontWeight: FontWeight.bold,
+              Material(
+                color: Colors.transparent,
+                shape: const CircleBorder(),
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: () => _showChatAvatarPreview(context, conv),
+                  child: UserAvatar(
+                    imageUrl: conv.remoteAvatarUrl,
+                    radius: 18,
+                    backgroundColor: theme.colorScheme.primary.withValues(
+                      alpha: 0.15,
+                    ),
+                    child: Text(
+                      _waInitial(conv.displayName),
+                      style: TextStyle(
+                        color: theme.colorScheme.primary,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -2483,6 +2661,71 @@ class _DailyAiPanel extends StatelessWidget {
   final VoidCallback onPickDate;
   final VoidCallback onGenerate;
 
+  static Color _severityColor(BuildContext context, String severity) {
+    final scheme = Theme.of(context).colorScheme;
+    switch (severity) {
+      case 'high':
+        return scheme.error;
+      case 'medium':
+        return Colors.orange.shade700;
+      default:
+        return scheme.primary;
+    }
+  }
+
+  static IconData _alertIcon(String type) {
+    switch (type) {
+      case 'fraud':
+        return Icons.gpp_bad_outlined;
+      case 'misconduct':
+        return Icons.report_problem_outlined;
+      case 'angry_customer':
+        return Icons.mood_bad_outlined;
+      case 'no_response':
+      case 'unanswered':
+        return Icons.chat_bubble_outline;
+      case 'spelling':
+        return Icons.spellcheck_outlined;
+      default:
+        return Icons.warning_amber_outlined;
+    }
+  }
+
+  static Color _statusColor(BuildContext context, String status) {
+    final scheme = Theme.of(context).colorScheme;
+    switch (status) {
+      case 'interested':
+        return Colors.green.shade700;
+      case 'angry':
+        return scheme.error;
+      case 'no_response':
+        return Colors.orange.shade700;
+      case 'closed':
+        return scheme.onSurfaceVariant;
+      default:
+        return scheme.primary;
+    }
+  }
+
+  static String _statusLabel(String status) {
+    switch (status) {
+      case 'interested':
+        return 'Interesado';
+      case 'not_interested':
+        return 'No interesado';
+      case 'angry':
+        return 'Enojado';
+      case 'no_response':
+        return 'Sin respuesta';
+      case 'closed':
+        return 'Cerrado';
+      case 'pending':
+        return 'Pendiente';
+      default:
+        return status;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -2490,6 +2733,10 @@ class _DailyAiPanel extends StatelessWidget {
     final date = state.aiSummaryDate ?? DateTime.now();
     final summary = state.aiSummary;
     final stats = summary?.stats ?? const <String, dynamic>{};
+    final alerts = summary?.alerts ?? const <WaCrmAiAlert>[];
+    final convAnalysis =
+        summary?.conversationAnalysis ?? const <WaCrmConversationAnalysis>[];
+    final highAlerts = alerts.where((a) => a.severity == 'high').toList();
 
     return Container(
       color: scheme.surface,
@@ -2598,6 +2845,12 @@ class _DailyAiPanel extends StatelessWidget {
                     label: 'Media',
                     value: '${stats['mediaMessages'] ?? 0}',
                   ),
+                  if (highAlerts.isNotEmpty)
+                    _AiStatPill(
+                      label: 'Alertas críticas',
+                      value: '${highAlerts.length}',
+                      isAlert: true,
+                    ),
                 ],
               ),
             ),
@@ -2630,13 +2883,282 @@ class _DailyAiPanel extends StatelessWidget {
                     ),
                   )
                 : SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 22),
-                    child: SelectableText(
-                      _waText(summary.summary),
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        height: 1.42,
-                        color: scheme.onSurface,
-                      ),
+                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // ── Critical alerts banner ─────────────────────
+                        if (alerts.isNotEmpty) ...[
+                          Container(
+                            margin: const EdgeInsets.only(bottom: 14),
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: highAlerts.isNotEmpty
+                                  ? scheme.errorContainer.withValues(alpha: 0.55)
+                                  : Colors.orange.shade50.withValues(alpha: 0.5),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: highAlerts.isNotEmpty
+                                    ? scheme.error.withValues(alpha: 0.5)
+                                    : Colors.orange.shade300,
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(
+                                      highAlerts.isNotEmpty
+                                          ? Icons.gpp_bad_outlined
+                                          : Icons.warning_amber_outlined,
+                                      color: highAlerts.isNotEmpty
+                                          ? scheme.error
+                                          : Colors.orange.shade700,
+                                      size: 18,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      'Alertas detectadas (${alerts.length})',
+                                      style: theme.textTheme.labelMedium?.copyWith(
+                                        fontWeight: FontWeight.w800,
+                                        color: highAlerts.isNotEmpty
+                                            ? scheme.error
+                                            : Colors.orange.shade700,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                ...alerts.map(
+                                  (alert) => Padding(
+                                    padding: const EdgeInsets.only(bottom: 8),
+                                    child: Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Icon(
+                                          _alertIcon(alert.type),
+                                          size: 15,
+                                          color: _severityColor(
+                                            context,
+                                            alert.severity,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 7),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              if (alert.contact.isNotEmpty)
+                                                Text(
+                                                  alert.contact,
+                                                  style: theme
+                                                      .textTheme.labelSmall
+                                                      ?.copyWith(
+                                                    fontWeight: FontWeight.w700,
+                                                    color: scheme.onSurface,
+                                                  ),
+                                                ),
+                                              Text(
+                                                _waText(alert.description),
+                                                style: theme
+                                                    .textTheme.bodySmall
+                                                    ?.copyWith(
+                                                  height: 1.35,
+                                                  color: scheme.onSurface,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        Container(
+                                          margin: const EdgeInsets.only(
+                                            left: 6,
+                                            top: 1,
+                                          ),
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 7,
+                                            vertical: 3,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: _severityColor(
+                                              context,
+                                              alert.severity,
+                                            ).withValues(alpha: 0.12),
+                                            borderRadius:
+                                                BorderRadius.circular(6),
+                                            border: Border.all(
+                                              color: _severityColor(
+                                                context,
+                                                alert.severity,
+                                              ).withValues(alpha: 0.4),
+                                            ),
+                                          ),
+                                          child: Text(
+                                            alert.severity.toUpperCase(),
+                                            style: theme.textTheme.labelSmall
+                                                ?.copyWith(
+                                              fontSize: 9,
+                                              fontWeight: FontWeight.w800,
+                                              color: _severityColor(
+                                                context,
+                                                alert.severity,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                        // ── Summary text ───────────────────────────────
+                        Text(
+                          'Resumen ejecutivo',
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: scheme.onSurfaceVariant,
+                            letterSpacing: 0.4,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        SelectableText(
+                          _waText(summary.summary),
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            height: 1.42,
+                            color: scheme.onSurface,
+                          ),
+                        ),
+                        // ── Per-conversation analysis ──────────────────
+                        if (convAnalysis.isNotEmpty) ...[
+                          const SizedBox(height: 18),
+                          Text(
+                            'Análisis por conversación',
+                            style: theme.textTheme.labelMedium?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              color: scheme.onSurfaceVariant,
+                              letterSpacing: 0.4,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          ...convAnalysis.map(
+                            (conv) => Container(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              padding: const EdgeInsets.all(11),
+                              decoration: BoxDecoration(
+                                color: scheme.surfaceContainerHighest
+                                    .withValues(alpha: 0.45),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: scheme.outlineVariant,
+                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          _waText(conv.contact),
+                                          style: theme.textTheme.labelMedium
+                                              ?.copyWith(
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 3,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: _statusColor(
+                                            context,
+                                            conv.status,
+                                          ).withValues(alpha: 0.1),
+                                          borderRadius:
+                                              BorderRadius.circular(8),
+                                          border: Border.all(
+                                            color: _statusColor(
+                                              context,
+                                              conv.status,
+                                            ).withValues(alpha: 0.35),
+                                          ),
+                                        ),
+                                        child: Text(
+                                          _statusLabel(conv.status),
+                                          style: theme.textTheme.labelSmall
+                                              ?.copyWith(
+                                            fontWeight: FontWeight.w700,
+                                            fontSize: 10,
+                                            color: _statusColor(
+                                              context,
+                                              conv.status,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  if (conv.summary.isNotEmpty) ...[
+                                    const SizedBox(height: 5),
+                                    Text(
+                                      _waText(conv.summary),
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                        height: 1.35,
+                                        color: scheme.onSurface,
+                                      ),
+                                    ),
+                                  ],
+                                  if (conv.issues.isNotEmpty) ...[
+                                    const SizedBox(height: 6),
+                                    Wrap(
+                                      spacing: 5,
+                                      runSpacing: 4,
+                                      children: conv.issues
+                                          .map(
+                                            (issue) => Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                horizontal: 7,
+                                                vertical: 3,
+                                              ),
+                                              decoration: BoxDecoration(
+                                                color: scheme.errorContainer
+                                                    .withValues(alpha: 0.35),
+                                                borderRadius:
+                                                    BorderRadius.circular(6),
+                                              ),
+                                              child: Text(
+                                                _waText(issue),
+                                                style: theme
+                                                    .textTheme.labelSmall
+                                                    ?.copyWith(
+                                                  fontSize: 10,
+                                                  color:
+                                                      scheme.onErrorContainer,
+                                                ),
+                                              ),
+                                            ),
+                                          )
+                                          .toList(),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
           ),
@@ -2647,21 +3169,33 @@ class _DailyAiPanel extends StatelessWidget {
 }
 
 class _AiStatPill extends StatelessWidget {
-  const _AiStatPill({required this.label, required this.value});
+  const _AiStatPill({
+    required this.label,
+    required this.value,
+    this.isAlert = false,
+  });
 
   final String label;
   final String value;
+  final bool isAlert;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final alertColor = scheme.error;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest.withValues(alpha: 0.58),
+        color: isAlert
+            ? alertColor.withValues(alpha: 0.1)
+            : scheme.surfaceContainerHighest.withValues(alpha: 0.58),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: scheme.outlineVariant),
+        border: Border.all(
+          color: isAlert
+              ? alertColor.withValues(alpha: 0.4)
+              : scheme.outlineVariant,
+        ),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -2670,7 +3204,7 @@ class _AiStatPill extends StatelessWidget {
           Text(
             _waText(label),
             style: theme.textTheme.labelSmall?.copyWith(
-              color: scheme.onSurfaceVariant,
+              color: isAlert ? alertColor : scheme.onSurfaceVariant,
               fontWeight: FontWeight.w700,
             ),
           ),
@@ -2678,6 +3212,7 @@ class _AiStatPill extends StatelessWidget {
             _waText(value),
             style: theme.textTheme.titleSmall?.copyWith(
               fontWeight: FontWeight.w900,
+              color: isAlert ? alertColor : null,
             ),
           ),
         ],

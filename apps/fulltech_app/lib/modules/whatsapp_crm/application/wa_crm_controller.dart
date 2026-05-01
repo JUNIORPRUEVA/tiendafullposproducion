@@ -61,22 +61,90 @@ class WaCrmInstanceEntry {
 
 // ─── User selector ────────────────────────────────────────────────────────
 
+class WaCrmAiAlert {
+  const WaCrmAiAlert({
+    required this.type,
+    required this.severity,
+    required this.contact,
+    required this.description,
+  });
+
+  final String type; // fraud | misconduct | no_response | angry_customer | spelling | unanswered
+  final String severity; // high | medium | low
+  final String contact;
+  final String description;
+
+  factory WaCrmAiAlert.fromJson(Map<String, dynamic> json) {
+    return WaCrmAiAlert(
+      type: sanitizeWaText(json['type']) ?? 'unknown',
+      severity: sanitizeWaText(json['severity']) ?? 'low',
+      contact: sanitizeWaText(json['contact']) ?? '',
+      description: sanitizeWaText(json['description']) ?? '',
+    );
+  }
+}
+
+class WaCrmConversationAnalysis {
+  const WaCrmConversationAnalysis({
+    required this.contact,
+    required this.messageCount,
+    required this.status,
+    required this.issues,
+    required this.summary,
+  });
+
+  final String contact;
+  final int messageCount;
+  final String status; // interested | not_interested | angry | no_response | closed | pending
+  final List<String> issues;
+  final String summary;
+
+  factory WaCrmConversationAnalysis.fromJson(Map<String, dynamic> json) {
+    return WaCrmConversationAnalysis(
+      contact: sanitizeWaText(json['contact']) ?? '',
+      messageCount: (json['messageCount'] as num?)?.toInt() ?? 0,
+      status: sanitizeWaText(json['status']) ?? 'pending',
+      issues: (json['issues'] as List<dynamic>?)
+              ?.map((e) => sanitizeWaText(e) ?? '')
+              .where((s) => s.isNotEmpty)
+              .toList() ??
+          const [],
+      summary: sanitizeWaText(json['summary']) ?? '',
+    );
+  }
+}
+
 class WaCrmDailyAiSummary {
   const WaCrmDailyAiSummary({
     required this.source,
     required this.summary,
     required this.stats,
+    this.alerts = const [],
+    this.conversationAnalysis = const [],
   });
 
   final String source;
   final String summary;
   final Map<String, dynamic> stats;
+  final List<WaCrmAiAlert> alerts;
+  final List<WaCrmConversationAnalysis> conversationAnalysis;
 
   factory WaCrmDailyAiSummary.fromJson(Map<String, dynamic> json) {
     return WaCrmDailyAiSummary(
       source: sanitizeWaText(json['source']) ?? 'rules-only',
       summary: sanitizeWaText(json['summary']) ?? '',
       stats: (json['stats'] as Map?)?.cast<String, dynamic>() ?? const {},
+      alerts: (json['alerts'] as List<dynamic>?)
+              ?.whereType<Map<String, dynamic>>()
+              .map(WaCrmAiAlert.fromJson)
+              .toList() ??
+          const [],
+      conversationAnalysis:
+          (json['conversationAnalysis'] as List<dynamic>?)
+              ?.whereType<Map<String, dynamic>>()
+              .map(WaCrmConversationAnalysis.fromJson)
+              .toList() ??
+          const [],
     );
   }
 }

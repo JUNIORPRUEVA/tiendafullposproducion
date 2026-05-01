@@ -1,9 +1,13 @@
-﻿import 'dart:typed_data';
+﻿import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
+import 'package:signature/signature.dart';
 import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 
+import '../../../core/auth/auth_provider.dart';
 import '../application/warnings_controller.dart';
 import '../data/employee_warning_model.dart';
 import '../data/employee_warnings_repository.dart';
@@ -16,12 +20,22 @@ import 'warning_labels.dart';
 class MisAmonestacionesPendientesScreen extends ConsumerWidget {
   const MisAmonestacionesPendientesScreen({super.key});
 
+  double _maxContentWidth(double width) {
+    if (width >= 1500) return 860;
+    if (width >= 1200) return 800;
+    if (width >= 980) return 760;
+    return double.infinity;
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(myPendingWarningsProvider);
+    final width = MediaQuery.sizeOf(context).width;
+    final maxContentWidth = _maxContentWidth(width);
+    final listHorizontalPadding = width >= 980 ? 20.0 : 12.0;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF0F2F8),
+      backgroundColor: const Color(0xFFEEF1F8),
       appBar: AppBar(
         title: const Text(
           'Pendientes de firma',
@@ -38,34 +52,132 @@ class MisAmonestacionesPendientesScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: async.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.error_outline, color: Colors.red, size: 48),
-              const SizedBox(height: 12),
-              Text('$e', textAlign: TextAlign.center, style: const TextStyle(color: Colors.red)),
-              const SizedBox(height: 16),
-              ElevatedButton.icon(
-                onPressed: () => ref.invalidate(myPendingWarningsProvider),
-                icon: const Icon(Icons.refresh),
-                label: const Text('Reintentar'),
-              ),
-            ],
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFFF6F8FD), Color(0xFFEEF1F8)],
           ),
         ),
-        data: (list) => list.isEmpty
-            ? const _EmptyState()
-            : RefreshIndicator(
-                onRefresh: () async => ref.invalidate(myPendingWarningsProvider),
-                child: ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(14, 14, 14, 80),
-                  itemCount: list.length,
-                  itemBuilder: (context, i) => _WarningCard(warning: list[i]),
+        child: async.when(
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (e, _) => Center(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: maxContentWidth),
+              child: Card(
+                elevation: 2,
+                margin: const EdgeInsets.symmetric(horizontal: 16),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                child: Padding(
+                  padding: const EdgeInsets.all(18),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.error_outline, color: Colors.red, size: 48),
+                      const SizedBox(height: 12),
+                      Text(
+                        '$e',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.red),
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton.icon(
+                        onPressed: () => ref.invalidate(myPendingWarningsProvider),
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Reintentar'),
+                      ),
+                    ],
+                  ),
                 ),
               ),
+            ),
+          ),
+          data: (list) {
+            if (list.isEmpty) {
+              return Center(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: maxContentWidth),
+                  child: const _EmptyState(),
+                ),
+              );
+            }
+
+            return RefreshIndicator(
+              onRefresh: () async => ref.invalidate(myPendingWarningsProvider),
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: maxContentWidth),
+                  child: ListView.separated(
+                    padding: EdgeInsets.fromLTRB(listHorizontalPadding, 18, listHorizontalPadding, 96),
+                    itemCount: list.length + 1,
+                    separatorBuilder: (_, __) => const SizedBox(height: 2),
+                    itemBuilder: (context, i) {
+                      if (i == 0) {
+                        return _PendingSummaryHeader(count: list.length);
+                      }
+                      return _WarningCard(warning: list[i - 1]);
+                    },
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _PendingSummaryHeader extends StatelessWidget {
+  final int count;
+  const _PendingSummaryHeader({required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1A1A2E),
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF1A1A2E).withValues(alpha: 0.18),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(Icons.assignment_late_outlined, color: Colors.white, size: 18),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              count == 1
+                  ? 'Tienes 1 amonestacion pendiente de firma'
+                  : 'Tienes $count amonestaciones pendientes de firma',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                height: 1.35,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          const Icon(Icons.chevron_right_rounded, color: Colors.white70),
+        ],
       ),
     );
   }
@@ -133,7 +245,7 @@ class _WarningCardState extends ConsumerState<_WarningCard> {
     try {
       final bytes = await ref
           .read(employeeWarningsRepositoryProvider)
-          .getMyWarningPdfBytes(w.id);
+          .getMyWarningPdfBytes(id: w.id, rawPdfUrl: w.pdfUrl);
 
       if (!mounted) return;
       await Navigator.of(context).push(
@@ -159,90 +271,23 @@ class _WarningCardState extends ConsumerState<_WarningCard> {
 
   // â”€â”€ Sign â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   Future<void> _sign() async {
-    final nameCtrl = TextEditingController();
-    final commentCtrl = TextEditingController();
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        title: const Row(
-          children: [
-            Icon(Icons.draw_outlined, color: Color(0xFF1a1a2e), size: 20),
-            SizedBox(width: 8),
-            Text('Firmar amonestaciÃ³n'),
-          ],
-        ),
-        content: SizedBox(
-          width: 360,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFF3CD),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: const Color(0xFFFFD700).withValues(alpha: 0.5)),
-                ),
-                child: const Text(
-                  'Al firmar confirmas haber recibido y leÃ­do esta amonestaciÃ³n. '
-                  'Esto no implica que estÃ©s de acuerdo con su contenido.',
-                  style: TextStyle(fontSize: 12, color: Color(0xFF856404)),
-                ),
-              ),
-              const SizedBox(height: 14),
-              TextField(
-                controller: nameCtrl,
-                textCapitalization: TextCapitalization.words,
-                decoration: const InputDecoration(
-                  labelText: 'Tu nombre completo (firma)',
-                  border: OutlineInputBorder(),
-                  isDense: true,
-                  prefixIcon: Icon(Icons.person_outline, size: 18),
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: commentCtrl,
-                maxLines: 2,
-                decoration: const InputDecoration(
-                  labelText: 'Comentario (opcional)',
-                  border: OutlineInputBorder(),
-                  isDense: true,
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton.icon(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF1a1a2e),
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-            ),
-            onPressed: () => Navigator.pop(dialogContext, true),
-            icon: const Icon(Icons.check, size: 16),
-            label: const Text('Firmar'),
-          ),
-        ],
+    final authUser = ref.read(authStateProvider).user;
+    final fixedName = (authUser?.nombreCompleto ?? '').trim().toUpperCase();
+    final signatureResult = await Navigator.of(context).push<_SignatureCaptureResult>(
+      MaterialPageRoute(
+        builder: (_) => _SignatureCaptureScreen(initialTypedName: fixedName),
       ),
     );
 
-    if (confirmed != true || nameCtrl.text.trim().isEmpty) return;
+    if (signatureResult == null) return;
 
     setState(() => _loading = true);
     try {
       await ref.read(employeeWarningsRepositoryProvider).sign(
             w.id,
-            typedName: nameCtrl.text.trim(),
-            comment: commentCtrl.text.trim().isEmpty ? null : commentCtrl.text.trim(),
+            typedName: signatureResult.typedName,
+            comment: signatureResult.comment,
+            signatureImageUrl: signatureResult.signatureDataUrl,
           );
       ref.invalidate(myPendingWarningsProvider);
       if (mounted) {
@@ -772,6 +817,236 @@ class _Section extends StatelessWidget {
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // PDF bytes viewer screen
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+class _SignatureCaptureResult {
+  final String typedName;
+  final String? comment;
+  final String signatureDataUrl;
+
+  const _SignatureCaptureResult({
+    required this.typedName,
+    required this.comment,
+    required this.signatureDataUrl,
+  });
+}
+
+class _SignatureCaptureScreen extends StatefulWidget {
+  final String initialTypedName;
+
+  const _SignatureCaptureScreen({required this.initialTypedName});
+
+  @override
+  State<_SignatureCaptureScreen> createState() => _SignatureCaptureScreenState();
+}
+
+class _SignatureCaptureScreenState extends State<_SignatureCaptureScreen> {
+  late final SignatureController _signatureCtrl;
+  bool _saving = false;
+
+  bool get _isMobile => MediaQuery.sizeOf(context).width < 900;
+  bool get _supportsOrientationLock {
+    if (kIsWeb) return false;
+    return defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _signatureCtrl = SignatureController(
+      penStrokeWidth: 2.6,
+      penColor: const Color(0xFF121212),
+      exportBackgroundColor: Colors.white,
+    );
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_isMobile && _supportsOrientationLock) {
+        SystemChrome.setPreferredOrientations([
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        ]);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _signatureCtrl.dispose();
+    if (_supportsOrientationLock) {
+      SystemChrome.setPreferredOrientations(DeviceOrientation.values);
+    }
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (widget.initialTypedName.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No se encontro el nombre del usuario autenticado')),
+      );
+      return;
+    }
+    if (_signatureCtrl.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Debes dibujar tu firma en el recuadro')),
+      );
+      return;
+    }
+
+    setState(() => _saving = true);
+    try {
+      final pngBytes = await _signatureCtrl.toPngBytes(
+        height: _isMobile ? 700 : 820,
+        width: _isMobile ? 1800 : 2400,
+      );
+      if (!mounted || pngBytes == null || pngBytes.isEmpty) return;
+
+      final base64 = base64Encode(pngBytes);
+      final signatureDataUrl = 'data:image/png;base64,$base64';
+
+      Navigator.of(context).pop(
+        _SignatureCaptureResult(
+          typedName: widget.initialTypedName,
+          comment: null,
+          signatureDataUrl: signatureDataUrl,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
+    final canvasHeight = _isMobile ? 280.0 : 420.0;
+    final maxContentWidth = _isMobile ? width : 1100.0;
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF1F4FA),
+      appBar: AppBar(
+        title: const Text('Firma de recibido'),
+        backgroundColor: const Color(0xFF1a1a2e),
+        foregroundColor: Colors.white,
+      ),
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: maxContentWidth),
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 20),
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF4DB),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFE9C98B)),
+                  ),
+                  child: Text(
+                    _isMobile
+                        ? 'Modo movil: pantalla horizontal para una firma comoda y amplia.'
+                        : 'Modo escritorio: area de firma ampliada para mayor precision.',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF7A4E13),
+                      height: 1.35,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                InputDecorator(
+                  decoration: const InputDecoration(
+                    labelText: 'Nombre completo (usuario autenticado)',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.person_outline),
+                  ),
+                  child: Text(
+                    widget.initialTypedName,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.2,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFFCED6E0)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.06),
+                        blurRadius: 16,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.draw_rounded, size: 18, color: Color(0xFF1a1a2e)),
+                          const SizedBox(width: 8),
+                          const Expanded(
+                            child: Text(
+                              'Dibuja tu firma dentro del recuadro',
+                              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                            ),
+                          ),
+                          TextButton.icon(
+                            onPressed: _signatureCtrl.clear,
+                            icon: const Icon(Icons.cleaning_services_outlined, size: 16),
+                            label: const Text('Limpiar'),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        height: canvasHeight,
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFFB0BEC5), width: 1.2),
+                        ),
+                        child: Signature(
+                          controller: _signatureCtrl,
+                          backgroundColor: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                ElevatedButton.icon(
+                  onPressed: _saving ? null : _submit,
+                  icon: _saving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Icon(Icons.check_circle_outline),
+                  label: const Text('Guardar firma y continuar'),
+                  style: ElevatedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48),
+                    backgroundColor: const Color(0xFF1a1a2e),
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class _PdfBytesViewerScreen extends StatelessWidget {
   final Uint8List bytes;
