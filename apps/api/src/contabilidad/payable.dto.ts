@@ -133,3 +133,19 @@ export class PayablePaymentsQueryDto {
   @IsOptional()
   serviceId?: string;
 }
+
+export class UpdatePayablePaymentDto {
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  amount?: number;
+
+  @IsDateString()
+  @IsOptional()
+  paidAt?: string;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(1200)
+  note?: string;
+}

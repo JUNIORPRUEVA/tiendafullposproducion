@@ -66,6 +66,8 @@ class ApiRoutes {
   static String contabilidadPayableServicePayments(String id) =>
       '/contabilidad/payables/services/$id/payments';
   static const contabilidadPayablePayments = '/contabilidad/payables/payments';
+  static String contabilidadPayablePaymentDetail(String id) =>
+      '/contabilidad/payables/payments/$id';
 
   // Clientes
   static const clients = '/clients';

@@ -49,6 +49,7 @@ import {
   PayablePaymentsQueryDto,
   PayableServicesQueryDto,
   RegisterPayablePaymentDto,
+  UpdatePayablePaymentDto,
   UpdatePayableServiceDto,
 } from './payable.dto';
 
@@ -598,5 +599,37 @@ export class ContabilidadController {
   @Roles('ADMIN', 'ASISTENTE')
   async getPayablePayments(@Query() query: PayablePaymentsQueryDto) {
     return this.contabilidadService.getPayablePayments(query);
+  }
+
+  @Delete('payables/services/:id')
+  @Roles('ADMIN')
+  async deletePayableService(@Param('id') id: string, @Req() req: Request) {
+    return this.contabilidadService.deletePayableService(
+      id,
+      (req.user ?? {}) as RequestActor,
+    );
+  }
+
+  @Delete('payables/payments/:id')
+  @Roles('ADMIN')
+  async deletePayablePayment(@Param('id') id: string, @Req() req: Request) {
+    return this.contabilidadService.deletePayablePayment(
+      id,
+      (req.user ?? {}) as RequestActor,
+    );
+  }
+
+  @Put('payables/payments/:id')
+  @Roles('ADMIN')
+  async updatePayablePayment(
+    @Param('id') id: string,
+    @Body() dto: UpdatePayablePaymentDto,
+    @Req() req: Request,
+  ) {
+    return this.contabilidadService.updatePayablePayment(
+      id,
+      dto,
+      (req.user ?? {}) as RequestActor,
+    );
   }
 }

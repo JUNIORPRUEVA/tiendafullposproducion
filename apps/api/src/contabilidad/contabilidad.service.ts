@@ -39,6 +39,7 @@ import {
   PayablePaymentsQueryDto,
   PayableServicesQueryDto,
   RegisterPayablePaymentDto,
+  UpdatePayablePaymentDto,
   UpdatePayableServiceDto,
 } from './payable.dto';
 
@@ -1628,6 +1629,40 @@ export class ContabilidadService {
         service: true,
       },
       orderBy: [{ paidAt: 'desc' }, { createdAt: 'desc' }],
+    });
+  }
+
+  async deletePayableService(id: string, actor: Actor) {
+    this.ensureAdmin(actor);
+    const existing = await this.prisma.payableService.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Servicio por pagar no encontrado');
+    await this.prisma.payableService.delete({ where: { id } });
+    return { deleted: true, id };
+  }
+
+  async deletePayablePayment(id: string, actor: Actor) {
+    this.ensureAdmin(actor);
+    const existing = await this.prisma.payablePayment.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Pago no encontrado');
+    await this.prisma.payablePayment.delete({ where: { id } });
+    return { deleted: true, id };
+  }
+
+  async updatePayablePayment(id: string, dto: UpdatePayablePaymentDto, actor: Actor) {
+    this.ensureAdmin(actor);
+    const existing = await this.prisma.payablePayment.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Pago no encontrado');
+    if (dto.amount !== undefined && dto.amount <= 0) {
+      throw new BadRequestException('El monto debe ser mayor a 0');
+    }
+    return this.prisma.payablePayment.update({
+      where: { id },
+      data: {
+        ...(dto.amount !== undefined ? { amount: dto.amount } : {}),
+        ...(dto.paidAt !== undefined ? { paidAt: new Date(dto.paidAt) } : {}),
+        ...(dto.note !== undefined ? { note: this.toNullableTrimmed(dto.note) } : {}),
+      },
+      include: { service: true },
     });
   }
 }

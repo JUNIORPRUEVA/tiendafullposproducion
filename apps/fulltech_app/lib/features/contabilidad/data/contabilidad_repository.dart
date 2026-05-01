@@ -850,4 +850,51 @@ class ContabilidadRepository {
       );
     }
   }
+
+  Future<void> deletePayableService(String id) async {
+    try {
+      await _dio.delete(ApiRoutes.contabilidadPayableServiceDetail(id));
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo eliminar el servicio'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<void> deletePayablePayment(String id) async {
+    try {
+      await _dio.delete(ApiRoutes.contabilidadPayablePaymentDetail(id));
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo eliminar el pago'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<PayablePayment> updatePayablePayment({
+    required String id,
+    double? amount,
+    DateTime? paidAt,
+    String? note,
+  }) async {
+    final payload = <String, dynamic>{
+      if (amount != null) 'amount': amount,
+      if (paidAt != null) 'paidAt': paidAt.toIso8601String(),
+      if (note != null) 'note': note,
+    };
+    try {
+      final res = await _dio.put(
+        ApiRoutes.contabilidadPayablePaymentDetail(id),
+        data: payload,
+      );
+      return PayablePayment.fromJson((res.data as Map).cast<String, dynamic>());
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo actualizar el pago'),
+        e.response?.statusCode,
+      );
+    }
+  }
 }
