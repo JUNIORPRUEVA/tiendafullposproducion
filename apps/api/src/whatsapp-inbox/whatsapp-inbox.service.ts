@@ -527,6 +527,23 @@ export class WhatsappInboxService {
     return this.saveMessage(instanceId, parsed);
   }
 
+  async attachEvolutionIdToMessage(messageId: string, evolutionId?: string | null) {
+    const cleanId = (evolutionId ?? '').trim();
+    if (!cleanId) return null;
+
+    const existing = await this.prisma.whatsappMessage.findUnique({
+      where: { evolutionId: cleanId },
+      select: { id: true },
+    });
+    if (existing) return existing;
+
+    return this.prisma.whatsappMessage.update({
+      where: { id: messageId },
+      data: { evolutionId: cleanId },
+      select: { id: true },
+    });
+  }
+
   async summarizeDailyActivity(userId: string, dateIso: string) {
     const date = /^\d{4}-\d{2}-\d{2}$/.test(dateIso)
       ? dateIso

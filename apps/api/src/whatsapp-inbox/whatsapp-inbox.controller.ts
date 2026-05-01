@@ -47,6 +47,28 @@ class DailySummaryDto {
   date!: string;
 }
 
+function extractEvolutionMessageId(result: unknown): string | undefined {
+  const root = result && typeof result === 'object'
+    ? (result as Record<string, unknown>)
+    : {};
+  const key = root.key && typeof root.key === 'object'
+    ? (root.key as Record<string, unknown>)
+    : undefined;
+  const message = root.message && typeof root.message === 'object'
+    ? (root.message as Record<string, unknown>)
+    : undefined;
+  const nestedKey = message?.key && typeof message.key === 'object'
+    ? (message.key as Record<string, unknown>)
+    : undefined;
+
+  return (
+    (key?.id as string | undefined) ??
+    (nestedKey?.id as string | undefined) ??
+    (root.id as string | undefined) ??
+    (root.messageId as string | undefined)
+  );
+}
+
 /** Admin-only REST endpoints for the WhatsApp CRM inbox */
 @Controller('whatsapp-inbox')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -114,24 +136,23 @@ export class WhatsappInboxController {
       return { ok: false, error: 'Conversation not found' };
     }
 
+    const saved = await this.inboxService.recordOutgoingMessage(
+      conversation.instanceId,
+      conversation.remoteJid,
+      dto.text,
+    );
+
     const result = await this.whatsappService.sendTextMessage(
       conversation.instance.instanceName,
       conversation.remoteJid,
       dto.text,
     );
-
-    const resultObj = result as Record<string, unknown>;
-    const evolutionId =
-      ((resultObj?.['key'] as Record<string, unknown>)?.['id']) as string | undefined;
-
-    await this.inboxService.recordOutgoingMessage(
-      conversation.instanceId,
-      conversation.remoteJid,
-      dto.text,
-      evolutionId,
+    await this.inboxService.attachEvolutionIdToMessage(
+      saved.message.id,
+      extractEvolutionMessageId(result),
     );
 
-    return { ok: true };
+    return { ok: true, messageId: saved.message.id };
   }
 
   /** Send message from admin to any JID using a specific user's instance */
@@ -139,24 +160,23 @@ export class WhatsappInboxController {
   async sendMessage(@Body() dto: SendMessageDto) {
     const instance = await this.inboxService.getInstanceByUserId(dto.userId!);
 
+    const saved = await this.inboxService.recordOutgoingMessage(
+      instance.id,
+      dto.remoteJid,
+      dto.text,
+    );
+
     const result2 = await this.whatsappService.sendTextMessage(
       instance.instanceName,
       dto.remoteJid,
       dto.text,
     );
-
-    const result2Obj = result2 as Record<string, unknown>;
-    const evolutionId2 =
-      ((result2Obj?.['key'] as Record<string, unknown>)?.['id']) as string | undefined;
-
-    await this.inboxService.recordOutgoingMessage(
-      instance.id,
-      dto.remoteJid,
-      dto.text,
-      evolutionId2,
+    await this.inboxService.attachEvolutionIdToMessage(
+      saved.message.id,
+      extractEvolutionMessageId(result2),
     );
 
-    return { ok: true };
+    return { ok: true, messageId: saved.message.id };
   }
 }
 
