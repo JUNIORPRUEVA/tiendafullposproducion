@@ -94,4 +94,18 @@ class WaCrmRepository {
       data: {'text': text},
     );
   }
+
+  /// Generate daily AI summary for one user's WhatsApp activity.
+  Future<Map<String, dynamic>> summarizeDailyActivity({
+    required String userId,
+    required DateTime date,
+  }) async {
+    final day =
+        '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    final res = await _dio.post<Map<String, dynamic>>(
+      '/whatsapp-inbox/daily-summary',
+      data: {'userId': userId, 'date': day},
+    );
+    return res.data ?? const {};
+  }
 }

@@ -37,6 +37,16 @@ class ReplyDto {
   text!: string;
 }
 
+class DailySummaryDto {
+  @IsString()
+  @IsNotEmpty()
+  userId!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  date!: string;
+}
+
 /** Admin-only REST endpoints for the WhatsApp CRM inbox */
 @Controller('whatsapp-inbox')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -82,6 +92,12 @@ export class WhatsappInboxController {
   @Post('conversations/:id/read')
   markRead(@Param('id', ParseUUIDPipe) conversationId: string) {
     return this.inboxService.markRead(conversationId);
+  }
+
+  /** Generate a daily AI summary for one user's WhatsApp activity */
+  @Post('daily-summary')
+  summarizeDailyActivity(@Body() dto: DailySummaryDto) {
+    return this.inboxService.summarizeDailyActivity(dto.userId, dto.date);
   }
 
   /** Reply to a specific conversation */

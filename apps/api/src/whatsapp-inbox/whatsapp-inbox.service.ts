@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsappMessageDirection, WhatsappMessageType } from '@prisma/client';
 import { CatalogRealtimeRelayService } from '../products/catalog-realtime-relay.service';
@@ -106,6 +107,7 @@ export class WhatsappInboxService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtime: CatalogRealtimeRelayService,
+    private readonly config: ConfigService,
   ) {}
 
   private normalizeConversationForResponse<T extends { remoteJid: string; remotePhone: string | null; remoteName: string | null }>(
@@ -462,5 +464,196 @@ export class WhatsappInboxService {
       rawPayload: null,
     };
     return this.saveMessage(instanceId, parsed);
+  }
+
+  async summarizeDailyActivity(userId: string, dateIso: string) {
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(dateIso)
+      ? dateIso
+      : new Date(dateIso).toISOString().slice(0, 10);
+    if (!date) throw new BadRequestException('Fecha invalida');
+
+    const instance = await this.prisma.userWhatsappInstance.findUnique({
+      where: { userId },
+      include: {
+        user: { select: { id: true, nombreCompleto: true, role: true } },
+      },
+    });
+    if (!instance) throw new NotFoundException('Instance not found for user');
+
+    const start = new Date(`${date}T00:00:00-04:00`);
+    const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+
+    const messages = await this.prisma.whatsappMessage.findMany({
+      where: {
+        sentAt: { gte: start, lt: end },
+        conversation: { instanceId: instance.id },
+      },
+      orderBy: { sentAt: 'asc' },
+      include: {
+        conversation: {
+          select: {
+            id: true,
+            remoteJid: true,
+            remotePhone: true,
+            remoteName: true,
+          },
+        },
+      },
+      take: 1200,
+    });
+
+    const contacts = new Set(messages.map((m) => m.conversationId));
+    const incoming = messages.filter((m) => m.direction === WhatsappMessageDirection.INCOMING);
+    const outgoing = messages.filter((m) => m.direction === WhatsappMessageDirection.OUTGOING);
+    const media = messages.filter((m) => m.messageType !== WhatsappMessageType.TEXT);
+
+    const stats = {
+      date,
+      userName: instance.user?.nombreCompleto ?? instance.instanceName,
+      instanceName: instance.instanceName,
+      totalMessages: messages.length,
+      incomingMessages: incoming.length,
+      outgoingMessages: outgoing.length,
+      contacts: contacts.size,
+      mediaMessages: media.length,
+    };
+
+    if (messages.length === 0) {
+      return {
+        source: 'rules-only',
+        stats,
+        summary:
+          'No hay mensajes registrados para este usuario en la fecha seleccionada. Verifica que el webhook de la instancia este activo y que Evolution este enviando los eventos MESSAGES_UPSERT y SEND_MESSAGE.',
+      };
+    }
+
+    const transcript = messages.map((m) => ({
+      time: m.sentAt.toISOString().slice(11, 16),
+      direction: m.direction === WhatsappMessageDirection.OUTGOING ? 'usuario' : 'cliente',
+      contact: readableSenderName(m.conversation.remoteName, m.conversation.remotePhone) ??
+        m.conversation.remotePhone ??
+        m.conversation.remoteJid,
+      type: m.messageType,
+      text: (m.body ?? m.caption ?? '').replace(/\s+/g, ' ').trim().slice(0, 900),
+    }));
+
+    const runtime = await this.getOpenAiRuntimeConfig();
+    if (!runtime.apiKey) {
+      return {
+        source: 'rules-only',
+        stats,
+        summary: this.buildDeterministicDailySummary(stats, transcript),
+      };
+    }
+
+    try {
+      const ai = await this.requestDailySummaryFromOpenAi(runtime, {
+        stats,
+        transcript,
+      });
+      return {
+        source: 'openai',
+        stats,
+        summary: ai.summary || this.buildDeterministicDailySummary(stats, transcript),
+      };
+    } catch {
+      return {
+        source: 'rules-only',
+        stats,
+        summary: this.buildDeterministicDailySummary(stats, transcript),
+      };
+    }
+  }
+
+  private async getOpenAiRuntimeConfig() {
+    const envKey = (this.config.get<string>('OPENAI_API_KEY') ?? process.env.OPENAI_API_KEY ?? '').trim();
+    const envModel = (this.config.get<string>('OPENAI_MODEL') ?? process.env.OPENAI_MODEL ?? '').trim();
+    const appConfig = await this.prisma.appConfig.findUnique({
+      where: { id: 'global' },
+      select: { openAiApiKey: true, openAiModel: true, companyName: true },
+    }).catch(() => null);
+
+    return {
+      apiKey: envKey.length > 0 ? envKey : (appConfig?.openAiApiKey ?? '').trim(),
+      model: envModel.length > 0 ? envModel : ((appConfig?.openAiModel ?? '').trim() || 'gpt-4o-mini'),
+      companyName: (appConfig?.companyName ?? 'FULLTECH').trim() || 'FULLTECH',
+    };
+  }
+
+  private buildDeterministicDailySummary(
+    stats: {
+      date: string;
+      userName: string;
+      totalMessages: number;
+      incomingMessages: number;
+      outgoingMessages: number;
+      contacts: number;
+      mediaMessages: number;
+    },
+    transcript: Array<{ direction: string; text: string; contact: string }>,
+  ) {
+    const interestWords = ['precio', 'cotizacion', 'cotización', 'quiero', 'interesa', 'disponible', 'comprar', 'instalar'];
+    const followWords = ['mañana', 'luego', 'despues', 'después', 'pendiente', 'seguimiento', 'confirmar'];
+    const interested = new Set<string>();
+    const followups = new Set<string>();
+
+    for (const item of transcript) {
+      const text = item.text.toLowerCase();
+      if (interestWords.some((word) => text.includes(word))) interested.add(item.contact);
+      if (followWords.some((word) => text.includes(word))) followups.add(item.contact);
+    }
+
+    return [
+      `Resumen del ${stats.date} para ${stats.userName}.`,
+      `Actividad: ${stats.totalMessages} mensajes en ${stats.contacts} contactos. Recibidos: ${stats.incomingMessages}. Enviados desde la instancia: ${stats.outgoingMessages}. Multimedia: ${stats.mediaMessages}.`,
+      `Interes comercial detectado: ${interested.size} contacto(s) con señales de compra, cotizacion o disponibilidad.`,
+      `Seguimientos detectados: ${followups.size} contacto(s) con menciones de pendiente, confirmar o retomar.`,
+      'Recomendacion: revisar los contactos con interes y confirmar que cada conversacion tenga proximo paso claro, monto/categoria y responsable.',
+    ].join('\n\n');
+  }
+
+  private async requestDailySummaryFromOpenAi(
+    runtime: { apiKey: string; model: string; companyName: string },
+    payload: unknown,
+  ): Promise<{ summary?: string }> {
+    const candidates = [runtime.model, 'gpt-5', 'gpt-4.1', 'gpt-4o', 'gpt-4o-mini']
+      .filter((value, index, list) => value && list.indexOf(value) === index);
+    const systemPrompt =
+      `Eres un analista CRM de ${runtime.companyName}. Resume actividad diaria de WhatsApp para auditar ventas y seguimiento. ` +
+      'Usa solo los mensajes enviados. No inventes ventas. Escribe en espanol profesional, claro y accionable.';
+    const userPrompt =
+      `${JSON.stringify(payload)}\n\n` +
+      'Devuelve JSON exacto {"summary":"string"}. El summary debe incluir: panorama del dia, rendimiento del usuario, clientes/interesados/no interesados si se puede inferir, categorias mencionadas, seguimientos dados/no dados, oportunidades y alertas.';
+
+    for (const model of candidates) {
+      try {
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${runtime.apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model,
+            temperature: 0.2,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userPrompt },
+            ],
+          }),
+        });
+        if (!response.ok) continue;
+        const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
+        const content = data.choices?.[0]?.message?.content?.trim();
+        if (!content) continue;
+        const first = content.indexOf('{');
+        const last = content.lastIndexOf('}');
+        const json = first >= 0 && last > first ? content.slice(first, last + 1) : content;
+        return JSON.parse(json) as { summary?: string };
+      } catch {
+        continue;
+      }
+    }
+    throw new BadRequestException('No se pudo generar el resumen de IA.');
   }
 }

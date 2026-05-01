@@ -38,6 +38,7 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
   final _scrollController = ScrollController();
   StreamSubscription<Map<String, dynamic>>? _whatsappSub;
   bool _showActionPanel = true;
+  bool _showAiPanel = false;
 
   @override
   void initState() {
@@ -125,6 +126,16 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
               onPressed: () =>
                   setState(() => _showActionPanel = !_showActionPanel),
             ),
+          if (!isMobile)
+            IconButton(
+              icon: Icon(
+                _showAiPanel
+                    ? Icons.auto_awesome
+                    : Icons.auto_awesome_outlined,
+              ),
+              tooltip: _showAiPanel ? 'Ocultar IA' : 'Resumen IA del dia',
+              onPressed: () => setState(() => _showAiPanel = !_showAiPanel),
+            ),
           IconButton(
             icon: const Icon(Icons.refresh_rounded),
             tooltip: 'Actualizar',
@@ -169,6 +180,7 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
             msgController: _msgController,
             scrollController: _scrollController,
             onSend: () => _sendReply(),
+            agentName: state.selectedUser?.name,
           ),
         ),
         if (_showActionPanel) ...[
@@ -177,6 +189,19 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
           SizedBox(
             width: 260,
             child: _ActionsPanel(state: state),
+          ),
+        ],
+        if (_showAiPanel) ...[
+          const VerticalDivider(width: 1),
+          SizedBox(
+            width: 360,
+            child: _DailyAiPanel(
+              state: state,
+              onPickDate: _pickAiSummaryDate,
+              onGenerate: () => ref
+                  .read(waCrmControllerProvider.notifier)
+                  .generateDailyAiSummary(),
+            ),
           ),
         ],
       ],
@@ -211,6 +236,7 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
             msgController: _msgController,
             scrollController: _scrollController,
             onSend: () => _sendReply(),
+            agentName: state.selectedUser?.name,
           ),
         ),
       ],
@@ -263,6 +289,7 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
               msgController: _msgController,
               scrollController: _scrollController,
               onSend: () => _sendReply(),
+              agentName: state.selectedUser?.name,
             ),
           ),
         ],
@@ -284,6 +311,22 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
     if (text.isEmpty) return;
     _msgController.clear();
     await ref.read(waCrmControllerProvider.notifier).sendReply(text);
+  }
+
+  Future<void> _pickAiSummaryDate() async {
+    final current =
+        ref.read(waCrmControllerProvider).aiSummaryDate ?? DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: current,
+      firstDate: DateTime.now().subtract(const Duration(days: 365)),
+      lastDate: DateTime.now(),
+      helpText: 'Dia del resumen',
+    );
+    if (picked == null || !mounted) return;
+    await ref
+        .read(waCrmControllerProvider.notifier)
+        .generateDailyAiSummary(date: picked);
   }
 }
 
@@ -602,6 +645,8 @@ class _WebhookDialogState extends State<_WebhookDialog> {
     }
   }
 
+  Future<void> _resync() => _toggle(true);
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -755,7 +800,7 @@ class _WebhookDialogState extends State<_WebhookDialog> {
                         ),
                       ],
                     ),
-                    if (_configuredUrl != null) ...[
+            if (_configuredUrl != null) ...[
                       const SizedBox(height: 6),
                       const Divider(height: 1),
                       const SizedBox(height: 6),
@@ -778,6 +823,24 @@ class _WebhookDialogState extends State<_WebhookDialog> {
                       ),
                     ],
                   ],
+                ),
+              ),
+            ],
+            if (_enabled) ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _saving ? null : _resync,
+                  icon: const Icon(Icons.sync_rounded, size: 18),
+                  label: const Text('Reconfigurar eventos'),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Actualiza la instancia para recibir mensajes entrantes y enviados.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
                 ),
               ),
             ],
@@ -1146,12 +1209,14 @@ class _ChatPanel extends StatelessWidget {
     required this.msgController,
     required this.scrollController,
     required this.onSend,
+    this.agentName,
   });
 
   final WaCrmState state;
   final TextEditingController msgController;
   final ScrollController scrollController;
   final VoidCallback onSend;
+  final String? agentName;
 
   @override
   Widget build(BuildContext context) {
@@ -1258,7 +1323,10 @@ class _ChatPanel extends StatelessWidget {
                       ),
                       itemCount: state.messages.length,
                       itemBuilder: (context, i) {
-                        return _MessageBubble(msg: state.messages[i]);
+                        return _MessageBubble(
+                          msg: state.messages[i],
+                          agentName: agentName,
+                        );
                       },
                     ),
         ),
@@ -1289,9 +1357,10 @@ class _ChatPanel extends StatelessWidget {
 // ─── Message Bubble ───────────────────────────────────────────────────────────
 
 class _MessageBubble extends StatelessWidget {
-  const _MessageBubble({required this.msg});
+  const _MessageBubble({required this.msg, this.agentName});
 
   final WaCrmMessage msg;
+  final String? agentName;
 
   @override
   Widget build(BuildContext context) {
@@ -1325,7 +1394,9 @@ class _MessageBubble extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(right: 8, bottom: 2),
               child: Text(
-                'Tú',
+                agentName?.trim().isNotEmpty == true
+                    ? 'Enviado por ${agentName!.trim()}'
+                    : 'Enviado desde la instancia',
                 style: theme.textTheme.labelSmall?.copyWith(
                   color: theme.colorScheme.primary.withValues(alpha: 0.7),
                   fontWeight: FontWeight.bold,
@@ -2087,6 +2158,207 @@ class _ChatInput extends StatelessWidget {
 }
 
 // ─── Actions Panel (Column 3) ────────────────────────────────────────────────
+
+class _DailyAiPanel extends StatelessWidget {
+  const _DailyAiPanel({
+    required this.state,
+    required this.onPickDate,
+    required this.onGenerate,
+  });
+
+  final WaCrmState state;
+  final VoidCallback onPickDate;
+  final VoidCallback onGenerate;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final date = state.aiSummaryDate ?? DateTime.now();
+    final summary = state.aiSummary;
+    final stats = summary?.stats ?? const <String, dynamic>{};
+
+    return Container(
+      color: scheme.surface,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  scheme.primaryContainer.withValues(alpha: 0.9),
+                  scheme.secondaryContainer.withValues(alpha: 0.75),
+                ],
+              ),
+              border: Border(bottom: BorderSide(color: scheme.outlineVariant)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 34,
+                      height: 34,
+                      decoration: BoxDecoration(
+                        color: scheme.surface.withValues(alpha: 0.72),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(Icons.auto_awesome, color: scheme.primary),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'IA del dia',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w900,
+                          color: scheme.onPrimaryContainer,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Resumen de actividad, interes comercial y seguimiento del WhatsApp seleccionado.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: scheme.onPrimaryContainer.withValues(alpha: 0.78),
+                    height: 1.25,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: onPickDate,
+                    icon: const Icon(Icons.calendar_month_outlined, size: 18),
+                    label: Text(DateFormat('dd/MM/yyyy').format(date)),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                FilledButton.icon(
+                  onPressed: state.loadingAiSummary || state.selectedUser == null
+                      ? null
+                      : onGenerate,
+                  icon: state.loadingAiSummary
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.analytics_outlined, size: 18),
+                  label: const Text('Generar'),
+                ),
+              ],
+            ),
+          ),
+          if (summary != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _AiStatPill(label: 'Contactos', value: '${stats['contacts'] ?? 0}'),
+                  _AiStatPill(label: 'Recibidos', value: '${stats['incomingMessages'] ?? 0}'),
+                  _AiStatPill(label: 'Enviados', value: '${stats['outgoingMessages'] ?? 0}'),
+                  _AiStatPill(label: 'Media', value: '${stats['mediaMessages'] ?? 0}'),
+                ],
+              ),
+            ),
+          if (state.aiSummaryError != null)
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Text(
+                state.aiSummaryError!,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: scheme.error,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          Expanded(
+            child: summary == null
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(22),
+                      child: Text(
+                        state.selectedUser == null
+                            ? 'Selecciona una instancia para analizar el dia.'
+                            : 'Genera un resumen para revisar ventas gestionadas, clientes interesados y seguimientos.',
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                          height: 1.35,
+                        ),
+                      ),
+                    ),
+                  )
+                : SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 22),
+                    child: SelectableText(
+                      summary.summary,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        height: 1.42,
+                        color: scheme.onSurface,
+                      ),
+                    ),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AiStatPill extends StatelessWidget {
+  const _AiStatPill({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.58),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          Text(
+            value,
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _ActionsPanel extends StatelessWidget {
   const _ActionsPanel({required this.state});

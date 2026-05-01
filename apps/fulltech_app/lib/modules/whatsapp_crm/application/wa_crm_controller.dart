@@ -61,6 +61,26 @@ class WaCrmInstanceEntry {
 
 // ─── User selector ────────────────────────────────────────────────────────
 
+class WaCrmDailyAiSummary {
+  const WaCrmDailyAiSummary({
+    required this.source,
+    required this.summary,
+    required this.stats,
+  });
+
+  final String source;
+  final String summary;
+  final Map<String, dynamic> stats;
+
+  factory WaCrmDailyAiSummary.fromJson(Map<String, dynamic> json) {
+    return WaCrmDailyAiSummary(
+      source: json['source'] as String? ?? 'rules-only',
+      summary: json['summary'] as String? ?? '',
+      stats: (json['stats'] as Map?)?.cast<String, dynamic>() ?? const {},
+    );
+  }
+}
+
 class WaCrmUser {
   const WaCrmUser({
     required this.id,
@@ -107,6 +127,10 @@ class WaCrmState {
     this.error,
     this.allInstances = const [],
     this.loadingInstances = false,
+    this.aiSummary,
+    this.loadingAiSummary = false,
+    this.aiSummaryError,
+    this.aiSummaryDate,
   });
 
   final List<WaCrmUser> users;
@@ -121,6 +145,10 @@ class WaCrmState {
   final String? error;
   final List<WaCrmInstanceEntry> allInstances;
   final bool loadingInstances;
+  final WaCrmDailyAiSummary? aiSummary;
+  final bool loadingAiSummary;
+  final String? aiSummaryError;
+  final DateTime? aiSummaryDate;
 
   WaCrmState copyWith({
     List<WaCrmUser>? users,
@@ -135,6 +163,10 @@ class WaCrmState {
     String? Function()? error,
     List<WaCrmInstanceEntry>? allInstances,
     bool? loadingInstances,
+    WaCrmDailyAiSummary? Function()? aiSummary,
+    bool? loadingAiSummary,
+    String? Function()? aiSummaryError,
+    DateTime? Function()? aiSummaryDate,
   }) {
     return WaCrmState(
       users: users ?? this.users,
@@ -152,6 +184,12 @@ class WaCrmState {
       error: error != null ? error() : this.error,
       allInstances: allInstances ?? this.allInstances,
       loadingInstances: loadingInstances ?? this.loadingInstances,
+      aiSummary: aiSummary != null ? aiSummary() : this.aiSummary,
+      loadingAiSummary: loadingAiSummary ?? this.loadingAiSummary,
+      aiSummaryError:
+          aiSummaryError != null ? aiSummaryError() : this.aiSummaryError,
+      aiSummaryDate:
+          aiSummaryDate != null ? aiSummaryDate() : this.aiSummaryDate,
     );
   }
 }
@@ -255,8 +293,48 @@ class WaCrmController extends StateNotifier<WaCrmState> {
       conversations: [],
       selectedConversation: () => null,
       messages: [],
+      aiSummary: () => null,
+      aiSummaryError: () => null,
     );
     await loadConversations(user.id);
+  }
+
+  Future<void> generateDailyAiSummary({DateTime? date}) async {
+    final user = state.selectedUser;
+    if (user == null) {
+      state = state.copyWith(
+        aiSummaryError: () => 'Selecciona un usuario para generar el resumen.',
+      );
+      return;
+    }
+
+    final selectedDate = date ?? state.aiSummaryDate ?? DateTime.now();
+    final normalizedDate = DateTime(
+      selectedDate.year,
+      selectedDate.month,
+      selectedDate.day,
+    );
+    state = state.copyWith(
+      loadingAiSummary: true,
+      aiSummaryError: () => null,
+      aiSummaryDate: () => normalizedDate,
+    );
+    try {
+      final raw = await _repo.summarizeDailyActivity(
+        userId: user.id,
+        date: normalizedDate,
+      );
+      state = state.copyWith(
+        aiSummary: () => WaCrmDailyAiSummary.fromJson(raw),
+        loadingAiSummary: false,
+      );
+    } catch (e, st) {
+      debugPrint('[WaCrm] generateDailyAiSummary error: $e\n$st');
+      state = state.copyWith(
+        loadingAiSummary: false,
+        aiSummaryError: () => 'No se pudo generar el resumen: $e',
+      );
+    }
   }
 
   // ─── Load conversations ───────────────────────────────────────────────
