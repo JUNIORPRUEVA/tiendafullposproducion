@@ -43,6 +43,7 @@ class ApiRoutes {
   static const contabilidadCloses = '/contabilidad/closes';
   static String contabilidadCloseDetail(String id) =>
       '/contabilidad/closes/$id';
+  static const contabilidadCloseDeleteBulk = '/contabilidad/closes/delete-bulk';
   static String contabilidadCloseApprove(String id) =>
       '/contabilidad/closes/$id/approve';
   static String contabilidadCloseReject(String id) =>

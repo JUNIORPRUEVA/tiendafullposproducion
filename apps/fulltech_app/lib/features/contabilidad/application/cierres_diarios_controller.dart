@@ -248,10 +248,12 @@ class CierresDiariosController extends StateNotifier<CierresDiariosState> {
     }
   }
 
-  Future<void> deleteClose(String id) async {
+  Future<void> deleteClose(String id, {required String adminPassword}) async {
     state = state.copyWith(deletingId: id, clearError: true);
     try {
-      await ref.read(contabilidadRepositoryProvider).deleteClose(id);
+      await ref
+          .read(contabilidadRepositoryProvider)
+          .deleteClose(id, adminPassword: adminPassword);
       state = state.copyWith(clearDeleting: true);
       await load();
     } catch (e) {
@@ -259,6 +261,24 @@ class CierresDiariosController extends StateNotifier<CierresDiariosState> {
           ? e.message
           : 'No se pudo eliminar el cierre';
       state = state.copyWith(error: message, clearDeleting: true);
+    }
+  }
+
+  Future<void> deleteClosesBulk({
+    required List<String> ids,
+    required String adminPassword,
+  }) async {
+    state = state.copyWith(clearError: true);
+    try {
+      await ref
+          .read(contabilidadRepositoryProvider)
+          .deleteClosesBulk(closeIds: ids, adminPassword: adminPassword);
+      await load();
+    } catch (e) {
+      final message = e is ApiException
+          ? e.message
+          : 'No se pudieron eliminar los cierres';
+      state = state.copyWith(error: message);
     }
   }
 

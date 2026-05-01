@@ -12,6 +12,7 @@ import {
 } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import PDFDocument from 'pdfkit';
+import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { R2Service } from '../storage/r2.service';
@@ -521,15 +522,96 @@ export class ContabilidadService {
     });
   }
 
-  async deleteClose(id: string, actor: Actor) {
+  private async validateAdminPassword(actor: Actor, adminPassword: string) {
+    this.ensureAdmin(actor);
+    const cleaned = (adminPassword ?? '').trim();
+    if (cleaned.length === 0) {
+      throw new BadRequestException('Debes confirmar la contrasena de administrador.');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: actor.id! },
+      select: { passwordHash: true },
+    });
+    if (!user) {
+      throw new ForbiddenException('No autorizado para eliminar cierres');
+    }
+
+    const validPassword = await bcrypt.compare(cleaned, user.passwordHash);
+    if (!validPassword) {
+      throw new ForbiddenException('Contrasena de administrador incorrecta');
+    }
+  }
+
+  private async cleanupCloseStorage(closeId: string) {
+    const close = await this.prisma.close.findUnique({
+      where: { id: closeId },
+      include: {
+        transfers: {
+          include: { vouchers: true },
+        },
+      },
+    });
+    if (!close) return;
+
+    const storageKeys = new Set<string>();
+    if (close.pdfStorageKey) storageKeys.add(close.pdfStorageKey);
+    if (close.evidenceStorageKey) storageKeys.add(close.evidenceStorageKey);
+    for (const transfer of close.transfers) {
+      for (const voucher of transfer.vouchers) {
+        if (voucher.storageKey) storageKeys.add(voucher.storageKey);
+      }
+    }
+
+    for (const storageKey of storageKeys) {
+      try {
+        await this.r2.deleteObject(storageKey);
+      } catch {
+        // Non-fatal cleanup step.
+      }
+    }
+  }
+
+  async deleteClose(id: string, adminPassword: string, actor: Actor) {
     this.normalizeRoleGuard(actor);
+    await this.validateAdminPassword(actor, adminPassword);
 
     const close = await this.prisma.close.findUnique({ where: { id } });
     if (!close) throw new NotFoundException('Cierre no encontrado');
 
-    throw new BadRequestException(
-      'Los cierres diarios no se eliminan. Rechaza el registro para conservar la trazabilidad.',
+    await this.cleanupCloseStorage(id);
+    await this.prisma.close.delete({ where: { id } });
+
+    return { deletedCount: 1, deletedIds: [id] };
+  }
+
+  async deleteClosesBulk(closeIds: string[], adminPassword: string, actor: Actor) {
+    this.normalizeRoleGuard(actor);
+    await this.validateAdminPassword(actor, adminPassword);
+
+    const uniqueIds = Array.from(
+      new Set((closeIds ?? []).map((item) => (item ?? '').trim()).filter((item) => item.length > 0)),
     );
+    if (uniqueIds.length === 0) {
+      throw new BadRequestException('Debes enviar al menos un cierre para eliminar.');
+    }
+
+    const existing = await this.prisma.close.findMany({
+      where: { id: { in: uniqueIds } },
+      select: { id: true },
+    });
+    const foundIds = existing.map((row) => row.id);
+    const missingIds = uniqueIds.filter((idItem) => !foundIds.includes(idItem));
+    if (missingIds.length > 0) {
+      throw new NotFoundException('Uno o varios cierres ya no existen. Actualiza la lista e intenta de nuevo.');
+    }
+
+    for (const closeId of foundIds) {
+      await this.cleanupCloseStorage(closeId);
+    }
+    await this.prisma.close.deleteMany({ where: { id: { in: foundIds } } });
+
+    return { deletedCount: foundIds.length, deletedIds: foundIds };
   }
 
   async reviewClose(id: string, status: CloseStatus, actor: Actor) {

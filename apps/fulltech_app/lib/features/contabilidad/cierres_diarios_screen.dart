@@ -4,8 +4,9 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
-import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 
+import '../../core/api/env.dart';
+import '../../core/utils/pdf_file_actions.dart';
 import '../../core/auth/auth_provider.dart';
 import '../../core/models/close_model.dart';
 import '../../core/theme/app_theme.dart';
@@ -25,6 +26,25 @@ DepositBankOption? _resolveDepositBank(String? bankName) {
     }
   }
   return null;
+}
+
+String _resolveContabilidadAssetUrl(String raw) {
+  final value = raw.trim();
+  if (value.isEmpty) return value;
+  if (value.startsWith('http://') || value.startsWith('https://')) {
+    return value;
+  }
+
+  final base = Env.apiBaseUrl.replaceAll(RegExp(r'/+$'), '');
+  if (value.startsWith('/public/contabilidad/object?')) {
+    return '$base$value';
+  }
+  if (value.startsWith('public/contabilidad/object?')) {
+    return '$base/$value';
+  }
+
+  final encodedKey = Uri.encodeQueryComponent(value.replaceAll('\\', '/'));
+  return '$base/public/contabilidad/object?key=$encodedKey';
 }
 
 class CierresDiariosScreen extends ConsumerStatefulWidget {
@@ -917,8 +937,127 @@ class _HistoryFullScreenPageState
   String _selectedStatus = 'TODOS';
   DateTime? _fromDate;
   DateTime? _toDate;
+  bool _selectionMode = false;
+  bool _deletingSelection = false;
+  final Set<String> _selectedCloseIds = <String>{};
 
   String _dateOnly(DateTime date) => DateFormat('dd/MM/yyyy').format(date);
+
+  String? _normalizeAdminPassword(String? value) {
+    final cleaned = (value ?? '').trim();
+    return cleaned.isEmpty ? null : cleaned;
+  }
+
+  Future<String?> _askAdminPassword() async {
+    final ctrl = TextEditingController();
+    final password = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Confirmar eliminacion'),
+        content: TextField(
+          controller: ctrl,
+          obscureText: true,
+          decoration: const InputDecoration(
+            labelText: 'Contrasena de administrador',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, ctrl.text),
+            child: const Text('Confirmar'),
+          ),
+        ],
+      ),
+    );
+    return _normalizeAdminPassword(password);
+  }
+
+  Future<void> _deleteOneClose(CloseModel close) async {
+    final password = await _askAdminPassword();
+    if (!mounted || password == null) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Eliminar cierre'),
+        content: Text(
+          'Se eliminara el cierre de ${close.type.label} del ${_dateOnly(close.date)}. Esta accion no se puede deshacer.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    await ref
+        .read(cierresDiariosControllerProvider.notifier)
+        .deleteClose(close.id, adminPassword: password);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Cierre eliminado correctamente.')),
+    );
+  }
+
+  Future<void> _deleteSelectedCloses() async {
+    if (_selectedCloseIds.isEmpty || _deletingSelection) return;
+
+    final password = await _askAdminPassword();
+    if (!mounted || password == null) return;
+
+    final total = _selectedCloseIds.length;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Eliminar seleccion'),
+        content: Text(
+          'Se eliminaran $total cierres seleccionados. Esta accion no se puede deshacer.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    setState(() => _deletingSelection = true);
+    try {
+      await ref.read(cierresDiariosControllerProvider.notifier).deleteClosesBulk(
+        ids: _selectedCloseIds.toList(),
+        adminPassword: password,
+      );
+      if (!mounted) return;
+      setState(() {
+        _selectedCloseIds.clear();
+        _selectionMode = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Se eliminaron $total cierres.')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _deletingSelection = false);
+      }
+    }
+  }
 
   bool _isWithinRange(CloseModel close) {
     if (_fromDate != null) {
@@ -942,6 +1081,8 @@ class _HistoryFullScreenPageState
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(cierresDiariosControllerProvider);
+    final role = ref.watch(authStateProvider).user?.role;
+    final canDelete = role == 'ADMIN';
     final filtered = state.closes.where((close) {
       if (close.type != _selectedType) return false;
       if (_selectedStatus != 'TODOS' && close.status != _selectedStatus) {
@@ -950,10 +1091,65 @@ class _HistoryFullScreenPageState
       return _isWithinRange(close);
     }).toList();
 
+    final visibleIds = filtered.map((e) => e.id).toSet();
+    if (_selectedCloseIds.any((id) => !visibleIds.contains(id))) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() {
+          _selectedCloseIds.removeWhere((id) => !visibleIds.contains(id));
+          if (_selectedCloseIds.isEmpty) {
+            _selectionMode = false;
+          }
+        });
+      });
+    }
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Historial de cierres diarios'),
+        title: Text(
+          _selectionMode
+              ? 'Seleccionados (${_selectedCloseIds.length})'
+              : 'Historial de cierres diarios',
+        ),
         actions: [
+          if (canDelete && !_selectionMode)
+            IconButton(
+              tooltip: 'Seleccion multiple',
+              onPressed: filtered.isEmpty
+                  ? null
+                  : () {
+                      setState(() {
+                        _selectionMode = true;
+                        _selectedCloseIds.clear();
+                      });
+                    },
+              icon: const Icon(Icons.checklist_outlined),
+            ),
+          if (canDelete && _selectionMode)
+            IconButton(
+              tooltip: 'Eliminar seleccionados',
+              onPressed: _selectedCloseIds.isEmpty || _deletingSelection
+                  ? null
+                  : _deleteSelectedCloses,
+              icon: _deletingSelection
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.delete_sweep_outlined),
+            ),
+          if (canDelete && _selectionMode)
+            IconButton(
+              tooltip: 'Cancelar seleccion',
+              onPressed: () {
+                setState(() {
+                  _selectionMode = false;
+                  _selectedCloseIds.clear();
+                });
+              },
+              icon: const Icon(Icons.close),
+            ),
           IconButton(
             tooltip: 'Actualizar',
             onPressed: () =>
@@ -1090,6 +1286,17 @@ class _HistoryFullScreenPageState
                         child: InkWell(
                           borderRadius: BorderRadius.circular(14),
                           onTap: () async {
+                            if (_selectionMode) {
+                              setState(() {
+                                if (_selectedCloseIds.contains(close.id)) {
+                                  _selectedCloseIds.remove(close.id);
+                                } else {
+                                  _selectedCloseIds.add(close.id);
+                                }
+                              });
+                              return;
+                            }
+
                             final duplicate = await Navigator.of(context).push<
                                 CloseModel>(
                               MaterialPageRoute(
@@ -1114,6 +1321,19 @@ class _HistoryFullScreenPageState
                             ),
                             child: Row(
                               children: [
+                                if (_selectionMode)
+                                  Checkbox(
+                                    value: _selectedCloseIds.contains(close.id),
+                                    onChanged: (_) {
+                                      setState(() {
+                                        if (_selectedCloseIds.contains(close.id)) {
+                                          _selectedCloseIds.remove(close.id);
+                                        } else {
+                                          _selectedCloseIds.add(close.id);
+                                        }
+                                      });
+                                    },
+                                  ),
                                 Expanded(
                                   child: Column(
                                     crossAxisAlignment:
@@ -1153,8 +1373,16 @@ class _HistoryFullScreenPageState
                                     ),
                                   ),
                                 ),
-                                const SizedBox(width: 12),
-                                const Icon(Icons.chevron_right_rounded),
+                                if (!_selectionMode && canDelete)
+                                  IconButton(
+                                    tooltip: 'Eliminar cierre',
+                                    onPressed: () => _deleteOneClose(close),
+                                    icon: const Icon(Icons.delete_outline),
+                                  )
+                                else if (!_selectionMode) ...[
+                                  const SizedBox(width: 12),
+                                  const Icon(Icons.chevron_right_rounded),
+                                ],
                               ],
                             ),
                           ),
@@ -1182,6 +1410,8 @@ class _CloseDetailFullScreenPage extends ConsumerStatefulWidget {
 class _CloseDetailFullScreenPageState
     extends ConsumerState<_CloseDetailFullScreenPage> {
   bool _runningAi = false;
+  bool _exportingPdf = false;
+  bool _deletingClose = false;
   String _aiStep = '';
   bool _autoAiRequested = false;
 
@@ -1217,6 +1447,8 @@ class _CloseDetailFullScreenPageState
     return byMime || byName || byUrl;
   }
 
+  String _normalizeAssetUrl(String raw) => _resolveContabilidadAssetUrl(raw);
+
   void _ensureAiGeneratedOnOpen(CloseModel close) {
     if (_autoAiRequested) return;
     _autoAiRequested = true;
@@ -1231,30 +1463,116 @@ class _CloseDetailFullScreenPageState
     });
   }
 
-  Future<void> _openPdf(CloseModel close) async {
-    final url = (close.pdfUrl ?? '').trim();
-    if (url.isEmpty) {
+  Future<String?> _askAdminPassword() async {
+    final ctrl = TextEditingController();
+    final value = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Confirmar eliminacion'),
+        content: TextField(
+          controller: ctrl,
+          obscureText: true,
+          decoration: const InputDecoration(
+            labelText: 'Contrasena de administrador',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, ctrl.text),
+            child: const Text('Confirmar'),
+          ),
+        ],
+      ),
+    );
+    final cleaned = (value ?? '').trim();
+    return cleaned.isEmpty ? null : cleaned;
+  }
+
+  Future<void> _deleteCurrentClose(CloseModel close) async {
+    if (_deletingClose) return;
+    final password = await _askAdminPassword();
+    if (!mounted || password == null) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Eliminar cierre'),
+        content: const Text(
+          'Este cierre se eliminara definitivamente. Esta accion no se puede deshacer.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    setState(() => _deletingClose = true);
+    try {
+      await ref
+          .read(cierresDiariosControllerProvider.notifier)
+          .deleteClose(close.id, adminPassword: password);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Cierre eliminado correctamente.')),
+      );
+      Navigator.of(context).pop();
+    } finally {
+      if (mounted) setState(() => _deletingClose = false);
+    }
+  }
+
+  Future<void> _exportPdf(CloseModel close) async {
+    if (_exportingPdf) return;
+    final rawUrl = _normalizeAssetUrl(close.pdfUrl ?? '');
+    if (rawUrl.isEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            'Este cierre aún no tiene PDF disponible. Verifica si el backend pudo generarlo.',
-          ),
+          content: Text('Este cierre aun no tiene PDF disponible para exportar.'),
         ),
       );
       return;
     }
-    if (!mounted) return;
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => _ClosePdfViewerScreen(
-          url: url,
-          title: (close.pdfFileName ?? '').trim().isNotEmpty
-              ? close.pdfFileName!
-              : 'PDF de cierre',
+
+    setState(() => _exportingPdf = true);
+    try {
+      final bytes = await ref
+          .read(contabilidadRepositoryProvider)
+          .downloadClosePdfBytes(rawUrl);
+      final fileName = (close.pdfFileName ?? '').trim().isNotEmpty
+          ? close.pdfFileName!
+          : 'cierre-${DateFormat('yyyy-MM-dd').format(close.date)}.pdf';
+      final saved = await savePdfBytes(bytes: bytes, fileName: fileName);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            saved
+                ? 'PDF exportado correctamente.'
+                : 'Exportacion cancelada por el usuario.',
+          ),
         ),
-      ),
-    );
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo exportar el PDF: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _exportingPdf = false);
+    }
   }
 
   Future<void> _runAiReport(CloseModel close) async {
@@ -1340,6 +1658,7 @@ class _CloseDetailFullScreenPageState
     }
     final role = ref.watch(authStateProvider).user?.role;
     final canReview = role == 'ADMIN' || role == 'ASISTENTE';
+    final canDelete = role == 'ADMIN';
 
     if (close == null) {
       return Scaffold(
@@ -1353,7 +1672,7 @@ class _CloseDetailFullScreenPageState
     _ensureAiGeneratedOnOpen(currentClose);
     final posVoucher = CloseTransferVoucherModel(
       storageKey: currentClose.evidenceStorageKey ?? '',
-      fileUrl: currentClose.evidenceUrl ?? '',
+      fileUrl: _normalizeAssetUrl(currentClose.evidenceUrl ?? ''),
       fileName: currentClose.evidenceFileName ?? '',
       mimeType: currentClose.evidenceMimeType ?? '',
     );
@@ -1375,6 +1694,18 @@ class _CloseDetailFullScreenPageState
               onPressed: () => Navigator.of(context).pop(currentClose),
               icon: const Icon(Icons.copy_outlined),
               label: const Text('Duplicar'),
+            ),
+          if (canDelete)
+            IconButton(
+              tooltip: 'Eliminar cierre',
+              onPressed: _deletingClose ? null : () => _deleteCurrentClose(currentClose),
+              icon: _deletingClose
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.delete_outline),
             ),
           const SizedBox(width: 8),
         ],
@@ -1494,9 +1825,15 @@ class _CloseDetailFullScreenPageState
               overflow: TextOverflow.ellipsis,
             ),
             trailing: FilledButton.icon(
-              onPressed: () => _openPdf(currentClose),
-              icon: const Icon(Icons.open_in_new),
-              label: const Text('Ver PDF'),
+              onPressed: _exportingPdf ? null : () => _exportPdf(currentClose),
+              icon: _exportingPdf
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.download_outlined),
+              label: const Text('Exportar PDF'),
             ),
           ),
           if (currentClose.expenseDetails.isNotEmpty) ...[
@@ -1555,25 +1892,33 @@ class _CloseDetailFullScreenPageState
                 ),
                 children: [
                   ...transfer.vouchers.map(
-                    (voucher) => ListTile(
+                    (voucher) {
+                      final normalizedVoucher = CloseTransferVoucherModel(
+                        storageKey: voucher.storageKey,
+                        fileUrl: _normalizeAssetUrl(voucher.fileUrl),
+                        fileName: voucher.fileName,
+                        mimeType: voucher.mimeType,
+                      );
+                      return ListTile(
                       contentPadding: const EdgeInsets.only(left: 4, right: 4),
                       leading: Icon(
-                        voucher.mimeType.startsWith('image/')
+                        normalizedVoucher.mimeType.startsWith('image/')
                             ? Icons.image_outlined
                             : Icons.picture_as_pdf_outlined,
                       ),
                       title: Text(
-                        voucher.fileName,
+                        normalizedVoucher.fileName,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      subtitle: Text(voucher.mimeType),
+                      subtitle: Text(normalizedVoucher.mimeType),
                       trailing: OutlinedButton(
                         onPressed: () =>
-                            _showVoucherPreviewDialog(context, voucher),
+                            _showVoucherPreviewDialog(context, normalizedVoucher),
                         child: const Text('Expandir'),
                       ),
-                    ),
+                      );
+                    },
                   ),
                   if (transfer.vouchers.isNotEmpty)
                     Padding(
@@ -1594,7 +1939,7 @@ class _CloseDetailFullScreenPageState
                                     width: 84,
                                     height: 84,
                                     child: Image.network(
-                                      voucher.fileUrl,
+                                      _normalizeAssetUrl(voucher.fileUrl),
                                       fit: BoxFit.cover,
                                       errorBuilder: (_, __, ___) =>
                                           Container(
@@ -1664,7 +2009,7 @@ class _CloseDetailFullScreenPageState
                       width: 120,
                       height: 120,
                       child: Image.network(
-                        currentClose.evidenceUrl!,
+                        _normalizeAssetUrl(currentClose.evidenceUrl!),
                         fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) => Container(
                           color: Theme.of(context)
@@ -1867,21 +2212,6 @@ class _CloseDetailFullScreenPageState
   }
 }
 
-class _ClosePdfViewerScreen extends StatelessWidget {
-  final String url;
-  final String title;
-
-  const _ClosePdfViewerScreen({required this.url, required this.title});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(title)),
-      body: SfPdfViewer.network(url),
-    );
-  }
-}
-
 void _showVoucherPreviewDialog(
   BuildContext context,
   CloseTransferVoucherModel voucher,
@@ -1903,10 +2233,16 @@ void _showVoucherPreviewDialog(
             ),
             Expanded(
               child: voucher.mimeType.startsWith('image/')
-                  ? InteractiveViewer(child: Image.network(voucher.fileUrl))
+                  ? InteractiveViewer(
+                      child: Image.network(
+                        _resolveContabilidadAssetUrl(voucher.fileUrl),
+                      ),
+                    )
                   : Padding(
                       padding: const EdgeInsets.all(18),
-                      child: SelectableText(voucher.fileUrl),
+                      child: SelectableText(
+                        _resolveContabilidadAssetUrl(voucher.fileUrl),
+                      ),
                     ),
             ),
           ],

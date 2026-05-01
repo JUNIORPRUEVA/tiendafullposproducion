@@ -2,9 +2,11 @@ import {
   IsArray,
   IsDateString,
   IsEnum,
+  IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
+  IsUUID,
   ValidateNested,
   Min,
 } from 'class-validator';
@@ -209,4 +211,20 @@ export class ReviewCloseDto {
   @IsString()
   @IsOptional()
   reviewNote?: string;
+}
+
+export class DeleteCloseDto {
+  @IsString()
+  @IsNotEmpty()
+  adminPassword!: string;
+}
+
+export class BulkDeleteClosesDto {
+  @IsArray()
+  @IsUUID('4', { each: true })
+  closeIds!: string[];
+
+  @IsString()
+  @IsNotEmpty()
+  adminPassword!: string;
 }

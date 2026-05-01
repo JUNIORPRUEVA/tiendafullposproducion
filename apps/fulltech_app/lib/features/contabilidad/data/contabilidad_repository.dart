@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:dio/dio.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -220,12 +222,59 @@ class ContabilidadRepository {
     }
   }
 
-  Future<void> deleteClose(String id) async {
+  Future<void> deleteClose(String id, {required String adminPassword}) async {
     try {
-      await _dio.delete(ApiRoutes.contabilidadCloseDetail(id));
+      await _dio.delete(
+        ApiRoutes.contabilidadCloseDetail(id),
+        data: {'adminPassword': adminPassword},
+      );
     } on DioException catch (e) {
       throw ApiException(
         _extractMessage(e.response?.data, 'No se pudo eliminar el cierre'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<void> deleteClosesBulk({
+    required List<String> closeIds,
+    required String adminPassword,
+  }) async {
+    try {
+      await _dio.post(
+        ApiRoutes.contabilidadCloseDeleteBulk,
+        data: {
+          'closeIds': closeIds,
+          'adminPassword': adminPassword,
+        },
+      );
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudieron eliminar los cierres seleccionados'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<Uint8List> downloadClosePdfBytes(String rawUrl) async {
+    final resolvedUrl = _normalizeObjectUrl(rawUrl);
+    if (resolvedUrl.isEmpty) {
+      throw ApiException('No hay un PDF disponible para exportar');
+    }
+
+    try {
+      final response = await _dio.getUri<List<int>>(
+        Uri.parse(resolvedUrl),
+        options: Options(responseType: ResponseType.bytes),
+      );
+      final data = response.data;
+      if (data != null && data.isNotEmpty) {
+        return Uint8List.fromList(data);
+      }
+      throw ApiException('El PDF se recibio vacio');
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo descargar el PDF'),
         e.response?.statusCode,
       );
     }

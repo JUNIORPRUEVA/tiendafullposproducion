@@ -27,8 +27,10 @@ import { R2Service } from '../storage/r2.service';
 import { sanitizeFileName } from '../storage/helpers/storage_helpers';
 import { ContabilidadService } from './contabilidad.service';
 import {
+  BulkDeleteClosesDto,
   CloseStatus,
   CreateCloseDto,
+  DeleteCloseDto,
   ReviewCloseDto,
   UpdateCloseDto,
 } from './close.dto';
@@ -115,10 +117,28 @@ export class ContabilidadController {
   }
 
   @Delete('closes/:id')
-  @Roles('ADMIN', 'ASISTENTE')
-  async deleteClose(@Param('id') id: string, @Req() req: Request) {
+  @Roles('ADMIN')
+  async deleteClose(
+    @Param('id') id: string,
+    @Body() dto: DeleteCloseDto,
+    @Req() req: Request,
+  ) {
     return this.contabilidadService.deleteClose(
       id,
+      dto.adminPassword,
+      (req.user ?? {}) as RequestActor,
+    );
+  }
+
+  @Post('closes/delete-bulk')
+  @Roles('ADMIN')
+  async bulkDeleteCloses(
+    @Body() dto: BulkDeleteClosesDto,
+    @Req() req: Request,
+  ) {
+    return this.contabilidadService.deleteClosesBulk(
+      dto.closeIds,
+      dto.adminPassword,
       (req.user ?? {}) as RequestActor,
     );
   }
