@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 
 type EvolutionRuntimeConfig = {
@@ -26,7 +27,10 @@ type EvolutionAttemptResult = {
 
 @Injectable()
 export class EvolutionWhatsAppService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+  ) {}
 
   private cachedConfig: { value: EvolutionRuntimeConfig; atMs: number } | null = null;
   private readonly requestTimeoutMs = 8_000;
@@ -89,9 +93,14 @@ export class EvolutionWhatsAppService {
       },
     });
 
-    const baseUrl = this.normalizeBaseUrl((row?.evolutionApiBaseUrl ?? '').trim());
+    const envBaseUrl = this.normalizeBaseUrl(
+      (this.config.get<string>('EVOLUTION_API_URL') ?? '').trim(),
+    );
+    const envApiKey = (this.config.get<string>('EVOLUTION_API_KEY') ?? '').trim();
+    const configuredBaseUrl = this.normalizeBaseUrl((row?.evolutionApiBaseUrl ?? '').trim());
+    const baseUrl = envBaseUrl || configuredBaseUrl;
     const instanceName = (row?.evolutionApiInstanceName ?? '').trim();
-    const apiKey = (row?.evolutionApiApiKey ?? '').trim();
+    const apiKey = envApiKey || (row?.evolutionApiApiKey ?? '').trim();
 
     const value = { baseUrl, instanceName, apiKey };
     this.cachedConfig = { value, atMs: now };
