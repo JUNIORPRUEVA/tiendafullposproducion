@@ -387,15 +387,24 @@ export class PayrollService {
       period.title,
       notificationConfig.companyName,
     );
-    const delivery = await this.sendPayrollWhatsappWithFallback({
-      targets,
-      employeeId: employee.id,
-      periodId: period.id,
-      message,
-      bytes,
-      fileName,
-      caption: `Nomina correspondiente a ${period.title}.`,
-    });
+    let delivery: { label: string; rawPhone: string; normalizedPhone: string };
+    try {
+      delivery = await this.sendPayrollWhatsappWithFallback({
+        targets,
+        employeeId: employee.id,
+        periodId: period.id,
+        message,
+        bytes,
+        fileName,
+        caption: `Nomina correspondiente a ${period.title}.`,
+      });
+    } catch (error) {
+      const reason = this.describePayrollWhatsappError(error);
+      this.logger.warn(
+        `Payroll PDF WhatsApp failed employee=${employee.id} period=${period.id}: ${reason}`,
+      );
+      throw new BadRequestException(`No se pudo enviar la nomina por WhatsApp: ${reason}`);
+    }
 
     this.logger.log(
       `Payroll PDF WhatsApp sent employee=${employee.id} period=${period.id} to=${delivery.normalizedPhone || delivery.rawPhone} target=${delivery.label}`,
@@ -1607,6 +1616,28 @@ Administración de nómina` : 'Administración de nómina';
     throw lastError instanceof Error
       ? lastError
       : new Error('No se pudo enviar la nómina por WhatsApp');
+  }
+
+  private describePayrollWhatsappError(error: unknown) {
+    if (error instanceof BadRequestException) {
+      const response = error.getResponse();
+      if (typeof response === 'string' && response.trim()) return response.trim();
+      if (response && typeof response === 'object') {
+        const message = (response as { message?: unknown }).message;
+        if (typeof message === 'string' && message.trim()) return message.trim();
+        if (Array.isArray(message)) {
+          const first = message.find((item) => typeof item === 'string' && item.trim());
+          if (typeof first === 'string') return first.trim();
+        }
+      }
+      return error.message || 'Solicitud invalida para WhatsApp';
+    }
+
+    if (error instanceof Error && error.message.trim()) {
+      return error.message.trim();
+    }
+
+    return 'Evolution API no devolvio una causa legible';
   }
 
   private buildPayrollPdfFileName(employeeName: string, periodTitle: string) {

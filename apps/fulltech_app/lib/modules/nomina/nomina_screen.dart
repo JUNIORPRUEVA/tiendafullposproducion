@@ -12,6 +12,7 @@ import 'package:printing/printing.dart';
 import '../../core/auth/auth_provider.dart';
 import '../../core/company/company_settings_repository.dart';
 import '../../core/debug/trace_log.dart';
+import '../../core/errors/api_exception.dart';
 import '../../core/models/user_model.dart';
 import '../../core/routing/routes.dart';
 import '../../core/utils/app_feedback.dart';
@@ -953,12 +954,25 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
       totals: totals,
     );
 
-    await repo.sendPayrollToWhatsApp(
-      employeeId: employee.id,
-      periodId: period.id,
-      bytes: bytes,
-      fileName: _buildEmployeePayrollPdfFileName(employee, period),
-    );
+    try {
+      await repo.sendPayrollToWhatsApp(
+        employeeId: employee.id,
+        periodId: period.id,
+        bytes: bytes,
+        fileName: _buildEmployeePayrollPdfFileName(employee, period),
+      );
+    } catch (error) {
+      if (!showSuccessFeedback) rethrow;
+      if (!context.mounted) return;
+      final message = error is ApiException ? error.message : error.toString();
+      await AppFeedback.showError(
+        context,
+        'No se pudo enviar la nomina a ${employee.nombre}: $message',
+        fallbackContext: context,
+        scope: 'NominaSendPayroll',
+      );
+      return;
+    }
 
     if (!showSuccessFeedback || !context.mounted) return;
     await AppFeedback.showInfo(
@@ -1077,7 +1091,8 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
             showSuccessFeedback: false,
           );
         } catch (error) {
-          failures.add('${row.employee.nombre}: $error');
+          final message = error is ApiException ? error.message : error.toString();
+          failures.add('${row.employee.nombre}: $message');
         } finally {
           progress.value = _PayrollBulkSendProgress(
             processed: progress.value.processed + 1,

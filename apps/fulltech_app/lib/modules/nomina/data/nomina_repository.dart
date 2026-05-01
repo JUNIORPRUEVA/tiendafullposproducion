@@ -200,14 +200,32 @@ class NominaRepository {
     String? fileName,
     String? messageText,
   }) async {
-    await _postMap(ApiRoutes.payrollSendWhatsapp, {
-      'employeeId': employeeId,
-      'periodId': periodId,
-      'pdfBase64': base64Encode(bytes),
-      if ((fileName ?? '').trim().isNotEmpty) 'fileName': fileName!.trim(),
-      if ((messageText ?? '').trim().isNotEmpty)
-        'messageText': messageText!.trim(),
-    });
+    try {
+      await _dio
+          .post(
+            ApiRoutes.payrollSendWhatsapp,
+            data: {
+              'employeeId': employeeId,
+              'periodId': periodId,
+              'pdfBase64': base64Encode(bytes),
+              if ((fileName ?? '').trim().isNotEmpty)
+                'fileName': fileName!.trim(),
+              if ((messageText ?? '').trim().isNotEmpty)
+                'messageText': messageText!.trim(),
+            },
+            options: _requestOptions(),
+          )
+          .timeout(const Duration(seconds: 45));
+    } on TimeoutException {
+      throw ApiException(
+        'El envio de la nomina por WhatsApp tardo demasiado. Revisa la instancia de la empresa y vuelve a intentar.',
+      );
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e, 'No se pudo enviar la nomina por WhatsApp'),
+        e.response?.statusCode,
+      );
+    }
   }
 
   Future<List<PayrollServiceCommissionRequest>>
