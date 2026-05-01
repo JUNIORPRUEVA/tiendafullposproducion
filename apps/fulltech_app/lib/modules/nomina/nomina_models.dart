@@ -404,6 +404,7 @@ class PayrollEntry {
 class PayrollTotals {
   final double baseSalary;
   final double commissions;
+  final double serviceCommissions;
   final double salesCommissionAuto;
   final double salesAmountThisPeriod;
   final double salesGoal;
@@ -424,6 +425,7 @@ class PayrollTotals {
   const PayrollTotals({
     required this.baseSalary,
     this.commissions = 0,
+    this.serviceCommissions = 0,
     this.salesCommissionAuto = 0,
     this.salesAmountThisPeriod = 0,
     this.salesGoal = 0,

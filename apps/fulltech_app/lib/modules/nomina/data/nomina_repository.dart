@@ -299,6 +299,7 @@ class NominaRepository {
     return PayrollTotals(
       baseSalary: _num(map['baseSalary']),
       commissions: _num(map['commissions']),
+      serviceCommissions: _num(map['serviceCommissions']),
       salesCommissionAuto: _num(map['salesCommissionAuto']),
       salesAmountThisPeriod: _num(map['salesAmountThisPeriod']),
       salesGoal: _num(map['salesGoal']),

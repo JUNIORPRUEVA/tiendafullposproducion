@@ -546,6 +546,14 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
             employee: row.employee,
             totals: row.totals,
           ),
+          onPreviewPayroll: (dialogContext, period, row) =>
+              _previewEmployeePayrollPdf(
+            dialogContext,
+            ref,
+            period: period,
+            employee: row.employee,
+            totals: row.totals,
+          ),
         ),
       ),
     );
@@ -577,6 +585,13 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
           onOpenPdf: () =>
               _openOpenPeriodPdfPreviewDialog(routeContext, period, rows),
           onSendPayroll: (row) => _sendPayrollToWhatsApp(
+            routeContext,
+            ref,
+            period: period,
+            employee: row.employee,
+            totals: row.totals,
+          ),
+          onPreviewPayroll: (row) => _previewEmployeePayrollPdf(
             routeContext,
             ref,
             period: period,
@@ -633,7 +648,7 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
     );
     final totalCommissions = rows.fold<double>(
       0,
-      (sum, row) => sum + row.totals.commissions,
+      (sum, row) => sum + row.totals.commissions + row.totals.serviceCommissions,
     );
     final totalBonos = rows.fold<double>(
       0,
@@ -731,7 +746,7 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
     );
     final totalCommissions = rows.fold<double>(
       0,
-      (sum, row) => sum + row.totals.commissions,
+      (sum, row) => sum + row.totals.commissions + row.totals.serviceCommissions,
     );
     final totalBonos = rows.fold<double>(
       0,
@@ -768,7 +783,10 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                   (row) => [
                     row.employee.nombre,
                     money.format(row.totals.baseSalary),
-                    money.format(row.totals.commissions),
+                    money.format(
+                      row.totals.commissions +
+                          row.totals.serviceCommissions,
+                    ),
                     money.format(
                       row.totals.bonuses + row.totals.otherAdditions,
                     ),
@@ -833,7 +851,6 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
     final companyPhone = settings.phone.trim();
     final range =
         '${DateFormat('dd/MM/yyyy').format(period.startDate)} - ${DateFormat('dd/MM/yyyy').format(period.endDate)}';
-    final extras = totals.bonuses + totals.holidayWorked + totals.otherAdditions;
     final roleLabel = (employee.puesto ?? '').trim().isEmpty
         ? 'Empleado'
         : employee.puesto!.trim();
@@ -881,25 +898,63 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
               pw.Text('Quincena: ${period.title}'),
               pw.Text('Rango: $range'),
               pw.SizedBox(height: 16),
-              pw.Text('Salario quincenal: ${money.format(totals.baseSalary)}'),
-              pw.Text('Comisión: ${money.format(totals.commissions)}'),
-              pw.Text('Extras: ${money.format(extras)}'),
-              if (totals.holidayWorked > 0)
-                pw.Text(
-                  'Feriados trabajados: ${money.format(totals.holidayWorked)}',
-                ),
               pw.Text(
-                'Beneficios: ${money.format(totals.commissions + extras)}',
+                'ADICIONES',
+                style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
               ),
-              pw.Text('Deducciones: ${money.format(totals.deductions)}'),
-              if (totals.absences > 0)
-                pw.Text('Ausencias: ${money.format(totals.absences)}'),
-              if (totals.advances > 0)
-                pw.Text('Adelantos: ${money.format(totals.advances)}'),
-              if (totals.otherDeductions > 0)
-                pw.Text(
-                  'Otras deducciones: ${money.format(totals.otherDeductions)}',
+              _pdfTotalLine('Salario quincenal', money.format(totals.baseSalary)),
+              if (totals.serviceCommissions > 0)
+                _pdfTotalLine(
+                  'Comision por instalaciones',
+                  money.format(totals.serviceCommissions),
                 ),
+              if (totals.commissions > 0)
+                _pdfTotalLine(
+                  'Comision por ventas',
+                  money.format(totals.commissions),
+                ),
+              if (totals.bonuses > 0)
+                _pdfTotalLine('Bonificaciones', money.format(totals.bonuses)),
+              if (totals.holidayWorked > 0)
+                _pdfTotalLine(
+                  'Feriados trabajados',
+                  money.format(totals.holidayWorked),
+                ),
+              if (totals.otherAdditions > 0)
+                _pdfTotalLine(
+                  'Otros ingresos',
+                  money.format(totals.otherAdditions),
+                ),
+              _pdfTotalLine(
+                'Total adiciones',
+                money.format(totals.additions),
+                highlight: true,
+              ),
+              pw.SizedBox(height: 10),
+              pw.Text(
+                'DEDUCCIONES',
+                style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+              ),
+              if (totals.seguroLey > 0)
+                _pdfTotalLine('Seguro de ley', money.format(totals.seguroLey)),
+              if (totals.absences > 0)
+                _pdfTotalLine('Ausencias', money.format(totals.absences)),
+              if (totals.late > 0)
+                _pdfTotalLine('Tardanzas', money.format(totals.late)),
+              if (totals.advances > 0)
+                _pdfTotalLine('Adelantos', money.format(totals.advances)),
+              if (totals.otherDeductions > 0)
+                _pdfTotalLine(
+                  'Otros descuentos',
+                  money.format(totals.otherDeductions),
+                ),
+              if (totals.deductions <= 0)
+                _pdfTotalLine('Sin deducciones', money.format(0)),
+              _pdfTotalLine(
+                'Total deducciones',
+                money.format(totals.deductions),
+                highlight: true,
+              ),
               pw.Divider(),
               pw.Text(
                 'Neto a pagar: ${money.format(totals.total)}',
@@ -980,6 +1035,27 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
       'Nómina enviada por WhatsApp a ${employee.nombre}',
       fallbackContext: context,
       scope: 'NominaSendPayroll',
+    );
+  }
+
+  Future<void> _previewEmployeePayrollPdf(
+    BuildContext context,
+    WidgetRef ref, {
+    required PayrollPeriod period,
+    required PayrollEmployee employee,
+    required PayrollTotals totals,
+  }) async {
+    final bytes = await _buildEmployeePayrollPdfBytes(
+      ref: ref,
+      period: period,
+      employee: employee,
+      totals: totals,
+    );
+
+    if (!context.mounted) return;
+    await Printing.layoutPdf(
+      name: _buildEmployeePayrollPdfFileName(employee, period),
+      onLayout: (_) async => bytes,
     );
   }
 
@@ -1872,6 +1948,19 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
               ),
             ),
             actions: [
+              IconButton.filledTonal(
+                tooltip: 'Ver PDF que se enviara',
+                onPressed: isSendingPayroll
+                    ? null
+                    : () => _previewEmployeePayrollPdf(
+                          scaffoldContext,
+                          ref,
+                          period: open,
+                          employee: employee,
+                          totals: totals,
+                        ),
+                icon: const Icon(Icons.picture_as_pdf_outlined),
+              ),
               TextButton.icon(
                 onPressed: isSendingPayroll
                     ? null
@@ -3866,6 +3955,7 @@ class _PayrollHistoryFullScreen extends ConsumerStatefulWidget {
     required this.onOpenDetails,
     required this.onEditPayroll,
     required this.onSendPayroll,
+    required this.onPreviewPayroll,
   });
 
   final List<_PayrollHistoryPeriodSummary> items;
@@ -3880,6 +3970,11 @@ class _PayrollHistoryFullScreen extends ConsumerStatefulWidget {
     PayrollPeriod period,
     _PayrollPeriodRow row,
   ) onSendPayroll;
+  final Future<void> Function(
+    BuildContext context,
+    PayrollPeriod period,
+    _PayrollPeriodRow row,
+  ) onPreviewPayroll;
 
   @override
   ConsumerState<_PayrollHistoryFullScreen> createState() =>
@@ -4068,7 +4163,7 @@ class _PayrollHistoryFullScreenState
           }
           switch (_detailFilter) {
             case _PayrollDetailEmployeeFilter.withCommission:
-              return row.totals.commissions > 0;
+              return row.totals.commissions > 0 || row.totals.serviceCommissions > 0;
             case _PayrollDetailEmployeeFilter.withDeductions:
               return row.totals.deductions > 0;
             case _PayrollDetailEmployeeFilter.all:
@@ -4298,6 +4393,13 @@ class _PayrollHistoryFullScreenState
                         setState(() => _detailFilter = f),
                     onSendPayroll: (row) async {
                       await widget.onSendPayroll(
+                        context,
+                        _selectedItem!.period,
+                        row,
+                      );
+                    },
+                    onPreviewPayroll: (row) async {
+                      await widget.onPreviewPayroll(
                         context,
                         _selectedItem!.period,
                         row,
@@ -4714,6 +4816,7 @@ class _HistoryInlineDetail extends StatelessWidget {
     required this.money,
     required this.onFilterChange,
     required this.onSendPayroll,
+    required this.onPreviewPayroll,
     required this.onEditPayroll,
     required this.onMarkPaid,
     required this.onExportPdf,
@@ -4729,6 +4832,7 @@ class _HistoryInlineDetail extends StatelessWidget {
   final NumberFormat money;
   final void Function(_PayrollDetailEmployeeFilter) onFilterChange;
   final Future<void> Function(_PayrollPeriodRow) onSendPayroll;
+  final Future<void> Function(_PayrollPeriodRow) onPreviewPayroll;
   final Future<void> Function(_PayrollPeriodRow) onEditPayroll;
   final Future<void> Function(_PayrollPeriodRow) onMarkPaid;
   final Future<void> Function() onExportPdf;
@@ -4744,7 +4848,7 @@ class _HistoryInlineDetail extends StatelessWidget {
     final totalBase = filteredRows.fold<double>(
         0, (s, r) => s + r.totals.baseSalary);
     final totalCommissions = filteredRows.fold<double>(
-        0, (s, r) => s + r.totals.commissions);
+        0, (s, r) => s + r.totals.commissions + r.totals.serviceCommissions);
     final totalExtras = filteredRows.fold<double>(
         0, (s, r) => s + r.totals.bonuses + r.totals.otherAdditions);
     final totalDeductions = filteredRows.fold<double>(
@@ -4935,6 +5039,7 @@ class _HistoryInlineDetail extends StatelessWidget {
                               row: row,
                               money: money,
                               onSendPayroll: () => onSendPayroll(row),
+                              onPreviewPayroll: () => onPreviewPayroll(row),
                               onEditPayroll: () => onEditPayroll(row),
                               onMarkPaid: row.paymentStatus.isPaid
                                   ? null
@@ -5018,6 +5123,7 @@ class _PayrollPeriodDetailsScreen extends StatefulWidget {
     required this.totalPagar,
     required this.onOpenPdf,
     required this.onSendPayroll,
+    required this.onPreviewPayroll,
     required this.onEditPayroll,
     required this.onMarkPaid,
     required this.onReloadRows,
@@ -5029,6 +5135,7 @@ class _PayrollPeriodDetailsScreen extends StatefulWidget {
   final double totalPagar;
   final Future<void> Function() onOpenPdf;
   final Future<void> Function(_PayrollPeriodRow row) onSendPayroll;
+  final Future<void> Function(_PayrollPeriodRow row) onPreviewPayroll;
   final Future<void> Function(_PayrollPeriodRow row) onEditPayroll;
   final Future<PayrollPaymentRecord?> Function(_PayrollPeriodRow row) onMarkPaid;
   final Future<List<_PayrollPeriodRow>> Function() onReloadRows;
@@ -5082,7 +5189,7 @@ class _PayrollPeriodDetailsScreenState
           }
           switch (_filter) {
             case _PayrollDetailEmployeeFilter.withCommission:
-              return row.totals.commissions > 0;
+              return row.totals.commissions > 0 || row.totals.serviceCommissions > 0;
             case _PayrollDetailEmployeeFilter.withDeductions:
               return row.totals.deductions > 0;
             case _PayrollDetailEmployeeFilter.all:
@@ -5109,7 +5216,7 @@ class _PayrollPeriodDetailsScreenState
     );
     final totalCommissions = filtered.fold<double>(
       0,
-      (sum, row) => sum + row.totals.commissions,
+      (sum, row) => sum + row.totals.commissions + row.totals.serviceCommissions,
     );
     final totalDeductions = filtered.fold<double>(
       0,
@@ -5348,6 +5455,7 @@ class _PayrollPeriodDetailsScreenState
                         row: row,
                         money: widget.money,
                         onSendPayroll: () => widget.onSendPayroll(row),
+                        onPreviewPayroll: () => widget.onPreviewPayroll(row),
                         onEditPayroll: () async {
                           await widget.onEditPayroll(row);
                           await _reloadRows();
@@ -5823,6 +5931,7 @@ class _PayrollPeriodEmployeeCard extends StatefulWidget {
     required this.row,
     required this.money,
     required this.onSendPayroll,
+    required this.onPreviewPayroll,
     required this.onEditPayroll,
     this.onMarkPaid,
   });
@@ -5830,6 +5939,7 @@ class _PayrollPeriodEmployeeCard extends StatefulWidget {
   final _PayrollPeriodRow row;
   final NumberFormat money;
   final Future<void> Function() onSendPayroll;
+  final Future<void> Function() onPreviewPayroll;
   final Future<void> Function() onEditPayroll;
   final Future<void> Function()? onMarkPaid;
 
@@ -6041,6 +6151,11 @@ class _PayrollPeriodEmployeeCardState
                               label: 'Comisión por ventas',
                               value: money.format(totals.commissions),
                             ),
+                          if (totals.serviceCommissions > 0)
+                            _BreakdownLine(
+                              label: 'Comision por instalaciones',
+                              value: money.format(totals.serviceCommissions),
+                            ),
                           if (totals.bonuses > 0)
                             _BreakdownLine(
                               label: 'Bonificaciones',
@@ -6161,6 +6276,12 @@ class _PayrollPeriodEmployeeCardState
                       Row(
                         mainAxisAlignment: MainAxisAlignment.end,
                         children: [
+                          IconButton.filledTonal(
+                            tooltip: 'Ver PDF que se enviara',
+                            onPressed: widget.onPreviewPayroll,
+                            icon: const Icon(Icons.picture_as_pdf_outlined),
+                          ),
+                          const SizedBox(width: 6),
                           IconButton.filledTonal(
                             tooltip: 'Enviar nomina',
                             onPressed: widget.onSendPayroll,
