@@ -208,6 +208,67 @@ export class WhatsappInboxService {
     return parsed ? [parsed] : [];
   }
 
+  async handleIncomingWebhook(instanceName: string, payload: unknown) {
+    const instance = await this.findInstanceByName(instanceName);
+    if (!instance) {
+      console.warn(
+        `[WhatsappInbox][Webhook] Webhook recibido para instancia no registrada "${instanceName}". Ignorando payload.`,
+      );
+      return { ok: true, ignored: true, reason: 'instance_not_registered' };
+    }
+
+    const parsedMessages = this.parseEvolutionPayloads(payload);
+    console.log(
+      `[WhatsappInbox][Webhook] ${parsedMessages.length} mensaje(s) parseados para instancia "${instanceName}" id=${instance.id}`,
+    );
+    if (parsedMessages.length === 0) {
+      return { ok: true, ignored: true, reason: 'unparseable_payload' };
+    }
+
+    let saved = 0;
+    for (const parsed of parsedMessages) {
+      const result = await this.saveMessage(instance.id, parsed);
+      if (!result.duplicate) saved++;
+    }
+
+    return { ok: true, saved };
+  }
+
+  private async findInstanceByName(instanceName: string) {
+    let instance = await this.prisma.userWhatsappInstance.findUnique({
+      where: { instanceName },
+      select: { id: true, userId: true },
+    });
+
+    if (!instance) {
+      const appConfig = await this.prisma.appConfig.findUnique({
+        where: { id: 'global' },
+        select: { evolutionApiInstanceName: true },
+      });
+      if (appConfig?.evolutionApiInstanceName === instanceName) {
+        const adminUser = await this.prisma.user.findFirst({
+          where: { role: 'ADMIN' },
+          select: { id: true },
+        });
+        if (adminUser) {
+          instance = await this.prisma.userWhatsappInstance.upsert({
+            where: { instanceName },
+            create: {
+              instanceName,
+              userId: adminUser.id,
+              status: 'connected',
+              webhookEnabled: true,
+            },
+            update: {},
+            select: { id: true, userId: true },
+          });
+        }
+      }
+    }
+
+    return instance;
+  }
+
   parseEvolutionPayload(payload: unknown): ParsedWhatsappMessage | null {
     try {
       const p = asRecord(payload);
@@ -228,12 +289,19 @@ export class WhatsappInboxService {
         asString(data.chatId) ??
         asString(data.to) ??
         asString(data.number) ??
-        asString(data.recipient);
+        asString(data.recipient) ??
+        asString(data.sender) ??
+        asString(data.from) ??
+        asString(key.participant);
       if (!remoteJid || remoteJid === 'status@broadcast') return null;
 
       const eventName = asString(p.event)?.toUpperCase() ?? '';
       const fromMe = key.fromMe === undefined
-        ? eventName === 'SEND_MESSAGE' || data.fromMe === true
+        ? eventName === 'SEND_MESSAGE' ||
+          data.fromMe === true ||
+          asString(data.from)?.toLowerCase() === 'me' ||
+          asString(data.from)?.toLowerCase() === 'self' ||
+          asString(data.owner)?.toLowerCase() === 'me'
         : Boolean(key.fromMe);
       const evolutionId =
         asString(key.id) ??
@@ -263,6 +331,8 @@ export class WhatsappInboxService {
         data.to,
         data.recipient,
         participantJid,
+        data.sender,
+        data.from,
         remoteJid,
       );
       const senderName = fromMe ? null : readableSenderName(pushName, remotePhone);

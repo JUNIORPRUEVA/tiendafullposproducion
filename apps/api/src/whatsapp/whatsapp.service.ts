@@ -5,6 +5,7 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import * as http from 'node:http';
 import * as https from 'node:https';
 import { ConfigService } from '@nestjs/config';
@@ -18,6 +19,7 @@ export class WhatsappService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly moduleRef: ModuleRef,
   ) {
     // Startup sanity-check: Evolution API URL must NOT point to this server itself.
     const evoUrl = (config.get<string>('EVOLUTION_API_URL') ?? '').trim().replace(/\/$/, '');
@@ -327,11 +329,20 @@ export class WhatsappService {
       return { ok: true, ignored: true, reason: 'instance_not_registered' };
     }
 
+    const { WhatsappInboxService } = require('../whatsapp-inbox/whatsapp-inbox.service');
+    const inboxService = this.moduleRef.get(WhatsappInboxService, { strict: false });
+    if (!inboxService) {
+      console.error(
+        `[WhatsApp][Webhook] Inbox service unavailable, no se puede procesar webhook para "${instanceName}".`,
+      );
+      return { ok: true, ignored: true, reason: 'inbox_service_unavailable' };
+    }
+
     console.log(
-      `[WhatsApp][Webhook] Evento recibido para instancia "${instanceName}" userId=${record.userId}: ${JSON.stringify(payload)}`,
+      `[WhatsApp][Webhook] Delegando webhook a WhatsappInboxService para instancia "${instanceName}" userId=${record.userId}`,
     );
 
-    return { ok: true };
+    return inboxService.handleIncomingWebhook(instanceName, payload);
   }
 
   private buildInstanceName(userId: string, custom?: string): string {
