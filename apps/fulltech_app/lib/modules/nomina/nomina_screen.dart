@@ -1314,10 +1314,16 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
     final conceptCtrl = TextEditingController();
     final amountCtrl = TextEditingController();
     final qtyCtrl = TextEditingController(text: '1');
+    final seguroLeyCtrl = TextEditingController(
+      text: employee.seguroLeyMonto.toStringAsFixed(2),
+    );
+    var dialogEmployee = employee;
     PayrollEntryType selectedType = PayrollEntryType.descuento;
+    var editingSeguroLey = !employee.seguroLeyMontoLocked;
     var holidayWasWorked = true;
     var notifyUser = false;
     var isSavingEntry = false;
+    var isSavingSeguroLey = false;
     var isSendingPayroll = false;
     final salaryForDailyRate =
         config?.baseSalary ?? employee.salarioBaseQuincenal;
@@ -1370,6 +1376,63 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
       setStateDialog(() {});
     }
 
+    Future<void> saveSeguroLey(StateSetter setStateDialog) async {
+      final raw = seguroLeyCtrl.text.trim().replaceAll(',', '.');
+      final value = double.tryParse(raw);
+      if (value == null || value < 0) {
+        await AppFeedback.showError(
+          scaffoldContext,
+          'El seguro de ley debe ser un monto mayor o igual a 0',
+          fallbackContext: context,
+          scope: 'NominaEmployeePayrollDialog',
+        );
+        return;
+      }
+
+      setStateDialog(() => isSavingSeguroLey = true);
+      try {
+        final saved = await repo.upsertEmployee(
+          dialogEmployee.copyWith(
+            seguroLeyMonto: value,
+            seguroLeyMontoLocked: false,
+          ),
+        );
+        dialogEmployee = saved;
+        seguroLeyCtrl.text = saved.seguroLeyMonto.toStringAsFixed(2);
+        totals = await repo.computeTotals(open.id, saved.id);
+        setStateDialog(() {
+          editingSeguroLey = false;
+          isSavingSeguroLey = false;
+        });
+        await ref.read(nominaHomeControllerProvider.notifier).load();
+        if (!context.mounted || !scaffoldContext.mounted) return;
+        await AppFeedback.showInfo(
+          scaffoldContext,
+          'Seguro de ley guardado para todas las quincenas',
+          fallbackContext: context,
+          scope: 'NominaEmployeePayrollDialog',
+        );
+      } catch (e, st) {
+        TraceLog.log(
+          'NominaEmployeePayrollDialog',
+          'save seguro ley error',
+          seq: flowSeq,
+          error: e,
+          stackTrace: st,
+        );
+        if (context.mounted) {
+          setStateDialog(() => isSavingSeguroLey = false);
+        }
+        if (!context.mounted || !scaffoldContext.mounted) return;
+        await AppFeedback.showError(
+          scaffoldContext,
+          'No se pudo guardar el seguro de ley: $e',
+          fallbackContext: context,
+          scope: 'NominaEmployeePayrollDialog',
+        );
+      }
+    }
+
     if (!context.mounted) return;
 
     try {
@@ -1409,6 +1472,63 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                     Text('Seguro ley: ${money.format(totals.seguroLey)}'),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: seguroLeyCtrl,
+                            enabled: !effectivePaidLocked &&
+                                editingSeguroLey &&
+                                !isSavingSeguroLey,
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
+                            decoration: const InputDecoration(
+                              labelText: 'Seguro de ley fijo',
+                              helperText:
+                                  'Descuento fijo por quincena para este usuario',
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton.filledTonal(
+                          tooltip: editingSeguroLey
+                              ? 'Editando seguro de ley'
+                              : 'Editar seguro de ley',
+                          onPressed: effectivePaidLocked ||
+                                  isSavingSeguroLey ||
+                                  editingSeguroLey
+                              ? null
+                              : () => setStateDialog(
+                                    () => editingSeguroLey = true,
+                                  ),
+                          icon: Icon(
+                            editingSeguroLey
+                                ? Icons.lock_open_outlined
+                                : Icons.edit_outlined,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        IconButton.filled(
+                          tooltip: 'Guardar seguro de ley',
+                          onPressed: effectivePaidLocked ||
+                                  !editingSeguroLey ||
+                                  isSavingSeguroLey
+                              ? null
+                              : () => saveSeguroLey(setStateDialog),
+                          icon: isSavingSeguroLey
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.save_outlined),
+                        ),
+                      ],
+                    ),
                     if (effectivePaidLocked) ...[
                       const SizedBox(height: 10),
                       FilledButton.icon(
@@ -1793,6 +1913,7 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
       conceptCtrl.dispose();
       amountCtrl.dispose();
       qtyCtrl.dispose();
+      seguroLeyCtrl.dispose();
     }
 
     if (!context.mounted) return;
