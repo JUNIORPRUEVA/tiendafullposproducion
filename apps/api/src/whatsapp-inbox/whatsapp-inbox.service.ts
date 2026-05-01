@@ -1,4 +1,9 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsappMessageDirection, WhatsappMessageType } from '@prisma/client';
@@ -118,7 +123,10 @@ async function findExistingWhatsappConversation(
       orderBy: [{ lastMessageAt: 'desc' }, { updatedAt: 'desc' }],
     });
     if (byPhone) {
-      if (byPhone.remoteJid !== normalizedJid && !normalizedJid.startsWith('me@')) {
+      if (
+        byPhone.remoteJid !== normalizedJid &&
+        !normalizedJid.startsWith('me@')
+      ) {
         const updated = await prisma.whatsappConversation.update({
           where: { id: byPhone.id },
           data: {
@@ -142,7 +150,10 @@ async function findExistingWhatsappConversation(
   return null;
 }
 
-function readableSenderName(name: unknown, fallbackPhone: string | null): string | null {
+function readableSenderName(
+  name: unknown,
+  fallbackPhone: string | null,
+): string | null {
   const raw = asString(name);
   if (!raw) return fallbackPhone;
   if (raw.includes('@')) return fallbackPhone;
@@ -151,7 +162,11 @@ function readableSenderName(name: unknown, fallbackPhone: string | null): string
   return raw;
 }
 
-function mediaMime(media: JsonRecord | undefined, data: JsonRecord, fallback: string | null) {
+function mediaMime(
+  media: JsonRecord | undefined,
+  data: JsonRecord,
+  fallback: string | null,
+) {
   return (
     asString(media?.mimetype) ??
     asString(media?.mimeType) ??
@@ -217,16 +232,24 @@ function collectEvolutionMessageRecords(value: unknown): unknown[] {
 function payloadKeyRemoteJid(value: unknown): string | null {
   const root = asRecord(value);
   const data = asRecord(root?.data) ?? asRecord(root?.message) ?? root;
-  const message = asRecord(data?.message) ?? asRecord(data?.messageData) ?? asRecord(data?.messageContent);
-  const key = asRecord(data?.key) ?? asRecord(message?.key) ?? asRecord(root?.key);
+  const message =
+    asRecord(data?.message) ??
+    asRecord(data?.messageData) ??
+    asRecord(data?.messageContent);
+  const key =
+    asRecord(data?.key) ?? asRecord(message?.key) ?? asRecord(root?.key);
   return asString(key?.remoteJid) ?? null;
 }
 
 function payloadPreviousRemoteJid(value: unknown): string | null {
   const root = asRecord(value);
   const data = asRecord(root?.data) ?? asRecord(root?.message) ?? root;
-  const message = asRecord(data?.message) ?? asRecord(data?.messageData) ?? asRecord(data?.messageContent);
-  const key = asRecord(data?.key) ?? asRecord(message?.key) ?? asRecord(root?.key);
+  const message =
+    asRecord(data?.message) ??
+    asRecord(data?.messageData) ??
+    asRecord(data?.messageContent);
+  const key =
+    asRecord(data?.key) ?? asRecord(message?.key) ?? asRecord(root?.key);
   return asString(key?.previousRemoteJid) ?? null;
 }
 
@@ -245,7 +268,10 @@ export type ResolvedWhatsappConversationIdentity = {
 
 export function resolveWhatsappConversationIdentity(
   payload: unknown,
-  instance?: { phoneNumber?: string | null; instanceName?: string | null } | null,
+  instance?: {
+    phoneNumber?: string | null;
+    instanceName?: string | null;
+  } | null,
   context?: { eventName?: string | null },
 ): ResolvedWhatsappConversationIdentity | null {
   const p = asRecord(payload);
@@ -306,14 +332,23 @@ export function resolveWhatsappConversationIdentity(
   const instancePhone = normalizeWhatsappPhone(instance?.phoneNumber);
   const customerPhone =
     customerIdentity.normalizedPhone ??
-    firstPhone(data.remotePhone, data.phone, data.number, data.to, data.recipient, customerJid);
+    firstPhone(
+      data.remotePhone,
+      data.phone,
+      data.number,
+      data.to,
+      data.recipient,
+      customerJid,
+    );
 
   const pushName =
     asString(data.pushName) ??
     asString(data.notifyName) ??
     asString(data.contactName) ??
     null;
-  const customerName = fromMe ? null : readableSenderName(pushName, customerPhone);
+  const customerName = fromMe
+    ? null
+    : readableSenderName(pushName, customerPhone);
   const messageId =
     asString(key.id) ??
     asString(data.id) ??
@@ -353,9 +388,13 @@ export class WhatsappInboxService {
     private readonly whatsappService: WhatsappService,
   ) {}
 
-  private normalizeConversationForResponse<T extends { remoteJid: string; remotePhone: string | null; remoteName: string | null }>(
-    conversation: T,
-  ): T {
+  private normalizeConversationForResponse<
+    T extends {
+      remoteJid: string;
+      remotePhone: string | null;
+      remoteName: string | null;
+    },
+  >(conversation: T): T {
     const cleanPhone =
       phoneFromIdentifier(conversation.remotePhone) ??
       phoneFromIdentifier(conversation.remoteJid);
@@ -366,9 +405,13 @@ export class WhatsappInboxService {
     };
   }
 
-  private hydrateMessageMedia<T extends { mediaUrl: string | null; mediaMimeType: string | null; rawPayload?: unknown }>(
-    message: T,
-  ): T {
+  private hydrateMessageMedia<
+    T extends {
+      mediaUrl: string | null;
+      mediaMimeType: string | null;
+      rawPayload?: unknown;
+    },
+  >(message: T): T {
     if (message.mediaUrl || !message.rawPayload) return message;
     const parsed = this.parseEvolutionPayload(message.rawPayload);
     if (!parsed?.mediaUrl) return message;
@@ -386,7 +429,10 @@ export class WhatsappInboxService {
     context?: {
       instanceName?: string | null;
       eventName?: string | null;
-      instance?: { phoneNumber?: string | null; instanceName?: string | null } | null;
+      instance?: {
+        phoneNumber?: string | null;
+        instanceName?: string | null;
+      } | null;
     },
   ): ParsedWhatsappMessage[] {
     const p = asRecord(payload);
@@ -395,10 +441,10 @@ export class WhatsappInboxService {
     const records = collectEvolutionMessageRecords(payload);
     if (records.length > 0) {
       return records
-          .map((item) =>
-            this.parseEvolutionPayload({ ...p, data: item }, context),
-          )
-          .filter((item): item is ParsedWhatsappMessage => !!item);
+        .map((item) =>
+          this.parseEvolutionPayload({ ...p, data: item }, context),
+        )
+        .filter((item): item is ParsedWhatsappMessage => !!item);
     }
 
     const parsed = this.parseEvolutionPayload(payload, context);
@@ -424,7 +470,9 @@ export class WhatsappInboxService {
       normalizeEventName(payloadRecord?.eventName) ??
       normalizeEventName(payloadRecord?.type);
     const eventName =
-      normalizeEventName(eventNameFromRoute) ?? payloadEvent ?? 'MESSAGES_UPSERT';
+      normalizeEventName(eventNameFromRoute) ??
+      payloadEvent ??
+      'MESSAGES_UPSERT';
 
     const parsedMessages = this.parseEvolutionPayloads(payload, {
       instanceName,
@@ -451,7 +499,8 @@ export class WhatsappInboxService {
     let outgoingObserved = false;
     for (const parsed of parsedMessages) {
       const normalizedIdentity = normalizeWhatsappIdentity(parsed.remoteJid);
-      const normalizedJid = normalizedIdentity.normalizedJid ?? parsed.remoteJid;
+      const normalizedJid =
+        normalizedIdentity.normalizedJid ?? parsed.remoteJid;
       const customerPhone =
         parsed.remotePhone ??
         normalizedIdentity.normalizedPhone ??
@@ -487,8 +536,11 @@ export class WhatsappInboxService {
         sender: identity?.sender ?? null,
         resolvedCustomerJid: parsed.remoteJid,
         resolvedCustomerPhone: customerPhone,
-        instancePhone: identity?.instancePhone ?? normalizeWhatsappPhone(instance.phoneNumber),
-        existingConversationId: existingByPhone?.id ?? existingByJid?.id ?? null,
+        instancePhone:
+          identity?.instancePhone ??
+          normalizeWhatsappPhone(instance.phoneNumber),
+        existingConversationId:
+          existingByPhone?.id ?? existingByJid?.id ?? null,
         willCreateNewConversation: !existingByPhone && !existingByJid,
       });
       const result = await this.saveMessage(instance.id, parsed);
@@ -509,7 +561,10 @@ export class WhatsappInboxService {
       });
     }
 
-    if (!outgoingObserved && (isOutgoingEventName(eventName) || eventName === 'UNKNOWN')) {
+    if (
+      !outgoingObserved &&
+      (isOutgoingEventName(eventName) || eventName === 'UNKNOWN')
+    ) {
       console.warn(
         'Manual WhatsApp outgoing event not received from Evolution. Check webhook events configuration.',
       );
@@ -528,10 +583,16 @@ export class WhatsappInboxService {
       const normalizedInput = normalizeInstanceName(instanceName);
       if (normalizedInput) {
         const instances = await this.prisma.userWhatsappInstance.findMany({
-          select: { id: true, userId: true, instanceName: true, phoneNumber: true },
+          select: {
+            id: true,
+            userId: true,
+            instanceName: true,
+            phoneNumber: true,
+          },
         });
         const byNormalized = instances.find(
-          (item) => normalizeInstanceName(item.instanceName) === normalizedInput,
+          (item) =>
+            normalizeInstanceName(item.instanceName) === normalizedInput,
         );
         if (byNormalized) {
           instance = {
@@ -552,7 +613,8 @@ export class WhatsappInboxService {
       const configName = appConfig?.evolutionApiInstanceName ?? '';
       const sameCompanyInstance =
         configName === instanceName ||
-        normalizeInstanceName(configName) === normalizeInstanceName(instanceName);
+        normalizeInstanceName(configName) ===
+          normalizeInstanceName(instanceName);
       if (sameCompanyInstance) {
         const adminUser = await this.prisma.user.findFirst({
           where: { role: 'ADMIN' },
@@ -568,7 +630,12 @@ export class WhatsappInboxService {
               webhookEnabled: true,
             },
             update: {},
-            select: { id: true, userId: true, instanceName: true, phoneNumber: true },
+            select: {
+              id: true,
+              userId: true,
+              instanceName: true,
+              phoneNumber: true,
+            },
           });
         }
       }
@@ -582,7 +649,10 @@ export class WhatsappInboxService {
     context?: {
       instanceName?: string | null;
       eventName?: string | null;
-      instance?: { phoneNumber?: string | null; instanceName?: string | null } | null;
+      instance?: {
+        phoneNumber?: string | null;
+        instanceName?: string | null;
+      } | null;
     },
   ): ParsedWhatsappMessage | null {
     try {
@@ -595,7 +665,8 @@ export class WhatsappInboxService {
         asRecord(data.messageData) ??
         asRecord(data.messageContent) ??
         {};
-      const key = asRecord(data.key) ?? asRecord(messageObj.key) ?? asRecord(p.key);
+      const key =
+        asRecord(data.key) ?? asRecord(messageObj.key) ?? asRecord(p.key);
       if (!key) return null;
       const identity = resolveWhatsappConversationIdentity(
         payload,
@@ -664,10 +735,17 @@ export class WhatsappInboxService {
         messageType = WhatsappMessageType.TEXT;
         body =
           (messageObj.conversation as string | undefined) ??
-          ((messageObj.extendedTextMessage as Record<string, unknown> | undefined)
-            ?.text as string | undefined) ??
+          ((
+            messageObj.extendedTextMessage as
+              | Record<string, unknown>
+              | undefined
+          )?.text as string | undefined) ??
           null;
-      } else if (normalizedMessageType === 'imagemessage' || normalizedMessageType === 'image' || messageObj.imageMessage) {
+      } else if (
+        normalizedMessageType === 'imagemessage' ||
+        normalizedMessageType === 'image' ||
+        messageObj.imageMessage
+      ) {
         messageType = WhatsappMessageType.IMAGE;
         const img = asRecord(messageObj.imageMessage) ?? messageObj;
         mediaMimeType = mediaMime(img, data, 'image/jpeg');
@@ -684,27 +762,46 @@ export class WhatsappInboxService {
       ) {
         messageType = WhatsappMessageType.AUDIO;
         const audio =
-          asRecord(messageObj.audioMessage) ?? asRecord(messageObj.pttMessage) ?? messageObj;
+          asRecord(messageObj.audioMessage) ??
+          asRecord(messageObj.pttMessage) ??
+          messageObj;
         mediaMimeType = mediaMime(audio, data, 'audio/ogg');
         mediaUrl = mediaUrlFromPayload(audio, messageObj, data, mediaMimeType);
-      } else if (normalizedMessageType === 'videomessage' || normalizedMessageType === 'video' || messageObj.videoMessage) {
+      } else if (
+        normalizedMessageType === 'videomessage' ||
+        normalizedMessageType === 'video' ||
+        messageObj.videoMessage
+      ) {
         messageType = WhatsappMessageType.VIDEO;
         const vid = asRecord(messageObj.videoMessage) ?? messageObj;
         mediaMimeType = mediaMime(vid, data, 'video/mp4');
         mediaUrl = mediaUrlFromPayload(vid, messageObj, data, mediaMimeType);
         caption = (vid?.caption as string | undefined) ?? null;
         body = caption;
-      } else if (normalizedMessageType === 'documentmessage' || normalizedMessageType === 'document' || messageObj.documentMessage) {
+      } else if (
+        normalizedMessageType === 'documentmessage' ||
+        normalizedMessageType === 'document' ||
+        messageObj.documentMessage
+      ) {
         messageType = WhatsappMessageType.DOCUMENT;
         const doc = asRecord(messageObj.documentMessage) ?? messageObj;
         mediaMimeType = mediaMime(doc, data, null);
         mediaUrl = mediaUrlFromPayload(doc, messageObj, data, mediaMimeType);
         body = (doc?.fileName as string | undefined) ?? null;
-      } else if (normalizedMessageType === 'stickermessage' || normalizedMessageType === 'sticker' || messageObj.stickerMessage) {
+      } else if (
+        normalizedMessageType === 'stickermessage' ||
+        normalizedMessageType === 'sticker' ||
+        messageObj.stickerMessage
+      ) {
         messageType = WhatsappMessageType.STICKER;
         const sticker = asRecord(messageObj.stickerMessage) ?? messageObj;
         mediaMimeType = mediaMime(sticker, data, 'image/webp');
-        mediaUrl = mediaUrlFromPayload(sticker, messageObj, data, mediaMimeType);
+        mediaUrl = mediaUrlFromPayload(
+          sticker,
+          messageObj,
+          data,
+          mediaMimeType,
+        );
       } else {
         const text =
           asString(messageObj.conversation) ??
@@ -803,7 +900,8 @@ export class WhatsappInboxService {
             remotePhone,
             remoteName,
             lastMessageAt: parsed.sentAt,
-            unreadCount: direction === WhatsappMessageDirection.INCOMING ? 1 : 0,
+            unreadCount:
+              direction === WhatsappMessageDirection.INCOMING ? 1 : 0,
           },
         });
     await this.mergePreviousRemoteJidConversation(
@@ -992,7 +1090,9 @@ export class WhatsappInboxService {
     if (!instance) return { synced: 0 };
 
     const raw = await this.whatsappService.findChats(instance.instanceName, 40);
-    const chats = Array.isArray(raw) ? raw : collectEvolutionMessageRecords(raw);
+    const chats = Array.isArray(raw)
+      ? raw
+      : collectEvolutionMessageRecords(raw);
     let synced = 0;
 
     for (const chat of chats) {
@@ -1011,8 +1111,7 @@ export class WhatsappInboxService {
           key: {
             ...(asRecord(lastMessage.key) ?? {}),
             remoteJid:
-              asString(asRecord(lastMessage.key)?.remoteJid) ??
-              chatRemoteJid,
+              asString(asRecord(lastMessage.key)?.remoteJid) ?? chatRemoteJid,
           },
         },
       };
@@ -1100,13 +1199,15 @@ export class WhatsappInboxService {
 
   async getMessages(conversationId: string, limit = 50, before?: Date) {
     if (!before) {
-      await this.syncConversationFromEvolution(conversationId).catch((error) => {
-        console.warn(
-          `[WhatsappInbox] No se pudo sincronizar conversacion ${conversationId}: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
-      });
+      await this.syncConversationFromEvolution(conversationId).catch(
+        (error) => {
+          console.warn(
+            `[WhatsappInbox] No se pudo sincronizar conversacion ${conversationId}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        },
+      );
     }
 
     const messages = await this.prisma.whatsappMessage.findMany({
@@ -1143,13 +1244,16 @@ export class WhatsappInboxService {
         },
       );
       if (!parsed) continue;
-      const parsedPhone = parsed.remotePhone ?? phoneFromIdentifier(parsed.remoteJid);
+      const parsedPhone =
+        parsed.remotePhone ?? phoneFromIdentifier(parsed.remoteJid);
       const conversationPhone =
         phoneFromIdentifier(conversation.remotePhone) ??
         phoneFromIdentifier(conversation.remoteJid);
       const sameConversation =
         parsed.remoteJid === conversation.remoteJid ||
-        (!!parsedPhone && !!conversationPhone && parsedPhone === conversationPhone);
+        (!!parsedPhone &&
+          !!conversationPhone &&
+          parsedPhone === conversationPhone);
       if (!sameConversation) continue;
       const result = await this.saveMessage(conversation.instanceId, parsed);
       if (!result.duplicate) synced++;
@@ -1173,7 +1277,12 @@ export class WhatsappInboxService {
     return this.prisma.userWhatsappInstance.findMany({
       include: {
         user: {
-          select: { id: true, nombreCompleto: true, role: true, telefono: true },
+          select: {
+            id: true,
+            nombreCompleto: true,
+            role: true,
+            telefono: true,
+          },
         },
       },
       orderBy: { createdAt: 'asc' },
@@ -1190,13 +1299,23 @@ export class WhatsappInboxService {
     return instance;
   }
 
-  async validateAdminComposePassword(actor: { id?: string; role?: string }, password: string) {
+  async validateAdminComposePassword(
+    actor: { id?: string; role?: string },
+    password: string,
+  ) {
     if (actor.role !== 'ADMIN') {
-      throw new ForbiddenException('Solo un administrador puede desbloquear el envio.');
+      throw new ForbiddenException(
+        'Solo un administrador puede desbloquear el envio.',
+      );
+    }
+    if (!actor.id) {
+      throw new ForbiddenException('No autorizado.');
     }
     const cleaned = (password ?? '').trim();
     if (!cleaned) {
-      throw new BadRequestException('Debes colocar la contrasena de administrador.');
+      throw new BadRequestException(
+        'Debes colocar la contrasena de administrador.',
+      );
     }
     const user = await this.prisma.user.findUnique({
       where: { id: actor.id },
@@ -1240,7 +1359,10 @@ export class WhatsappInboxService {
     return this.saveMessage(instanceId, parsed);
   }
 
-  async attachEvolutionIdToMessage(messageId: string, evolutionId?: string | null) {
+  async attachEvolutionIdToMessage(
+    messageId: string,
+    evolutionId?: string | null,
+  ) {
     const cleanId = (evolutionId ?? '').trim();
     if (!cleanId) return null;
 
@@ -1294,9 +1416,15 @@ export class WhatsappInboxService {
     });
 
     const contacts = new Set(messages.map((m) => m.conversationId));
-    const incoming = messages.filter((m) => m.direction === WhatsappMessageDirection.INCOMING);
-    const outgoing = messages.filter((m) => m.direction === WhatsappMessageDirection.OUTGOING);
-    const media = messages.filter((m) => m.messageType !== WhatsappMessageType.TEXT);
+    const incoming = messages.filter(
+      (m) => m.direction === WhatsappMessageDirection.INCOMING,
+    );
+    const outgoing = messages.filter(
+      (m) => m.direction === WhatsappMessageDirection.OUTGOING,
+    );
+    const media = messages.filter(
+      (m) => m.messageType !== WhatsappMessageType.TEXT,
+    );
 
     const stats = {
       date,
@@ -1320,12 +1448,22 @@ export class WhatsappInboxService {
 
     const transcript = messages.map((m) => ({
       time: m.sentAt.toISOString().slice(11, 16),
-      direction: m.direction === WhatsappMessageDirection.OUTGOING ? 'usuario' : 'cliente',
-      contact: readableSenderName(m.conversation.remoteName, m.conversation.remotePhone) ??
+      direction:
+        m.direction === WhatsappMessageDirection.OUTGOING
+          ? 'usuario'
+          : 'cliente',
+      contact:
+        readableSenderName(
+          m.conversation.remoteName,
+          m.conversation.remotePhone,
+        ) ??
         m.conversation.remotePhone ??
         m.conversation.remoteJid,
       type: m.messageType,
-      text: (m.body ?? m.caption ?? '').replace(/\s+/g, ' ').trim().slice(0, 900),
+      text: (m.body ?? m.caption ?? '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 900),
     }));
 
     const runtime = await this.getOpenAiRuntimeConfig();
@@ -1345,7 +1483,8 @@ export class WhatsappInboxService {
       return {
         source: 'openai',
         stats,
-        summary: ai.summary || this.buildDeterministicDailySummary(stats, transcript),
+        summary:
+          ai.summary || this.buildDeterministicDailySummary(stats, transcript),
       };
     } catch {
       return {
@@ -1357,16 +1496,30 @@ export class WhatsappInboxService {
   }
 
   private async getOpenAiRuntimeConfig() {
-    const envKey = (this.config.get<string>('OPENAI_API_KEY') ?? process.env.OPENAI_API_KEY ?? '').trim();
-    const envModel = (this.config.get<string>('OPENAI_MODEL') ?? process.env.OPENAI_MODEL ?? '').trim();
-    const appConfig = await this.prisma.appConfig.findUnique({
-      where: { id: 'global' },
-      select: { openAiApiKey: true, openAiModel: true, companyName: true },
-    }).catch(() => null);
+    const envKey = (
+      this.config.get<string>('OPENAI_API_KEY') ??
+      process.env.OPENAI_API_KEY ??
+      ''
+    ).trim();
+    const envModel = (
+      this.config.get<string>('OPENAI_MODEL') ??
+      process.env.OPENAI_MODEL ??
+      ''
+    ).trim();
+    const appConfig = await this.prisma.appConfig
+      .findUnique({
+        where: { id: 'global' },
+        select: { openAiApiKey: true, openAiModel: true, companyName: true },
+      })
+      .catch(() => null);
 
     return {
-      apiKey: envKey.length > 0 ? envKey : (appConfig?.openAiApiKey ?? '').trim(),
-      model: envModel.length > 0 ? envModel : ((appConfig?.openAiModel ?? '').trim() || 'gpt-4o-mini'),
+      apiKey:
+        envKey.length > 0 ? envKey : (appConfig?.openAiApiKey ?? '').trim(),
+      model:
+        envModel.length > 0
+          ? envModel
+          : (appConfig?.openAiModel ?? '').trim() || 'gpt-4o-mini',
       companyName: (appConfig?.companyName ?? 'FULLTECH').trim() || 'FULLTECH',
     };
   }
@@ -1383,15 +1536,34 @@ export class WhatsappInboxService {
     },
     transcript: Array<{ direction: string; text: string; contact: string }>,
   ) {
-    const interestWords = ['precio', 'cotizacion', 'cotización', 'quiero', 'interesa', 'disponible', 'comprar', 'instalar'];
-    const followWords = ['mañana', 'luego', 'despues', 'después', 'pendiente', 'seguimiento', 'confirmar'];
+    const interestWords = [
+      'precio',
+      'cotizacion',
+      'cotización',
+      'quiero',
+      'interesa',
+      'disponible',
+      'comprar',
+      'instalar',
+    ];
+    const followWords = [
+      'mañana',
+      'luego',
+      'despues',
+      'después',
+      'pendiente',
+      'seguimiento',
+      'confirmar',
+    ];
     const interested = new Set<string>();
     const followups = new Set<string>();
 
     for (const item of transcript) {
       const text = item.text.toLowerCase();
-      if (interestWords.some((word) => text.includes(word))) interested.add(item.contact);
-      if (followWords.some((word) => text.includes(word))) followups.add(item.contact);
+      if (interestWords.some((word) => text.includes(word)))
+        interested.add(item.contact);
+      if (followWords.some((word) => text.includes(word)))
+        followups.add(item.contact);
     }
 
     return [
@@ -1407,8 +1579,13 @@ export class WhatsappInboxService {
     runtime: { apiKey: string; model: string; companyName: string },
     payload: unknown,
   ): Promise<{ summary?: string }> {
-    const candidates = [runtime.model, 'gpt-5', 'gpt-4.1', 'gpt-4o', 'gpt-4o-mini']
-      .filter((value, index, list) => value && list.indexOf(value) === index);
+    const candidates = [
+      runtime.model,
+      'gpt-5',
+      'gpt-4.1',
+      'gpt-4o',
+      'gpt-4o-mini',
+    ].filter((value, index, list) => value && list.indexOf(value) === index);
     const systemPrompt =
       `Eres un analista CRM de ${runtime.companyName}. Resume actividad diaria de WhatsApp para auditar ventas y seguimiento. ` +
       'Usa solo los mensajes enviados. No inventes ventas. Escribe en espanol profesional, claro y accionable.';
@@ -1418,28 +1595,34 @@ export class WhatsappInboxService {
 
     for (const model of candidates) {
       try {
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${runtime.apiKey}`,
-            'Content-Type': 'application/json',
+        const response = await fetch(
+          'https://api.openai.com/v1/chat/completions',
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${runtime.apiKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model,
+              temperature: 0.2,
+              messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: userPrompt },
+              ],
+            }),
           },
-          body: JSON.stringify({
-            model,
-            temperature: 0.2,
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: userPrompt },
-            ],
-          }),
-        });
+        );
         if (!response.ok) continue;
-        const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
+        const data = (await response.json()) as {
+          choices?: Array<{ message?: { content?: string } }>;
+        };
         const content = data.choices?.[0]?.message?.content?.trim();
         if (!content) continue;
         const first = content.indexOf('{');
         const last = content.lastIndexOf('}');
-        const json = first >= 0 && last > first ? content.slice(first, last + 1) : content;
+        const json =
+          first >= 0 && last > first ? content.slice(first, last + 1) : content;
         return JSON.parse(json) as { summary?: string };
       } catch {
         continue;

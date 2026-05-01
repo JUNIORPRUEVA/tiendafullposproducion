@@ -385,7 +385,9 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
               ),
               actions: [
                 TextButton(
-                  onPressed: loading ? null : () => Navigator.of(ctx).pop(false),
+                  onPressed: loading
+                      ? null
+                      : () => Navigator.of(ctx).pop(false),
                   child: const Text('Cancelar'),
                 ),
                 FilledButton.icon(

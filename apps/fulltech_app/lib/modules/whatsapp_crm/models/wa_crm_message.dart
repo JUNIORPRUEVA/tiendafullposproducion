@@ -1,4 +1,4 @@
-﻿enum WaMessageDirection { incoming, outgoing }
+enum WaMessageDirection { incoming, outgoing }
 
 enum WaMessageType { text, image, audio, video, document, sticker, other }
 

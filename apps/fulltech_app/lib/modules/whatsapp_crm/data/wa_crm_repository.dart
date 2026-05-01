@@ -27,7 +27,10 @@ class WaCrmRepository {
   }
 
   /// Toggle webhook for a specific instance — returns the configured URL
-  Future<String> setInstanceWebhook(String instanceName, {required bool enabled}) async {
+  Future<String> setInstanceWebhook(
+    String instanceName, {
+    required bool enabled,
+  }) async {
     try {
       final res = await _dio.patch<Map<String, dynamic>>(
         '/whatsapp/admin/instance-webhook',

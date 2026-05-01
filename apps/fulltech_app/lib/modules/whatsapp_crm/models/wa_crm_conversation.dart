@@ -1,5 +1,33 @@
 import 'wa_crm_message.dart';
 
+String? _safeConversationText(dynamic value) {
+  if (value is! String) return null;
+  final units = value.codeUnits;
+  final out = StringBuffer();
+  for (var i = 0; i < units.length; i++) {
+    final unit = units[i];
+    if (unit >= 0xD800 && unit <= 0xDBFF) {
+      if (i + 1 < units.length) {
+        final next = units[i + 1];
+        if (next >= 0xDC00 && next <= 0xDFFF) {
+          out.writeCharCode(unit);
+          out.writeCharCode(next);
+          i++;
+          continue;
+        }
+      }
+      out.write('\uFFFD');
+      continue;
+    }
+    if (unit >= 0xDC00 && unit <= 0xDFFF) {
+      out.write('\uFFFD');
+      continue;
+    }
+    out.writeCharCode(unit);
+  }
+  return out.toString();
+}
+
 class WaCrmConversation {
   const WaCrmConversation({
     required this.id,
@@ -69,15 +97,18 @@ class WaCrmConversation {
       } catch (_) {}
     }
     return WaCrmConversation(
-      id: json['id'] as String,
+      id: _safeConversationText(json['id']) ?? '',
       instanceId:
-          json['instanceId'] as String? ?? json['instance_id'] as String? ?? '',
+          _safeConversationText(json['instanceId'] ?? json['instance_id']) ??
+          '',
       remoteJid:
-          json['remoteJid'] as String? ?? json['remote_jid'] as String? ?? '',
-      remotePhone:
-          json['remotePhone'] as String? ?? json['remote_phone'] as String?,
-      remoteName:
-          json['remoteName'] as String? ?? json['remote_name'] as String?,
+          _safeConversationText(json['remoteJid'] ?? json['remote_jid']) ?? '',
+      remotePhone: _safeConversationText(
+        json['remotePhone'] ?? json['remote_phone'],
+      ),
+      remoteName: _safeConversationText(
+        json['remoteName'] ?? json['remote_name'],
+      ),
       lastMessageAt: _parseDate(
         json['lastMessageAt'] ?? json['last_message_at'],
       ),

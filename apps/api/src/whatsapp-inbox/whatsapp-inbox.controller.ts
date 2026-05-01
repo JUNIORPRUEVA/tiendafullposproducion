@@ -56,18 +56,22 @@ class UnlockComposeDto {
 }
 
 function extractEvolutionMessageId(result: unknown): string | undefined {
-  const root = result && typeof result === 'object'
-    ? (result as Record<string, unknown>)
-    : {};
-  const key = root.key && typeof root.key === 'object'
-    ? (root.key as Record<string, unknown>)
-    : undefined;
-  const message = root.message && typeof root.message === 'object'
-    ? (root.message as Record<string, unknown>)
-    : undefined;
-  const nestedKey = message?.key && typeof message.key === 'object'
-    ? (message.key as Record<string, unknown>)
-    : undefined;
+  const root =
+    result && typeof result === 'object'
+      ? (result as Record<string, unknown>)
+      : {};
+  const key =
+    root.key && typeof root.key === 'object'
+      ? (root.key as Record<string, unknown>)
+      : undefined;
+  const message =
+    root.message && typeof root.message === 'object'
+      ? (root.message as Record<string, unknown>)
+      : undefined;
+  const nestedKey =
+    message?.key && typeof message.key === 'object'
+      ? (message.key as Record<string, unknown>)
+      : undefined;
 
   return (
     (key?.id as string | undefined) ??
@@ -242,5 +246,3 @@ export class WhatsappInboxWebhookController {
     }
   }
 }
-
-
