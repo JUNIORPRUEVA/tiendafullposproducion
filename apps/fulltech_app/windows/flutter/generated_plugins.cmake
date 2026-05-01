@@ -10,6 +10,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   media_kit_video
   printing
   sqlite3_flutter_libs
+  syncfusion_pdfviewer_windows
   url_launcher_windows
   video_player_win
 )

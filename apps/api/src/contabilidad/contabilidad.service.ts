@@ -682,8 +682,21 @@ export class ContabilidadService {
         .stroke();
       doc.moveDown(0.6);
     };
-    const embedImage = async (storageKey: string, mimeType: string, label?: string) => {
-      if (!/^image\/(jpeg|jpg|png)$/i.test(mimeType)) return;
+    const embedImage = async (
+      storageKey: string,
+      mimeType: string,
+      label?: string,
+      fileName?: string,
+    ) => {
+      const normalizedMime = (mimeType ?? '').toLowerCase();
+      const normalizedName = (fileName ?? '').toLowerCase();
+      const supportedByMime = /^image\/(jpeg|jpg|png|webp)$/i.test(normalizedMime);
+      const supportedByName =
+        normalizedName.endsWith('.jpg') ||
+        normalizedName.endsWith('.jpeg') ||
+        normalizedName.endsWith('.png') ||
+        normalizedName.endsWith('.webp');
+      if (!supportedByMime && !supportedByName) return;
       const buf = await this.tryFetchImageBuffer(storageKey);
       if (!buf) return;
       if (label) doc.font('Helvetica-Bold').text(label);
@@ -691,7 +704,13 @@ export class ContabilidadService {
         doc.image(buf, { fit: [460, 280], align: 'center' });
         doc.moveDown(0.5);
       } catch {
-        // skip non-embeddable image silently
+        doc
+          .font('Helvetica')
+          .fillColor('#92400e')
+          .text(
+            `No se pudo incrustar la imagen ${fileName ?? ''}. Verifica formato/archivo.`,
+          );
+        doc.fillColor('#0f172a');
       }
     };
 
@@ -783,7 +802,12 @@ export class ContabilidadService {
             .fillColor('#0f5b6b')
             .text(`Voucher ${vi + 1}: ${voucher.fileName}`);
           doc.fillColor('#0f172a');
-          await embedImage(voucher.storageKey, voucher.mimeType);
+          await embedImage(
+            voucher.storageKey,
+            voucher.mimeType,
+            undefined,
+            voucher.fileName,
+          );
         }
         doc.moveDown(0.4);
       }
@@ -794,7 +818,12 @@ export class ContabilidadService {
       section('Boucher del cierre POS');
       doc.font('Helvetica').text(`Archivo: ${close.evidenceFileName}`);
       if (close.evidenceStorageKey && close.evidenceMimeType) {
-        await embedImage(close.evidenceStorageKey, close.evidenceMimeType);
+        await embedImage(
+          close.evidenceStorageKey,
+          close.evidenceMimeType,
+          undefined,
+          close.evidenceFileName ?? undefined,
+        );
       } else {
         doc.font('Helvetica').fillColor('#0f5b6b').text(close.evidenceUrl);
         doc.fillColor('#0f172a');

@@ -4,11 +4,11 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 
 import '../../core/auth/auth_provider.dart';
 import '../../core/models/close_model.dart';
 import '../../core/theme/app_theme.dart';
-import '../../core/utils/safe_url_launcher.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
 import 'application/cierres_diarios_controller.dart';
@@ -605,7 +605,7 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
       allowMultiple: true,
       withData: true,
       type: FileType.custom,
-      allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp', 'pdf'],
+      allowedExtensions: const ['jpg', 'jpeg', 'png', 'pdf'],
     );
     if (result == null || result.files.isEmpty) return;
     setState(() => draft.uploading = true);
@@ -722,7 +722,7 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
       allowMultiple: false,
       withData: true,
       type: FileType.custom,
-      allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp', 'pdf'],
+      allowedExtensions: const ['jpg', 'jpeg', 'png', 'pdf'],
     );
     if (result == null || result.files.isEmpty) return;
     setState(() => _uploadingPosVoucher = true);
@@ -1199,6 +1199,24 @@ class _CloseDetailFullScreenPageState
     return asText.isEmpty ? const [] : [asText];
   }
 
+  bool _isImageVoucher(CloseTransferVoucherModel voucher) {
+    final mime = voucher.mimeType.toLowerCase();
+    final name = voucher.fileName.toLowerCase();
+    final url = voucher.fileUrl.toLowerCase();
+    final byMime = mime.startsWith('image/');
+    final byName =
+        name.endsWith('.jpg') ||
+        name.endsWith('.jpeg') ||
+        name.endsWith('.png') ||
+        name.endsWith('.webp');
+    final byUrl =
+        url.contains('.jpg') ||
+        url.contains('.jpeg') ||
+        url.contains('.png') ||
+        url.contains('.webp');
+    return byMime || byName || byUrl;
+  }
+
   void _ensureAiGeneratedOnOpen(CloseModel close) {
     if (_autoAiRequested) return;
     _autoAiRequested = true;
@@ -1226,10 +1244,16 @@ class _CloseDetailFullScreenPageState
       );
       return;
     }
-    await safeOpenUrl(
-      context,
-      Uri.parse(url),
-      copiedMessage: 'No se pudo abrir el PDF. Enlace copiado.',
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => _ClosePdfViewerScreen(
+          url: url,
+          title: (close.pdfFileName ?? '').trim().isNotEmpty
+              ? close.pdfFileName!
+              : 'PDF de cierre',
+        ),
+      ),
     );
   }
 
@@ -1327,6 +1351,12 @@ class _CloseDetailFullScreenPageState
     }
     final currentClose = close;
     _ensureAiGeneratedOnOpen(currentClose);
+    final posVoucher = CloseTransferVoucherModel(
+      storageKey: currentClose.evidenceStorageKey ?? '',
+      fileUrl: currentClose.evidenceUrl ?? '',
+      fileName: currentClose.evidenceFileName ?? '',
+      mimeType: currentClose.evidenceMimeType ?? '',
+    );
 
     final statusLabel = switch (currentClose.status) {
       'approved' => 'Aprobado',
@@ -1552,7 +1582,7 @@ class _CloseDetailFullScreenPageState
                         spacing: 8,
                         runSpacing: 8,
                         children: transfer.vouchers
-                            .where((v) => v.mimeType.startsWith('image/'))
+                            .where(_isImageVoucher)
                             .map(
                               (voucher) => InkWell(
                                 onTap: () =>
@@ -1617,16 +1647,37 @@ class _CloseDetailFullScreenPageState
               trailing: OutlinedButton(
                 onPressed: () => _showVoucherPreviewDialog(
                   context,
-                  CloseTransferVoucherModel(
-                    storageKey: currentClose.evidenceStorageKey ?? '',
-                    fileUrl: currentClose.evidenceUrl!,
-                    fileName: currentClose.evidenceFileName!,
-                    mimeType: currentClose.evidenceMimeType ?? '',
-                  ),
+                  posVoucher,
                 ),
                 child: const Text('Expandir'),
               ),
             ),
+            if (_isImageVoucher(posVoucher))
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: InkWell(
+                  onTap: () => _showVoucherPreviewDialog(context, posVoucher),
+                  borderRadius: BorderRadius.circular(10),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: SizedBox(
+                      width: 120,
+                      height: 120,
+                      child: Image.network(
+                        currentClose.evidenceUrl!,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Container(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .surfaceContainerHighest,
+                          alignment: Alignment.center,
+                          child: const Icon(Icons.broken_image_outlined),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
           ],
           if ((currentClose.notes ?? '').trim().isNotEmpty) ...[
             const SizedBox(height: 18),
@@ -1812,6 +1863,21 @@ class _CloseDetailFullScreenPageState
           ],
         ],
       ),
+    );
+  }
+}
+
+class _ClosePdfViewerScreen extends StatelessWidget {
+  final String url;
+  final String title;
+
+  const _ClosePdfViewerScreen({required this.url, required this.title});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(title)),
+      body: SfPdfViewer.network(url),
     );
   }
 }
