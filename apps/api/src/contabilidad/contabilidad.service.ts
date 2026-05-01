@@ -590,7 +590,10 @@ export class ContabilidadService {
         body: pdf.bytes,
         contentType: 'application/pdf',
       });
-      const pdfUrl = this.r2.buildPublicUrl(objectKey);
+      const builtPdfUrl = this.r2.buildPublicUrl(objectKey);
+      const pdfUrl = /^https?:\/\//i.test(builtPdfUrl)
+        ? builtPdfUrl
+        : `/public/contabilidad/object?key=${encodeURIComponent(objectKey)}`;
 
       await this.prisma.close.update({
         where: { id: close.id },

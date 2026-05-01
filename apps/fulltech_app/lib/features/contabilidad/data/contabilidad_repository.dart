@@ -43,6 +43,46 @@ class ContabilidadRepository {
     return '${date.year}-$month-$day';
   }
 
+  String _normalizeObjectUrl(String? raw) {
+    final value = (raw ?? '').trim();
+    if (value.isEmpty) return value;
+    if (value.startsWith('http://') || value.startsWith('https://')) {
+      return value;
+    }
+    if (value.startsWith('/public/contabilidad/object?')) {
+      final base = _dio.options.baseUrl.replaceAll(RegExp(r'/+$'), '');
+      return '$base$value';
+    }
+    final base = _dio.options.baseUrl.replaceAll(RegExp(r'/+$'), '');
+    final encodedKey = Uri.encodeQueryComponent(value.replaceAll('\\', '/'));
+    return '$base/public/contabilidad/object?key=$encodedKey';
+  }
+
+  Map<String, dynamic> _normalizeCloseJson(Map<String, dynamic> json) {
+    final normalized = Map<String, dynamic>.from(json);
+    normalized['evidenceUrl'] = _normalizeObjectUrl(json['evidenceUrl'] as String?);
+    normalized['pdfUrl'] = _normalizeObjectUrl(json['pdfUrl'] as String?);
+
+    final transfersRaw = json['transfers'];
+    if (transfersRaw is List) {
+      normalized['transfers'] = transfersRaw.map((t) {
+        if (t is! Map) return t;
+        final transfer = Map<String, dynamic>.from(t.cast<String, dynamic>());
+        final vouchersRaw = transfer['vouchers'];
+        if (vouchersRaw is List) {
+          transfer['vouchers'] = vouchersRaw.map((v) {
+            if (v is! Map) return v;
+            final voucher = Map<String, dynamic>.from(v.cast<String, dynamic>());
+            voucher['fileUrl'] = _normalizeObjectUrl(voucher['fileUrl'] as String?);
+            return voucher;
+          }).toList();
+        }
+        return transfer;
+      }).toList();
+    }
+    return normalized;
+  }
+
   Future<List<CloseModel>> listCloses({
     required DateTime from,
     required DateTime to,
@@ -62,7 +102,11 @@ class ContabilidadRepository {
       try {
         return rows
             .whereType<Map>()
-            .map((row) => CloseModel.fromJson(row.cast<String, dynamic>()))
+            .map(
+              (row) => CloseModel.fromJson(
+                _normalizeCloseJson(row.cast<String, dynamic>()),
+              ),
+            )
             .toList();
       } catch (e) {
         throw ApiException(
@@ -117,7 +161,9 @@ class ContabilidadRepository {
           if (expenseDetails.isNotEmpty) 'expenseDetails': expenseDetails,
         },
       );
-      return CloseModel.fromJson((res.data as Map).cast<String, dynamic>());
+      return CloseModel.fromJson(
+        _normalizeCloseJson((res.data as Map).cast<String, dynamic>()),
+      );
     } on DioException catch (e) {
       throw ApiException(
         _extractMessage(e.response?.data, 'No se pudo guardar el cierre'),
@@ -163,7 +209,9 @@ class ContabilidadRepository {
           if (expenseDetails.isNotEmpty) 'expenseDetails': expenseDetails,
         },
       );
-      return CloseModel.fromJson((res.data as Map).cast<String, dynamic>());
+      return CloseModel.fromJson(
+        _normalizeCloseJson((res.data as Map).cast<String, dynamic>()),
+      );
     } on DioException catch (e) {
       throw ApiException(
         _extractMessage(e.response?.data, 'No se pudo actualizar el cierre'),
@@ -268,7 +316,9 @@ class ContabilidadRepository {
           'reviewNote': reviewNote!.trim(),
       },
     );
-    return CloseModel.fromJson((res.data as Map).cast<String, dynamic>());
+    return CloseModel.fromJson(
+      _normalizeCloseJson((res.data as Map).cast<String, dynamic>()),
+    );
   }
 
   Future<CloseModel> rejectClose(String id, {String? reviewNote}) async {
@@ -279,12 +329,16 @@ class ContabilidadRepository {
           'reviewNote': reviewNote!.trim(),
       },
     );
-    return CloseModel.fromJson((res.data as Map).cast<String, dynamic>());
+    return CloseModel.fromJson(
+      _normalizeCloseJson((res.data as Map).cast<String, dynamic>()),
+    );
   }
 
   Future<CloseModel> generateCloseAiReport(String id) async {
     final res = await _dio.post(ApiRoutes.contabilidadCloseAiReport(id));
-    return CloseModel.fromJson((res.data as Map).cast<String, dynamic>());
+    return CloseModel.fromJson(
+      _normalizeCloseJson((res.data as Map).cast<String, dynamic>()),
+    );
   }
 
   Future<DepositOrderModel> createDepositOrder({

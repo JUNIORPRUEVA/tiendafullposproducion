@@ -20,6 +20,29 @@ type FiscalImageCandidates = {
 export class ContabilidadPublicController {
   constructor(private readonly r2: R2Service) {}
 
+  @Get('object')
+  async getObjectByKey(
+    @Query('key') rawKey: string | undefined,
+    @Res() res: Response,
+  ) {
+    const key = (rawKey ?? '').trim();
+    if (key.length === 0) {
+      throw new BadRequestException('key es requerido');
+    }
+
+    try {
+      const object = await this.r2.getObject(key);
+      res.setHeader('Content-Type', object.contentType ?? 'application/octet-stream');
+      if (object.contentLength != null) {
+        res.setHeader('Content-Length', String(object.contentLength));
+      }
+      res.send(object.body);
+      return;
+    } catch {
+      throw new NotFoundException('No se encontró el archivo solicitado');
+    }
+  }
+
   @Get('fiscal-invoices/image')
   async getFiscalInvoiceImage(
     @Query('url') rawUrl: string | undefined,
