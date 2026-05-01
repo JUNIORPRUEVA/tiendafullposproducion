@@ -160,6 +160,7 @@ class CierresDiariosController extends StateNotifier<CierresDiariosState> {
     required DateTime date,
     required double cash,
     required double transfer,
+    required List<Map<String, dynamic>> transfers,
     String? transferBank,
     required double card,
     required double otherIncome,
@@ -179,6 +180,7 @@ class CierresDiariosController extends StateNotifier<CierresDiariosState> {
               date: date,
               cash: cash,
               transfer: transfer,
+              transfers: transfers,
               transferBank: transferBank,
               card: card,
               otherIncome: otherIncome,
@@ -200,6 +202,7 @@ class CierresDiariosController extends StateNotifier<CierresDiariosState> {
               id: editing.id,
               cash: cash,
               transfer: transfer,
+              transfers: transfers,
               transferBank: transferBank,
               card: card,
               otherIncome: otherIncome,
@@ -233,10 +236,12 @@ class CierresDiariosController extends StateNotifier<CierresDiariosState> {
     }
   }
 
-  Future<void> approveClose(String id) async {
+  Future<void> approveClose(String id, {String? reviewNote}) async {
     state = state.copyWith(saving: true, clearError: true);
     try {
-      await ref.read(contabilidadRepositoryProvider).approveClose(id);
+      await ref
+          .read(contabilidadRepositoryProvider)
+          .approveClose(id, reviewNote: reviewNote);
       state = state.copyWith(saving: false);
       await load();
     } catch (e) {
@@ -247,16 +252,32 @@ class CierresDiariosController extends StateNotifier<CierresDiariosState> {
     }
   }
 
-  Future<void> rejectClose(String id) async {
+  Future<void> rejectClose(String id, {String? reviewNote}) async {
     state = state.copyWith(saving: true, clearError: true);
     try {
-      await ref.read(contabilidadRepositoryProvider).rejectClose(id);
+      await ref
+          .read(contabilidadRepositoryProvider)
+          .rejectClose(id, reviewNote: reviewNote);
       state = state.copyWith(saving: false);
       await load();
     } catch (e) {
       final message = e is ApiException
           ? e.message
           : 'No se pudo rechazar el cierre';
+      state = state.copyWith(saving: false, error: message);
+    }
+  }
+
+  Future<void> generateAiReport(String id) async {
+    state = state.copyWith(saving: true, clearError: true);
+    try {
+      await ref.read(contabilidadRepositoryProvider).generateCloseAiReport(id);
+      state = state.copyWith(saving: false);
+      await load();
+    } catch (e) {
+      final message = e is ApiException
+          ? e.message
+          : 'No se pudo generar el informe IA';
       state = state.copyWith(saving: false, error: message);
     }
   }

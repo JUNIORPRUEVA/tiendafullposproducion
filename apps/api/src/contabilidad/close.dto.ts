@@ -1,11 +1,14 @@
 import {
+  IsArray,
   IsDateString,
   IsEnum,
   IsNumber,
   IsOptional,
   IsString,
+  ValidateNested,
   Min,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export enum CloseType {
   CAPSULAS = 'CAPSULAS',
@@ -18,6 +21,42 @@ export enum CloseStatus {
   PENDING = 'pending',
   APPROVED = 'approved',
   REJECTED = 'rejected',
+}
+
+export class CloseTransferVoucherDto {
+  @IsString()
+  storageKey!: string;
+
+  @IsString()
+  fileUrl!: string;
+
+  @IsString()
+  fileName!: string;
+
+  @IsString()
+  mimeType!: string;
+}
+
+export class CloseTransferEntryDto {
+  @IsString()
+  bankName!: string;
+
+  @IsNumber()
+  @Min(0)
+  amount!: number;
+
+  @IsString()
+  @IsOptional()
+  referenceNumber?: string;
+
+  @IsString()
+  @IsOptional()
+  note?: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CloseTransferVoucherDto)
+  vouchers!: CloseTransferVoucherDto[];
 }
 
 export class CreateCloseDto {
@@ -34,6 +73,12 @@ export class CreateCloseDto {
   @IsNumber()
   @Min(0)
   transfer!: number;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CloseTransferEntryDto)
+  @IsOptional()
+  transfers?: CloseTransferEntryDto[];
 
   @IsString()
   @IsOptional()
@@ -80,6 +125,12 @@ export class UpdateCloseDto {
   @Min(0)
   transfer?: number;
 
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CloseTransferEntryDto)
+  @IsOptional()
+  transfers?: CloseTransferEntryDto[];
+
   @IsString()
   @IsOptional()
   transferBank?: string;
@@ -115,4 +166,10 @@ export class UpdateCloseDto {
   @IsString()
   @IsOptional()
   evidenceFileName?: string;
+}
+
+export class ReviewCloseDto {
+  @IsString()
+  @IsOptional()
+  reviewNote?: string;
 }

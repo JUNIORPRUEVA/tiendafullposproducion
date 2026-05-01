@@ -890,21 +890,63 @@ model Close {
   otherIncome   Decimal   @default(0) @db.Decimal(12, 2)
   expenses      Decimal   @db.Decimal(12, 2)
   cashDelivered Decimal   @db.Decimal(12, 2)
+  totalIncome   Decimal   @default(0) @db.Decimal(12, 2)
+  netTotal      Decimal   @default(0) @db.Decimal(12, 2)
+  difference    Decimal   @default(0) @db.Decimal(12, 2)
   notes         String?
   evidenceUrl   String?
   evidenceFileName String?
+  pdfUrl        String?
+  pdfStorageKey String?
+  pdfFileName   String?
+  notificationStatus String?
+  notificationError  String?
   createdById   String?   @db.Uuid
   createdByName String?
   reviewedById  String?   @db.Uuid
   reviewedByName String?
   reviewedAt    DateTime?
+  reviewNote    String?
+  aiRiskLevel   String?
+  aiReportSummary String?
+  aiReportJson  Json?
+  aiGeneratedAt DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+  transfers     CloseTransfer[]
 
   @@index([date])
   @@index([type])
+  @@index([status])
   @@index([createdById])
   @@index([reviewedById])
+}
+
+model CloseTransfer {
+  id              String                 @id @default(uuid()) @db.Uuid
+  closeId         String                 @db.Uuid
+  bankName        String
+  amount          Decimal                @db.Decimal(12, 2)
+  referenceNumber String?
+  note            String?
+  createdAt       DateTime               @default(now())
+  close           Close                  @relation(fields: [closeId], references: [id], onDelete: Cascade)
+  vouchers        CloseTransferVoucher[]
+
+  @@index([closeId])
+}
+
+model CloseTransferVoucher {
+  id         String        @id @default(uuid()) @db.Uuid
+  transferId String        @db.Uuid
+  storageKey String
+  fileUrl    String
+  fileName   String
+  mimeType   String
+  createdAt  DateTime      @default(now())
+  transfer   CloseTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+
+  @@index([transferId])
 }
 
 model DepositOrder {

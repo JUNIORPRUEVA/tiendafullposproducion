@@ -20,12 +20,18 @@ import { randomUUID } from 'node:crypto';
 import { extname, join, posix } from 'node:path';
 import * as fs from 'node:fs';
 import { AuthGuard } from '@nestjs/passport';
+import { Role } from '@prisma/client';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { R2Service } from '../storage/r2.service';
 import { sanitizeFileName } from '../storage/helpers/storage_helpers';
 import { ContabilidadService } from './contabilidad.service';
-import { CloseStatus, CreateCloseDto, UpdateCloseDto } from './close.dto';
+import {
+  CloseStatus,
+  CreateCloseDto,
+  ReviewCloseDto,
+  UpdateCloseDto,
+} from './close.dto';
 import {
   CreateDepositOrderDto,
   DepositOrdersQueryDto,
@@ -44,7 +50,14 @@ import {
   UpdatePayableServiceDto,
 } from './payable.dto';
 
-type RequestActor = { id?: string; role?: 'ADMIN' | 'ASISTENTE' };
+type RequestActor = { id?: string; role?: string };
+const CLOSING_ROLES: Role[] = [
+  Role.ADMIN,
+  Role.ASISTENTE,
+  Role.MARKETING,
+  Role.VENDEDOR,
+  Role.TECNICO,
+];
 
 @Controller('contabilidad')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -55,7 +68,7 @@ export class ContabilidadController {
   ) {}
 
   @Post('closes')
-  @Roles('ADMIN', 'ASISTENTE')
+  @Roles(...CLOSING_ROLES)
   async createClose(@Body() dto: CreateCloseDto, @Req() req: Request) {
     return this.contabilidadService.createClose(
       dto,
@@ -64,24 +77,31 @@ export class ContabilidadController {
   }
 
   @Get('closes')
-  @Roles('ADMIN', 'ASISTENTE')
+  @Roles(...CLOSING_ROLES)
   async getCloses(
     @Query('date') date?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('type') type?: string,
+    @Req() req?: Request,
   ) {
-    return this.contabilidadService.getCloses({ date, from, to, type });
+    return this.contabilidadService.getCloses(
+      { date, from, to, type },
+      (req?.user ?? {}) as RequestActor,
+    );
   }
 
   @Get('closes/:id')
-  @Roles('ADMIN', 'ASISTENTE')
-  async getCloseById(@Param('id') id: string) {
-    return this.contabilidadService.getCloseById(id);
+  @Roles(...CLOSING_ROLES)
+  async getCloseById(@Param('id') id: string, @Req() req: Request) {
+    return this.contabilidadService.getCloseById(
+      id,
+      (req.user ?? {}) as RequestActor,
+    );
   }
 
   @Put('closes/:id')
-  @Roles('ADMIN', 'ASISTENTE')
+  @Roles(...CLOSING_ROLES)
   async updateClose(
     @Param('id') id: string,
     @Body() dto: UpdateCloseDto,
@@ -105,22 +125,110 @@ export class ContabilidadController {
 
   @Post('closes/:id/approve')
   @Roles('ADMIN', 'ASISTENTE')
-  async approveClose(@Param('id') id: string, @Req() req: Request) {
-    return this.contabilidadService.reviewClose(
+  async approveClose(
+    @Param('id') id: string,
+    @Req() req: Request,
+    @Body() dto: ReviewCloseDto,
+  ) {
+    return this.contabilidadService.reviewCloseWithNote(
       id,
       CloseStatus.APPROVED,
       (req.user ?? {}) as RequestActor,
+      dto.reviewNote,
     );
   }
 
   @Post('closes/:id/reject')
   @Roles('ADMIN', 'ASISTENTE')
-  async rejectClose(@Param('id') id: string, @Req() req: Request) {
-    return this.contabilidadService.reviewClose(
+  async rejectClose(
+    @Param('id') id: string,
+    @Req() req: Request,
+    @Body() dto: ReviewCloseDto,
+  ) {
+    return this.contabilidadService.reviewCloseWithNote(
       id,
       CloseStatus.REJECTED,
       (req.user ?? {}) as RequestActor,
+      dto.reviewNote,
     );
+  }
+
+  @Post('closes/:id/ai-report')
+  @Roles('ADMIN', 'ASISTENTE')
+  async aiReport(@Param('id') id: string, @Req() req: Request) {
+    return this.contabilidadService.generateAiReport(
+      id,
+      (req.user ?? {}) as RequestActor,
+    );
+  }
+
+  @Post('closes/vouchers/upload')
+  @Roles('ADMIN', 'ASISTENTE')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      fileFilter: (_req, file, cb) => {
+        const isAllowed =
+          /^image\/(png|jpe?g|webp)$/.test(file.mimetype) ||
+          file.mimetype === 'application/pdf';
+        if (!isAllowed) {
+          return cb(
+            new BadRequestException(
+              'Solo se permiten vouchers en PNG/JPG/WEBP/PDF',
+            ),
+            false,
+          );
+        }
+        cb(null, true);
+      },
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
+  )
+  async uploadClosingVoucher(
+    @Req() req: Request,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    if (!file?.buffer?.length) {
+      throw new BadRequestException('No se pudo leer el voucher subido');
+    }
+    const actor = (req.user ?? {}) as RequestActor;
+    const original = sanitizeFileName(file.originalname ?? 'voucher-cierre');
+    const ext = extname(original).toLowerCase();
+    const safeExt =
+      ext && /\.(png|jpe?g|webp|pdf)$/.test(ext)
+        ? ext
+        : file.mimetype === 'application/pdf'
+          ? '.pdf'
+          : '.jpg';
+    const contentType =
+      /^image\/(png|jpe?g|webp)$/.test(file.mimetype) ||
+      file.mimetype === 'application/pdf'
+        ? file.mimetype
+        : safeExt === '.png'
+          ? 'image/png'
+          : safeExt === '.webp'
+            ? 'image/webp'
+            : safeExt === '.pdf'
+              ? 'application/pdf'
+              : 'image/jpeg';
+    const now = new Date();
+    const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+    const baseName = original.replace(/\.[^/.]+$/, '') || 'voucher';
+    const objectKey =
+      `contabilidad/daily-close-vouchers/${now.getUTCFullYear()}/${month}/${actor.id ?? 'anon'}/${randomUUID()}-${baseName}${safeExt}`
+        .replace(/\s+/g, '_')
+        .replace(/[^a-zA-Z0-9/_\-.]/g, '');
+    await this.r2.putObject({
+      objectKey,
+      body: file.buffer,
+      contentType,
+    });
+    return {
+      storageKey: objectKey,
+      fileUrl: this.r2.buildPublicUrl(objectKey),
+      fileName: original,
+      mimeType: contentType,
+    };
   }
 
   @Post('deposit-orders')

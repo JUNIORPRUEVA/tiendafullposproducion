@@ -76,6 +76,7 @@ class ContabilidadRepository {
     required DateTime date,
     required double cash,
     required double transfer,
+    required List<Map<String, dynamic>> transfers,
     String? transferBank,
     required double card,
     double otherIncome = 0,
@@ -91,6 +92,7 @@ class ContabilidadRepository {
           'date': date.toIso8601String(),
           'cash': cash,
           'transfer': transfer,
+          'transfers': transfers,
           if (transfer > 0) 'transferBank': transferBank?.trim(),
           'card': card,
           'otherIncome': otherIncome,
@@ -112,6 +114,7 @@ class ContabilidadRepository {
     required String id,
     required double cash,
     required double transfer,
+    required List<Map<String, dynamic>> transfers,
     String? transferBank,
     required double card,
     required double otherIncome,
@@ -125,6 +128,7 @@ class ContabilidadRepository {
         data: {
           'cash': cash,
           'transfer': transfer,
+          'transfers': transfers,
           'transferBank': transfer > 0 ? transferBank?.trim() : null,
           'card': card,
           'otherIncome': otherIncome,
@@ -153,13 +157,75 @@ class ContabilidadRepository {
     }
   }
 
-  Future<CloseModel> approveClose(String id) async {
-    final res = await _dio.post(ApiRoutes.contabilidadCloseApprove(id));
+  Future<CloseTransferVoucherModel> uploadCloseVoucher(
+    PlatformFile file,
+  ) async {
+    try {
+      final bytes = file.bytes;
+      if (bytes == null || bytes.isEmpty) {
+        throw ApiException('No se pudo leer el voucher seleccionado');
+      }
+      final form = FormData.fromMap({
+        'file': MultipartFile.fromBytes(
+          bytes,
+          filename: file.name,
+          contentType: file.extension == null
+              ? null
+              : MediaType.parse(_contentTypeForExtension(file.extension!)),
+        ),
+      });
+      final res = await _dio.post(
+        ApiRoutes.contabilidadCloseVoucherUpload,
+        data: form,
+      );
+      return CloseTransferVoucherModel.fromJson(
+        (res.data as Map).cast<String, dynamic>(),
+      );
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo subir el voucher'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  String _contentTypeForExtension(String extension) {
+    switch (extension.toLowerCase()) {
+      case 'png':
+        return 'image/png';
+      case 'webp':
+        return 'image/webp';
+      case 'pdf':
+        return 'application/pdf';
+      default:
+        return 'image/jpeg';
+    }
+  }
+
+  Future<CloseModel> approveClose(String id, {String? reviewNote}) async {
+    final res = await _dio.post(
+      ApiRoutes.contabilidadCloseApprove(id),
+      data: {
+        if ((reviewNote ?? '').trim().isNotEmpty)
+          'reviewNote': reviewNote!.trim(),
+      },
+    );
     return CloseModel.fromJson((res.data as Map).cast<String, dynamic>());
   }
 
-  Future<CloseModel> rejectClose(String id) async {
-    final res = await _dio.post(ApiRoutes.contabilidadCloseReject(id));
+  Future<CloseModel> rejectClose(String id, {String? reviewNote}) async {
+    final res = await _dio.post(
+      ApiRoutes.contabilidadCloseReject(id),
+      data: {
+        if ((reviewNote ?? '').trim().isNotEmpty)
+          'reviewNote': reviewNote!.trim(),
+      },
+    );
+    return CloseModel.fromJson((res.data as Map).cast<String, dynamic>());
+  }
+
+  Future<CloseModel> generateCloseAiReport(String id) async {
+    final res = await _dio.post(ApiRoutes.contabilidadCloseAiReport(id));
     return CloseModel.fromJson((res.data as Map).cast<String, dynamic>());
   }
 
