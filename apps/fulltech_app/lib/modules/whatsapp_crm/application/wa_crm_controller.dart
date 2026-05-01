@@ -459,14 +459,28 @@ class WaCrmController extends StateNotifier<WaCrmState> {
       final convId = data['conversationId'] as String?
           ?? data['conversation_id'] as String?
           ?? convData?['id'] as String?;
-      final msgData = data['message'] as Map<String, dynamic>?;
+      final payloadMessage = data['message'] as Map<String, dynamic>?;
+      final msgData =
+          payloadMessage ?? (data['id'] != null ? data : null);
 
       if (convId == null || msgData == null) return;
 
+      final normalizedMsg = <String, dynamic>{
+        ...msgData,
+        'conversation_id': convId,
+        if (msgData['sentAt'] == null && msgData['createdAt'] != null)
+          'sentAt': msgData['createdAt'],
+        if (msgData['body'] == null && msgData['text'] != null)
+          'body': msgData['text'],
+      };
+      final msg = WaCrmMessage.fromJson(normalizedMsg);
+
       // If this conversation is currently open, append message
       if (state.selectedConversation?.id == convId) {
-        final msg = WaCrmMessage.fromJson({...msgData, 'conversation_id': convId});
-        state = state.copyWith(messages: [...state.messages, msg]);
+        final alreadyExists = state.messages.any((m) => m.id == msg.id);
+        if (!alreadyExists) {
+          state = state.copyWith(messages: [...state.messages, msg]);
+        }
       }
 
       // Update conversation list (bump lastMessageAt + unreadCount)

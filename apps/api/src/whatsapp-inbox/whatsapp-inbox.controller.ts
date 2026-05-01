@@ -189,13 +189,18 @@ export class WhatsappInboxWebhookController {
   @Post(':instanceName')
   async receiveWebhook(
     @Param('instanceName') instanceName: string,
+    @Param('eventName') eventName: string | undefined,
     @Body() payload: unknown,
   ) {
     try {
       console.log(
-        `[WhatsappInbox][Webhook] Payload recibido para instancia "${instanceName}" via /whatsapp-inbox/webhook`,
+        `[WhatsappInbox][Webhook] Payload recibido para instancia "${instanceName}" eventName=${eventName ?? '-'} via /whatsapp-inbox/webhook`,
       );
-      return await this.inboxService.handleIncomingWebhook(instanceName, payload);
+      return await this.inboxService.handleIncomingWebhook(
+        instanceName,
+        payload,
+        eventName,
+      );
     } catch (err) {
       console.error('[WhatsappInbox][Webhook] Error processing webhook:', err);
       return { ok: true, error: String(err) }; // Always return 200 to Evolution API

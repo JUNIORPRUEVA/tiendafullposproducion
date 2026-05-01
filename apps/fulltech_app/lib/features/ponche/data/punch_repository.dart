@@ -34,13 +34,36 @@ class PunchRepository {
     return fallback;
   }
 
-  Map<String, dynamic> _queryParams({DateTime? from, DateTime? to, String? userId, bool incidentsOnly = false}) {
+  Map<String, dynamic> _queryParams({
+    DateTime? from,
+    DateTime? to,
+    String? userId,
+    bool incidentsOnly = false,
+  }) {
     final params = <String, dynamic>{};
-    if (from != null) params['from'] = from.toIso8601String();
-    if (to != null) params['to'] = to.toIso8601String();
-    if (userId != null && userId.trim().isNotEmpty) params['userId'] = userId.trim();
-    if (incidentsOnly) params['incidentsOnly'] = true;
+    if (from != null) {
+      params['from'] = _isMidnight(from)
+          ? _dateOnly(from)
+          : from.toIso8601String();
+    }
+    if (to != null) {
+      params['to'] = _isMidnight(to) ? _dateOnly(to) : to.toIso8601String();
+    }
+    if (userId != null && userId.trim().isNotEmpty) {
+      params['userId'] = userId.trim();
+    }
+    if (incidentsOnly) {
+      params['incidentsOnly'] = true;
+    }
     return params;
+  }
+
+  bool _isMidnight(DateTime date) {
+    return date.hour == 0 &&
+        date.minute == 0 &&
+        date.second == 0 &&
+        date.millisecond == 0 &&
+        date.microsecond == 0;
   }
 
   String _dateOnly(DateTime date) {
@@ -74,7 +97,8 @@ class PunchRepository {
   }
 
   bool _isWeekend(String dateKey) {
-    final localMidnight = DateTime.tryParse('${dateKey}T00:00:00') ?? DateTime.now();
+    final localMidnight =
+        DateTime.tryParse('${dateKey}T00:00:00') ?? DateTime.now();
     return _weekendDays.contains(localMidnight.weekday % 7);
   }
 
@@ -114,7 +138,10 @@ class PunchRepository {
   ) {
     if (pair.start != null && pair.end != null) {
       return (
-        minutes: _diffMinutes(pair.end!.timestamp, pair.start!.timestamp).clamp(0, 1 << 30),
+        minutes: _diffMinutes(
+          pair.end!.timestamp,
+          pair.start!.timestamp,
+        ).clamp(0, 1 << 30),
         complete: true,
       );
     }
@@ -124,8 +151,12 @@ class PunchRepository {
     return (minutes: 0, complete: true);
   }
 
-  AttendanceDayMetrics _computeDayMetrics(String dateKey, List<PunchModel> punches) {
-    final sorted = [...punches]..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+  AttendanceDayMetrics _computeDayMetrics(
+    String dateKey,
+    List<PunchModel> punches,
+  ) {
+    final sorted = [...punches]
+      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
     final entry = _firstPunchOfType(sorted, PunchType.entradaLabor);
     final exit = _lastPunchOfType(sorted, PunchType.salidaLabor);
     final isWeekend = _isWeekend(dateKey);
@@ -140,15 +171,17 @@ class PunchRepository {
 
     final tardinessMinutes = entry != null && !isWeekend
         ? (_minutesSinceMidnightRd(entry.timestamp) - _scheduledStartMinutes)
-            .clamp(0, 1 << 30)
+              .clamp(0, 1 << 30)
         : 0;
     final earlyLeaveMinutes = exit != null && !isWeekend
         ? (_scheduledEndMinutes - _minutesSinceMidnightRd(exit.timestamp))
-            .clamp(0, 1 << 30)
+              .clamp(0, 1 << 30)
         : 0;
     final workedMinutesNet = entry != null && exit != null
-        ? (_diffMinutes(exit.timestamp, entry.timestamp) - lunch.minutes - permiso.minutes)
-            .clamp(0, 1 << 30)
+        ? (_diffMinutes(exit.timestamp, entry.timestamp) -
+                  lunch.minutes -
+                  permiso.minutes)
+              .clamp(0, 1 << 30)
         : null;
     final incomplete = entry == null || exit == null;
     final unfavorableMinutes = isWeekend
@@ -248,17 +281,20 @@ class PunchRepository {
     );
   }
 
-  AttendanceDetailModel _buildAttendanceDetailFromPunches(List<PunchModel> punches) {
+  AttendanceDetailModel _buildAttendanceDetailFromPunches(
+    List<PunchModel> punches,
+  ) {
     final grouped = <String, List<PunchModel>>{};
     for (final punch in punches) {
       final key = _dominicanDayKey(punch.timestamp);
       grouped.putIfAbsent(key, () => <PunchModel>[]).add(punch);
     }
 
-    final days = grouped.entries
-        .map((entry) => _computeDayMetrics(entry.key, entry.value))
-        .toList()
-      ..sort((a, b) => b.date.compareTo(a.date));
+    final days =
+        grouped.entries
+            .map((entry) => _computeDayMetrics(entry.key, entry.value))
+            .toList()
+          ..sort((a, b) => b.date.compareTo(a.date));
 
     final firstUser = punches.isNotEmpty ? punches.first.user : null;
 
@@ -277,7 +313,10 @@ class PunchRepository {
 
   Future<PunchModel> createPunch(PunchType type) async {
     try {
-      final res = await _dio.post(ApiRoutes.punch, data: {'type': type.apiValue});
+      final res = await _dio.post(
+        ApiRoutes.punch,
+        data: {'type': type.apiValue},
+      );
       return PunchModel.fromJson((res.data as Map).cast<String, dynamic>());
     } on DioException catch (e) {
       throw ApiException(
@@ -289,10 +328,15 @@ class PunchRepository {
 
   Future<List<PunchModel>> listMine({DateTime? from, DateTime? to}) async {
     try {
-      final res = await _dio.get(ApiRoutes.punchMe, queryParameters: _queryParams(from: from, to: to));
+      final res = await _dio.get(
+        ApiRoutes.punchMe,
+        queryParameters: _queryParams(from: from, to: to),
+      );
       final data = res.data;
       if (data is List) {
-        return data.map((e) => PunchModel.fromJson((e as Map).cast<String, dynamic>())).toList();
+        return data
+            .map((e) => PunchModel.fromJson((e as Map).cast<String, dynamic>()))
+            .toList();
       }
       return [];
     } on DioException catch (e) {
@@ -303,7 +347,11 @@ class PunchRepository {
     }
   }
 
-  Future<List<PunchModel>> listAdmin({String? userId, DateTime? from, DateTime? to}) async {
+  Future<List<PunchModel>> listAdmin({
+    String? userId,
+    DateTime? from,
+    DateTime? to,
+  }) async {
     try {
       final params = <String, dynamic>{
         if (from != null) 'from': _dateOnly(from),
@@ -317,7 +365,9 @@ class PunchRepository {
       );
       final data = res.data;
       if (data is List) {
-        return data.map((e) => PunchModel.fromJson((e as Map).cast<String, dynamic>())).toList();
+        return data
+            .map((e) => PunchModel.fromJson((e as Map).cast<String, dynamic>()))
+            .toList();
       }
       return [];
     } on DioException catch (e) {
@@ -351,7 +401,10 @@ class PunchRepository {
       throw ApiException('Respuesta inválida del resumen de asistencia');
     } on DioException catch (e) {
       throw ApiException(
-        _extractMessage(e.response?.data, 'No se pudo cargar el resumen de asistencia'),
+        _extractMessage(
+          e.response?.data,
+          'No se pudo cargar el resumen de asistencia',
+        ),
         e.response?.statusCode,
       );
     }
@@ -374,7 +427,10 @@ class PunchRepository {
       throw ApiException('Respuesta inválida del detalle de asistencia');
     } on DioException catch (e) {
       throw ApiException(
-        _extractMessage(e.response?.data, 'No se pudo cargar el detalle del usuario'),
+        _extractMessage(
+          e.response?.data,
+          'No se pudo cargar el detalle del usuario',
+        ),
         e.response?.statusCode,
       );
     }
@@ -400,7 +456,10 @@ class PunchRepository {
         return _buildAttendanceDetailFromPunches(punches);
       }
       throw ApiException(
-        _extractMessage(e.response?.data, 'No se pudo cargar tu balance de horas'),
+        _extractMessage(
+          e.response?.data,
+          'No se pudo cargar tu balance de horas',
+        ),
         e.response?.statusCode,
       );
     }

@@ -316,7 +316,11 @@ export class WhatsappService {
     }
   }
 
-  async handleIncomingWebhook(instanceName: string, payload: unknown) {
+  async handleIncomingWebhook(
+    instanceName: string,
+    payload: unknown,
+    eventNameFromRoute?: string,
+  ) {
     const record = await this.prisma.userWhatsappInstance.findUnique({
       where: { instanceName },
       select: { userId: true, instanceName: true },
@@ -339,10 +343,14 @@ export class WhatsappService {
     }
 
     console.log(
-      `[WhatsApp][Webhook] Delegando webhook a WhatsappInboxService para instancia "${instanceName}" userId=${record.userId}`,
+      `[WhatsApp][Webhook] Delegando webhook a WhatsappInboxService para instancia "${instanceName}" userId=${record.userId} eventName=${eventNameFromRoute ?? '-'}`,
     );
 
-    return inboxService.handleIncomingWebhook(instanceName, payload);
+    return inboxService.handleIncomingWebhook(
+      instanceName,
+      payload,
+      eventNameFromRoute,
+    );
   }
 
   private buildInstanceName(userId: string, custom?: string): string {

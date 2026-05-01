@@ -121,8 +121,9 @@ export class WhatsappWebhookController {
   @Post(':instanceName')
   receiveWebhook(
     @Param('instanceName') instanceName: string,
+    @Param('eventName') eventName: string | undefined,
     @Body() payload: unknown,
   ) {
-    return this.whatsapp.handleIncomingWebhook(instanceName, payload);
+    return this.whatsapp.handleIncomingWebhook(instanceName, payload, eventName);
   }
 }

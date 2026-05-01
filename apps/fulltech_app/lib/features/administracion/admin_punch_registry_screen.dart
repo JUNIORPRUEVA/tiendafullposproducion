@@ -559,6 +559,16 @@ class _AdminPunchUserDetailScreenState
   String _dateTimeText(DateTime value) =>
       DateFormat('dd/MM/yyyy h:mm a', 'es_DO').format(value.toLocal());
 
+  String _dateLabelFor(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+    final d = DateTime(date.year, date.month, date.day);
+    if (d == today) return 'Hoy, ${DateFormat('d MMMM yyyy', 'es_DO').format(date)}';
+    if (d == yesterday) return 'Ayer, ${DateFormat('d MMMM yyyy', 'es_DO').format(date)}';
+    return DateFormat('EEEE, d MMMM yyyy', 'es_DO').format(date);
+  }
+
   String _formatMinutes(int minutes) {
     final sign = minutes < 0 ? '-' : '';
     final absolute = minutes.abs();
@@ -712,10 +722,7 @@ class _AdminPunchUserDetailScreenState
                                       itemBuilder: (context, index) {
                                         final group = visible[index];
                                         return _AdminPunchDaySection(
-                                          dateLabel: DateFormat(
-                                            'EEEE, d MMMM yyyy',
-                                            'es_DO',
-                                          ).format(group.date),
+                                          dateLabel: _dateLabelFor(group.date),
                                           punches: group.punches,
                                           dateTextBuilder: _dateTimeText,
                                         );
@@ -821,10 +828,7 @@ class _AdminPunchUserDetailScreenState
                                 itemBuilder: (context, index) {
                                   final group = visible[index];
                                   return _AdminPunchDaySection(
-                                    dateLabel: DateFormat(
-                                      'EEEE, d MMMM yyyy',
-                                      'es_DO',
-                                    ).format(group.date),
+                                    dateLabel: _dateLabelFor(group.date),
                                     punches: group.punches,
                                     dateTextBuilder: _dateTimeText,
                                   );
