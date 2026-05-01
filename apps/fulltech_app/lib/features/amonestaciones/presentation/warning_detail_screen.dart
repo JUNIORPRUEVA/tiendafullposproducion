@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../core/auth/app_role.dart';
+import '../../../core/auth/auth_provider.dart';
+import '../../../core/auth/auth_repository.dart';
 import '../application/warnings_controller.dart';
 import '../data/employee_warning_model.dart';
 import '../data/employee_warnings_repository.dart';
@@ -164,7 +168,10 @@ class _WarningDetailScreenState extends ConsumerState<WarningDetailScreen> {
           // ── PDF actions ──
           if (w.pdfUrl != null || w.signedPdfUrl != null) ...[
             const SizedBox(height: 10),
-            _PdfPanel(warning: w),
+            _PdfPanel(
+              warning: w,
+              onOpenInApp: (url) => _openPdfInApp(context, url),
+            ),
           ],
 
           // ── Audit log ──
@@ -181,6 +188,8 @@ class _WarningDetailScreenState extends ConsumerState<WarningDetailScreen> {
 
   List<Widget> _buildActions(BuildContext context, EmployeeWarning w) {
     final actions = <Widget>[];
+    final role = ref.watch(authStateProvider).user?.appRole;
+    final isAdmin = role == AppRole.admin;
 
     if (w.status == 'DRAFT') {
       actions.add(IconButton(
@@ -193,6 +202,13 @@ class _WarningDetailScreenState extends ConsumerState<WarningDetailScreen> {
         tooltip: 'Enviar para firma',
         onPressed: _actionLoading ? null : () => _submit(context, w),
       ));
+      if (isAdmin) {
+        actions.add(IconButton(
+          icon: const Icon(Icons.delete_outline),
+          tooltip: 'Eliminar amonestación',
+          onPressed: _actionLoading ? null : () => _deleteWarning(context, w),
+        ));
+      }
     }
 
     if (w.status == 'PENDING_SIGNATURE' ||
@@ -335,6 +351,129 @@ class _WarningDetailScreenState extends ConsumerState<WarningDetailScreen> {
     } finally {
       if (mounted) setState(() => _actionLoading = false);
     }
+  }
+
+  Future<void> _deleteWarning(BuildContext context, EmployeeWarning w) async {
+    final confirmCtrl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) {
+        bool canDelete = false;
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) => AlertDialog(
+            title: const Text('Eliminar amonestación'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Vas a eliminar "${w.warningNumber}". Esta acción es irreversible.',
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Para confirmar, escribe ELIMINAR:',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: confirmCtrl,
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                    hintText: 'ELIMINAR',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  onChanged: (value) {
+                    final next = value.trim().toUpperCase() == 'ELIMINAR';
+                    if (next != canDelete) {
+                      setDialogState(() => canDelete = next);
+                    }
+                  },
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancelar'),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                onPressed: canDelete
+                    ? () => Navigator.pop(dialogContext, true)
+                    : null,
+                child: const Text('Sí, eliminar'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    confirmCtrl.dispose();
+    if (ok != true) return;
+
+    setState(() => _actionLoading = true);
+    try {
+      await ref.read(employeeWarningsRepositoryProvider).delete(w.id);
+      ref.invalidate(warningsListControllerProvider);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Amonestación eliminada'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        Navigator.of(context).pop(true);
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al eliminar: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _actionLoading = false);
+    }
+  }
+
+  String? _resolvePdfUrl(String rawUrl) {
+    final value = rawUrl.trim();
+    if (value.isEmpty) return null;
+
+    final uri = Uri.tryParse(value);
+    if (uri == null) return null;
+    if (uri.hasScheme) return uri.toString();
+
+    final baseUrl = ref.read(dioProvider).options.baseUrl.trim();
+    if (baseUrl.isEmpty) return null;
+
+    final baseUri = Uri.tryParse(baseUrl);
+    if (baseUri == null) return null;
+    return baseUri.resolveUri(uri).toString();
+  }
+
+  Future<void> _openPdfInApp(BuildContext context, String rawUrl) async {
+    final resolved = _resolvePdfUrl(rawUrl);
+    if (resolved == null) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No fue posible construir la URL del PDF'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => _WarningPdfViewerScreen(pdfUrl: resolved),
+      ),
+    );
   }
 
   void _openEdit(BuildContext context, EmployeeWarning w) async {
@@ -515,8 +654,9 @@ class _AnnulmentPanel extends StatelessWidget {
 
 class _PdfPanel extends StatelessWidget {
   final EmployeeWarning warning;
+  final ValueChanged<String> onOpenInApp;
 
-  const _PdfPanel({required this.warning});
+  const _PdfPanel({required this.warning, required this.onOpenInApp});
 
   @override
   Widget build(BuildContext context) => _Container(
@@ -525,11 +665,16 @@ class _PdfPanel extends StatelessWidget {
           children: [
             if (warning.pdfUrl != null)
               _PdfButton(
-                  label: 'PDF original', url: warning.pdfUrl!),
+                label: 'PDF original',
+                url: warning.pdfUrl!,
+                onOpenInApp: onOpenInApp,
+              ),
             if (warning.signedPdfUrl != null)
               _PdfButton(
-                  label: 'PDF firmado / negativa',
-                  url: warning.signedPdfUrl!),
+                label: 'PDF firmado / negativa',
+                url: warning.signedPdfUrl!,
+                onOpenInApp: onOpenInApp,
+              ),
           ],
         ),
       );
@@ -538,22 +683,79 @@ class _PdfPanel extends StatelessWidget {
 class _PdfButton extends StatelessWidget {
   final String label;
   final String url;
+  final ValueChanged<String> onOpenInApp;
 
-  const _PdfButton({required this.label, required this.url});
+  const _PdfButton({
+    required this.label,
+    required this.url,
+    required this.onOpenInApp,
+  });
 
   @override
   Widget build(BuildContext context) => Padding(
         padding: const EdgeInsets.only(bottom: 6),
-        child: OutlinedButton.icon(
-          onPressed: () => launchUrl(Uri.parse(url),
-              mode: LaunchMode.externalApplication),
-          icon: const Icon(Icons.picture_as_pdf_outlined, size: 16),
-          label: Text(label, style: const TextStyle(fontSize: 13)),
-          style: OutlinedButton.styleFrom(
-            minimumSize: const Size(double.infinity, 38),
-          ),
+        child: Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () => onOpenInApp(url),
+                icon: const Icon(Icons.picture_as_pdf_outlined, size: 16),
+                label: Text(label, style: const TextStyle(fontSize: 13)),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 38),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Tooltip(
+              message: 'Abrir externo',
+              child: OutlinedButton(
+                onPressed: () => launchUrl(
+                  Uri.parse(url),
+                  mode: LaunchMode.externalApplication,
+                ),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(42, 38),
+                  padding: EdgeInsets.zero,
+                ),
+                child: const Icon(Icons.open_in_new, size: 16),
+              ),
+            ),
+          ],
         ),
       );
+}
+
+class _WarningPdfViewerScreen extends StatelessWidget {
+  final String pdfUrl;
+
+  const _WarningPdfViewerScreen({required this.pdfUrl});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Documento PDF'),
+        backgroundColor: const Color(0xFF1a1a2e),
+        foregroundColor: Colors.white,
+      ),
+      body: SfPdfViewer.network(
+        pdfUrl,
+        canShowPaginationDialog: true,
+        enableDoubleTapZooming: true,
+        canShowScrollHead: true,
+        canShowScrollStatus: true,
+        onDocumentLoadFailed: (details) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('No se pudo cargar el PDF: ${details.description}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        },
+      ),
+    );
+  }
 }
 
 class _AuditPanel extends StatelessWidget {

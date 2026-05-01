@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../features/amonestaciones/application/warnings_controller.dart';
+import '../auth/app_permissions.dart';
 import '../auth/app_role.dart';
 import '../auth/auth_provider.dart';
+import '../routing/routes.dart';
 import '../theme/role_branding.dart';
 import '../routing/app_navigator.dart';
+import 'user_avatar.dart';
 
 class CustomAppBar extends ConsumerWidget implements PreferredSizeWidget {
   final String title;
@@ -68,9 +73,21 @@ class CustomAppBar extends ConsumerWidget implements PreferredSizeWidget {
       alpha: highContrast ? 0.96 : 0.90,
     );
 
+    final primaryPendingAction = _buildPrimaryPendingAction(
+      context: context,
+      ref: ref,
+      role: role,
+      backButton: backButton,
+      hasDrawer: hasDrawer,
+    );
+
     final resolvedActions = <Widget>[
       ...?actions,
-      if (trailing != null) trailing!,
+      if (primaryPendingAction != null) primaryPendingAction,
+      if (trailing != null)
+        trailing!
+      else
+        _buildDefaultPrimaryAvatar(context: context, ref: ref),
     ];
 
     final resolvedLeading =
@@ -173,8 +190,233 @@ class CustomAppBar extends ConsumerWidget implements PreferredSizeWidget {
     );
   }
 
+  Widget? _buildPrimaryPendingAction({
+    required BuildContext context,
+    required WidgetRef ref,
+    required AppRole? role,
+    required Widget? backButton,
+    required bool hasDrawer,
+  }) {
+    final user = ref.watch(authStateProvider).user;
+    if (user == null) return null;
+
+    // Show this only in the principal appbar (root with drawer, no back).
+    final isPrimaryAppBar = backButton == null && hasDrawer;
+    if (!isPrimaryAppBar) return null;
+
+    final pendingCount = ref.watch(myPendingWarningsCountProvider);
+    final canViewMyWarnings = hasPermission(
+      role ?? AppRole.unknown,
+      AppPermission.viewMyWarnings,
+    );
+
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: _AnimatedPendingWarningsAction(
+        visible: canViewMyWarnings && pendingCount > 0,
+        count: pendingCount,
+        onTap: () => context.push(Routes.misAmonestacionesPendientes),
+      ),
+    );
+  }
+
+  Widget _buildDefaultPrimaryAvatar({
+    required BuildContext context,
+    required WidgetRef ref,
+  }) {
+    final user = ref.watch(authStateProvider).user;
+    if (user == null) return const SizedBox.shrink();
+    final photoUrl = (user.fotoPersonalUrl ?? '').trim();
+
+    return Padding(
+      padding: const EdgeInsets.only(right: 10),
+      child: TweenAnimationBuilder<double>(
+        tween: Tween<double>(begin: 0.98, end: 1),
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOutCubic,
+        builder: (context, scale, child) {
+          return Transform.scale(scale: scale, child: child);
+        },
+        child: Tooltip(
+          message: 'Mi perfil',
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(999),
+              onTap: () => context.push(Routes.profile),
+              child: Ink(
+                padding: const EdgeInsets.all(3),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.13),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.24)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.12),
+                      blurRadius: 10,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
+                ),
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 280),
+                  switchInCurve: Curves.easeOutCubic,
+                  switchOutCurve: Curves.easeInCubic,
+                  transitionBuilder: (child, animation) {
+                    return FadeTransition(
+                      opacity: animation,
+                      child: ScaleTransition(
+                        scale: Tween<double>(begin: 0.94, end: 1).animate(
+                          CurvedAnimation(parent: animation, curve: Curves.easeOutBack),
+                        ),
+                        child: child,
+                      ),
+                    );
+                  },
+                  child: UserAvatar(
+                    key: ValueKey(photoUrl),
+                    radius: 16,
+                    backgroundColor: Colors.white24,
+                    imageUrl: photoUrl,
+                    child: Text(
+                      _getInitials(user.nombreCompleto),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Size get preferredSize => Size.fromHeight(
     _resolvedToolbarHeight + (bottom?.preferredSize.height ?? 0),
   );
+}
+
+String _getInitials(String name) {
+  final initials = name
+      .split(' ')
+      .map((e) => e.isNotEmpty ? e[0].toUpperCase() : '')
+      .join('')
+      .replaceAll(' ', '');
+
+  if (initials.isEmpty) return 'U';
+  if (initials.length >= 2) return initials.substring(0, 2);
+  return initials.padRight(2, initials[0]);
+}
+
+class _PendingWarningsAction extends StatelessWidget {
+  const _PendingWarningsAction({
+    super.key,
+    required this.count,
+    required this.onTap,
+  });
+
+  final int count;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final shownCount = count > 99 ? '99+' : '$count';
+
+    return Tooltip(
+      message: 'Tienes $count pendientes de firma',
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(999),
+            child: Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.20),
+                ),
+              ),
+              child: const Icon(
+                Icons.notification_important_outlined,
+                size: 18,
+                color: Colors.white,
+              ),
+            ),
+          ),
+          Positioned(
+            top: -6,
+            right: -6,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+              constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFF5A5F),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: Colors.white, width: 1.2),
+              ),
+              child: Center(
+                child: Text(
+                  shownCount,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    height: 1,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AnimatedPendingWarningsAction extends StatelessWidget {
+  const _AnimatedPendingWarningsAction({
+    required this.visible,
+    required this.count,
+    required this.onTap,
+  });
+
+  final bool visible;
+  final int count;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 220),
+      switchInCurve: Curves.easeOutBack,
+      switchOutCurve: Curves.easeInCubic,
+      transitionBuilder: (child, animation) {
+        return FadeTransition(
+          opacity: animation,
+          child: ScaleTransition(scale: animation, child: child),
+        );
+      },
+      child: visible
+          ? _PendingWarningsAction(
+              key: const ValueKey('pending-visible'),
+              count: count,
+              onTap: onTap,
+            )
+          : const SizedBox(
+              key: ValueKey('pending-hidden'),
+              width: 0,
+              height: 0,
+            ),
+    );
+  }
 }

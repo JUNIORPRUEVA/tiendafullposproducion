@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 import '../../core/auth/auth_provider.dart';
 import '../../core/models/user_model.dart';
@@ -9,6 +11,7 @@ import '../../core/routing/routes.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
 import '../../core/widgets/user_avatar.dart';
+import '../user/data/users_repository.dart';
 
 String _getInitials(String name) {
   final initials = name
@@ -22,11 +25,67 @@ String _getInitials(String name) {
   return initials.padRight(2, initials[0]);
 }
 
-class UserScreen extends ConsumerWidget {
+class UserScreen extends ConsumerStatefulWidget {
   const UserScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<UserScreen> createState() => _UserScreenState();
+}
+
+class _UserScreenState extends ConsumerState<UserScreen> {
+  Future<void> _pickAndUploadProfilePhoto() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp'],
+        withData: true,
+      );
+      if (result == null || result.files.isEmpty) return;
+
+      final picked = result.files.first;
+      final bytes = picked.bytes;
+      if (bytes == null || bytes.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No se pudo leer la imagen seleccionada')),
+        );
+        return;
+      }
+
+      final repo = ref.read(usersRepositoryProvider);
+      final previousPhotoUrl =
+          (ref.read(authStateProvider).user?.fotoPersonalUrl ?? '').trim();
+      final uploadedUrl = await repo.uploadUserDocument(
+        bytes: bytes,
+        fileName: picked.name,
+        kind: 'profile',
+      );
+      final updated = await repo.updateMe(fotoPersonalUrl: uploadedUrl);
+
+      if (previousPhotoUrl.isNotEmpty) {
+        await CachedNetworkImage.evictFromCache(previousPhotoUrl);
+      }
+      final freshPhotoUrl = (updated.fotoPersonalUrl ?? '').trim();
+      if (freshPhotoUrl.isNotEmpty && freshPhotoUrl != previousPhotoUrl) {
+        await CachedNetworkImage.evictFromCache(freshPhotoUrl);
+      }
+
+      ref.read(authStateProvider.notifier).setUser(updated);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Foto de perfil actualizada')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo actualizar la foto: $e')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final state = ref.watch(authStateProvider);
     final user = state.user;
 
@@ -34,34 +93,13 @@ class UserScreen extends ConsumerWidget {
       appBar: CustomAppBar(
         title: 'FullTech',
         showLogo: true,
-        trailing: user == null
-            ? null
-            : Padding(
-                padding: const EdgeInsets.only(right: 12),
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(999),
-                  onTap: () => context.push(Routes.profile),
-                  child: UserAvatar(
-                    radius: 16,
-                    backgroundColor: Colors.white24,
-                    imageUrl: user.fotoPersonalUrl,
-                    child: Text(
-                      _getInitials(user.nombreCompleto),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
       ),
       drawer: buildAdaptiveDrawer(context, currentUser: user),
       body: user == null
           ? const Center(child: CircularProgressIndicator())
           : _UserDetailContent(
               user: user,
+              onPhotoTap: _pickAndUploadProfilePhoto,
               onEdit: () => context.push(Routes.profile),
               onLogout: () async {
                 await ref.read(authStateProvider.notifier).logout();
@@ -73,11 +111,13 @@ class UserScreen extends ConsumerWidget {
 
 class _UserDetailContent extends StatelessWidget {
   final UserModel user;
+  final VoidCallback onPhotoTap;
   final VoidCallback onEdit;
   final Future<void> Function() onLogout;
 
   const _UserDetailContent({
     required this.user,
+    required this.onPhotoTap,
     required this.onEdit,
     required this.onLogout,
   });
@@ -135,7 +175,7 @@ class _UserDetailContent extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _HeaderStrip(user: user),
+                  _HeaderStrip(user: user, onPhotoTap: onPhotoTap),
                   const SizedBox(height: 16),
                   const _SectionTitle('Datos'),
                   const SizedBox(height: 10),
@@ -213,8 +253,9 @@ class _UserDetailContent extends StatelessWidget {
 
 class _HeaderStrip extends StatelessWidget {
   final UserModel user;
+  final VoidCallback onPhotoTap;
 
-  const _HeaderStrip({required this.user});
+  const _HeaderStrip({required this.user, required this.onPhotoTap});
 
   @override
   Widget build(BuildContext context) {
@@ -228,16 +269,39 @@ class _HeaderStrip extends StatelessWidget {
     return _Panel(
       child: Row(
         children: [
-          UserAvatar(
-            radius: 34,
-            backgroundColor: scheme.primary,
-            imageUrl: user.fotoPersonalUrl,
-            child: Text(
-              _getInitials(user.nombreCompleto),
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
+          GestureDetector(
+            onTap: onPhotoTap,
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 280),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              transitionBuilder: (child, animation) {
+                return FadeTransition(
+                  opacity: animation,
+                  child: ScaleTransition(
+                    scale: Tween<double>(begin: 0.95, end: 1).animate(
+                      CurvedAnimation(
+                        parent: animation,
+                        curve: Curves.easeOutBack,
+                      ),
+                    ),
+                    child: child,
+                  ),
+                );
+              },
+              child: UserAvatar(
+                key: ValueKey((user.fotoPersonalUrl ?? '').trim()),
+                radius: 34,
+                backgroundColor: scheme.primary,
+                imageUrl: user.fotoPersonalUrl,
+                child: Text(
+                  _getInitials(user.nombreCompleto),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
             ),
           ),

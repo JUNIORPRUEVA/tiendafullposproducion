@@ -22,8 +22,12 @@ export class WhatsappService {
     private readonly moduleRef: ModuleRef,
   ) {
     // Startup sanity-check: Evolution API URL must NOT point to this server itself.
-    const evoUrl = (config.get<string>('EVOLUTION_API_URL') ?? '').trim().replace(/\/$/, '');
-    const selfUrl = (config.get<string>('PUBLIC_BASE_URL') ?? '').trim().replace(/\/$/, '');
+    const evoUrl = (config.get<string>('EVOLUTION_API_URL') ?? '')
+      .trim()
+      .replace(/\/$/, '');
+    const selfUrl = (config.get<string>('PUBLIC_BASE_URL') ?? '')
+      .trim()
+      .replace(/\/$/, '');
     if (!evoUrl) {
       console.warn(
         '[WhatsApp] ADVERTENCIA: EVOLUTION_API_URL no está configurada. Las funciones de WhatsApp no funcionarán.',
@@ -32,10 +36,7 @@ export class WhatsappService {
       console.error(
         `[WhatsApp] CONFIGURACION INVALIDA: EVOLUTION_API_URL debe iniciar con http:// o https://. Valor actual: ${evoUrl}`,
       );
-    } else if (
-      selfUrl &&
-      evoUrl.toLowerCase() === selfUrl.toLowerCase()
-    ) {
+    } else if (selfUrl && evoUrl.toLowerCase() === selfUrl.toLowerCase()) {
       console.error(
         `[WhatsApp] ¡CONFIGURACIÓN CRÍTICA INCORRECTA! EVOLUTION_API_URL apunta a este mismo servidor (${evoUrl}). ` +
           'Debes configurar EVOLUTION_API_URL con la URL del servidor Evolution API externo, NO la de este API.',
@@ -141,18 +142,24 @@ export class WhatsappService {
     };
 
     try {
-      await this.fetchEvolution(`/webhook/set/${encodeURIComponent(instanceName)}`, {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
+      await this.fetchEvolution(
+        `/webhook/set/${encodeURIComponent(instanceName)}`,
+        {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        },
+      );
     } catch (error) {
       console.warn(
         `[WhatsApp][Webhook] Formato oficial falló para "${instanceName}", intentando formato legacy: ${this.describeEvolutionError(error)}`,
       );
-      await this.fetchEvolution(`/webhook/set/${encodeURIComponent(instanceName)}`, {
-        method: 'POST',
-        body: JSON.stringify(legacyPayload),
-      });
+      await this.fetchEvolution(
+        `/webhook/set/${encodeURIComponent(instanceName)}`,
+        {
+          method: 'POST',
+          body: JSON.stringify(legacyPayload),
+        },
+      );
     }
 
     console.log(
@@ -227,7 +234,7 @@ export class WhatsappService {
       isCompany: false,
       userId: inst.user?.id ?? null,
       userName: inst.user?.nombreCompleto ?? inst.user?.email ?? 'Sin nombre',
-      userRole: inst.user?.role as string | null ?? null,
+      userRole: (inst.user?.role as string | null) ?? null,
     }));
 
     // 2. Company instance
@@ -239,10 +246,13 @@ export class WhatsappService {
       },
     });
 
-    const companyInstanceName = (appConfig?.evolutionApiInstanceName ?? '').trim();
+    const companyInstanceName = (
+      appConfig?.evolutionApiInstanceName ?? ''
+    ).trim();
 
     if (companyInstanceName) {
-      const companyStatus = await this.getInstanceStateFromEvolution(companyInstanceName);
+      const companyStatus =
+        await this.getInstanceStateFromEvolution(companyInstanceName);
       userEntries.unshift({
         id: 'company',
         instanceName: companyInstanceName,
@@ -287,7 +297,9 @@ export class WhatsappService {
         select: { id: true },
       });
       if (!existing) {
-        throw new NotFoundException(`Instancia "${instanceName}" no encontrada.`);
+        throw new NotFoundException(
+          `Instancia "${instanceName}" no encontrada.`,
+        );
       }
       await this.prisma.userWhatsappInstance.update({
         where: { instanceName },
@@ -300,14 +312,18 @@ export class WhatsappService {
 
   // ─── Helper: get instance state from Evolution API ───────────────────────
 
-  private async getInstanceStateFromEvolution(instanceName: string): Promise<string> {
+  private async getInstanceStateFromEvolution(
+    instanceName: string,
+  ): Promise<string> {
     try {
       const raw = await this.fetchEvolution(
         `/instance/connectionState/${encodeURIComponent(instanceName)}`,
         { method: 'GET' },
       );
       const data = raw as Record<string, unknown>;
-      const state = (data?.['instance'] as Record<string, unknown>)?.['state'] as string | undefined;
+      const state = (data?.['instance'] as Record<string, unknown>)?.[
+        'state'
+      ] as string | undefined;
       if (state === 'open') return 'connected';
       if (state) return state;
       return 'pending';
@@ -333,8 +349,12 @@ export class WhatsappService {
       return { ok: true, ignored: true, reason: 'instance_not_registered' };
     }
 
-    const { WhatsappInboxService } = require('../whatsapp-inbox/whatsapp-inbox.service');
-    const inboxService = this.moduleRef.get(WhatsappInboxService, { strict: false });
+    const {
+      WhatsappInboxService,
+    } = require('../whatsapp-inbox/whatsapp-inbox.service');
+    const inboxService = this.moduleRef.get(WhatsappInboxService, {
+      strict: false,
+    });
     if (!inboxService) {
       console.error(
         `[WhatsApp][Webhook] Inbox service unavailable, no se puede procesar webhook para "${instanceName}".`,
@@ -415,7 +435,9 @@ export class WhatsappService {
       );
 
       req.on('timeout', () => {
-        req.destroy(new Error(`Evolution API timeout after ${this.requestTimeoutMs}ms`));
+        req.destroy(
+          new Error(`Evolution API timeout after ${this.requestTimeoutMs}ms`),
+        );
       });
       req.on('error', reject);
 
@@ -459,7 +481,8 @@ export class WhatsappService {
         const msg =
           typeof body === 'string'
             ? body.trim()
-            : (body as { message?: string })?.message ?? `HTTP ${response.status}`;
+            : ((body as { message?: string })?.message ??
+              `HTTP ${response.status}`);
         throw new BadRequestException(
           `Evolution API error (HTTP ${response.status}): ${msg}`,
         );
@@ -502,9 +525,14 @@ export class WhatsappService {
       where: { id: 'global' },
       select: { evolutionApiInstanceName: true },
     });
-    const companyInstanceName = (appConfig?.evolutionApiInstanceName ?? '').trim().toLowerCase();
+    const companyInstanceName = (appConfig?.evolutionApiInstanceName ?? '')
+      .trim()
+      .toLowerCase();
     const instanceName = this.buildInstanceName(userId, dto.instanceName);
-    if (companyInstanceName && instanceName.toLowerCase() === companyInstanceName) {
+    if (
+      companyInstanceName &&
+      instanceName.toLowerCase() === companyInstanceName
+    ) {
       throw new ConflictException(
         'El nombre de instancia coincide con la instancia de la empresa. Usa un nombre diferente.',
       );
@@ -546,7 +574,9 @@ export class WhatsappService {
     try {
       await this.configureInstanceWebhook(instanceName, webhookEnabled);
     } catch (webhookErr) {
-      console.error(`[WhatsApp] No se pudo configurar webhook al crear instancia "${instanceName}": ${this.describeEvolutionError(webhookErr)}`);
+      console.error(
+        `[WhatsApp] No se pudo configurar webhook al crear instancia "${instanceName}": ${this.describeEvolutionError(webhookErr)}`,
+      );
     }
 
     return record;
@@ -558,7 +588,12 @@ export class WhatsappService {
     });
 
     if (!record) {
-      return { exists: false, status: null, instanceName: null, phoneNumber: null };
+      return {
+        exists: false,
+        status: null,
+        instanceName: null,
+        phoneNumber: null,
+      };
     }
 
     // Try to get live status from Evolution API
@@ -566,7 +601,9 @@ export class WhatsappService {
       try {
         const data = await this.fetchEvolution<{
           instance?: { state?: string };
-        }>(`/instance/connectionState/${encodeURIComponent(record.instanceName)}`);
+        }>(
+          `/instance/connectionState/${encodeURIComponent(record.instanceName)}`,
+        );
 
         const state = data?.instance?.state ?? '';
         const isConnected = state === 'open';
@@ -605,7 +642,9 @@ export class WhatsappService {
     });
 
     if (!record) {
-      console.warn(`[WhatsApp][QR] Sin instancia registrada para userId=${userId}`);
+      console.warn(
+        `[WhatsApp][QR] Sin instancia registrada para userId=${userId}`,
+      );
       throw new NotFoundException(
         'No hay instancia de WhatsApp registrada. Crea una instancia primero.',
       );
@@ -619,7 +658,9 @@ export class WhatsappService {
 
     // If already connected, no need to call /connect (it would return 400)
     if (record.status === 'connected') {
-      console.log(`[WhatsApp][QR] Instancia "${record.instanceName}" ya conectada. No se solicita QR.`);
+      console.log(
+        `[WhatsApp][QR] Instancia "${record.instanceName}" ya conectada. No se solicita QR.`,
+      );
       return {
         instanceName: record.instanceName,
         qrBase64: '',
@@ -627,9 +668,15 @@ export class WhatsappService {
       };
     }
 
-    console.log(`[WhatsApp][QR] Intentando conectar instancia "${record.instanceName}" (status=${record.status})...`);
+    console.log(
+      `[WhatsApp][QR] Intentando conectar instancia "${record.instanceName}" (status=${record.status})...`,
+    );
 
-    type QrPayload = { base64?: string; code?: string; qrcode?: { base64?: string; code?: string } };
+    type QrPayload = {
+      base64?: string;
+      code?: string;
+      qrcode?: { base64?: string; code?: string };
+    };
 
     const extractBase64 = (qrData: QrPayload) =>
       qrData?.base64 ?? qrData?.qrcode?.base64 ?? '';
@@ -642,7 +689,9 @@ export class WhatsappService {
     // First attempt
     try {
       const qrData = await tryConnect();
-      console.log(`[WhatsApp][QR] QR obtenido para "${record.instanceName}" en primer intento.`);
+      console.log(
+        `[WhatsApp][QR] QR obtenido para "${record.instanceName}" en primer intento.`,
+      );
       return {
         instanceName: record.instanceName,
         qrBase64: extractBase64(qrData),
@@ -676,7 +725,9 @@ export class WhatsappService {
             record.instanceName,
             await this.isGlobalWebhookEnabled(),
           );
-        } catch (_webhookErr) { /* non-blocking in QR retry flow */ }
+        } catch (_webhookErr) {
+          /* non-blocking in QR retry flow */
+        }
       } catch (createErr) {
         if (this.isEvolutionUnavailableError(createErr)) {
           console.error(
@@ -689,18 +740,24 @@ export class WhatsappService {
         const msg =
           createErr instanceof Error ? createErr.message : String(createErr);
         if (!msg.includes('409') && !msg.toLowerCase().includes('already')) {
-          console.error(`[WhatsApp][QR] Recreación de instancia fallida para "${record.instanceName}": ${msg}`);
+          console.error(
+            `[WhatsApp][QR] Recreación de instancia fallida para "${record.instanceName}": ${msg}`,
+          );
           throw new BadRequestException(
             `No se pudo obtener el QR. Intenta eliminar y volver a crear la instancia.`,
           );
         }
-        console.warn(`[WhatsApp][QR] Recreación: instancia "${record.instanceName}" ya existía (409), reintentando connect.`);
+        console.warn(
+          `[WhatsApp][QR] Recreación: instancia "${record.instanceName}" ya existía (409), reintentando connect.`,
+        );
       }
 
       // Retry connect after recreation
       try {
         const qrData = await tryConnect();
-        console.log(`[WhatsApp][QR] QR obtenido para "${record.instanceName}" luego de recreación.`);
+        console.log(
+          `[WhatsApp][QR] QR obtenido para "${record.instanceName}" luego de recreación.`,
+        );
         return {
           instanceName: record.instanceName,
           qrBase64: extractBase64(qrData),
@@ -716,7 +773,9 @@ export class WhatsappService {
 
         const msg =
           retryErr instanceof Error ? retryErr.message : String(retryErr);
-        console.error(`[WhatsApp][QR] Fallo definitivo al obtener QR para "${record.instanceName}": ${msg}`);
+        console.error(
+          `[WhatsApp][QR] Fallo definitivo al obtener QR para "${record.instanceName}": ${msg}`,
+        );
         throw new BadRequestException(`No se pudo obtener el QR: ${msg}`);
       }
     }
@@ -728,7 +787,9 @@ export class WhatsappService {
     });
 
     if (!record) {
-      throw new NotFoundException('No hay instancia de WhatsApp para eliminar.');
+      throw new NotFoundException(
+        'No hay instancia de WhatsApp para eliminar.',
+      );
     }
 
     // Delete from Evolution API
@@ -838,7 +899,9 @@ export class WhatsappService {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (!msg.includes('409') && !msg.toLowerCase().includes('already')) {
-          console.error(`[WhatsApp][Company] createCompanyInstance Evolution error: ${msg}`);
+          console.error(
+            `[WhatsApp][Company] createCompanyInstance Evolution error: ${msg}`,
+          );
         }
       }
     }
@@ -849,7 +912,9 @@ export class WhatsappService {
     try {
       await this.configureInstanceWebhook(instanceName, webhookEnabled);
     } catch (webhookErr) {
-      console.error(`[WhatsApp] No se pudo configurar webhook al crear instancia empresa "${instanceName}": ${this.describeEvolutionError(webhookErr)}`);
+      console.error(
+        `[WhatsApp] No se pudo configurar webhook al crear instancia empresa "${instanceName}": ${this.describeEvolutionError(webhookErr)}`,
+      );
     }
 
     return { instanceName, status: 'pending' };
@@ -868,7 +933,11 @@ export class WhatsappService {
         }>(`/instance/connectionState/${encodeURIComponent(instanceName)}`);
         const state = data?.instance?.state ?? '';
         const isConnected = state === 'open';
-        return { exists: true, instanceName, status: isConnected ? 'connected' : 'pending' };
+        return {
+          exists: true,
+          instanceName,
+          status: isConnected ? 'connected' : 'pending',
+        };
       } catch {
         // fall through to return stored
       }
@@ -886,10 +955,16 @@ export class WhatsappService {
     }
 
     if (!this.evolutionBaseUrl) {
-      throw new BadRequestException('Evolution API no configurada en el servidor.');
+      throw new BadRequestException(
+        'Evolution API no configurada en el servidor.',
+      );
     }
 
-    type QrPayload = { base64?: string; code?: string; qrcode?: { base64?: string; code?: string } };
+    type QrPayload = {
+      base64?: string;
+      code?: string;
+      qrcode?: { base64?: string; code?: string };
+    };
     const extractBase64 = (qrData: QrPayload) =>
       qrData?.base64 ?? qrData?.qrcode?.base64 ?? '';
 
@@ -900,7 +975,11 @@ export class WhatsappService {
 
     try {
       const qrData = await tryConnect();
-      return { instanceName, qrBase64: extractBase64(qrData), status: 'pending' };
+      return {
+        instanceName,
+        qrBase64: extractBase64(qrData),
+        status: 'pending',
+      };
     } catch (firstErr) {
       if (this.isEvolutionUnavailableError(firstErr)) throw firstErr;
 
@@ -908,27 +987,43 @@ export class WhatsappService {
       try {
         await this.fetchEvolution(`/instance/create`, {
           method: 'POST',
-          body: JSON.stringify({ instanceName, qrcode: true, integration: 'WHATSAPP-BAILEYS' }),
+          body: JSON.stringify({
+            instanceName,
+            qrcode: true,
+            integration: 'WHATSAPP-BAILEYS',
+          }),
         });
         try {
-          await this.configureInstanceWebhook(instanceName, await this.isGlobalWebhookEnabled());
-        } catch (_webhookErr) { /* non-blocking in QR retry flow */ }
+          await this.configureInstanceWebhook(
+            instanceName,
+            await this.isGlobalWebhookEnabled(),
+          );
+        } catch (_webhookErr) {
+          /* non-blocking in QR retry flow */
+        }
       } catch (createErr) {
-        const msg = createErr instanceof Error ? createErr.message : String(createErr);
+        const msg =
+          createErr instanceof Error ? createErr.message : String(createErr);
         if (!msg.includes('409') && !msg.toLowerCase().includes('already')) {
           throw new BadRequestException(`No se pudo obtener el QR: ${msg}`);
         }
       }
 
       const qrData = await tryConnect();
-      return { instanceName, qrBase64: extractBase64(qrData), status: 'pending' };
+      return {
+        instanceName,
+        qrBase64: extractBase64(qrData),
+        status: 'pending',
+      };
     }
   }
 
   async deleteCompanyInstance() {
     const instanceName = await this.getCompanyInstanceName();
     if (!instanceName) {
-      throw new NotFoundException('No hay instancia de la empresa para eliminar.');
+      throw new NotFoundException(
+        'No hay instancia de la empresa para eliminar.',
+      );
     }
 
     if (this.evolutionBaseUrl) {
@@ -950,42 +1045,71 @@ export class WhatsappService {
 
   // ─── Send text message via Evolution API ────────────────────────────────
 
-  async sendTextMessage(instanceName: string, remoteJid: string, text: string): Promise<unknown> {
-    return this.fetchEvolution(`/message/sendText/${encodeURIComponent(instanceName)}`, {
-      method: 'POST',
-      body: JSON.stringify({
-        number: remoteJid,
-        text,
-      }),
-    });
+  async sendTextMessage(
+    instanceName: string,
+    remoteJid: string,
+    text: string,
+  ): Promise<unknown> {
+    return this.fetchEvolution(
+      `/message/sendText/${encodeURIComponent(instanceName)}`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          number: remoteJid,
+          text,
+        }),
+      },
+    );
   }
 
-  async findChatMessages(instanceName: string, remoteJid: string): Promise<unknown> {
-    return this.fetchEvolution(`/chat/findMessages/${encodeURIComponent(instanceName)}`, {
-      method: 'POST',
-      body: JSON.stringify({
-        where: {
-          key: { remoteJid },
-        },
-        take: 80,
-        limit: 80,
-        orderBy: {
-          messageTimestamp: 'desc',
-        },
-      }),
-    });
+  async findChatMessages(
+    instanceName: string,
+    remoteJid: string,
+  ): Promise<unknown> {
+    return this.fetchEvolution(
+      `/chat/findMessages/${encodeURIComponent(instanceName)}`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          where: {
+            key: { remoteJid },
+          },
+          take: 80,
+          limit: 80,
+          orderBy: {
+            messageTimestamp: 'desc',
+          },
+        }),
+      },
+    );
+  }
+
+  async getBase64FromMediaMessage(
+    instanceName: string,
+    message: unknown,
+  ): Promise<unknown> {
+    return this.fetchEvolution(
+      `/chat/getBase64FromMediaMessage/${encodeURIComponent(instanceName)}`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ message }),
+      },
+    );
   }
 
   async findChats(instanceName: string, limit = 30): Promise<unknown> {
-    return this.fetchEvolution(`/chat/findChats/${encodeURIComponent(instanceName)}`, {
-      method: 'POST',
-      body: JSON.stringify({
-        take: limit,
-        limit,
-        orderBy: {
-          updatedAt: 'desc',
-        },
-      }),
-    });
+    return this.fetchEvolution(
+      `/chat/findChats/${encodeURIComponent(instanceName)}`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          take: limit,
+          limit,
+          orderBy: {
+            updatedAt: 'desc',
+          },
+        }),
+      },
+    );
   }
 }

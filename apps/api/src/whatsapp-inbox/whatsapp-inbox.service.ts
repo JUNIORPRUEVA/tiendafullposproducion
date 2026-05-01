@@ -203,6 +203,44 @@ function mediaUrlFromPayload(
   );
 }
 
+function mediaNeedsEvolutionBase64(mediaUrl: string | null): boolean {
+  if (!mediaUrl) return true;
+  const lower = mediaUrl.toLowerCase();
+  return lower.includes('mmg.whatsapp.net') || lower.includes('.enc?');
+}
+
+function findBase64InResponse(value: unknown): string | null {
+  if (!value) return null;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (trimmed.startsWith('data:') || trimmed.length > 100) return trimmed;
+    return null;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findBase64InResponse(item);
+      if (found) return found;
+    }
+    return null;
+  }
+  const record = asRecord(value);
+  if (!record) return null;
+  for (const key of [
+    'base64',
+    'media',
+    'data',
+    'file',
+    'buffer',
+    'mediaBase64',
+    'base64Data',
+  ]) {
+    const found = findBase64InResponse(record[key]);
+    if (found) return found;
+  }
+  return null;
+}
+
 function collectEvolutionMessageRecords(value: unknown): unknown[] {
   if (Array.isArray(value)) return value;
   const record = asRecord(value);
@@ -420,6 +458,48 @@ export class WhatsappInboxService {
       mediaUrl: parsed.mediaUrl,
       mediaMimeType: parsed.mediaMimeType ?? message.mediaMimeType,
     };
+  }
+
+  private async hydratePlayableMessageMedia<
+    T extends {
+      id: string;
+      mediaUrl: string | null;
+      mediaMimeType: string | null;
+      rawPayload?: unknown;
+    },
+  >(message: T, instanceName?: string | null): Promise<T> {
+    const hydrated = this.hydrateMessageMedia(message);
+    if (
+      !instanceName ||
+      !hydrated.rawPayload ||
+      !mediaNeedsEvolutionBase64(hydrated.mediaUrl)
+    ) {
+      return hydrated;
+    }
+
+    try {
+      const raw = await this.whatsappService.getBase64FromMediaMessage(
+        instanceName,
+        hydrated.rawPayload,
+      );
+      const base64 = findBase64InResponse(raw);
+      if (!base64) return hydrated;
+      const mediaUrl = base64.startsWith('data:')
+        ? base64
+        : `data:${hydrated.mediaMimeType ?? 'application/octet-stream'};base64,${base64}`;
+      await this.prisma.whatsappMessage.update({
+        where: { id: hydrated.id },
+        data: { mediaUrl },
+      });
+      return { ...hydrated, mediaUrl };
+    } catch (error) {
+      console.warn(
+        `[WhatsappInbox] No se pudo obtener media base64 para mensaje ${message.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return hydrated;
+    }
   }
 
   // ─── Parse Evolution API webhook payload ───────────────────────────────
@@ -695,7 +775,15 @@ export class WhatsappInboxService {
         null;
 
       const remoteJid = identity.customerJid;
-      if (!remoteJid || remoteJid === 'status@broadcast') return null;
+      const remoteJidLower = remoteJid.toLowerCase();
+      if (
+        !remoteJid ||
+        remoteJid === 'status@broadcast' ||
+        remoteJidLower.endsWith('@g.us') ||
+        remoteJidLower.includes('@g.us')
+      ) {
+        return null;
+      }
 
       const fromMe = identity.fromMe;
       const evolutionId = identity.messageId;
@@ -1057,7 +1145,10 @@ export class WhatsappInboxService {
     });
 
     const conversations = await this.prisma.whatsappConversation.findMany({
-      where: { instanceId },
+      where: {
+        instanceId,
+        NOT: [{ remoteJid: { contains: '@g.us' } }],
+      },
       orderBy: { lastMessageAt: 'desc' },
       take: limit,
       include: {
@@ -1210,6 +1301,11 @@ export class WhatsappInboxService {
       );
     }
 
+    const conversation = await this.prisma.whatsappConversation.findUnique({
+      where: { id: conversationId },
+      include: { instance: { select: { instanceName: true } } },
+    });
+
     const messages = await this.prisma.whatsappMessage.findMany({
       where: {
         conversationId,
@@ -1218,7 +1314,14 @@ export class WhatsappInboxService {
       orderBy: { sentAt: 'desc' },
       take: limit,
     });
-    return messages.map((message) => this.hydrateMessageMedia(message));
+    return Promise.all(
+      messages.map((message) =>
+        this.hydratePlayableMessageMedia(
+          message,
+          conversation?.instance.instanceName,
+        ),
+      ),
+    );
   }
 
   async syncConversationFromEvolution(conversationId: string) {

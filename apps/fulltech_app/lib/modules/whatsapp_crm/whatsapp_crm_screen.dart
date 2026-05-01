@@ -26,6 +26,10 @@ import '../whatsapp_crm/models/wa_crm_message.dart';
 const double _kMobileBreak = 600;
 const double _kTabletBreak = 960;
 
+String _waText(dynamic value, [String fallback = '']) {
+  return sanitizeWaText(value) ?? fallback;
+}
+
 class WhatsappCrmScreen extends ConsumerStatefulWidget {
   const WhatsappCrmScreen({super.key});
 
@@ -284,7 +288,7 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        state.selectedConversation!.displayName,
+                        _waText(state.selectedConversation!.displayName),
                         style: theme.textTheme.titleMedium,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -321,9 +325,20 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
 
   void _sendReply() async {
     final state = ref.read(waCrmControllerProvider);
-    if (!state.composerUnlocked) {
+    final conv = state.selectedConversation;
+    final canWrite =
+        conv != null &&
+        state.composerUnlocked &&
+        state.composerUnlockedConversationKey == conv.mergeKey;
+    if (!canWrite) {
       await _unlockComposer();
-      if (!ref.read(waCrmControllerProvider).composerUnlocked) return;
+      final latest = ref.read(waCrmControllerProvider);
+      final latestConv = latest.selectedConversation;
+      final latestCanWrite =
+          latestConv != null &&
+          latest.composerUnlocked &&
+          latest.composerUnlockedConversationKey == latestConv.mergeKey;
+      if (!latestCanWrite) return;
     }
     final text = _msgController.text.trim();
     if (text.isEmpty) return;
@@ -499,6 +514,15 @@ class _ConversationsPanelState extends State<_ConversationsPanel> {
           ),
         ),
         const Divider(height: 1),
+        _ConversationStatsStrip(
+          chats: state.conversations.length,
+          unread: state.conversations.fold<int>(
+            0,
+            (sum, conv) => sum + conv.unreadCount,
+          ),
+          selectedMessages: state.messages.length,
+        ),
+        const Divider(height: 1),
         // ── Conversations list ────────────────────────────────────────
         Expanded(
           child: state.loadingConversations
@@ -525,6 +549,75 @@ class _ConversationsPanelState extends State<_ConversationsPanel> {
 }
 
 // ─── Instances Section ────────────────────────────────────────────────────────
+
+class _ConversationStatsStrip extends StatelessWidget {
+  const _ConversationStatsStrip({
+    required this.chats,
+    required this.unread,
+    required this.selectedMessages,
+  });
+
+  final int chats;
+  final int unread;
+  final int selectedMessages;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      color: theme.colorScheme.surface,
+      child: Row(
+        children: [
+          _MiniStat(label: 'Chats', value: '$chats'),
+          const SizedBox(width: 10),
+          _MiniStat(label: 'Sin responder', value: '$unread'),
+          const SizedBox(width: 10),
+          _MiniStat(label: 'Mensajes', value: '$selectedMessages'),
+        ],
+      ),
+    );
+  }
+}
+
+class _MiniStat extends StatelessWidget {
+  const _MiniStat({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Expanded(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Flexible(
+            child: Text(
+              _waText(label),
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
+                fontSize: 10,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            _waText(value),
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: theme.colorScheme.primary,
+              fontWeight: FontWeight.w800,
+              fontSize: 11,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _InstancesSection extends StatelessWidget {
   const _InstancesSection({
@@ -642,7 +735,7 @@ class _InstanceRow extends ConsumerWidget {
                       ),
                     Expanded(
                       child: Text(
-                        instance.userName,
+                        _waText(instance.userName),
                         style: theme.textTheme.bodySmall?.copyWith(
                           fontWeight: FontWeight.w500,
                           fontSize: 11.5,
@@ -654,7 +747,7 @@ class _InstanceRow extends ConsumerWidget {
                   ],
                 ),
                 Text(
-                  instance.instanceName,
+                  _waText(instance.instanceName),
                   style: theme.textTheme.bodySmall?.copyWith(
                     fontSize: 10,
                     color: theme.colorScheme.onSurface.withValues(alpha: 0.45),
@@ -1102,8 +1195,8 @@ class _ConversationTile extends StatelessWidget {
                 alpha: 0.15,
               ),
               child: Text(
-                conv.displayName.isNotEmpty
-                    ? conv.displayName[0].toUpperCase()
+                _waText(conv.displayName).isNotEmpty
+                    ? _waText(conv.displayName)[0].toUpperCase()
                     : '?',
                 style: TextStyle(
                   color: theme.colorScheme.primary,
@@ -1120,7 +1213,7 @@ class _ConversationTile extends StatelessWidget {
                     children: [
                       Expanded(
                         child: Text(
-                          conv.displayName,
+                          _waText(conv.displayName),
                           style: theme.textTheme.bodyMedium?.copyWith(
                             fontWeight: conv.unreadCount > 0
                                 ? FontWeight.bold
@@ -1147,7 +1240,7 @@ class _ConversationTile extends StatelessWidget {
                     children: [
                       Expanded(
                         child: Text(
-                          last?.previewText ?? '',
+                          _waText(last?.previewText),
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: theme.colorScheme.onSurface.withValues(
                               alpha: 0.6,
@@ -1387,8 +1480,8 @@ class _ChatPanel extends StatelessWidget {
                   alpha: 0.15,
                 ),
                 child: Text(
-                  conv.displayName.isNotEmpty
-                      ? conv.displayName[0].toUpperCase()
+                  _waText(conv.displayName).isNotEmpty
+                      ? _waText(conv.displayName)[0].toUpperCase()
                       : '?',
                   style: TextStyle(
                     color: theme.colorScheme.primary,
@@ -1402,7 +1495,7 @@ class _ChatPanel extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      conv.displayName,
+                      _waText(conv.displayName),
                       style: theme.textTheme.titleSmall,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -1456,7 +1549,7 @@ class _ChatPanel extends StatelessWidget {
             color: theme.colorScheme.errorContainer,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             child: Text(
-              state.error!,
+              _waText(state.error),
               style: TextStyle(
                 color: theme.colorScheme.onErrorContainer,
                 fontSize: 12,
@@ -1464,12 +1557,21 @@ class _ChatPanel extends StatelessWidget {
             ),
           ),
         // Input
-        _ChatInput(
-          controller: msgController,
-          sending: state.sending,
-          unlocked: state.composerUnlocked,
-          onUnlock: onUnlock,
-          onSend: onSend,
+        Builder(
+          builder: (context) {
+            final inputUnlocked =
+                state.selectedConversation != null &&
+                state.composerUnlocked &&
+                state.composerUnlockedConversationKey ==
+                    state.selectedConversation!.mergeKey;
+            return _ChatInput(
+              controller: msgController,
+              sending: state.sending,
+              unlocked: inputUnlocked,
+              onUnlock: onUnlock,
+              onSend: onSend,
+            );
+          },
         ),
       ],
     );
@@ -1505,7 +1607,7 @@ class _MessageBubble extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(left: 8, bottom: 2),
               child: Text(
-                msg.senderName!,
+                _waText(msg.senderName),
                 style: theme.textTheme.labelSmall?.copyWith(
                   color: theme.colorScheme.primary,
                   fontWeight: FontWeight.bold,
@@ -1517,7 +1619,7 @@ class _MessageBubble extends StatelessWidget {
               padding: const EdgeInsets.only(right: 8, bottom: 2),
               child: Text(
                 agentName?.trim().isNotEmpty == true
-                    ? 'Enviado por ${agentName!.trim()}'
+                    ? 'Enviado por ${_waText(agentName!.trim())}'
                     : 'Enviado desde la instancia',
                 style: theme.textTheme.labelSmall?.copyWith(
                   color: theme.colorScheme.primary.withValues(alpha: 0.7),
@@ -1589,7 +1691,7 @@ class _MessageContent extends StatelessWidget {
         return _DocumentContent(msg: msg, textColor: textColor);
       default:
         return SelectableText(
-          msg.body ?? '',
+          _waText(msg.body),
           style: TextStyle(color: textColor, fontSize: 14),
         );
     }
@@ -1635,7 +1737,7 @@ class _ImageContent extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(top: 4),
             child: Text(
-              msg.caption!,
+              _waText(msg.caption),
               style: TextStyle(color: textColor, fontSize: 13),
             ),
           ),
@@ -2203,7 +2305,7 @@ class _VideoContentState extends State<_VideoContent> {
           Padding(
             padding: const EdgeInsets.only(top: 4),
             child: Text(
-              widget.msg.caption!,
+              _waText(widget.msg.caption),
               style: TextStyle(color: color, fontSize: 13),
             ),
           ),
@@ -2246,7 +2348,7 @@ class _DocumentContentState extends State<_DocumentContent> {
         const SizedBox(width: 8),
         Flexible(
           child: Text(
-            widget.msg.body ?? 'Documento',
+            _waText(widget.msg.body, 'Documento'),
             style: TextStyle(color: color, fontSize: 13),
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
@@ -2501,7 +2603,7 @@ class _DailyAiPanel extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.all(12),
               child: Text(
-                state.aiSummaryError!,
+                _waText(state.aiSummaryError),
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: scheme.error,
                   fontWeight: FontWeight.w700,
@@ -2528,7 +2630,7 @@ class _DailyAiPanel extends StatelessWidget {
                 : SingleChildScrollView(
                     padding: const EdgeInsets.fromLTRB(16, 14, 16, 22),
                     child: SelectableText(
-                      summary.summary,
+                      _waText(summary.summary),
                       style: theme.textTheme.bodyMedium?.copyWith(
                         height: 1.42,
                         color: scheme.onSurface,
@@ -2608,13 +2710,13 @@ class _ActionsPanel extends StatelessWidget {
             _InfoRow(
               icon: Icons.person_outline_rounded,
               label: 'Contacto',
-              value: conv.displayName,
+              value: _waText(conv.displayName),
             ),
             if (conv.displayPhone != null)
               _InfoRow(
                 icon: Icons.phone_outlined,
                 label: 'Teléfono',
-                value: conv.displayPhone!,
+                value: _waText(conv.displayPhone),
               ),
             if (conv.lastMessageAt != null)
               _InfoRow(
@@ -2665,18 +2767,18 @@ class _ActionsPanel extends StatelessWidget {
             _InfoRow(
               icon: Icons.account_circle_outlined,
               label: 'Usuario',
-              value: state.selectedUser!.name,
+              value: _waText(state.selectedUser!.name),
             ),
             _InfoRow(
               icon: Icons.wifi_tethering_rounded,
               label: 'Estado',
-              value: state.selectedUser!.instanceStatus ?? 'N/A',
+              value: _waText(state.selectedUser!.instanceStatus, 'N/A'),
             ),
             if (state.selectedUser!.phone != null)
               _InfoRow(
                 icon: Icons.sim_card_outlined,
                 label: 'Número',
-                value: state.selectedUser!.phone!,
+                value: _waText(state.selectedUser!.phone),
               ),
           ],
         ],
@@ -2720,7 +2822,7 @@ class _InfoRow extends StatelessWidget {
                     color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
                   ),
                 ),
-                Text(value, style: theme.textTheme.bodySmall),
+                Text(_waText(value), style: theme.textTheme.bodySmall),
               ],
             ),
           ),

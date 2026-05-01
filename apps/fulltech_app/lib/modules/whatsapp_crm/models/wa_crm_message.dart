@@ -2,7 +2,7 @@ enum WaMessageDirection { incoming, outgoing }
 
 enum WaMessageType { text, image, audio, video, document, sticker, other }
 
-String? _safeText(dynamic value) {
+String? sanitizeWaText(dynamic value) {
   if (value is! String) return null;
   final units = value.codeUnits;
   final out = StringBuffer();
@@ -79,22 +79,25 @@ class WaCrmMessage {
 
   factory WaCrmMessage.fromJson(Map<String, dynamic> json) {
     return WaCrmMessage(
-      id: _safeText(json['id']) ?? '',
+      id: sanitizeWaText(json['id']) ?? '',
       conversationId:
-          _safeText(json['conversationId'] ?? json['conversation_id']) ?? '',
-      direction: _parseDirection(_safeText(json['direction']) ?? 'INCOMING'),
+          sanitizeWaText(json['conversationId'] ?? json['conversation_id']) ??
+          '',
+      direction: _parseDirection(
+        sanitizeWaText(json['direction']) ?? 'INCOMING',
+      ),
       messageType: _parseType(
-        _safeText(json['messageType'] ?? json['message_type']) ?? 'TEXT',
+        sanitizeWaText(json['messageType'] ?? json['message_type']) ?? 'TEXT',
       ),
       sentAt: _parseDate(json['sentAt'] ?? json['sent_at']) ?? DateTime.now(),
-      evolutionId: _safeText(json['evolutionId'] ?? json['evolution_id']),
-      body: _safeText(json['body']),
-      mediaUrl: _safeText(json['mediaUrl'] ?? json['media_url']),
-      mediaMimeType: _safeText(
+      evolutionId: sanitizeWaText(json['evolutionId'] ?? json['evolution_id']),
+      body: sanitizeWaText(json['body']),
+      mediaUrl: sanitizeWaText(json['mediaUrl'] ?? json['media_url']),
+      mediaMimeType: sanitizeWaText(
         json['mediaMimeType'] ?? json['media_mime_type'],
       ),
-      caption: _safeText(json['caption']),
-      senderName: _safeText(json['senderName'] ?? json['sender_name']),
+      caption: sanitizeWaText(json['caption']),
+      senderName: sanitizeWaText(json['senderName'] ?? json['sender_name']),
     );
   }
 

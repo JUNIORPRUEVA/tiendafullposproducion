@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../core/auth/auth_provider.dart';
 import '../../core/widgets/custom_app_bar.dart';
 import '../../core/widgets/app_drawer.dart';
@@ -27,47 +28,10 @@ class ProfileScreen extends ConsumerWidget {
           : _ProfileContent(
               user: user,
               onEdit: () => _showEditDialog(context, ref, user),
-              onPhotoTap: () => _showPhotoActionsSheet(context, ref),
+              onPhotoTap: () => _pickAndUploadProfilePhoto(context, ref),
               onPassword: () => _showPasswordDialog(context, ref),
               onContract: () => _openContract(context),
             ),
-    );
-  }
-
-  Future<void> _showPhotoActionsSheet(
-    BuildContext context,
-    WidgetRef ref,
-  ) async {
-    await showModalBottomSheet<void>(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-      ),
-      builder: (context) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ListTile(
-                  leading: const Icon(Icons.photo_camera_outlined),
-                  title: const Text('Cambiar imagen'),
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    _pickAndUploadProfilePhoto(context, ref);
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.close_rounded),
-                  title: const Text('Cancelar'),
-                  onTap: () => Navigator.of(context).pop(),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
     );
   }
 
@@ -216,12 +180,24 @@ class ProfileScreen extends ConsumerWidget {
       }
 
       final repo = ref.read(usersRepositoryProvider);
+      final previousPhotoUrl =
+          (ref.read(authStateProvider).user?.fotoPersonalUrl ?? '').trim();
       final uploadedUrl = await repo.uploadUserDocument(
         bytes: bytes,
         fileName: picked.name,
         kind: 'profile',
       );
       final updated = await repo.updateMe(fotoPersonalUrl: uploadedUrl);
+
+      // Avoid stale avatar after replacing an image with the same URL.
+      if (previousPhotoUrl.isNotEmpty) {
+        await CachedNetworkImage.evictFromCache(previousPhotoUrl);
+      }
+      final freshPhotoUrl = (updated.fotoPersonalUrl ?? '').trim();
+      if (freshPhotoUrl.isNotEmpty && freshPhotoUrl != previousPhotoUrl) {
+        await CachedNetworkImage.evictFromCache(freshPhotoUrl);
+      }
+
       ref.read(authStateProvider.notifier).setUser(updated);
 
       if (!context.mounted) return;
@@ -501,17 +477,63 @@ class _HeaderCard extends StatelessWidget {
           children: [
             GestureDetector(
               onTap: onPhotoTap,
-              child: UserAvatar(
-                radius: 32,
-                backgroundColor: scheme.primary,
-                imageUrl: user.fotoPersonalUrl,
-                child: Text(
-                  getInitials(user.nombreCompleto),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 280),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
+                transitionBuilder: (child, animation) {
+                  return FadeTransition(
+                    opacity: animation,
+                    child: ScaleTransition(
+                      scale: Tween<double>(begin: 0.95, end: 1).animate(
+                        CurvedAnimation(
+                          parent: animation,
+                          curve: Curves.easeOutBack,
+                        ),
+                      ),
+                      child: child,
+                    ),
+                  );
+                },
+                child: Stack(
+                  key: ValueKey((user.fotoPersonalUrl ?? '').trim()),
+                  clipBehavior: Clip.none,
+                  children: [
+                    UserAvatar(
+                      radius: 32,
+                      backgroundColor: scheme.primary,
+                      imageUrl: user.fotoPersonalUrl,
+                      child: Text(
+                        getInitials(user.nombreCompleto),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      right: -2,
+                      bottom: -2,
+                      child: Container(
+                        width: 20,
+                        height: 20,
+                        decoration: BoxDecoration(
+                          color: scheme.primary,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: theme.scaffoldBackgroundColor,
+                            width: 2,
+                          ),
+                        ),
+                        child: const Icon(
+                          Icons.camera_alt_rounded,
+                          size: 12,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),

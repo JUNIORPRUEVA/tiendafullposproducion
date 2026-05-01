@@ -15,7 +15,6 @@ import '../../core/realtime/operations_realtime_service.dart';
 import '../../core/routing/routes.dart';
 import '../../core/utils/app_feedback.dart';
 import '../../core/widgets/app_drawer.dart';
-import '../../core/widgets/user_avatar.dart';
 import '../../core/widgets/app_navigation.dart';
 import '../../core/widgets/custom_app_bar.dart';
 import '../../core/utils/safe_url_launcher.dart';
@@ -354,7 +353,6 @@ class _ServiceOrdersListScreenState
           _PriorityMapButton(
             onPressed: () => context.push(Routes.clientesMapa),
           ),
-          _ProfileAvatarButton(currentUser: currentUser),
           PopupMenuButton<_OperationsOverflowAction>(
             tooltip: 'Más opciones',
             enabled: !state.refreshing || canShowPurgeAction,
@@ -1288,99 +1286,6 @@ class _PriorityMapButton extends StatelessWidget {
                 ],
               ),
               child: const Icon(Icons.map_rounded, size: 21),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ProfileAvatarButton extends StatefulWidget {
-  const _ProfileAvatarButton({required this.currentUser});
-
-  final UserModel? currentUser;
-
-  @override
-  State<_ProfileAvatarButton> createState() => _ProfileAvatarButtonState();
-}
-
-class _ProfileAvatarButtonState extends State<_ProfileAvatarButton>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 2600),
-  )..repeat(reverse: true);
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final photoUrl = widget.currentUser?.fotoPersonalUrl;
-    final name = widget.currentUser?.nombreCompleto ?? '';
-    final initial = name.isNotEmpty ? name[0].toUpperCase() : '?';
-
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: AnimatedBuilder(
-        animation: _controller,
-        builder: (context, child) {
-          final pulse = Curves.easeInOut.transform(_controller.value);
-          return Transform.scale(
-            scale: 1 + (pulse * 0.035),
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(999),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.white.withValues(
-                      alpha: 0.10 + (pulse * 0.08),
-                    ),
-                    blurRadius: 16 + (pulse * 6),
-                    spreadRadius: pulse * 1.2,
-                  ),
-                ],
-              ),
-              child: child,
-            ),
-          );
-        },
-        child: Tooltip(
-          message: 'Mi perfil',
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(999),
-              onTap: () => context.push(Routes.profile),
-              child: Ink(
-                padding: const EdgeInsets.all(3),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.22),
-                  ),
-                ),
-                child: UserAvatar(
-                  radius: 19,
-                  backgroundColor: Theme.of(
-                    context,
-                  ).colorScheme.primaryContainer,
-                  imageUrl: photoUrl,
-                  child: Text(
-                    initial,
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                      color: Theme.of(context).colorScheme.onPrimaryContainer,
-                    ),
-                  ),
-                ),
-              ),
             ),
           ),
         ),

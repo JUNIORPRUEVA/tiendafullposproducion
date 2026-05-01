@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 
+import '../../../core/auth/auth_repository.dart';
 import '../application/warnings_controller.dart';
 import '../data/employee_warning_model.dart';
 import '../data/employee_warnings_repository.dart';
@@ -14,6 +15,7 @@ class MisAmonestacionesPendientesScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(myPendingWarningsProvider);
+    final baseUrl = ref.watch(dioProvider).options.baseUrl;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F6FA),
@@ -65,7 +67,8 @@ class MisAmonestacionesPendientesScreen extends ConsumerWidget {
                 child: ListView.builder(
                   padding: const EdgeInsets.all(14),
                   itemCount: list.length,
-                  itemBuilder: (context, i) => _PendingCard(warning: list[i]),
+                  itemBuilder: (context, i) =>
+                      _PendingCard(warning: list[i], baseUrl: baseUrl),
                 ),
               ),
       ),
@@ -75,7 +78,9 @@ class MisAmonestacionesPendientesScreen extends ConsumerWidget {
 
 class _PendingCard extends StatefulWidget {
   final EmployeeWarning warning;
-  const _PendingCard({required this.warning});
+  final String baseUrl;
+
+  const _PendingCard({required this.warning, required this.baseUrl});
 
   @override
   State<_PendingCard> createState() => _PendingCardState();
@@ -83,6 +88,42 @@ class _PendingCard extends StatefulWidget {
 
 class _PendingCardState extends State<_PendingCard> {
   bool _expanded = false;
+
+  String? _resolvePdfUrl(String rawUrl) {
+    final value = rawUrl.trim();
+    if (value.isEmpty) return null;
+
+    final uri = Uri.tryParse(value);
+    if (uri == null) return null;
+    if (uri.hasScheme) return uri.toString();
+
+    final base = widget.baseUrl.trim();
+    if (base.isEmpty) return null;
+    final baseUri = Uri.tryParse(base);
+    if (baseUri == null) return null;
+    return baseUri.resolveUri(uri).toString();
+  }
+
+  Future<void> _openPdf(BuildContext context, String rawUrl) async {
+    final resolved = _resolvePdfUrl(rawUrl);
+    if (resolved == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No se pudo construir la URL del PDF'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => _PendingWarningPdfViewerScreen(pdfUrl: resolved),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -183,8 +224,7 @@ class _PendingCardState extends State<_PendingCard> {
                   if (w.pdfUrl != null) ...[
                     const SizedBox(height: 12),
                     OutlinedButton.icon(
-                      onPressed: () => launchUrl(Uri.parse(w.pdfUrl!),
-                          mode: LaunchMode.externalApplication),
+                      onPressed: () => _openPdf(context, w.pdfUrl!),
                       icon: const Icon(Icons.picture_as_pdf_outlined,
                           size: 16),
                       label:
@@ -200,6 +240,38 @@ class _PendingCardState extends State<_PendingCard> {
             _SignatureActions(warning: w),
           ],
         ],
+      ),
+    );
+  }
+}
+
+class _PendingWarningPdfViewerScreen extends StatelessWidget {
+  final String pdfUrl;
+
+  const _PendingWarningPdfViewerScreen({required this.pdfUrl});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Documento PDF'),
+        backgroundColor: const Color(0xFF1a1a2e),
+        foregroundColor: Colors.white,
+      ),
+      body: SfPdfViewer.network(
+        pdfUrl,
+        canShowPaginationDialog: true,
+        enableDoubleTapZooming: true,
+        canShowScrollHead: true,
+        canShowScrollStatus: true,
+        onDocumentLoadFailed: (details) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('No se pudo cargar el PDF: ${details.description}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        },
       ),
     );
   }

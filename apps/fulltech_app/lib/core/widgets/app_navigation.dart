@@ -175,12 +175,6 @@ List<AppNavigationSection> buildAppNavigationSections(
             title: 'Amonestaciones',
             route: Routes.amonestaciones,
           ),
-        if (can(AppPermission.viewMyWarnings))
-          const AppNavigationItem(
-            icon: Icons.notification_important_outlined,
-            title: 'Mis pendientes',
-            route: Routes.misAmonestacionesPendientes,
-          ),
         if (can(AppPermission.viewCompanyManual))
           AppNavigationItem(
             icon: Icons.menu_book_outlined,

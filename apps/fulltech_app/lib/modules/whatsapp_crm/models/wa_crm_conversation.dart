@@ -1,31 +1,7 @@
 import 'wa_crm_message.dart';
 
 String? _safeConversationText(dynamic value) {
-  if (value is! String) return null;
-  final units = value.codeUnits;
-  final out = StringBuffer();
-  for (var i = 0; i < units.length; i++) {
-    final unit = units[i];
-    if (unit >= 0xD800 && unit <= 0xDBFF) {
-      if (i + 1 < units.length) {
-        final next = units[i + 1];
-        if (next >= 0xDC00 && next <= 0xDFFF) {
-          out.writeCharCode(unit);
-          out.writeCharCode(next);
-          i++;
-          continue;
-        }
-      }
-      out.write('\uFFFD');
-      continue;
-    }
-    if (unit >= 0xDC00 && unit <= 0xDFFF) {
-      out.write('\uFFFD');
-      continue;
-    }
-    out.writeCharCode(unit);
-  }
-  return out.toString();
+  return sanitizeWaText(value);
 }
 
 class WaCrmConversation {
@@ -48,6 +24,11 @@ class WaCrmConversation {
   final DateTime? lastMessageAt;
   final int unreadCount;
   final WaCrmMessage? lastMessage;
+
+  bool get isGroup {
+    final jid = remoteJid.toLowerCase();
+    return jid.endsWith('@g.us') || jid.contains('@g.us');
+  }
 
   String? get cleanPhone {
     final candidates = [remotePhone, remoteJid];

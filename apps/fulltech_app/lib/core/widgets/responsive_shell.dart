@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../../features/amonestaciones/application/warnings_controller.dart';
+import '../auth/app_permissions.dart';
 import '../auth/app_role.dart';
 import '../auth/auth_provider.dart';
 import '../location/location_tracker_provider.dart';
@@ -194,7 +196,7 @@ class DesktopShellFooter extends ConsumerWidget {
   }
 }
 
-class DesktopShellAppBar extends StatelessWidget {
+class DesktopShellAppBar extends ConsumerWidget {
   const DesktopShellAppBar({
     super.key,
     required this.collapsed,
@@ -209,13 +211,20 @@ class DesktopShellAppBar extends StatelessWidget {
   final VoidCallback onToggleSidebar;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final today = DateFormat('EEEE, d MMMM', 'es').format(DateTime.now());
     final photoUrl = (currentUser?.fotoPersonalUrl ?? '').trim();
     final branding = resolveRoleBranding(
       currentUser?.appRole ?? AppRole.unknown,
     );
+    final pendingWarningsCount = ref.watch(myPendingWarningsCountProvider);
+    final canViewMyWarnings = hasPermission(
+      currentUser?.appRole ?? AppRole.unknown,
+      AppPermission.viewMyWarnings,
+    );
+    final showPendingWarningsIcon =
+        canViewMyWarnings && pendingWarningsCount > 0;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 240),
@@ -339,6 +348,13 @@ class DesktopShellAppBar extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      if (showPendingWarningsIcon) ...[
+                        _PendingWarningsIconButton(
+                          count: pendingWarningsCount,
+                          onTap: () => context.go(Routes.misAmonestacionesPendientes),
+                        ),
+                        const SizedBox(width: 8),
+                      ],
                       UserAvatar(
                         radius: 15,
                         backgroundColor: Colors.white.withValues(alpha: 0.14),
@@ -388,6 +404,72 @@ class DesktopShellAppBar extends StatelessWidget {
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+class _PendingWarningsIconButton extends StatelessWidget {
+  const _PendingWarningsIconButton({
+    required this.count,
+    required this.onTap,
+  });
+
+  final int count;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final shownCount = count > 99 ? '99+' : '$count';
+
+    return Tooltip(
+      message: 'Tienes $count pendientes de firma',
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(10),
+            child: Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+              ),
+              child: const Icon(
+                Icons.notification_important_outlined,
+                size: 18,
+                color: Colors.white,
+              ),
+            ),
+          ),
+          Positioned(
+            top: -6,
+            right: -6,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFF5A5F),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: Colors.white, width: 1.2),
+              ),
+              constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+              child: Center(
+                child: Text(
+                  shownCount,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    height: 1,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

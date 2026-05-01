@@ -34,15 +34,15 @@ class WaCrmInstanceEntry {
 
   factory WaCrmInstanceEntry.fromJson(Map<String, dynamic> json) {
     return WaCrmInstanceEntry(
-      id: json['id'] as String? ?? '',
-      instanceName: json['instanceName'] as String? ?? '',
-      status: json['status'] as String? ?? 'pending',
+      id: sanitizeWaText(json['id']) ?? '',
+      instanceName: sanitizeWaText(json['instanceName']) ?? '',
+      status: sanitizeWaText(json['status']) ?? 'pending',
       webhookEnabled: json['webhookEnabled'] as bool? ?? false,
       isCompany: json['isCompany'] as bool? ?? false,
-      userName: json['userName'] as String? ?? 'Sin nombre',
-      userId: json['userId'] as String?,
-      userRole: json['userRole'] as String?,
-      phoneNumber: json['phoneNumber'] as String?,
+      userName: sanitizeWaText(json['userName']) ?? 'Sin nombre',
+      userId: sanitizeWaText(json['userId']),
+      userRole: sanitizeWaText(json['userRole']),
+      phoneNumber: sanitizeWaText(json['phoneNumber']),
     );
   }
 
@@ -74,8 +74,8 @@ class WaCrmDailyAiSummary {
 
   factory WaCrmDailyAiSummary.fromJson(Map<String, dynamic> json) {
     return WaCrmDailyAiSummary(
-      source: json['source'] as String? ?? 'rules-only',
-      summary: json['summary'] as String? ?? '',
+      source: sanitizeWaText(json['source']) ?? 'rules-only',
+      summary: sanitizeWaText(json['summary']) ?? '',
       stats: (json['stats'] as Map?)?.cast<String, dynamic>() ?? const {},
     );
   }
@@ -101,12 +101,12 @@ class WaCrmUser {
   factory WaCrmUser.fromJson(Map<String, dynamic> json) {
     final user = json['user'] as Map<String, dynamic>?;
     return WaCrmUser(
-      id: user?['id'] as String? ?? json['id'] as String? ?? '',
-      name: user?['nombreCompleto'] as String? ?? 'Sin nombre',
-      role: user?['role'] as String? ?? '',
-      instanceId: json['id'] as String?,
-      instanceStatus: json['status'] as String?,
-      phone: json['phoneNumber'] as String? ?? json['phone_number'] as String?,
+      id: sanitizeWaText(user?['id'] ?? json['id']) ?? '',
+      name: sanitizeWaText(user?['nombreCompleto']) ?? 'Sin nombre',
+      role: sanitizeWaText(user?['role']) ?? '',
+      instanceId: sanitizeWaText(json['id']),
+      instanceStatus: sanitizeWaText(json['status']),
+      phone: sanitizeWaText(json['phoneNumber'] ?? json['phone_number']),
     );
   }
 }
@@ -125,6 +125,7 @@ class WaCrmState {
     this.loadingMessages = false,
     this.sending = false,
     this.composerUnlocked = false,
+    this.composerUnlockedConversationKey,
     this.error,
     this.allInstances = const [],
     this.loadingInstances = false,
@@ -144,6 +145,7 @@ class WaCrmState {
   final bool loadingMessages;
   final bool sending;
   final bool composerUnlocked;
+  final String? composerUnlockedConversationKey;
   final String? error;
   final List<WaCrmInstanceEntry> allInstances;
   final bool loadingInstances;
@@ -163,6 +165,7 @@ class WaCrmState {
     bool? loadingMessages,
     bool? sending,
     bool? composerUnlocked,
+    String? Function()? composerUnlockedConversationKey,
     String? Function()? error,
     List<WaCrmInstanceEntry>? allInstances,
     bool? loadingInstances,
@@ -184,6 +187,9 @@ class WaCrmState {
       loadingMessages: loadingMessages ?? this.loadingMessages,
       sending: sending ?? this.sending,
       composerUnlocked: composerUnlocked ?? this.composerUnlocked,
+      composerUnlockedConversationKey: composerUnlockedConversationKey != null
+          ? composerUnlockedConversationKey()
+          : this.composerUnlockedConversationKey,
       error: error != null ? error() : this.error,
       allInstances: allInstances ?? this.allInstances,
       loadingInstances: loadingInstances ?? this.loadingInstances,
@@ -315,6 +321,7 @@ class WaCrmController extends StateNotifier<WaCrmState> {
       selectedConversation: () => null,
       messages: [],
       composerUnlocked: false,
+      composerUnlockedConversationKey: () => null,
       aiSummary: () => null,
       aiSummaryError: () => null,
     );
@@ -395,7 +402,12 @@ class WaCrmController extends StateNotifier<WaCrmState> {
   // ─── Select conversation (loads messages) ────────────────────────────
 
   Future<void> selectConversation(WaCrmConversation conv) async {
-    state = state.copyWith(selectedConversation: () => conv, messages: []);
+    state = state.copyWith(
+      selectedConversation: () => conv,
+      messages: [],
+      composerUnlocked: false,
+      composerUnlockedConversationKey: () => null,
+    );
     await loadMessages(conv.id);
     // Mark as read
     try {
@@ -472,7 +484,11 @@ class WaCrmController extends StateNotifier<WaCrmState> {
 
   Future<void> sendReply(String text) async {
     final conv = state.selectedConversation;
-    if (conv == null || text.trim().isEmpty || !state.composerUnlocked) return;
+    final canWrite =
+        conv != null &&
+        state.composerUnlocked &&
+        state.composerUnlockedConversationKey == conv.mergeKey;
+    if (conv == null || text.trim().isEmpty || !canWrite) return;
 
     state = state.copyWith(sending: true, error: () => null);
     try {
@@ -492,12 +508,18 @@ class WaCrmController extends StateNotifier<WaCrmState> {
   Future<bool> unlockComposer(String password) async {
     try {
       await _repo.unlockCompose(password);
-      state = state.copyWith(composerUnlocked: true, error: () => null);
+      final conv = state.selectedConversation;
+      state = state.copyWith(
+        composerUnlocked: conv != null,
+        composerUnlockedConversationKey: () => conv?.mergeKey,
+        error: () => null,
+      );
       return true;
     } catch (e, st) {
       debugPrint('[WaCrm] unlockComposer error: $e\n$st');
       state = state.copyWith(
         composerUnlocked: false,
+        composerUnlockedConversationKey: () => null,
         error: () => 'No se pudo desbloquear el envio: $e',
       );
       return false;
@@ -540,6 +562,7 @@ class WaCrmController extends StateNotifier<WaCrmState> {
   ) {
     final byKey = <String, WaCrmConversation>{};
     for (final conv in conversations) {
+      if (conv.isGroup) continue;
       final phone = conv.cleanPhone;
       final key = phone == null || phone.isEmpty
           ? '${conv.instanceId}:${conv.remoteJid}'
