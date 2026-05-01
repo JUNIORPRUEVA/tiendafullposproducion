@@ -455,9 +455,11 @@ class WaCrmController extends StateNotifier<WaCrmState> {
 
   void handleRealtimeMessage(Map<String, dynamic> data) {
     try {
-      final convId = data['conversationId'] as String?;
-      final msgData = data['message'] as Map<String, dynamic>?;
       final convData = data['conversation'] as Map<String, dynamic>?;
+      final convId = data['conversationId'] as String?
+          ?? data['conversation_id'] as String?
+          ?? convData?['id'] as String?;
+      final msgData = data['message'] as Map<String, dynamic>?;
 
       if (convId == null || msgData == null) return;
 

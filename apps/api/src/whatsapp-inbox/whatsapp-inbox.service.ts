@@ -160,17 +160,11 @@ export class WhatsappInboxService {
     const p = asRecord(payload);
     if (!p) return [];
 
-    if (Array.isArray(p.data)) {
-      return p.data
-        .map((item) => this.parseEvolutionPayload({ ...p, data: item }))
-        .filter((item): item is ParsedWhatsappMessage => !!item);
-    }
-
-    const data = asRecord(p.data);
-    if (Array.isArray(data?.messages)) {
-      return data.messages
-        .map((item) => this.parseEvolutionPayload({ ...p, data: item }))
-        .filter((item): item is ParsedWhatsappMessage => !!item);
+    const records = collectEvolutionMessageRecords(payload);
+    if (records.length > 0) {
+      return records
+          .map((item) => this.parseEvolutionPayload({ ...p, data: item }))
+          .filter((item): item is ParsedWhatsappMessage => !!item);
     }
 
     const parsed = this.parseEvolutionPayload(payload);
