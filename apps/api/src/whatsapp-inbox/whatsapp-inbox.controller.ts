@@ -7,6 +7,7 @@ import {
   Body,
   UseGuards,
   ParseUUIDPipe,
+  Req,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { RolesGuard } from '../auth/roles.guard';
@@ -16,6 +17,7 @@ import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
 import { WhatsappInboxService } from './whatsapp-inbox.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { Request } from 'express';
 
 class SendMessageDto {
   @IsString()
@@ -45,6 +47,12 @@ class DailySummaryDto {
   @IsString()
   @IsNotEmpty()
   date!: string;
+}
+
+class UnlockComposeDto {
+  @IsString()
+  @IsNotEmpty()
+  password!: string;
 }
 
 function extractEvolutionMessageId(result: unknown): string | undefined {
@@ -120,6 +128,14 @@ export class WhatsappInboxController {
   @Post('daily-summary')
   summarizeDailyActivity(@Body() dto: DailySummaryDto) {
     return this.inboxService.summarizeDailyActivity(dto.userId, dto.date);
+  }
+
+  @Post('compose/unlock')
+  unlockCompose(@Body() dto: UnlockComposeDto, @Req() req: Request) {
+    return this.inboxService.validateAdminComposePassword(
+      (req.user ?? {}) as { id?: string; role?: string },
+      dto.password,
+    );
   }
 
   /** Reply to a specific conversation */

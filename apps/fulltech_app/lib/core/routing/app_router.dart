@@ -29,6 +29,9 @@ import '../../modules/nomina/mis_pagos_screen.dart';
 import '../../modules/configuracion/configuracion_screen.dart';
 import '../../modules/whatsapp/whatsapp_screen.dart';
 import '../../modules/whatsapp_crm/whatsapp_crm_screen.dart';
+import '../../features/amonestaciones/presentation/amonestaciones_screen.dart';
+import '../../features/amonestaciones/presentation/warning_detail_screen.dart';
+import '../../features/amonestaciones/presentation/mis_amonestaciones_pendientes_screen.dart';
 import '../../modules/manual_interno/manual_interno_screen.dart';
 import '../../modules/cotizaciones/cotizaciones_historial_screen.dart';
 import '../../modules/cotizaciones/cotizaciones_screen.dart';
@@ -263,6 +266,22 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: Routes.whatsappCrm,
             builder: (context, state) => const WhatsappCrmScreen(),
+          ),
+          GoRoute(
+            path: Routes.amonestaciones,
+            builder: (context, state) => const AmonestacionesScreen(),
+          ),
+          GoRoute(
+            path: Routes.amonestacionDetail,
+            builder: (context, state) {
+              final id = state.pathParameters['id'] ?? '';
+              return WarningDetailScreen(warningId: id);
+            },
+          ),
+          GoRoute(
+            path: Routes.misAmonestacionesPendientes,
+            builder: (context, state) =>
+                const MisAmonestacionesPendientesScreen(),
           ),
           GoRoute(
             path: Routes.clienteNuevo,

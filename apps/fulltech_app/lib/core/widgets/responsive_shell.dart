@@ -623,7 +623,6 @@ class DesktopSidebar extends ConsumerWidget {
                     isDestructive: true,
                     onTap: () async {
                       await ref.read(authStateProvider.notifier).logout();
-                      if (context.mounted) context.go(Routes.login);
                     },
                   ),
                 ],

@@ -124,6 +124,7 @@ class WaCrmState {
     this.messages = const [],
     this.loadingMessages = false,
     this.sending = false,
+    this.composerUnlocked = false,
     this.error,
     this.allInstances = const [],
     this.loadingInstances = false,
@@ -142,6 +143,7 @@ class WaCrmState {
   final List<WaCrmMessage> messages;
   final bool loadingMessages;
   final bool sending;
+  final bool composerUnlocked;
   final String? error;
   final List<WaCrmInstanceEntry> allInstances;
   final bool loadingInstances;
@@ -160,6 +162,7 @@ class WaCrmState {
     List<WaCrmMessage>? messages,
     bool? loadingMessages,
     bool? sending,
+    bool? composerUnlocked,
     String? Function()? error,
     List<WaCrmInstanceEntry>? allInstances,
     bool? loadingInstances,
@@ -180,6 +183,7 @@ class WaCrmState {
       messages: messages ?? this.messages,
       loadingMessages: loadingMessages ?? this.loadingMessages,
       sending: sending ?? this.sending,
+      composerUnlocked: composerUnlocked ?? this.composerUnlocked,
       error: error != null ? error() : this.error,
       allInstances: allInstances ?? this.allInstances,
       loadingInstances: loadingInstances ?? this.loadingInstances,
@@ -310,6 +314,7 @@ class WaCrmController extends StateNotifier<WaCrmState> {
       conversations: [],
       selectedConversation: () => null,
       messages: [],
+      composerUnlocked: false,
       aiSummary: () => null,
       aiSummaryError: () => null,
     );
@@ -467,7 +472,7 @@ class WaCrmController extends StateNotifier<WaCrmState> {
 
   Future<void> sendReply(String text) async {
     final conv = state.selectedConversation;
-    if (conv == null || text.trim().isEmpty) return;
+    if (conv == null || text.trim().isEmpty || !state.composerUnlocked) return;
 
     state = state.copyWith(sending: true, error: () => null);
     try {
@@ -481,6 +486,21 @@ class WaCrmController extends StateNotifier<WaCrmState> {
         sending: false,
         error: () => 'Error enviando mensaje: $e',
       );
+    }
+  }
+
+  Future<bool> unlockComposer(String password) async {
+    try {
+      await _repo.unlockCompose(password);
+      state = state.copyWith(composerUnlocked: true, error: () => null);
+      return true;
+    } catch (e, st) {
+      debugPrint('[WaCrm] unlockComposer error: $e\n$st');
+      state = state.copyWith(
+        composerUnlocked: false,
+        error: () => 'No se pudo desbloquear el envio: $e',
+      );
+      return false;
     }
   }
 

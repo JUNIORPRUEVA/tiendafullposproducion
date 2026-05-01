@@ -1,9 +1,10 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsappMessageDirection, WhatsappMessageType } from '@prisma/client';
 import { CatalogRealtimeRelayService } from '../products/catalog-realtime-relay.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
+import * as bcrypt from 'bcryptjs';
 import {
   normalizeInstanceName,
   normalizeWhatsappIdentity,
@@ -1187,6 +1188,24 @@ export class WhatsappInboxService {
     });
     if (!instance) throw new NotFoundException('Instance not found for user');
     return instance;
+  }
+
+  async validateAdminComposePassword(actor: { id?: string; role?: string }, password: string) {
+    if (actor.role !== 'ADMIN') {
+      throw new ForbiddenException('Solo un administrador puede desbloquear el envio.');
+    }
+    const cleaned = (password ?? '').trim();
+    if (!cleaned) {
+      throw new BadRequestException('Debes colocar la contrasena de administrador.');
+    }
+    const user = await this.prisma.user.findUnique({
+      where: { id: actor.id },
+      select: { passwordHash: true },
+    });
+    if (!user) throw new ForbiddenException('No autorizado.');
+    const ok = await bcrypt.compare(cleaned, user.passwordHash);
+    if (!ok) throw new ForbiddenException('Contrasena incorrecta.');
+    return { ok: true };
   }
 
   // ─── Record a message sent via Evolution API (outgoing) ──────────────

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/auth/auth_provider.dart';
 import '../../core/routing/app_navigator.dart';
 import '../../core/widgets/app_navigation.dart';
 import '../../core/widgets/responsive_shell.dart';
@@ -21,6 +22,13 @@ class HomeShell extends ConsumerStatefulWidget {
 class _HomeShellState extends ConsumerState<HomeShell> {
   @override
   Widget build(BuildContext context) {
+    final auth = ref.watch(authStateProvider);
+    if (!auth.isAuthenticated) {
+      // Router redirect will send the user to /login; avoid rendering
+      // role-protected shell widgets during this transition frame.
+      return const SizedBox.shrink();
+    }
+
     final isDesktop =
         MediaQuery.sizeOf(context).width >= kDesktopShellBreakpoint;
 

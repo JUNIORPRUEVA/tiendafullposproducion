@@ -169,6 +169,18 @@ List<AppNavigationSection> buildAppNavigationSections(
             title: 'CRM WhatsApp',
             route: Routes.whatsappCrm,
           ),
+        if (can(AppPermission.viewWarnings))
+          const AppNavigationItem(
+            icon: Icons.warning_amber_rounded,
+            title: 'Amonestaciones',
+            route: Routes.amonestaciones,
+          ),
+        if (can(AppPermission.viewMyWarnings))
+          const AppNavigationItem(
+            icon: Icons.notification_important_outlined,
+            title: 'Mis pendientes',
+            route: Routes.misAmonestacionesPendientes,
+          ),
         if (can(AppPermission.viewCompanyManual))
           AppNavigationItem(
             icon: Icons.menu_book_outlined,
@@ -248,6 +260,9 @@ String resolveNavigationTitle(
   if (path == Routes.clienteNuevo) return 'Nuevo cliente';
   if (path == Routes.ai) return 'IA';
   if (path == Routes.whatsappCrm) return 'CRM WhatsApp';
+  if (path == Routes.amonestaciones) return 'Amonestaciones';
+  if (path == Routes.misAmonestacionesPendientes) return 'Mis pendientes de firma';
+  if (path.startsWith('/amonestaciones/')) return 'Detalle amonestación';
   if (path == Routes.profile) return 'Perfil';
   if (path.startsWith('${Routes.serviceOrders}/')) return 'Detalle de orden';
   if (path.startsWith('${Routes.documentFlows}/')) return 'Detalle documental';

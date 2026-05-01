@@ -44,6 +44,13 @@ class Routes {
   static const administracionCotizaciones = '/administracion/cotizaciones';
   static const whatsappCrm = '/whatsapp-crm';
 
+  // Amonestaciones
+  static const amonestaciones = '/amonestaciones';
+  static const amonestacionDetail = '/amonestaciones/:id';
+  static const misAmonestacionesPendientes = '/mis-amonestaciones-pendientes';
+
+  static String amonestacionById(String id) => '/amonestaciones/$id';
+
   static String clienteDetail(String id) => '/clientes/$id';
   static String clienteEdit(String id) => '/clientes/$id/editar';
   static String serviceOrderById(String id) => '/service-orders/$id';

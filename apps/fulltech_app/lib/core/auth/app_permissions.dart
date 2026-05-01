@@ -36,6 +36,10 @@ enum AppPermission {
   manageCompanyManual,
   viewAdminTechDepartures,
   viewWhatsappCrm,
+
+  // HR
+  viewWarnings,
+  viewMyWarnings,
 }
 
 /// Role → permissions map. This is the *only* place to change access rules.
@@ -65,6 +69,8 @@ const Map<AppRole, Set<AppPermission>> rolePermissions = {
     AppPermission.manageCompanyManual,
     AppPermission.viewAdminTechDepartures,
     AppPermission.viewWhatsappCrm,
+    AppPermission.viewWarnings,
+    AppPermission.viewMyWarnings,
   },
   AppRole.asistente: {
     AppPermission.viewProfile,
@@ -79,6 +85,8 @@ const Map<AppRole, Set<AppPermission>> rolePermissions = {
     AppPermission.viewClients,
     AppPermission.viewAccounting,
     AppPermission.viewCompanyManual,
+    AppPermission.viewWarnings,
+    AppPermission.viewMyWarnings,
   },
   AppRole.vendedor: {
     AppPermission.viewProfile,
@@ -91,6 +99,7 @@ const Map<AppRole, Set<AppPermission>> rolePermissions = {
     AppPermission.viewQuotes,
     AppPermission.viewClients,
     AppPermission.viewCompanyManual,
+    AppPermission.viewMyWarnings,
   },
   AppRole.marketing: {
     AppPermission.viewProfile,
@@ -103,6 +112,7 @@ const Map<AppRole, Set<AppPermission>> rolePermissions = {
     AppPermission.viewClients,
     AppPermission.viewMediaGallery,
     AppPermission.viewCompanyManual,
+    AppPermission.viewMyWarnings,
   },
   AppRole.tecnico: {
     AppPermission.viewProfile,
@@ -115,6 +125,7 @@ const Map<AppRole, Set<AppPermission>> rolePermissions = {
     AppPermission.viewQuotes,
     AppPermission.viewTechDepartures,
     AppPermission.viewCompanyManual,
+    AppPermission.viewMyWarnings,
   },
   AppRole.unknown: {
     // Least privilege (still allow self areas to avoid redirect loops)

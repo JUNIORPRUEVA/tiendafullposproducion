@@ -56,6 +56,7 @@ class WaCrmRepository {
     final res = await _dio.get<List<dynamic>>(
       '/whatsapp-inbox/conversations',
       queryParameters: {'userId': userId},
+      options: Options(extra: const {'skipLoader': true, 'silent': true}),
     );
     return (res.data ?? [])
         .cast<Map<String, dynamic>>()
@@ -75,6 +76,7 @@ class WaCrmRepository {
         'limit': limit,
         if (before != null) 'before': before.toIso8601String(),
       },
+      options: Options(extra: const {'skipLoader': true, 'silent': true}),
     );
     return (res.data ?? [])
         .cast<Map<String, dynamic>>()
@@ -84,7 +86,18 @@ class WaCrmRepository {
 
   /// Mark conversation as read
   Future<void> markRead(String conversationId) async {
-    await _dio.post<void>('/whatsapp-inbox/conversations/$conversationId/read');
+    await _dio.post<void>(
+      '/whatsapp-inbox/conversations/$conversationId/read',
+      options: Options(extra: const {'skipLoader': true, 'silent': true}),
+    );
+  }
+
+  Future<void> unlockCompose(String password) async {
+    await _dio.post<void>(
+      '/whatsapp-inbox/compose/unlock',
+      data: {'password': password},
+      options: Options(extra: const {'skipLoader': true}),
+    );
   }
 
   /// Reply to a conversation

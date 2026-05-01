@@ -193,6 +193,7 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
             msgController: _msgController,
             scrollController: _scrollController,
             onSend: () => _sendReply(),
+            onUnlock: _unlockComposer,
             agentName: state.selectedUser?.name,
           ),
         ),
@@ -248,6 +249,7 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
             msgController: _msgController,
             scrollController: _scrollController,
             onSend: () => _sendReply(),
+            onUnlock: _unlockComposer,
             agentName: state.selectedUser?.name,
           ),
         ),
@@ -299,6 +301,7 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
               msgController: _msgController,
               scrollController: _scrollController,
               onSend: () => _sendReply(),
+              onUnlock: _unlockComposer,
               agentName: state.selectedUser?.name,
             ),
           ),
@@ -317,10 +320,114 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
   }
 
   void _sendReply() async {
+    final state = ref.read(waCrmControllerProvider);
+    if (!state.composerUnlocked) {
+      await _unlockComposer();
+      if (!ref.read(waCrmControllerProvider).composerUnlocked) return;
+    }
     final text = _msgController.text.trim();
     if (text.isEmpty) return;
     _msgController.clear();
     await ref.read(waCrmControllerProvider.notifier).sendReply(text);
+  }
+
+  Future<void> _unlockComposer() async {
+    final passwordCtrl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        bool obscure = true;
+        bool loading = false;
+        String? error;
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            return AlertDialog(
+              title: const Text('Desbloquear envio'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: passwordCtrl,
+                    autofocus: true,
+                    obscureText: obscure,
+                    decoration: InputDecoration(
+                      labelText: 'Contrasena de administrador',
+                      errorText: error,
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          obscure ? Icons.visibility : Icons.visibility_off,
+                        ),
+                        onPressed: () =>
+                            setDialogState(() => obscure = !obscure),
+                      ),
+                    ),
+                    onSubmitted: (_) async {
+                      if (loading) return;
+                      setDialogState(() {
+                        loading = true;
+                        error = null;
+                      });
+                      final unlocked = await ref
+                          .read(waCrmControllerProvider.notifier)
+                          .unlockComposer(passwordCtrl.text);
+                      if (!ctx.mounted) return;
+                      if (unlocked) {
+                        Navigator.of(ctx).pop(true);
+                      } else {
+                        setDialogState(() {
+                          loading = false;
+                          error = 'Contrasena incorrecta';
+                        });
+                      }
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: loading ? null : () => Navigator.of(ctx).pop(false),
+                  child: const Text('Cancelar'),
+                ),
+                FilledButton.icon(
+                  onPressed: loading
+                      ? null
+                      : () async {
+                          setDialogState(() {
+                            loading = true;
+                            error = null;
+                          });
+                          final unlocked = await ref
+                              .read(waCrmControllerProvider.notifier)
+                              .unlockComposer(passwordCtrl.text);
+                          if (!ctx.mounted) return;
+                          if (unlocked) {
+                            Navigator.of(ctx).pop(true);
+                          } else {
+                            setDialogState(() {
+                              loading = false;
+                              error = 'Contrasena incorrecta';
+                            });
+                          }
+                        },
+                  icon: loading
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.lock_open_rounded),
+                  label: const Text('Desbloquear'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    passwordCtrl.dispose();
+    if (ok == true && mounted) {
+      FocusScope.of(context).requestFocus(FocusNode());
+    }
   }
 
   Future<void> _pickAiSummaryDate() async {
@@ -1217,6 +1324,7 @@ class _ChatPanel extends StatelessWidget {
     required this.msgController,
     required this.scrollController,
     required this.onSend,
+    required this.onUnlock,
     this.agentName,
   });
 
@@ -1224,6 +1332,7 @@ class _ChatPanel extends StatelessWidget {
   final TextEditingController msgController;
   final ScrollController scrollController;
   final VoidCallback onSend;
+  final VoidCallback onUnlock;
   final String? agentName;
 
   @override
@@ -1356,6 +1465,8 @@ class _ChatPanel extends StatelessWidget {
         _ChatInput(
           controller: msgController,
           sending: state.sending,
+          unlocked: state.composerUnlocked,
+          onUnlock: onUnlock,
           onSend: onSend,
         ),
       ],
@@ -2157,11 +2268,15 @@ class _ChatInput extends StatelessWidget {
   const _ChatInput({
     required this.controller,
     required this.sending,
+    required this.unlocked,
+    required this.onUnlock,
     required this.onSend,
   });
 
   final TextEditingController controller;
   final bool sending;
+  final bool unlocked;
+  final VoidCallback onUnlock;
   final VoidCallback onSend;
 
   @override
@@ -2183,29 +2298,41 @@ class _ChatInput extends StatelessWidget {
       child: Row(
         children: [
           Expanded(
-            child: TextField(
-              controller: controller,
-              decoration: InputDecoration(
-                hintText: 'Escribe un mensaje...',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(24),
-                  borderSide: BorderSide.none,
-                ),
-                filled: true,
-                fillColor: theme.colorScheme.surfaceContainerHighest.withValues(
-                  alpha: 0.5,
-                ),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 10,
-                ),
-                isDense: true,
-              ),
-              maxLines: 4,
-              minLines: 1,
-              textInputAction: TextInputAction.send,
-              onSubmitted: (_) => onSend(),
-            ),
+            child: unlocked
+                ? TextField(
+                    controller: controller,
+                    decoration: InputDecoration(
+                      hintText: 'Escribe un mensaje...',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(24),
+                        borderSide: BorderSide.none,
+                      ),
+                      filled: true,
+                      fillColor: theme.colorScheme.surfaceContainerHighest
+                          .withValues(alpha: 0.5),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
+                      ),
+                      isDense: true,
+                    ),
+                    maxLines: 4,
+                    minLines: 1,
+                    textInputAction: TextInputAction.send,
+                    onSubmitted: (_) => onSend(),
+                  )
+                : OutlinedButton.icon(
+                    onPressed: onUnlock,
+                    icon: const Icon(Icons.lock_rounded, size: 18),
+                    label: const Text('Desbloquear escritura'),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(42),
+                      alignment: Alignment.centerLeft,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                    ),
+                  ),
           ),
           const SizedBox(width: 8),
           sending
@@ -2221,12 +2348,15 @@ class _ChatInput extends StatelessWidget {
                   ),
                 )
               : FilledButton(
-                  onPressed: onSend,
+                  onPressed: unlocked ? onSend : onUnlock,
                   style: FilledButton.styleFrom(
                     shape: const CircleBorder(),
                     padding: const EdgeInsets.all(12),
                   ),
-                  child: const Icon(Icons.send_rounded, size: 18),
+                  child: Icon(
+                    unlocked ? Icons.send_rounded : Icons.lock_open_rounded,
+                    size: 18,
+                  ),
                 ),
         ],
       ),

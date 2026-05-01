@@ -65,9 +65,6 @@ class UserScreen extends ConsumerWidget {
               onEdit: () => context.push(Routes.profile),
               onLogout: () async {
                 await ref.read(authStateProvider.notifier).logout();
-                if (context.mounted) {
-                  context.go(Routes.login);
-                }
               },
             ),
     );

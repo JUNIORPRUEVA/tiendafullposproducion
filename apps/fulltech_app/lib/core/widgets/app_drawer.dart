@@ -250,9 +250,6 @@ class AppDrawer extends ConsumerWidget {
                           onPressed: () async {
                             Navigator.pop(context);
                             await ref.read(authStateProvider.notifier).logout();
-                            if (context.mounted) {
-                              context.go(Routes.login);
-                            }
                           },
                           icon: Icon(
                             Icons.logout_rounded,

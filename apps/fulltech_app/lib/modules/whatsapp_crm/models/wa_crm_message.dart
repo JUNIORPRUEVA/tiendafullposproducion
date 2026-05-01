@@ -1,6 +1,34 @@
-enum WaMessageDirection { incoming, outgoing }
+﻿enum WaMessageDirection { incoming, outgoing }
 
 enum WaMessageType { text, image, audio, video, document, sticker, other }
+
+String? _safeText(dynamic value) {
+  if (value is! String) return null;
+  final units = value.codeUnits;
+  final out = StringBuffer();
+  for (var i = 0; i < units.length; i++) {
+    final unit = units[i];
+    if (unit >= 0xD800 && unit <= 0xDBFF) {
+      if (i + 1 < units.length) {
+        final next = units[i + 1];
+        if (next >= 0xDC00 && next <= 0xDFFF) {
+          out.writeCharCode(unit);
+          out.writeCharCode(next);
+          i++;
+          continue;
+        }
+      }
+      out.write('\uFFFD');
+      continue;
+    }
+    if (unit >= 0xDC00 && unit <= 0xDFFF) {
+      out.write('\uFFFD');
+      continue;
+    }
+    out.writeCharCode(unit);
+  }
+  return out.toString();
+}
 
 class WaCrmMessage {
   const WaCrmMessage({
@@ -35,15 +63,15 @@ class WaCrmMessage {
   String get previewText {
     switch (messageType) {
       case WaMessageType.image:
-        return caption?.isNotEmpty == true ? '📷 ${caption!}' : '📷 Imagen';
+        return caption?.isNotEmpty == true ? 'Imagen: ${caption!}' : 'Imagen';
       case WaMessageType.audio:
-        return '🎵 Audio';
+        return 'Audio';
       case WaMessageType.video:
-        return '🎬 Video';
+        return 'Video';
       case WaMessageType.document:
-        return '📄 ${body ?? 'Documento'}';
+        return body ?? 'Documento';
       case WaMessageType.sticker:
-        return '😀 Sticker';
+        return 'Sticker';
       default:
         return body ?? '';
     }
@@ -51,21 +79,22 @@ class WaCrmMessage {
 
   factory WaCrmMessage.fromJson(Map<String, dynamic> json) {
     return WaCrmMessage(
-      id: json['id'] as String,
-      conversationId: json['conversationId'] as String? ??
-          json['conversation_id'] as String? ??
-          '',
-      direction: _parseDirection(
-          json['direction'] as String? ?? 'INCOMING'),
+      id: _safeText(json['id']) ?? '',
+      conversationId:
+          _safeText(json['conversationId'] ?? json['conversation_id']) ?? '',
+      direction: _parseDirection(_safeText(json['direction']) ?? 'INCOMING'),
       messageType: _parseType(
-          json['messageType'] as String? ?? json['message_type'] as String? ?? 'TEXT'),
+        _safeText(json['messageType'] ?? json['message_type']) ?? 'TEXT',
+      ),
       sentAt: _parseDate(json['sentAt'] ?? json['sent_at']) ?? DateTime.now(),
-      evolutionId: json['evolutionId'] as String? ?? json['evolution_id'] as String?,
-      body: json['body'] as String?,
-      mediaUrl: json['mediaUrl'] as String? ?? json['media_url'] as String?,
-      mediaMimeType: json['mediaMimeType'] as String? ?? json['media_mime_type'] as String?,
-      caption: json['caption'] as String?,
-      senderName: json['senderName'] as String? ?? json['sender_name'] as String?,
+      evolutionId: _safeText(json['evolutionId'] ?? json['evolution_id']),
+      body: _safeText(json['body']),
+      mediaUrl: _safeText(json['mediaUrl'] ?? json['media_url']),
+      mediaMimeType: _safeText(
+        json['mediaMimeType'] ?? json['media_mime_type'],
+      ),
+      caption: _safeText(json['caption']),
+      senderName: _safeText(json['senderName'] ?? json['sender_name']),
     );
   }
 

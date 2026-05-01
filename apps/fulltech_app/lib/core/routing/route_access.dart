@@ -60,6 +60,10 @@ class RouteAccess {
         return AppPermission.viewWhatsapp;
       case Routes.whatsappCrm:
         return AppPermission.viewWhatsappCrm;
+      case Routes.amonestaciones:
+        return AppPermission.viewWarnings;
+      case Routes.misAmonestacionesPendientes:
+        return AppPermission.viewMyWarnings;
       case Routes.users:
       case Routes.user:
         return AppPermission.manageUsers;
@@ -83,6 +87,9 @@ class RouteAccess {
     }
     if (path.startsWith('${Routes.contabilidad}/')) {
       return AppPermission.viewAccounting;
+    }
+    if (path.startsWith('/amonestaciones/')) {
+      return AppPermission.viewWarnings;
     }
     if (path.startsWith('${Routes.administracion}/')) {
       return AppPermission.viewAdminPanel;

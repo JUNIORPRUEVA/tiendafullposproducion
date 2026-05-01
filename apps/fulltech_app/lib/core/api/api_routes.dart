@@ -250,4 +250,18 @@ class ApiRoutes {
   static const whatsappInstanceStatus = '/whatsapp/instance/status';
   static const whatsappInstanceQr = '/whatsapp/instance/qr';
   static const whatsappAdminUsers = '/whatsapp/admin/users';
+
+  // Employee Warnings (Amonestaciones)
+  static const employeeWarnings = '/employee-warnings';
+  static String employeeWarningDetail(String id) => '/employee-warnings/$id';
+  static String employeeWarningUpdate(String id) => '/employee-warnings/$id';
+  static String employeeWarningDelete(String id) => '/employee-warnings/$id';
+  static String employeeWarningSubmit(String id) => '/employee-warnings/$id/submit';
+  static String employeeWarningAnnul(String id) => '/employee-warnings/$id/annul';
+  static String employeeWarningPdf(String id) => '/employee-warnings/$id/pdf';
+  static String employeeWarningEvidences(String id) => '/employee-warnings/$id/evidences';
+  static const employeeWarningsMyPending = '/employee-warnings/me/pending';
+  static String employeeWarningsMy(String id) => '/employee-warnings/me/$id';
+  static String employeeWarningsMySign(String id) => '/employee-warnings/me/$id/sign';
+  static String employeeWarningsMyRefuse(String id) => '/employee-warnings/me/$id/refuse';
 }
