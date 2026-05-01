@@ -20,7 +20,10 @@
     "test:smoke:service-orders:http": "node scripts/smoke-service-orders-http.cjs",
     "db:purge:clients-service-orders": "ts-node scripts/purge-clients-service-orders.ts",
     "auth:reset-password": "node scripts/reset-password.cjs",
-    "test:smoke": "ts-node scripts/smoke-test.ts"
+    "test:smoke": "ts-node scripts/smoke-test.ts",
+    "whatsapp:inbox:repair": "ts-node scripts/repair-whatsapp-inbox-duplicates.ts",
+    "whatsapp:inbox:repair:execute": "ts-node scripts/repair-whatsapp-inbox-duplicates.ts --execute",
+    "reset-whatsapp-inbox-data": "ts-node scripts/reset-whatsapp-inbox-data.ts"
   },
   "prisma": {
     "schema": "prisma/schema.prisma",

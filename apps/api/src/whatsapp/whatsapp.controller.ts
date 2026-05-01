@@ -117,11 +117,18 @@ export class WhatsappController {
 export class WhatsappWebhookController {
   constructor(private readonly whatsapp: WhatsappService) {}
 
-  @Post(':instanceName/:eventName')
   @Post(':instanceName')
-  receiveWebhook(
+  receiveWebhookLegacy(
     @Param('instanceName') instanceName: string,
-    @Param('eventName') eventName: string | undefined,
+    @Body() payload: unknown,
+  ) {
+    return this.whatsapp.handleIncomingWebhook(instanceName, payload, undefined);
+  }
+
+  @Post(':instanceName/:eventName')
+  receiveWebhookByEvent(
+    @Param('instanceName') instanceName: string,
+    @Param('eventName') eventName: string,
     @Body() payload: unknown,
   ) {
     return this.whatsapp.handleIncomingWebhook(instanceName, payload, eventName);

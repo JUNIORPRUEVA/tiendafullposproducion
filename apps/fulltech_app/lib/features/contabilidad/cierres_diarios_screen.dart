@@ -46,6 +46,8 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
   String? _editingId;
   final List<_TransferDraft> _transferEntries = [];
   final List<_ExpenseDraft> _expenseEntries = [];
+  CloseTransferVoucherModel? _posVoucher;
+  bool _uploadingPosVoucher = false;
 
   @override
   void dispose() {
@@ -263,6 +265,8 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
               onChanged: (_) => setState(() {}),
             ),
             const SizedBox(height: 12),
+            _buildPosVoucherSection(),
+            const SizedBox(height: 12),
             _CloseSummaryBlock(
               totalIncome: totalIncome,
               netTotal: netTotal,
@@ -327,6 +331,8 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                           expenses: expenses,
                           cashDelivered: _toMoney(_cashDeliveredCtrl.text),
                           notes: _notesCtrl.text,
+                          posVoucher: _posVoucher,
+                          expenseDetails: _expensePayload(),
                         );
                       },
                 icon: state.saving
@@ -632,6 +638,81 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
     }).toList();
   }
 
+  List<Map<String, dynamic>> _expensePayload() {
+    return _expenseEntries
+        .where((e) => e.conceptCtrl.text.trim().isNotEmpty)
+        .map(
+          (e) => {
+            'concept': e.conceptCtrl.text.trim(),
+            'amount': _toMoney(e.amountCtrl.text),
+          },
+        )
+        .toList();
+  }
+
+  Widget _buildPosVoucherSection() {
+    final voucher = _posVoucher;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SectionTitle(title: 'Boucher cierre POS (opcional)'),
+        if (voucher != null) ...[
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: voucher.mimeType.startsWith('image/')
+                ? const Icon(Icons.image_outlined, size: 32)
+                : const Icon(Icons.picture_as_pdf_outlined, size: 32),
+            title: Text(voucher.fileName, maxLines: 1, overflow: TextOverflow.ellipsis),
+            subtitle: const Text('Toca para previsualizar'),
+            trailing: IconButton(
+              icon: const Icon(Icons.close),
+              tooltip: 'Quitar voucher POS',
+              onPressed: () => setState(() => _posVoucher = null),
+            ),
+            onTap: () => _openVoucherPreview(voucher),
+          ),
+        ] else ...[
+          OutlinedButton.icon(
+            onPressed: _uploadingPosVoucher ? null : _pickPosVoucher,
+            icon: _uploadingPosVoucher
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.upload_file_outlined),
+            label: const Text('Subir boucher del POS'),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Future<void> _pickPosVoucher() async {
+    final result = await FilePicker.platform.pickFiles(
+      allowMultiple: false,
+      withData: true,
+      type: FileType.custom,
+      allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp', 'pdf'],
+    );
+    if (result == null || result.files.isEmpty) return;
+    setState(() => _uploadingPosVoucher = true);
+    try {
+      final uploaded = await ref
+          .read(contabilidadRepositoryProvider)
+          .uploadPosVoucher(result.files.first);
+      if (mounted) setState(() => _posVoucher = uploaded);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error al subir voucher POS: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _uploadingPosVoucher = false);
+    }
+  }
+
   void _applyEdit(CloseModel close) {
     setState(() {
       _editingId = close.id;
@@ -653,6 +734,14 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
       }
       _cashDeliveredCtrl.text = close.cashDelivered.toStringAsFixed(2);
       _notesCtrl.text = close.notes ?? '';
+      _posVoucher = close.evidenceUrl != null && close.evidenceFileName != null
+          ? CloseTransferVoucherModel(
+              fileUrl: close.evidenceUrl!,
+              fileName: close.evidenceFileName!,
+              mimeType: close.evidenceMimeType ?? 'image/jpeg',
+              storageKey: close.evidenceStorageKey ?? '',
+            )
+          : null;
     });
   }
 
@@ -673,7 +762,16 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
       _otherIncomeCtrl.text = close.otherIncome.toStringAsFixed(2);
       _expensesCtrl.text = close.expenses.toStringAsFixed(2);
       _expenseEntries.clear();
-      if (close.expenses > 0) {
+      if (close.expenseDetails.isNotEmpty) {
+        _expenseEntries.addAll(
+          close.expenseDetails.map(
+            (e) => _ExpenseDraft(
+              concept: (e['concept'] as String?) ?? '',
+              amount: ((e['amount'] as num?)?.toDouble() ?? 0).toStringAsFixed(2),
+            ),
+          ),
+        );
+      } else if (close.expenses > 0) {
         _expenseEntries.add(_ExpenseDraft(amount: close.expenses.toStringAsFixed(2)));
       }
       _cashDeliveredCtrl.text = close.cashDelivered.toStringAsFixed(2);
@@ -705,6 +803,8 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
       _expensesCtrl.text = '0';
       _cashDeliveredCtrl.text = '0';
       _notesCtrl.clear();
+      _posVoucher = null;
+      _uploadingPosVoucher = false;
     });
   }
 

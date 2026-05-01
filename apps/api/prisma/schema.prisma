@@ -894,8 +894,11 @@ model Close {
   netTotal      Decimal   @default(0) @db.Decimal(12, 2)
   difference    Decimal   @default(0) @db.Decimal(12, 2)
   notes         String?
-  evidenceUrl   String?
-  evidenceFileName String?
+  evidenceUrl        String?
+  evidenceFileName   String?
+  evidenceStorageKey String?
+  evidenceMimeType   String?
+  expenseDetails     Json?
   pdfUrl        String?
   pdfStorageKey String?
   pdfFileName   String?

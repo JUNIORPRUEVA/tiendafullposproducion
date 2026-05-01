@@ -4,6 +4,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import { WhatsappMessageDirection, WhatsappMessageType } from '@prisma/client';
 import { CatalogRealtimeRelayService } from '../products/catalog-realtime-relay.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
+import {
+  normalizeInstanceName,
+  normalizeWhatsappIdentity,
+} from './whatsapp-identity.util';
 
 export interface ParsedWhatsappMessage {
   evolutionId: string;
@@ -85,19 +89,8 @@ function parseTimestamp(value: unknown): Date | null {
   return null;
 }
 
-function stripWhatsappSuffix(value: unknown): string | null {
-  const raw = asString(value);
-  if (!raw) return null;
-  return raw.split('@')[0]?.trim() || null;
-}
-
 function phoneFromIdentifier(value: unknown): string | null {
-  const base = stripWhatsappSuffix(value);
-  if (!base) return null;
-  const digits = base.replace(/\D/g, '');
-  // Human phone numbers are normally 7-15 digits. Longer numeric IDs are often LID/internal IDs.
-  if (digits.length < 7 || digits.length > 15) return null;
-  return digits;
+  return normalizeWhatsappIdentity(value).normalizedPhone;
 }
 
 function firstPhone(...values: unknown[]): string | null {
@@ -111,15 +104,15 @@ function firstPhone(...values: unknown[]): string | null {
 async function findExistingWhatsappConversation(
   prisma: PrismaService,
   instanceId: string,
-  remoteJid: string,
+  normalizedJid: string,
   remotePhone: string | null,
 ) {
-  const exact = await prisma.whatsappConversation.findUnique({
+  const byJid = await prisma.whatsappConversation.findUnique({
     where: {
-      instanceId_remoteJid: { instanceId, remoteJid },
+      instanceId_remoteJid: { instanceId, remoteJid: normalizedJid },
     },
   });
-  if (exact) return exact;
+  if (byJid) return { conversation: byJid, merged: false };
 
   if (!remotePhone) return null;
 
@@ -132,17 +125,18 @@ async function findExistingWhatsappConversation(
   });
   if (!byPhone) return null;
 
-  if (byPhone.remoteJid !== remoteJid) {
-    return prisma.whatsappConversation.update({
+  if (byPhone.remoteJid !== normalizedJid) {
+    const updated = await prisma.whatsappConversation.update({
       where: { id: byPhone.id },
       data: {
-        remoteJid,
+        remoteJid: normalizedJid,
         ...(remotePhone ? { remotePhone } : {}),
       },
     });
+    return { conversation: updated, merged: true };
   }
 
-  return byPhone;
+  return { conversation: byPhone, merged: false };
 }
 
 function readableSenderName(name: unknown, fallbackPhone: string | null): string | null {
@@ -282,15 +276,18 @@ export class WhatsappInboxService {
     const instance = await this.findInstanceByName(instanceName);
     if (!instance) {
       console.warn(
-        `[WhatsappInbox][Webhook] Webhook recibido para instancia no registrada "${instanceName}". Ignorando payload.`,
+        `[WhatsappInbox][Webhook] instanceName=${instanceName} eventName=${eventNameFromRoute ?? '-'} action=ignored reason=instance_not_registered`,
       );
       return { ok: true, ignored: true, reason: 'instance_not_registered' };
     }
 
     const payloadRecord = asRecord(payload);
-    const payloadEvent = normalizeEventName(payloadRecord?.event);
+    const payloadEvent =
+      normalizeEventName(payloadRecord?.event) ??
+      normalizeEventName(payloadRecord?.eventName) ??
+      normalizeEventName(payloadRecord?.type);
     const eventName =
-      normalizeEventName(eventNameFromRoute) ?? payloadEvent ?? 'UNKNOWN';
+      normalizeEventName(eventNameFromRoute) ?? payloadEvent ?? 'MESSAGES_UPSERT';
 
     const parsedMessages = this.parseEvolutionPayloads(payload, {
       instanceName,
@@ -316,7 +313,7 @@ export class WhatsappInboxService {
     let outgoingObserved = false;
     for (const parsed of parsedMessages) {
       const result = await this.saveMessage(instance.id, parsed);
-      const action = result.duplicate ? 'duplicate' : 'saved';
+      const action = result.action;
       if (result.duplicate) {
         duplicates++;
       } else {
@@ -325,7 +322,7 @@ export class WhatsappInboxService {
       if (parsed.fromMe) outgoingObserved = true;
 
       console.log(
-        `[WhatsappInbox][Webhook] instanceName=${instanceName} eventName=${parsed.eventName ?? eventName} fromMe=${parsed.fromMe} remoteJid=${parsed.remoteJid} phone=${parsed.remotePhone ?? '-'} messageId=${parsed.externalMessageId || '-'} action=${action}`,
+        `[WhatsappInbox][Webhook] instanceName=${instanceName} eventName=${parsed.eventName ?? eventName} fromMe=${parsed.fromMe} remoteJid=${parsed.remoteJid} normalizedPhone=${parsed.remotePhone ?? '-'} messageId=${parsed.externalMessageId || '-'} conversationId=${result.conversation.id} action=${action}`,
       );
     }
 
@@ -345,11 +342,30 @@ export class WhatsappInboxService {
     });
 
     if (!instance) {
+      const normalizedInput = normalizeInstanceName(instanceName);
+      if (normalizedInput) {
+        const instances = await this.prisma.userWhatsappInstance.findMany({
+          select: { id: true, userId: true, instanceName: true },
+        });
+        const byNormalized = instances.find(
+          (item) => normalizeInstanceName(item.instanceName) === normalizedInput,
+        );
+        if (byNormalized) {
+          instance = { id: byNormalized.id, userId: byNormalized.userId };
+        }
+      }
+    }
+
+    if (!instance) {
       const appConfig = await this.prisma.appConfig.findUnique({
         where: { id: 'global' },
         select: { evolutionApiInstanceName: true },
       });
-      if (appConfig?.evolutionApiInstanceName === instanceName) {
+      const configName = appConfig?.evolutionApiInstanceName ?? '';
+      const sameCompanyInstance =
+        configName === instanceName ||
+        normalizeInstanceName(configName) === normalizeInstanceName(instanceName);
+      if (sameCompanyInstance) {
         const adminUser = await this.prisma.user.findFirst({
           where: { role: 'ADMIN' },
           select: { id: true },
@@ -392,18 +408,24 @@ export class WhatsappInboxService {
 
       const eventName =
         normalizeEventName(p.event) ??
+        normalizeEventName((p as JsonRecord).eventName) ??
+        normalizeEventName((p as JsonRecord).type) ??
         normalizeEventName(data.event) ??
+        normalizeEventName((data as JsonRecord).eventName) ??
+        normalizeEventName((data as JsonRecord).type) ??
         normalizeEventName(context?.eventName) ??
         null;
       const instanceName =
         asString(p.instance) ??
         asString(p.instanceName) ??
+        asString(p.instance_name) ??
         asString(data.instance) ??
         asString(data.instanceName) ??
+        asString(data.instance_name) ??
         asString(context?.instanceName) ??
         null;
 
-      const remoteJid =
+      const remoteJidRaw =
         asString(key.remoteJid) ??
         asString(data.remoteJid) ??
         asString(data.chatId) ??
@@ -413,12 +435,16 @@ export class WhatsappInboxService {
         asString(data.sender) ??
         asString(data.from) ??
         asString(key.participant);
+      const normalizedIdentity = normalizeWhatsappIdentity(remoteJidRaw);
+      const remoteJid = normalizedIdentity.normalizedJid ?? remoteJidRaw;
       if (!remoteJid || remoteJid === 'status@broadcast') return null;
 
       const fromMe =
         asBoolean(key.fromMe) ??
         asBoolean(data.fromMe) ??
         asBoolean(asRecord(data.contextInfo)?.fromMe) ??
+        asBoolean(p.fromMe) ??
+        asBoolean((p as JsonRecord)['from_me']) ??
         (isOutgoingEventName(eventName) ||
           asString(data.from)?.toLowerCase() === 'me' ||
           asString(data.from)?.toLowerCase() === 'self' ||
@@ -427,6 +453,8 @@ export class WhatsappInboxService {
         asString(key.id) ??
         asString(data.id) ??
         asString(asRecord(data.message)?.['id']) ??
+        asString(asRecord(data.message)?.['messageId']) ??
+        asString(asRecord(data.messageInfo)?.['id']) ??
         asString(data.messageId) ??
         '';
       const pushName = asString(data.pushName) ?? null;
@@ -445,6 +473,7 @@ export class WhatsappInboxService {
         asString(data.senderPn) ??
         null;
       const remotePhone = firstPhone(
+        normalizedIdentity.normalizedPhone,
         data.senderPn,
         data.phone,
         data.remotePhone,
@@ -567,21 +596,29 @@ export class WhatsappInboxService {
       ? WhatsappMessageDirection.OUTGOING
       : WhatsappMessageDirection.INCOMING;
 
-    const remotePhone = parsed.remotePhone ?? phoneFromIdentifier(parsed.remoteJid);
+    const normalizedIdentity = normalizeWhatsappIdentity(parsed.remoteJid);
+    const normalizedJid = normalizedIdentity.normalizedJid ?? parsed.remoteJid;
+    const remotePhone =
+      parsed.remotePhone ??
+      normalizedIdentity.normalizedPhone ??
+      phoneFromIdentifier(parsed.remoteJid);
     const remoteName = parsed.senderName ?? remotePhone;
 
     const existingConversation = await findExistingWhatsappConversation(
       this.prisma,
       instanceId,
-      parsed.remoteJid,
+      normalizedJid,
       remotePhone,
     );
 
+    const wasMerged = existingConversation?.merged ?? false;
+
     const conversation = existingConversation
       ? await this.prisma.whatsappConversation.update({
-          where: { id: existingConversation.id },
+          where: { id: existingConversation.conversation.id },
           data: {
             lastMessageAt: parsed.sentAt,
+            remoteJid: normalizedJid,
             ...(remotePhone ? { remotePhone } : {}),
             ...(remoteName ? { remoteName } : {}),
             ...(direction === WhatsappMessageDirection.INCOMING
@@ -592,7 +629,7 @@ export class WhatsappInboxService {
       : await this.prisma.whatsappConversation.create({
           data: {
             instanceId,
-            remoteJid: parsed.remoteJid,
+            remoteJid: normalizedJid,
             remotePhone,
             remoteName,
             lastMessageAt: parsed.sentAt,
@@ -617,7 +654,12 @@ export class WhatsappInboxService {
             body: parsed.body,
           },
         });
-        return { conversation, message: updatedExisting, duplicate: true };
+        return {
+          conversation,
+          message: updatedExisting,
+          duplicate: true,
+          action: wasMerged ? 'merged' : 'duplicate',
+        };
       }
 
       // For outgoing messages: if a local optimistic record exists (null evolutionId,
@@ -643,7 +685,12 @@ export class WhatsappInboxService {
               mediaMimeType: parsed.mediaMimeType ?? optimistic.mediaMimeType,
             },
           });
-          return { conversation, message: updated, duplicate: false };
+          return {
+            conversation,
+            message: updated,
+            duplicate: false,
+            action: wasMerged ? 'merged' : 'saved',
+          };
         }
       }
     }
@@ -661,7 +708,12 @@ export class WhatsappInboxService {
         orderBy: { createdAt: 'desc' },
       });
       if (dupeByFingerprint) {
-        return { conversation, message: dupeByFingerprint, duplicate: true };
+        return {
+          conversation,
+          message: dupeByFingerprint,
+          duplicate: true,
+          action: wasMerged ? 'merged' : 'duplicate',
+        };
       }
     }
 
@@ -711,7 +763,12 @@ export class WhatsappInboxService {
       },
     });
 
-    return { conversation, message, duplicate: false };
+    return {
+      conversation,
+      message,
+      duplicate: false,
+      action: wasMerged ? 'merged' : 'saved',
+    };
   }
 
   // ─── Query conversations for an instance ──────────────────────────────

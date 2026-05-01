@@ -10,6 +10,15 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
+export class CloseExpenseDetailDto {
+  @IsString()
+  concept!: string;
+
+  @IsNumber()
+  @Min(0)
+  amount!: number;
+}
+
 export enum CloseType {
   CAPSULAS = 'CAPSULAS',
   POS = 'POS',
@@ -112,6 +121,20 @@ export class CreateCloseDto {
   @IsString()
   @IsOptional()
   evidenceFileName?: string;
+
+  @IsString()
+  @IsOptional()
+  evidenceStorageKey?: string;
+
+  @IsString()
+  @IsOptional()
+  evidenceMimeType?: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CloseExpenseDetailDto)
+  @IsOptional()
+  expenseDetails?: CloseExpenseDetailDto[];
 }
 
 export class UpdateCloseDto {
@@ -166,6 +189,20 @@ export class UpdateCloseDto {
   @IsString()
   @IsOptional()
   evidenceFileName?: string;
+
+  @IsString()
+  @IsOptional()
+  evidenceStorageKey?: string;
+
+  @IsString()
+  @IsOptional()
+  evidenceMimeType?: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CloseExpenseDetailDto)
+  @IsOptional()
+  expenseDetails?: CloseExpenseDetailDto[];
 }
 
 export class ReviewCloseDto {

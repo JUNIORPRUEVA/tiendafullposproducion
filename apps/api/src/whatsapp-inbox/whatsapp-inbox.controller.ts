@@ -185,16 +185,35 @@ export class WhatsappInboxController {
 export class WhatsappInboxWebhookController {
   constructor(private readonly inboxService: WhatsappInboxService) {}
 
-  @Post(':instanceName/:eventName')
   @Post(':instanceName')
-  async receiveWebhook(
+  async receiveWebhookLegacy(
     @Param('instanceName') instanceName: string,
-    @Param('eventName') eventName: string | undefined,
     @Body() payload: unknown,
   ) {
     try {
       console.log(
-        `[WhatsappInbox][Webhook] Payload recibido para instancia "${instanceName}" eventName=${eventName ?? '-'} via /whatsapp-inbox/webhook`,
+        `[WhatsappInbox][Webhook] Payload recibido para instancia "${instanceName}" eventName=- via /whatsapp-inbox/webhook`,
+      );
+      return await this.inboxService.handleIncomingWebhook(
+        instanceName,
+        payload,
+        undefined,
+      );
+    } catch (err) {
+      console.error('[WhatsappInbox][Webhook] Error processing webhook:', err);
+      return { ok: true, error: String(err) }; // Always return 200 to Evolution API
+    }
+  }
+
+  @Post(':instanceName/:eventName')
+  async receiveWebhookByEvent(
+    @Param('instanceName') instanceName: string,
+    @Param('eventName') eventName: string,
+    @Body() payload: unknown,
+  ) {
+    try {
+      console.log(
+        `[WhatsappInbox][Webhook] Payload recibido para instancia "${instanceName}" eventName=${eventName} via /whatsapp-inbox/webhook`,
       );
       return await this.inboxService.handleIncomingWebhook(
         instanceName,

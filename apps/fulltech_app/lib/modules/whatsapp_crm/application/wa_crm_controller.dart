@@ -47,16 +47,16 @@ class WaCrmInstanceEntry {
   }
 
   WaCrmInstanceEntry copyWithWebhook(bool enabled) => WaCrmInstanceEntry(
-        id: id,
-        instanceName: instanceName,
-        status: status,
-        webhookEnabled: enabled,
-        isCompany: isCompany,
-        userName: userName,
-        userId: userId,
-        userRole: userRole,
-        phoneNumber: phoneNumber,
-      );
+    id: id,
+    instanceName: instanceName,
+    status: status,
+    webhookEnabled: enabled,
+    isCompany: isCompany,
+    userName: userName,
+    userId: userId,
+    userRole: userRole,
+    phoneNumber: phoneNumber,
+  );
 }
 
 // ─── User selector ────────────────────────────────────────────────────────
@@ -171,8 +171,7 @@ class WaCrmState {
     return WaCrmState(
       users: users ?? this.users,
       loadingUsers: loadingUsers ?? this.loadingUsers,
-      selectedUser:
-          selectedUser != null ? selectedUser() : this.selectedUser,
+      selectedUser: selectedUser != null ? selectedUser() : this.selectedUser,
       conversations: conversations ?? this.conversations,
       loadingConversations: loadingConversations ?? this.loadingConversations,
       selectedConversation: selectedConversation != null
@@ -186,10 +185,12 @@ class WaCrmState {
       loadingInstances: loadingInstances ?? this.loadingInstances,
       aiSummary: aiSummary != null ? aiSummary() : this.aiSummary,
       loadingAiSummary: loadingAiSummary ?? this.loadingAiSummary,
-      aiSummaryError:
-          aiSummaryError != null ? aiSummaryError() : this.aiSummaryError,
-      aiSummaryDate:
-          aiSummaryDate != null ? aiSummaryDate() : this.aiSummaryDate,
+      aiSummaryError: aiSummaryError != null
+          ? aiSummaryError()
+          : this.aiSummaryError,
+      aiSummaryDate: aiSummaryDate != null
+          ? aiSummaryDate()
+          : this.aiSummaryDate,
     );
   }
 }
@@ -198,8 +199,8 @@ class WaCrmState {
 
 final waCrmControllerProvider =
     StateNotifierProvider<WaCrmController, WaCrmState>((ref) {
-  return WaCrmController(ref.watch(waCrmRepositoryProvider));
-});
+      return WaCrmController(ref.watch(waCrmRepositoryProvider));
+    });
 
 class WaCrmController extends StateNotifier<WaCrmState> {
   WaCrmController(this._repo) : super(const WaCrmState());
@@ -210,10 +211,7 @@ class WaCrmController extends StateNotifier<WaCrmState> {
   // ─── Clear selection (mobile back) ──────────────────────────────────
 
   void clearSelection() {
-    state = state.copyWith(
-      selectedConversation: () => null,
-      messages: [],
-    );
+    state = state.copyWith(selectedConversation: () => null, messages: []);
   }
 
   // ─── Load all instances with webhook status ──────────────────────────
@@ -263,7 +261,10 @@ class WaCrmController extends StateNotifier<WaCrmState> {
     state = state.copyWith(allInstances: updated);
 
     try {
-      final webhookUrl = await _repo.setInstanceWebhook(instanceName, enabled: enabled);
+      final webhookUrl = await _repo.setInstanceWebhook(
+        instanceName,
+        enabled: enabled,
+      );
       return webhookUrl;
     } catch (e, st) {
       debugPrint('[WaCrm] setInstanceWebhook error: $e\n$st');
@@ -285,10 +286,7 @@ class WaCrmController extends StateNotifier<WaCrmState> {
     try {
       final raw = await _repo.listUsers();
       final users = raw.map(WaCrmUser.fromJson).toList();
-      state = state.copyWith(
-        users: users,
-        loadingUsers: false,
-      );
+      state = state.copyWith(users: users, loadingUsers: false);
       // Auto-select first user
       if (users.isNotEmpty && state.selectedUser == null) {
         await selectUser(users.first);
@@ -362,10 +360,7 @@ class WaCrmController extends StateNotifier<WaCrmState> {
     state = state.copyWith(loadingConversations: true, error: () => null);
     try {
       final convs = await _repo.getConversations(userId);
-      state = state.copyWith(
-        conversations: convs,
-        loadingConversations: false,
-      );
+      state = state.copyWith(conversations: convs, loadingConversations: false);
     } catch (e, st) {
       debugPrint('[WaCrm] loadConversations error: $e\n$st');
       state = state.copyWith(
@@ -378,10 +373,7 @@ class WaCrmController extends StateNotifier<WaCrmState> {
   // ─── Select conversation (loads messages) ────────────────────────────
 
   Future<void> selectConversation(WaCrmConversation conv) async {
-    state = state.copyWith(
-      selectedConversation: () => conv,
-      messages: [],
-    );
+    state = state.copyWith(selectedConversation: () => conv, messages: []);
     await loadMessages(conv.id);
     // Mark as read
     try {
@@ -442,13 +434,33 @@ class WaCrmController extends StateNotifier<WaCrmState> {
 
   /// Refreshes messages in the background without the loading spinner.
   void _silentRefreshMessages(String conversationId) {
-    _repo.getMessages(conversationId).then((msgs) {
-      if (state.selectedConversation?.id == conversationId) {
-        state = state.copyWith(messages: msgs);
-      }
-    }).catchError((e) {
-      debugPrint('[WaCrm] _silentRefreshMessages error: $e');
-    });
+    _repo
+        .getMessages(conversationId)
+        .then((msgs) {
+          if (state.selectedConversation?.id == conversationId) {
+            state = state.copyWith(messages: msgs);
+          }
+        })
+        .catchError((e) {
+          debugPrint('[WaCrm] _silentRefreshMessages error: $e');
+        });
+  }
+
+  String? _normalizedPhoneFromRaw(String? value) {
+    final raw = (value ?? '').trim();
+    if (raw.isEmpty) return null;
+    final local = raw.split('@').first.split(':').first;
+    final digits = local.replaceAll(RegExp(r'\D'), '');
+    if (digits.length < 7 || digits.length > 15) return null;
+    return digits;
+  }
+
+  WaCrmConversation? _findConversationByPhone(String? normalizedPhone) {
+    if (normalizedPhone == null || normalizedPhone.isEmpty) return null;
+    for (final conv in state.conversations) {
+      if (conv.cleanPhone == normalizedPhone) return conv;
+    }
+    return null;
   }
 
   // ─── Real-time message push ───────────────────────────────────────────
@@ -456,18 +468,33 @@ class WaCrmController extends StateNotifier<WaCrmState> {
   void handleRealtimeMessage(Map<String, dynamic> data) {
     try {
       final convData = data['conversation'] as Map<String, dynamic>?;
-      final convId = data['conversationId'] as String?
-          ?? data['conversation_id'] as String?
-          ?? convData?['id'] as String?;
+      final convId =
+          data['conversationId'] as String? ??
+          data['conversation_id'] as String? ??
+          convData?['id'] as String?;
       final payloadMessage = data['message'] as Map<String, dynamic>?;
-      final msgData =
-          payloadMessage ?? (data['id'] != null ? data : null);
+      final msgData = payloadMessage ?? (data['id'] != null ? data : null);
 
       if (convId == null || msgData == null) return;
 
+      final incomingConv = convData != null
+          ? WaCrmConversation.fromJson(convData)
+          : null;
+      final incomingPhone =
+          incomingConv?.cleanPhone ??
+          _normalizedPhoneFromRaw(msgData['remotePhone'] as String?) ??
+          _normalizedPhoneFromRaw(msgData['remoteJid'] as String?);
+      final byPhone = _findConversationByPhone(incomingPhone);
+
+      final targetConversationId = (byPhone != null && byPhone.id != convId)
+          ? byPhone.id
+          : convId;
+      final requiresConversationRefresh =
+          byPhone != null && byPhone.id != convId;
+
       final normalizedMsg = <String, dynamic>{
         ...msgData,
-        'conversation_id': convId,
+        'conversation_id': targetConversationId,
         if (msgData['sentAt'] == null && msgData['createdAt'] != null)
           'sentAt': msgData['createdAt'],
         if (msgData['body'] == null && msgData['text'] != null)
@@ -476,7 +503,7 @@ class WaCrmController extends StateNotifier<WaCrmState> {
       final msg = WaCrmMessage.fromJson(normalizedMsg);
 
       // If this conversation is currently open, append message
-      if (state.selectedConversation?.id == convId) {
+      if (state.selectedConversation?.id == targetConversationId) {
         final alreadyExists = state.messages.any((m) => m.id == msg.id);
         if (!alreadyExists) {
           state = state.copyWith(messages: [...state.messages, msg]);
@@ -484,13 +511,24 @@ class WaCrmController extends StateNotifier<WaCrmState> {
       }
 
       // Update conversation list (bump lastMessageAt + unreadCount)
-      if (convData != null) {
-        final updatedConv = WaCrmConversation.fromJson(convData);
-        final existing = state.conversations.any((c) => c.id == convId);
+      if (incomingConv != null) {
+        final updatedConv = WaCrmConversation(
+          id: targetConversationId,
+          instanceId: incomingConv.instanceId,
+          remoteJid: incomingConv.remoteJid,
+          remotePhone: incomingConv.remotePhone,
+          remoteName: incomingConv.remoteName,
+          lastMessageAt: incomingConv.lastMessageAt,
+          unreadCount: incomingConv.unreadCount,
+          lastMessage: incomingConv.lastMessage,
+        );
+        final existing = state.conversations.any(
+          (c) => c.id == targetConversationId,
+        );
         List<WaCrmConversation> updatedList;
         if (existing) {
           updatedList = state.conversations.map((c) {
-            return c.id == convId ? updatedConv : c;
+            return c.id == targetConversationId ? updatedConv : c;
           }).toList();
         } else {
           updatedList = [updatedConv, ...state.conversations];
@@ -502,6 +540,10 @@ class WaCrmController extends StateNotifier<WaCrmState> {
           return tB.compareTo(tA);
         });
         state = state.copyWith(conversations: updatedList);
+      }
+
+      if (requiresConversationRefresh && state.selectedUser != null) {
+        unawaited(loadConversations(state.selectedUser!.id));
       }
     } catch (e) {
       debugPrint('[WaCrm] handleRealtimeMessage error: $e');

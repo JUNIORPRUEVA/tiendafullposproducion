@@ -83,6 +83,11 @@ class ContabilidadRepository {
     required double expenses,
     required double cashDelivered,
     String? notes,
+    String? evidenceUrl,
+    String? evidenceFileName,
+    String? evidenceStorageKey,
+    String? evidenceMimeType,
+    List<Map<String, dynamic>> expenseDetails = const [],
   }) async {
     try {
       final res = await _dio.post(
@@ -121,6 +126,11 @@ class ContabilidadRepository {
     required double expenses,
     required double cashDelivered,
     String? notes,
+    String? evidenceUrl,
+    String? evidenceFileName,
+    String? evidenceStorageKey,
+    String? evidenceMimeType,
+    List<Map<String, dynamic>> expenseDetails = const [],
   }) async {
     try {
       final res = await _dio.put(
@@ -135,6 +145,11 @@ class ContabilidadRepository {
           'expenses': expenses,
           'cashDelivered': cashDelivered,
           if (notes != null) 'notes': notes.trim(),
+          if (evidenceUrl != null) 'evidenceUrl': evidenceUrl,
+          if (evidenceFileName != null) 'evidenceFileName': evidenceFileName,
+          if (evidenceStorageKey != null) 'evidenceStorageKey': evidenceStorageKey,
+          if (evidenceMimeType != null) 'evidenceMimeType': evidenceMimeType,
+          if (expenseDetails.isNotEmpty) 'expenseDetails': expenseDetails,
         },
       );
       return CloseModel.fromJson((res.data as Map).cast<String, dynamic>());
@@ -152,6 +167,38 @@ class ContabilidadRepository {
     } on DioException catch (e) {
       throw ApiException(
         _extractMessage(e.response?.data, 'No se pudo eliminar el cierre'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<CloseTransferVoucherModel> uploadPosVoucher(
+    PlatformFile file,
+  ) async {
+    try {
+      final bytes = file.bytes;
+      if (bytes == null || bytes.isEmpty) {
+        throw ApiException('No se pudo leer el voucher seleccionado');
+      }
+      final form = FormData.fromMap({
+        'file': MultipartFile.fromBytes(
+          bytes,
+          filename: file.name,
+          contentType: file.extension == null
+              ? null
+              : MediaType.parse(_contentTypeForExtension(file.extension!)),
+        ),
+      });
+      final res = await _dio.post(
+        ApiRoutes.contabilidadCloseVoucherUpload,
+        data: form,
+      );
+      return CloseTransferVoucherModel.fromJson(
+        (res.data as Map).cast<String, dynamic>(),
+      );
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo subir el voucher POS'),
         e.response?.statusCode,
       );
     }

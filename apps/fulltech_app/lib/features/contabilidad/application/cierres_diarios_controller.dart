@@ -167,6 +167,8 @@ class CierresDiariosController extends StateNotifier<CierresDiariosState> {
     required double expenses,
     required double cashDelivered,
     String? notes,
+    CloseTransferVoucherModel? posVoucher,
+    List<Map<String, dynamic>> expenseDetails = const [],
   }) async {
     state = state.copyWith(saving: true, clearError: true);
 
@@ -187,6 +189,11 @@ class CierresDiariosController extends StateNotifier<CierresDiariosState> {
               expenses: expenses,
               cashDelivered: cashDelivered,
               notes: notes,
+              evidenceUrl: posVoucher?.fileUrl,
+              evidenceFileName: posVoucher?.fileName,
+              evidenceStorageKey: posVoucher?.storageKey,
+              evidenceMimeType: posVoucher?.mimeType,
+              expenseDetails: expenseDetails,
             );
       } else {
         if (!editing.isPending) {
@@ -209,6 +216,11 @@ class CierresDiariosController extends StateNotifier<CierresDiariosState> {
               expenses: expenses,
               cashDelivered: cashDelivered,
               notes: notes,
+              evidenceUrl: posVoucher?.fileUrl,
+              evidenceFileName: posVoucher?.fileName,
+              evidenceStorageKey: posVoucher?.storageKey,
+              evidenceMimeType: posVoucher?.mimeType,
+              expenseDetails: expenseDetails,
             );
       }
 

@@ -21,6 +21,7 @@ import {
   CreateCloseDto,
   UpdateCloseDto,
 } from './close.dto';
+import type { CloseExpenseDetailDto } from './close.dto';
 import {
   CreateDepositOrderDto,
   DepositOrdersQueryDto,
@@ -273,6 +274,16 @@ export class ContabilidadService {
     };
   }
 
+  private normalizeExpenseDetails(
+    details?: Array<{ concept: string; amount: number }> | null,
+  ) {
+    if (!details || details.length === 0) return null;
+    return details.map((row) => ({
+      concept: (row.concept ?? '').trim(),
+      amount: Math.round(Number(row.amount ?? 0) * 100) / 100,
+    }));
+  }
+
   private async findCloseOrThrow(id: string) {
     const close = await this.prisma.close.findUnique({
       where: { id },
@@ -338,6 +349,9 @@ export class ContabilidadService {
         notes: this.toNullableTrimmed(dto.notes),
         evidenceUrl: this.toNullableTrimmed(dto.evidenceUrl),
         evidenceFileName: this.toNullableTrimmed(dto.evidenceFileName),
+        evidenceStorageKey: this.toNullableTrimmed(dto.evidenceStorageKey),
+        evidenceMimeType: this.toNullableTrimmed(dto.evidenceMimeType),
+        expenseDetails: (this.normalizeExpenseDetails(dto.expenseDetails) ?? Prisma.JsonNull) as Prisma.NullableJsonNullValueInput | Prisma.InputJsonValue,
         createdById: actor.id!,
         createdByName: creator?.nombreCompleto ?? null,
         transfers: {
@@ -470,6 +484,18 @@ export class ContabilidadService {
           dto.evidenceFileName === undefined
             ? undefined
             : this.toNullableTrimmed(dto.evidenceFileName),
+        evidenceStorageKey:
+          dto.evidenceStorageKey === undefined
+            ? undefined
+            : this.toNullableTrimmed(dto.evidenceStorageKey),
+        evidenceMimeType:
+          dto.evidenceMimeType === undefined
+            ? undefined
+            : this.toNullableTrimmed(dto.evidenceMimeType),
+        expenseDetails:
+          dto.expenseDetails === undefined
+            ? undefined
+            : ((this.normalizeExpenseDetails(dto.expenseDetails) ?? Prisma.JsonNull) as Prisma.NullableJsonNullValueInput | Prisma.InputJsonValue),
         transferBank:
           dto.transfers === undefined
             ? undefined
@@ -552,34 +578,49 @@ export class ContabilidadService {
 
   private async afterCloseSubmitted(closeId: string) {
     const close = await this.findCloseOrThrow(closeId);
-    const pdf = await this.generateClosePdf(close);
-    const yyyy = close.date.getUTCFullYear();
-    const mm = String(close.date.getUTCMonth() + 1).padStart(2, '0');
-    const objectKey = `contabilidad/daily-closes/${yyyy}/${mm}/${close.id}/${pdf.fileName}`;
-    await this.r2.putObject({
-      objectKey,
-      body: pdf.bytes,
-      contentType: 'application/pdf',
-    });
-    const pdfUrl = this.r2.buildPublicUrl(objectKey);
+    // PDF generation, R2 upload and notifications are best-effort.
+    // The close record is always returned regardless of errors here.
+    try {
+      const pdf = await this.generateClosePdf(close);
+      const yyyy = close.date.getUTCFullYear();
+      const mm = String(close.date.getUTCMonth() + 1).padStart(2, '0');
+      const objectKey = `contabilidad/daily-closes/${yyyy}/${mm}/${close.id}/${pdf.fileName}`;
+      await this.r2.putObject({
+        objectKey,
+        body: pdf.bytes,
+        contentType: 'application/pdf',
+      });
+      const pdfUrl = this.r2.buildPublicUrl(objectKey);
 
-    await this.prisma.close.update({
-      where: { id: close.id },
-      data: {
-        pdfStorageKey: objectKey,
+      await this.prisma.close.update({
+        where: { id: close.id },
+        data: {
+          pdfStorageKey: objectKey,
+          pdfUrl,
+          pdfFileName: pdf.fileName,
+          notificationStatus: 'pending',
+          notificationError: null,
+        },
+      });
+
+      await this.enqueueCloseNotifications(
+        close.id,
+        pdf.bytes,
+        pdf.fileName,
         pdfUrl,
-        pdfFileName: pdf.fileName,
-        notificationStatus: 'pending',
-        notificationError: null,
-      },
-    });
-
-    await this.enqueueCloseNotifications(
-      close.id,
-      pdf.bytes,
-      pdf.fileName,
-      pdfUrl,
-    );
+      );
+    } catch (pdfError) {
+      const msg = pdfError instanceof Error ? pdfError.message : String(pdfError);
+      console.error('[afterCloseSubmitted] PDF/notification error (non-fatal):', msg);
+      try {
+        await this.prisma.close.update({
+          where: { id: close.id },
+          data: { notificationStatus: 'failed', notificationError: msg },
+        });
+      } catch {
+        // ignore secondary error
+      }
+    }
     return this.findCloseOrThrow(close.id);
   }
 
@@ -598,6 +639,15 @@ export class ContabilidadService {
       dateStyle: 'medium',
       timeStyle: 'short',
     }).format(value);
+  }
+
+  private async tryFetchImageBuffer(storageKey: string): Promise<Buffer | null> {
+    try {
+      const result = await this.r2.getObject(storageKey);
+      return result.body;
+    } catch {
+      return null;
+    }
   }
 
   private async generateClosePdf(
@@ -632,6 +682,18 @@ export class ContabilidadService {
         .stroke();
       doc.moveDown(0.6);
     };
+    const embedImage = async (storageKey: string, mimeType: string, label?: string) => {
+      if (!/^image\/(jpeg|jpg|png)$/i.test(mimeType)) return;
+      const buf = await this.tryFetchImageBuffer(storageKey);
+      if (!buf) return;
+      if (label) doc.font('Helvetica-Bold').text(label);
+      try {
+        doc.image(buf, { fit: [460, 280], align: 'center' });
+        doc.moveDown(0.5);
+      } catch {
+        // skip non-embeddable image silently
+      }
+    };
 
     doc.rect(0, 0, 595, 92).fill('#0f5b6b');
     doc
@@ -659,7 +721,7 @@ export class ContabilidadService {
       ['Transferencias', this.money(close.transfer)],
       ['Tarjeta', this.money(close.card)],
       ['Otros ingresos', this.money(close.otherIncome)],
-      ['Gastos', this.money(close.expenses)],
+      ['Gastos del d�a', this.money(close.expenses)],
       ['Total ingresos', this.money(close.totalIncome)],
       ['Total neto', this.money(close.netTotal)],
       ['Efectivo entregado', this.money(close.cashDelivered)],
@@ -667,11 +729,46 @@ export class ContabilidadService {
     ];
     for (const [label, value] of totalRows) line(label, value);
 
+    // Expense details breakdown
+    const expenseDetails = close.expenseDetails as Array<{ concept: string; amount: number }> | null;
+    if (expenseDetails && expenseDetails.length > 0) {
+      section('Detalle de gastos');
+      const colX = [42, 370];
+      doc.font('Helvetica-Bold');
+      doc.text('Concepto', colX[0], doc.y, { continued: true });
+      doc.text('  ');
+      doc.font('Helvetica-Bold').text('Monto', colX[1], doc.y - doc.currentLineHeight());
+      doc.moveDown(0.3);
+      doc
+        .moveTo(42, doc.y)
+        .lineTo(553, doc.y)
+        .strokeColor('#d1d5db')
+        .stroke();
+      doc.moveDown(0.3);
+      for (const row of expenseDetails) {
+        const rowY = doc.y;
+        doc.font('Helvetica').text(row.concept, colX[0], rowY, { width: 310 });
+        doc.font('Helvetica').text(this.money(row.amount), colX[1], rowY, { width: 160 });
+        doc.moveDown(0.15);
+      }
+      doc.moveDown(0.3);
+      doc
+        .moveTo(42, doc.y)
+        .lineTo(553, doc.y)
+        .strokeColor('#d1d5db')
+        .stroke();
+      doc.moveDown(0.3);
+      const totalY = doc.y;
+      doc.font('Helvetica-Bold').text('Total gastos', colX[0], totalY, { width: 310 });
+      doc.font('Helvetica-Bold').text(this.money(close.expenses), colX[1], totalY, { width: 160 });
+      doc.moveDown(0.5);
+    }
+
     section('Transferencias');
     if (close.transfers.length === 0) {
       doc.font('Helvetica').text('Sin transferencias declaradas.');
     } else {
-      close.transfers.forEach((transfer, index) => {
+      for (const [index, transfer] of close.transfers.entries()) {
         doc
           .font('Helvetica-Bold')
           .text(
@@ -680,15 +777,28 @@ export class ContabilidadService {
         if (transfer.referenceNumber)
           doc.font('Helvetica').text(`Referencia: ${transfer.referenceNumber}`);
         if (transfer.note) doc.font('Helvetica').text(`Nota: ${transfer.note}`);
-        transfer.vouchers.forEach((voucher) => {
+        for (const [vi, voucher] of transfer.vouchers.entries()) {
           doc
             .font('Helvetica')
             .fillColor('#0f5b6b')
-            .text(`Voucher: ${voucher.fileName} - ${voucher.fileUrl}`);
+            .text(`Voucher ${vi + 1}: ${voucher.fileName}`);
           doc.fillColor('#0f172a');
-        });
+          await embedImage(voucher.storageKey, voucher.mimeType);
+        }
         doc.moveDown(0.4);
-      });
+      }
+    }
+
+    // POS closing voucher (boucher del punto de ventas)
+    if (close.evidenceUrl && close.evidenceFileName) {
+      section('Boucher del cierre POS');
+      doc.font('Helvetica').text(`Archivo: ${close.evidenceFileName}`);
+      if (close.evidenceStorageKey && close.evidenceMimeType) {
+        await embedImage(close.evidenceStorageKey, close.evidenceMimeType);
+      } else {
+        doc.font('Helvetica').fillColor('#0f5b6b').text(close.evidenceUrl);
+        doc.fillColor('#0f172a');
+      }
     }
 
     section('Auditoria');
@@ -714,7 +824,6 @@ export class ContabilidadService {
       fileName: `cierre_diario_${close.type}_${close.date.toISOString().slice(0, 10)}_${close.id.slice(0, 8)}.pdf`,
     };
   }
-
   private buildCloseAdminMessage(
     close: Awaited<ReturnType<ContabilidadService['findCloseOrThrow']>>,
     pdfUrl: string,
@@ -811,9 +920,12 @@ export class ContabilidadService {
       (appConfig?.openAiModel ?? '').trim() ||
       'gpt-4o-mini';
 
-    const evidenceUrls = close.transfers.flatMap((transfer) =>
-      transfer.vouchers.map((voucher) => voucher.fileUrl),
-    );
+    const evidenceUrls = [
+      ...(close.evidenceUrl ? [close.evidenceUrl] : []),
+      ...close.transfers.flatMap((transfer) =>
+        transfer.vouchers.map((voucher) => voucher.fileUrl),
+      ),
+    ];
     const context = {
       close,
       previousClosings: previous.map((item) => ({

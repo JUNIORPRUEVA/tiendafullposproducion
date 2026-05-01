@@ -64,6 +64,9 @@ class CloseModel {
   final String? notes;
   final String? evidenceUrl;
   final String? evidenceFileName;
+  final String? evidenceStorageKey;
+  final String? evidenceMimeType;
+  final List<Map<String, dynamic>> expenseDetails;
   final String? pdfUrl;
   final String? pdfFileName;
   final String? notificationStatus;
@@ -100,6 +103,9 @@ class CloseModel {
     this.notes,
     this.evidenceUrl,
     this.evidenceFileName,
+    this.evidenceStorageKey,
+    this.evidenceMimeType,
+    this.expenseDetails = const [],
     this.pdfUrl,
     this.pdfFileName,
     this.notificationStatus,
@@ -138,8 +144,14 @@ class CloseModel {
       persistedNetTotal: (json['netTotal'] as num?)?.toDouble(),
       persistedDifference: (json['difference'] as num?)?.toDouble(),
       notes: json['notes'] as String?,
-      evidenceUrl: json['evidenceUrl'] as String?,
-      evidenceFileName: json['evidenceFileName'] as String?,
+        evidenceUrl: json['evidenceUrl'] as String?,
+        evidenceFileName: json['evidenceFileName'] as String?,
+        evidenceStorageKey: json['evidenceStorageKey'] as String?,
+        evidenceMimeType: json['evidenceMimeType'] as String?,
+        expenseDetails: (json['expenseDetails'] as List? ?? const [])
+          .whereType<Map>()
+          .map((e) => e.cast<String, dynamic>())
+          .toList(),
       pdfUrl: json['pdfUrl'] as String?,
       pdfFileName: json['pdfFileName'] as String?,
       notificationStatus: json['notificationStatus'] as String?,
