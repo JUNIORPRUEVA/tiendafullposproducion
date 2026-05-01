@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import '../../core/auth/auth_provider.dart';
 import '../../core/models/close_model.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/safe_url_launcher.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
 import 'application/cierres_diarios_controller.dart';
@@ -1182,9 +1183,55 @@ class _CloseDetailFullScreenPageState
     extends ConsumerState<_CloseDetailFullScreenPage> {
   bool _runningAi = false;
   String _aiStep = '';
+  bool _autoAiRequested = false;
 
   String _money(double value) =>
       NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$ ').format(value);
+
+  List<String> _asStringList(dynamic value) {
+    if (value is List) {
+      return value
+          .map((e) => e?.toString().trim() ?? '')
+          .where((e) => e.isNotEmpty)
+          .toList();
+    }
+    final asText = value?.toString().trim() ?? '';
+    return asText.isEmpty ? const [] : [asText];
+  }
+
+  void _ensureAiGeneratedOnOpen(CloseModel close) {
+    if (_autoAiRequested) return;
+    _autoAiRequested = true;
+    final summary = (close.aiReportSummary ?? '').trim();
+    final missing = summary.isEmpty || close.aiGeneratedAt == null;
+    final stale = close.aiGeneratedAt != null &&
+        close.aiGeneratedAt!.isBefore(close.updatedAt);
+    if (!missing && !stale) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _runAiReport(close);
+    });
+  }
+
+  Future<void> _openPdf(CloseModel close) async {
+    final url = (close.pdfUrl ?? '').trim();
+    if (url.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Este cierre aún no tiene PDF disponible. Verifica si el backend pudo generarlo.',
+          ),
+        ),
+      );
+      return;
+    }
+    await safeOpenUrl(
+      context,
+      Uri.parse(url),
+      copiedMessage: 'No se pudo abrir el PDF. Enlace copiado.',
+    );
+  }
 
   Future<void> _runAiReport(CloseModel close) async {
     if (_runningAi) return;
@@ -1279,6 +1326,7 @@ class _CloseDetailFullScreenPageState
       );
     }
     final currentClose = close;
+    _ensureAiGeneratedOnOpen(currentClose);
 
     final statusLabel = switch (currentClose.status) {
       'approved' => 'Aprobado',
@@ -1346,6 +1394,81 @@ class _CloseDetailFullScreenPageState
               ),
             ],
           ),
+          const SizedBox(height: 14),
+          Text(
+            'Movimientos del registro',
+            style: Theme.of(context)
+                .textTheme
+                .titleMedium
+                ?.copyWith(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 8),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.add_task_outlined),
+            title: const Text('Creación del cierre'),
+            subtitle: Text(
+              '${DateFormat('dd/MM/yyyy h:mm a', 'es_DO').format(currentClose.createdAt)} · ${currentClose.createdByName ?? currentClose.createdById ?? 'N/D'}',
+            ),
+          ),
+          if (currentClose.aiGeneratedAt != null)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.auto_awesome_outlined),
+              title: const Text('Informe IA generado'),
+              subtitle: Text(
+                DateFormat('dd/MM/yyyy h:mm a', 'es_DO')
+                    .format(currentClose.aiGeneratedAt!),
+              ),
+            ),
+          if (currentClose.reviewedAt != null)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.verified_outlined),
+              title: Text('Revisión: $statusLabel'),
+              subtitle: Text(
+                '${DateFormat('dd/MM/yyyy h:mm a', 'es_DO').format(currentClose.reviewedAt!)} · ${currentClose.reviewedByName ?? currentClose.reviewedById ?? 'N/D'}',
+              ),
+            ),
+          if ((currentClose.notificationStatus ?? '').trim().isNotEmpty)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.notifications_active_outlined),
+              title: const Text('Envío de notificación a administradores'),
+              subtitle: Text(
+                'Estado: ${currentClose.notificationStatus} ${((currentClose.notificationError ?? '').trim().isNotEmpty) ? '· ${currentClose.notificationError}' : ''}',
+              ),
+            ),
+          const SizedBox(height: 12),
+          Text(
+            'PDF del cierre enviado a administración',
+            style: Theme.of(context)
+                .textTheme
+                .titleMedium
+                ?.copyWith(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 8),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.picture_as_pdf_outlined),
+            title: Text(
+              (currentClose.pdfFileName ?? '').trim().isNotEmpty
+                  ? currentClose.pdfFileName!
+                  : 'PDF de cierre',
+            ),
+            subtitle: Text(
+              (currentClose.pdfUrl ?? '').trim().isNotEmpty
+                  ? currentClose.pdfUrl!
+                  : 'Aún no disponible',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            trailing: FilledButton.icon(
+              onPressed: () => _openPdf(currentClose),
+              icon: const Icon(Icons.open_in_new),
+              label: const Text('Ver PDF'),
+            ),
+          ),
           if (currentClose.expenseDetails.isNotEmpty) ...[
             const SizedBox(height: 18),
             Text(
@@ -1400,29 +1523,76 @@ class _CloseDetailFullScreenPageState
                       transfer.note!.trim(),
                   ].join(' · '),
                 ),
-                children: transfer.vouchers
-                    .map(
-                      (voucher) => ListTile(
-                        contentPadding: const EdgeInsets.only(left: 4, right: 4),
-                        leading: Icon(
-                          voucher.mimeType.startsWith('image/')
-                              ? Icons.image_outlined
-                              : Icons.picture_as_pdf_outlined,
-                        ),
-                        title: Text(
-                          voucher.fileName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        subtitle: Text(voucher.mimeType),
-                        trailing: OutlinedButton(
-                          onPressed: () =>
-                              _showVoucherPreviewDialog(context, voucher),
-                          child: const Text('Expandir'),
-                        ),
+                children: [
+                  ...transfer.vouchers.map(
+                    (voucher) => ListTile(
+                      contentPadding: const EdgeInsets.only(left: 4, right: 4),
+                      leading: Icon(
+                        voucher.mimeType.startsWith('image/')
+                            ? Icons.image_outlined
+                            : Icons.picture_as_pdf_outlined,
                       ),
-                    )
-                    .toList(),
+                      title: Text(
+                        voucher.fileName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      subtitle: Text(voucher.mimeType),
+                      trailing: OutlinedButton(
+                        onPressed: () =>
+                            _showVoucherPreviewDialog(context, voucher),
+                        child: const Text('Expandir'),
+                      ),
+                    ),
+                  ),
+                  if (transfer.vouchers.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(0, 0, 0, 10),
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: transfer.vouchers
+                            .where((v) => v.mimeType.startsWith('image/'))
+                            .map(
+                              (voucher) => InkWell(
+                                onTap: () =>
+                                    _showVoucherPreviewDialog(context, voucher),
+                                borderRadius: BorderRadius.circular(10),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(10),
+                                  child: SizedBox(
+                                    width: 84,
+                                    height: 84,
+                                    child: Image.network(
+                                      voucher.fileUrl,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) =>
+                                          Container(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .surfaceContainerHighest,
+                                        alignment: Alignment.center,
+                                        child: const Icon(
+                                          Icons.broken_image_outlined,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            )
+                            .toList(),
+                      ),
+                    ),
+                  if (transfer.vouchers.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 10),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text('Sin vouchers en esta transferencia.'),
+                      ),
+                    ),
+                ],
               );
             }),
             if (currentClose.evidenceUrl != null &&
@@ -1477,7 +1647,7 @@ class _CloseDetailFullScreenPageState
                 child: FilledButton.icon(
                   onPressed: _runningAi ? null : () => _runAiReport(currentClose),
                   icon: const Icon(Icons.auto_awesome_outlined),
-                  label: const Text('Generar reporte IA'),
+                  label: const Text('Regenerar reporte IA'),
                 ),
               ),
             ],
@@ -1516,11 +1686,103 @@ class _CloseDetailFullScreenPageState
             Text(currentClose.aiReportSummary!.trim()),
             if ((currentClose.aiReportJson ?? const {}).isNotEmpty) ...[
               const SizedBox(height: 10),
-              Text(
-                const JsonEncoder.withIndent('  ').convert(currentClose.aiReportJson),
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  fontFamily: 'monospace',
-                ),
+              Builder(
+                builder: (context) {
+                  final report = currentClose.aiReportJson ?? const {};
+                  final detectedIssues = _asStringList(
+                    report['detectedIssues'] ?? report['detected_issues'],
+                  );
+                  final suggestedActions = _asStringList(
+                    report['suggestedAdminActions'] ??
+                        report['suggested_admin_actions'],
+                  );
+                  final fraudSignals = _asStringList(
+                    report['fraudSignals'] ?? report['fraud_signals'],
+                  );
+                  final auditorNotes = _asStringList(
+                    report['auditorNotes'] ?? report['auditor_notes'],
+                  );
+                  final evidenceReviewed = _asStringList(
+                    report['evidenceReviewed'] ?? report['evidence_reviewed'],
+                  );
+                  final financialBreakdown =
+                      report['financialBreakdown'] as Map<String, dynamic>?;
+
+                  Widget sectionTitle(String title) => Padding(
+                        padding: const EdgeInsets.only(top: 8, bottom: 6),
+                        child: Text(
+                          title,
+                          style: const TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                      );
+
+                  Widget bulletList(List<String> rows, {String empty = 'N/D'}) {
+                    if (rows.isEmpty) return Text(empty);
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: rows
+                          .map(
+                            (row) => Padding(
+                              padding: const EdgeInsets.only(bottom: 4),
+                              child: Text('• $row'),
+                            ),
+                          )
+                          .toList(),
+                    );
+                  }
+
+                  return Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: Theme.of(context).colorScheme.outlineVariant,
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        sectionTitle('Evaluación financiera'),
+                        if (financialBreakdown != null) ...[
+                          Text(
+                            'Diferencia: ${financialBreakdown['difference'] ?? currentClose.difference} · Gastos: ${financialBreakdown['expenses'] ?? currentClose.expenses}',
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Análisis: ${financialBreakdown['reasoning'] ?? 'Sin razonamiento explícito.'}',
+                          ),
+                        ] else
+                          Text(
+                            'Diferencia actual: ${currentClose.difference} · Gastos declarados: ${currentClose.expenses}',
+                          ),
+                        sectionTitle('Problemas detectados'),
+                        bulletList(detectedIssues, empty: 'Sin alertas críticas.'),
+                        sectionTitle('Posibles señales de fraude'),
+                        bulletList(fraudSignals, empty: 'No se detectaron señales claras.'),
+                        sectionTitle('Acciones sugeridas'),
+                        bulletList(suggestedActions, empty: 'Sin acciones sugeridas.'),
+                        sectionTitle('Notas del auditor IA'),
+                        bulletList(auditorNotes, empty: 'Sin notas adicionales.'),
+                        sectionTitle('Evidencias revisadas'),
+                        bulletList(evidenceReviewed, empty: 'No se registraron evidencias en el análisis.'),
+                      ],
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 10),
+              ExpansionTile(
+                tilePadding: EdgeInsets.zero,
+                title: const Text('Ver JSON técnico completo'),
+                children: [
+                  SelectableText(
+                    const JsonEncoder.withIndent('  ').convert(currentClose.aiReportJson),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ],
               ),
             ],
           ],

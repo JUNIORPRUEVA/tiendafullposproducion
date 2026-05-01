@@ -1012,11 +1012,51 @@ export class ContabilidadService {
       report = raw ? JSON.parse(raw) : {};
     }
 
+    const differenceValue = Number(close.difference ?? 0);
+    const expensesValue = Number(close.expenses ?? 0);
+    const incomeValue = Number(close.totalIncome ?? 0);
+    const absDifference = Math.abs(differenceValue);
+    const likelyExplainedByExpenses = absDifference > 0 && expensesValue > 0;
+    const currentFinancialBreakdown =
+      (report.financialBreakdown as Record<string, unknown> | undefined) ?? {};
+    report.financialBreakdown = {
+      difference: differenceValue,
+      expenses: expensesValue,
+      totalIncome: incomeValue,
+      isDifferenceReasonable:
+        currentFinancialBreakdown.isDifferenceReasonable ??
+        (likelyExplainedByExpenses ? 'possibly' : absDifference === 0),
+      reasoning:
+        currentFinancialBreakdown.reasoning ??
+        (likelyExplainedByExpenses
+          ? 'La diferencia puede estar relacionada con gastos registrados. Validar que cada gasto tenga soporte y corresponda a la operación del día.'
+          : absDifference === 0
+            ? 'No hay diferencia entre efectivo declarado y efectivo entregado.'
+            : 'Se detecta diferencia sin gasto suficiente que la justifique. Requiere validación manual de caja y soportes.'),
+    };
+    if (!Array.isArray(report.detectedIssues)) {
+      report.detectedIssues = [];
+    }
+    if (absDifference > 0) {
+      (report.detectedIssues as string[]).push(
+        `Diferencia reportada en caja: ${differenceValue.toFixed(2)} DOP.`,
+      );
+    }
+    if (!Array.isArray(report.suggestedAdminActions)) {
+      report.suggestedAdminActions = [];
+    }
+    (report.suggestedAdminActions as string[]).push(
+      'Cruzar diferencia con detalle de gastos y comprobantes del día.',
+      'Verificar entradas de dinero y transferencias declaradas contra evidencias.',
+    );
+
     const riskLevel = String(
       report.riskLevel ?? report.ai_risk_level ?? 'medium',
     ).toLowerCase();
     const summary = String(
-      report.summary ?? report.ai_report_summary ?? 'Informe IA generado.',
+      report.summary ??
+        report.ai_report_summary ??
+        `Resumen IA: ingresos ${incomeValue.toFixed(2)} DOP, gastos ${expensesValue.toFixed(2)} DOP y diferencia ${differenceValue.toFixed(2)} DOP. ${likelyExplainedByExpenses ? 'Existe gasto que podría explicar parte de la diferencia, revisar soportes.' : 'No hay gasto suficiente para justificar la diferencia, revisar caja y evidencias.'}`,
     );
     return this.prisma.close.update({
       where: { id: close.id },
