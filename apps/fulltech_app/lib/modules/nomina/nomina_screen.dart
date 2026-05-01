@@ -5297,6 +5297,10 @@ class _HistoryInlineDetail extends StatelessWidget {
         0, (s, r) => s + r.totals.deductions);
     final totalNeto =
         filteredRows.fold<double>(0, (s, r) => s + r.totals.total);
+    final allRows = rows ?? const <_PayrollPeriodRow>[];
+    final paidCount =
+        allRows.where((row) => row.paymentStatus.isPaid).length;
+    final allPaid = allRows.isNotEmpty && paidCount == allRows.length;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -5333,6 +5337,20 @@ class _HistoryInlineDetail extends StatelessWidget {
                       ],
                     ),
                   ),
+                  if (allPaid) ...[
+                    const SizedBox(width: 10),
+                    const _PayrollPaidBadge(
+                      label: 'Nomina de quincena pagada',
+                      dense: true,
+                    ),
+                  ] else if (paidCount > 0) ...[
+                    const SizedBox(width: 10),
+                    _PayrollPaidBadge(
+                      label: '$paidCount/${allRows.length} pagadas',
+                      dense: true,
+                    ),
+                  ],
+                  const SizedBox(width: 10),
                   OutlinedButton.icon(
                     onPressed: onExportPdf,
                     icon: const Icon(Icons.picture_as_pdf_outlined, size: 14),
@@ -5386,6 +5404,12 @@ class _HistoryInlineDetail extends StatelessWidget {
                         label: 'Deducciones',
                         value: money.format(totalDeductions),
                         danger: true,
+                      ),
+                      const SizedBox(width: 6),
+                      _HistoryStatChip(
+                        label: 'Pagadas',
+                        value: '$paidCount/${allRows.length}',
+                        primary: allPaid,
                       ),
                     ],
                   ),
@@ -5675,6 +5699,8 @@ class _PayrollPeriodDetailsScreenState
       0,
       (sum, row) => sum + row.totals.total,
     );
+    final paidCount = _rows.where((row) => row.paymentStatus.isPaid).length;
+    final allPaid = _rows.isNotEmpty && paidCount == _rows.length;
     final range =
         '${DateFormat('dd/MM/yyyy').format(widget.period.startDate)} - ${DateFormat('dd/MM/yyyy').format(widget.period.endDate)}';
 
@@ -5769,6 +5795,17 @@ class _PayrollPeriodDetailsScreenState
                       ),
                     ],
                   ),
+                  if (allPaid) ...[
+                    const SizedBox(height: 10),
+                    const _PayrollPaidBadge(
+                      label: 'Nomina de quincena pagada',
+                    ),
+                  ] else if (paidCount > 0) ...[
+                    const SizedBox(height: 10),
+                    _PayrollPaidBadge(
+                      label: '$paidCount/${_rows.length} nominas pagadas',
+                    ),
+                  ],
                   const SizedBox(height: 10),
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
@@ -5793,6 +5830,10 @@ class _PayrollPeriodDetailsScreenState
                         _PayrollInlineMetric(
                           label: 'Neto visible',
                           value: widget.money.format(totalVisible),
+                        ),
+                        _PayrollInlineMetric(
+                          label: 'Pagadas',
+                          value: '$paidCount/${_rows.length}',
                         ),
                       ],
                     ),
@@ -6146,6 +6187,61 @@ class _PayrollAmountBadge extends StatelessWidget {
             style: theme.textTheme.labelLarge?.copyWith(
               color: fg,
               fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PayrollPaidBadge extends StatelessWidget {
+  const _PayrollPaidBadge({
+    required this.label,
+    this.dense = false,
+  });
+
+  final String label;
+  final bool dense;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final bg = Color.alphaBlend(
+      scheme.primary.withValues(alpha: 0.10),
+      scheme.surface,
+    );
+
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: dense ? 8 : 11,
+        vertical: dense ? 5 : 7,
+      ),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: scheme.primary.withValues(alpha: 0.28)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.verified_rounded,
+            size: dense ? 14 : 16,
+            color: scheme.primary,
+          ),
+          const SizedBox(width: 5),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: scheme.primary,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0,
+              ),
             ),
           ),
         ],
@@ -6514,6 +6610,13 @@ class _PayrollPeriodEmployeeCardState
                     ),
                   ),
                   const SizedBox(width: 8),
+                  if (isPaid) ...[
+                    const _PayrollPaidBadge(
+                      label: 'Pagada',
+                      dense: true,
+                    ),
+                    const SizedBox(width: 8),
+                  ],
                   // Neto badge
                   Container(
                     padding: const EdgeInsets.symmetric(
@@ -6697,7 +6800,7 @@ class _PayrollPeriodEmployeeCardState
                           children: [
                             Expanded(
                               child: Text(
-                                'NETO A PAGAR',
+                                isPaid ? 'TOTAL PAGADO' : 'NETO A PAGAR',
                                 style: theme.textTheme.labelSmall?.copyWith(
                                   fontWeight: FontWeight.w800,
                                   letterSpacing: 0.5,
