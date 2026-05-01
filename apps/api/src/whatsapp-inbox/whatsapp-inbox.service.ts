@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsappMessageDirection, WhatsappMessageType } from '@prisma/client';
 import { CatalogRealtimeRelayService } from '../products/catalog-realtime-relay.service';
+import { WhatsappService } from '../whatsapp/whatsapp.service';
 
 export interface ParsedWhatsappMessage {
   evolutionId: string;
@@ -102,12 +103,29 @@ function mediaUrlFromPayload(
   );
 }
 
+function collectEvolutionMessageRecords(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  const record = asRecord(value);
+  if (!record) return [];
+  for (const key of ['messages', 'records', 'data', 'items', 'rows']) {
+    const nested = record[key];
+    if (Array.isArray(nested)) return nested;
+    const nestedRecord = asRecord(nested);
+    if (nestedRecord) {
+      const nestedMessages = collectEvolutionMessageRecords(nestedRecord);
+      if (nestedMessages.length > 0) return nestedMessages;
+    }
+  }
+  return [];
+}
+
 @Injectable()
 export class WhatsappInboxService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtime: CatalogRealtimeRelayService,
     private readonly config: ConfigService,
+    private readonly whatsappService: WhatsappService,
   ) {}
 
   private normalizeConversationForResponse<T extends { remoteJid: string; remotePhone: string | null; remoteName: string | null }>(
@@ -459,6 +477,16 @@ export class WhatsappInboxService {
   // ─── Query messages for a conversation ───────────────────────────────
 
   async getMessages(conversationId: string, limit = 50, before?: Date) {
+    if (!before) {
+      await this.syncConversationFromEvolution(conversationId).catch((error) => {
+        console.warn(
+          `[WhatsappInbox] No se pudo sincronizar conversacion ${conversationId}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      });
+    }
+
     const messages = await this.prisma.whatsappMessage.findMany({
       where: {
         conversationId,
@@ -468,6 +496,31 @@ export class WhatsappInboxService {
       take: limit,
     });
     return messages.map((message) => this.hydrateMessageMedia(message));
+  }
+
+  async syncConversationFromEvolution(conversationId: string) {
+    const conversation = await this.prisma.whatsappConversation.findUnique({
+      where: { id: conversationId },
+      include: { instance: true },
+    });
+    if (!conversation) return { synced: 0 };
+
+    const raw = await this.whatsappService.findChatMessages(
+      conversation.instance.instanceName,
+      conversation.remoteJid,
+    );
+    const records = collectEvolutionMessageRecords(raw);
+    let synced = 0;
+
+    for (const record of records) {
+      const parsed = this.parseEvolutionPayload({ data: record });
+      if (!parsed) continue;
+      if (parsed.remoteJid !== conversation.remoteJid) continue;
+      const result = await this.saveMessage(conversation.instanceId, parsed);
+      if (!result.duplicate) synced++;
+    }
+
+    return { synced };
   }
 
   // ─── Mark conversation as read ────────────────────────────────────────

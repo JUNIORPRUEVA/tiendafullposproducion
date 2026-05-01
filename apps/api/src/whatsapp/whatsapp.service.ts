@@ -940,4 +940,20 @@ export class WhatsappService {
       }),
     });
   }
+
+  async findChatMessages(instanceName: string, remoteJid: string): Promise<unknown> {
+    return this.fetchEvolution(`/chat/findMessages/${encodeURIComponent(instanceName)}`, {
+      method: 'POST',
+      body: JSON.stringify({
+        where: {
+          key: { remoteJid },
+        },
+        take: 80,
+        limit: 80,
+        orderBy: {
+          messageTimestamp: 'desc',
+        },
+      }),
+    });
+  }
 }
