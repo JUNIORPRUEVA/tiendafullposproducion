@@ -213,6 +213,22 @@ function collectEvolutionMessageRecords(value: unknown): unknown[] {
   return [];
 }
 
+function payloadKeyRemoteJid(value: unknown): string | null {
+  const root = asRecord(value);
+  const data = asRecord(root?.data) ?? asRecord(root?.message) ?? root;
+  const message = asRecord(data?.message) ?? asRecord(data?.messageData) ?? asRecord(data?.messageContent);
+  const key = asRecord(data?.key) ?? asRecord(message?.key) ?? asRecord(root?.key);
+  return asString(key?.remoteJid) ?? null;
+}
+
+function payloadPreviousRemoteJid(value: unknown): string | null {
+  const root = asRecord(value);
+  const data = asRecord(root?.data) ?? asRecord(root?.message) ?? root;
+  const message = asRecord(data?.message) ?? asRecord(data?.messageData) ?? asRecord(data?.messageContent);
+  const key = asRecord(data?.key) ?? asRecord(message?.key) ?? asRecord(root?.key);
+  return asString(key?.previousRemoteJid) ?? null;
+}
+
 export type ResolvedWhatsappConversationIdentity = {
   customerJid: string;
   customerPhone: string | null;
@@ -736,11 +752,20 @@ export class WhatsappInboxService {
       : WhatsappMessageDirection.INCOMING;
 
     const normalizedIdentity = normalizeWhatsappIdentity(parsed.remoteJid);
-    const normalizedJid = normalizedIdentity.normalizedJid ?? parsed.remoteJid;
-    const remotePhone =
+    let normalizedJid = normalizedIdentity.normalizedJid ?? parsed.remoteJid;
+    let remotePhone =
       parsed.remotePhone ??
       normalizedIdentity.normalizedPhone ??
       phoneFromIdentifier(parsed.remoteJid);
+    const aliasPhone = await this.resolveKnownCustomerPhoneAlias(
+      instanceId,
+      parsed.rawPayload,
+      remotePhone,
+    );
+    if (aliasPhone) {
+      remotePhone = aliasPhone;
+      normalizedJid = `${aliasPhone}@s.whatsapp.net`;
+    }
     const remoteName =
       direction === WhatsappMessageDirection.INCOMING
         ? readableSenderName(parsed.senderName, remotePhone)
@@ -780,6 +805,12 @@ export class WhatsappInboxService {
             unreadCount: direction === WhatsappMessageDirection.INCOMING ? 1 : 0,
           },
         });
+    await this.mergePreviousRemoteJidConversation(
+      instanceId,
+      conversation.id,
+      parsed.rawPayload,
+      remotePhone,
+    );
 
     // Skip duplicate Evolution IDs
     if (parsed.evolutionId) {
@@ -995,6 +1026,75 @@ export class WhatsappInboxService {
     }
 
     return { synced };
+  }
+
+  private async resolveKnownCustomerPhoneAlias(
+    instanceId: string,
+    rawPayload: unknown,
+    currentPhone: string | null,
+  ): Promise<string | null> {
+    const remoteJid = payloadKeyRemoteJid(rawPayload);
+    if (!remoteJid?.toLowerCase().endsWith('@lid')) return null;
+
+    const rows = await this.prisma.$queryRaw<
+      Array<{ remote_phone: string | null }>
+    >`
+      SELECT c.remote_phone
+      FROM whatsapp_messages m
+      JOIN whatsapp_conversations c ON c.id = m.conversation_id
+      WHERE c.instance_id = ${instanceId}::uuid
+        AND c.remote_phone IS NOT NULL
+        AND (
+          m.raw_payload #>> '{data,key,previousRemoteJid}' = ${remoteJid}
+          OR m.raw_payload #>> '{data,key,remoteJid}' = ${remoteJid}
+        )
+        AND c.remote_phone <> ${currentPhone ?? ''}
+      ORDER BY m.sent_at DESC
+      LIMIT 1
+    `;
+
+    const alias = normalizeWhatsappPhone(rows[0]?.remote_phone);
+    return alias && alias !== currentPhone ? alias : null;
+  }
+
+  private async mergePreviousRemoteJidConversation(
+    instanceId: string,
+    keepConversationId: string,
+    rawPayload: unknown,
+    remotePhone: string | null,
+  ) {
+    const previousRemoteJid = payloadPreviousRemoteJid(rawPayload);
+    const previousPhone = normalizeWhatsappPhone(previousRemoteJid);
+    if (!previousRemoteJid?.toLowerCase().endsWith('@lid') || !previousPhone) {
+      return;
+    }
+    if (remotePhone && previousPhone === remotePhone) return;
+
+    const duplicate = await this.prisma.whatsappConversation.findFirst({
+      where: {
+        instanceId,
+        remotePhone: previousPhone,
+        id: { not: keepConversationId },
+      },
+      select: { id: true },
+    });
+    if (!duplicate) return;
+
+    await this.prisma.whatsappMessage.updateMany({
+      where: { conversationId: duplicate.id },
+      data: { conversationId: keepConversationId },
+    });
+    await this.prisma.whatsappConversation.delete({
+      where: { id: duplicate.id },
+    });
+    console.log('[WA-INBOX][MERGED_ALIAS]', {
+      instanceId,
+      previousRemoteJid,
+      previousPhone,
+      remotePhone,
+      keepConversationId,
+      duplicateConversationId: duplicate.id,
+    });
   }
 
   async getMessages(conversationId: string, limit = 50, before?: Date) {

@@ -27,10 +27,32 @@ function rawKeyRemotePhone(rawPayload: unknown): string | null {
   return normalizeWhatsappPhone(key?.remoteJid);
 }
 
-function groupingPhone(conv: ConversationWithMeta): string | null {
+function rawPreviousRemoteJid(rawPayload: unknown): string | null {
+  const root = asRecord(rawPayload);
+  const data = asRecord(root?.data) ?? asRecord(root?.message) ?? root;
+  const message = asRecord(data?.message) ?? asRecord(data?.messageData) ?? asRecord(data?.messageContent);
+  const key = asRecord(data?.key) ?? asRecord(message?.key) ?? asRecord(root?.key);
+  return typeof key?.previousRemoteJid === 'string' ? key.previousRemoteJid : null;
+}
+
+function rawSenderPhone(rawPayload: unknown): string | null {
+  const root = asRecord(rawPayload);
+  const data = asRecord(root?.data) ?? asRecord(root?.message) ?? root;
+  const message = asRecord(data?.message) ?? asRecord(data?.messageData) ?? asRecord(data?.messageContent);
+  const key = asRecord(data?.key) ?? asRecord(message?.key) ?? asRecord(root?.key);
+  return normalizeWhatsappPhone(key?.senderPn);
+}
+
+function groupingPhone(
+  conv: ConversationWithMeta,
+  aliasByLid: Map<string, string>,
+): string | null {
   const directPhone =
     normalizeWhatsappPhone(conv.remotePhone) ??
     normalizeWhatsappPhone(conv.remoteJid);
+  const local = conv.remoteJid.split('@')[0] ?? '';
+  const alias = aliasByLid.get(`${local}@lid`);
+  if (alias) return alias;
   const instancePhone = normalizeWhatsappPhone(conv.instance.phoneNumber);
   const suspiciousMe =
     (conv.remoteName ?? '').trim().toLowerCase() === 'me' ||
@@ -87,9 +109,20 @@ async function main() {
       orderBy: { createdAt: 'asc' },
     })) as ConversationWithMeta[];
 
+    const aliasByLid = new Map<string, string>();
+    for (const conv of conversations) {
+      for (const message of conv.messages) {
+        const previous = rawPreviousRemoteJid(message.rawPayload);
+        const sender = rawSenderPhone(message.rawPayload);
+        if (previous?.toLowerCase().endsWith('@lid') && sender) {
+          aliasByLid.set(previous, sender);
+        }
+      }
+    }
+
     const groups = new Map<string, ConversationWithMeta[]>();
     for (const conv of conversations) {
-      const phone = groupingPhone(conv);
+      const phone = groupingPhone(conv, aliasByLid);
       if (!phone) continue;
       const key = `${conv.instanceId}:${phone}`;
       groups.set(key, [...(groups.get(key) ?? []), conv]);
