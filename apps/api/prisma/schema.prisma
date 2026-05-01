@@ -78,6 +78,11 @@ enum PayrollServiceCommissionStatus {
   CANCELED
 }
 
+enum PayrollPaymentStatus {
+  DRAFT
+  PAID
+}
+
 enum CompanyManualEntryKind {
   GENERAL_RULE
   ROLE_RULE
@@ -394,6 +399,7 @@ model User {
   payrollPeriods PayrollPeriod[]
   payrollEmployeeConfigs PayrollEmployeeConfig[]
   payrollEntries PayrollEntry[]
+  payrollEmployeePeriodStatuses PayrollEmployeePeriodStatus[]
   payrollServiceCommissionRequestsOwned PayrollServiceCommissionRequest[] @relation("PayrollServiceCommissionOwner")
   payrollServiceCommissionRequests PayrollServiceCommissionRequest[] @relation("PayrollServiceCommissionTechnicianUser")
   payrollServiceCommissionRequestsCreated PayrollServiceCommissionRequest[] @relation("PayrollServiceCommissionCreatedByUser")
@@ -998,6 +1004,7 @@ model PayrollEmployee {
   user User? @relation("PayrollEmployeeUser", fields: [userId], references: [id], onDelete: SetNull)
   configs PayrollEmployeeConfig[]
   entries PayrollEntry[]
+  periodStatuses PayrollEmployeePeriodStatus[]
   serviceCommissionRequests PayrollServiceCommissionRequest[]
 
   @@index([ownerId])
@@ -1018,6 +1025,7 @@ model PayrollPeriod {
   owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   configs PayrollEmployeeConfig[]
   entries PayrollEntry[]
+  employeeStatuses PayrollEmployeePeriodStatus[]
   serviceCommissionRequests PayrollServiceCommissionRequest[]
 
   @@index([ownerId])
@@ -1068,6 +1076,27 @@ model PayrollEntry {
   @@index([periodId, employeeId])
   @@index([pagoCombustibleTecnicoId])
   @@index([date])
+}
+
+model PayrollEmployeePeriodStatus {
+  id         String               @id @default(uuid()) @db.Uuid
+  ownerId    String               @db.Uuid
+  periodId   String               @db.Uuid
+  employeeId String               @db.Uuid
+  status     PayrollPaymentStatus @default(DRAFT)
+  paidAt     DateTime?
+  paidById   String?              @db.Uuid
+  createdAt  DateTime             @default(now())
+  updatedAt  DateTime             @updatedAt
+
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  period PayrollPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  employee PayrollEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([ownerId, periodId, employeeId])
+  @@index([ownerId])
+  @@index([periodId, employeeId])
+  @@index([status])
 }
 
 model PayrollServiceCommissionRequest {

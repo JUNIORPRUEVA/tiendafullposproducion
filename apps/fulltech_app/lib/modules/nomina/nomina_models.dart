@@ -443,6 +443,50 @@ class PayrollTotals {
   });
 }
 
+class PayrollPaymentRecord {
+  final String id;
+  final String periodId;
+  final String employeeId;
+  final String status;
+  final DateTime? paidAt;
+  final String? paidById;
+
+  const PayrollPaymentRecord({
+    required this.id,
+    required this.periodId,
+    required this.employeeId,
+    this.status = 'DRAFT',
+    this.paidAt,
+    this.paidById,
+  });
+
+  bool get isPaid => status.toUpperCase() == 'PAID';
+
+  factory PayrollPaymentRecord.draft({
+    required String periodId,
+    required String employeeId,
+  }) {
+    return PayrollPaymentRecord(
+      id: '',
+      periodId: periodId,
+      employeeId: employeeId,
+    );
+  }
+
+  factory PayrollPaymentRecord.fromMap(Map<String, dynamic> map) {
+    return PayrollPaymentRecord(
+      id: (map['id'] ?? '').toString(),
+      periodId: (map['period_id'] ?? '').toString(),
+      employeeId: (map['employee_id'] ?? '').toString(),
+      status: (map['status'] ?? 'DRAFT').toString(),
+      paidAt: map['paid_at'] != null
+          ? DateTime.tryParse(map['paid_at'].toString())
+          : null,
+      paidById: map['paid_by_id']?.toString(),
+    );
+  }
+}
+
 class PayrollServiceCommissionRequest {
   final String id;
   final String serviceOrderId;

@@ -243,6 +243,32 @@ class NominaRepository {
     await _delete(ApiRoutes.payrollEntryDetail(entryId));
   }
 
+  Future<List<PayrollPaymentRecord>> listPaymentStatuses({
+    required String periodId,
+    String? employeeId,
+  }) async {
+    final rows = await _getList(
+      ApiRoutes.payrollPaymentStatus,
+      query: {
+        'periodId': periodId,
+        if ((employeeId ?? '').trim().isNotEmpty)
+          'employeeId': employeeId!.trim(),
+      },
+    );
+    return rows.map(PayrollPaymentRecord.fromMap).toList();
+  }
+
+  Future<PayrollPaymentRecord> markPayrollPaid({
+    required String periodId,
+    required String employeeId,
+  }) async {
+    final data = await _postMap(ApiRoutes.payrollPaymentStatusMarkPaid, {
+      'periodId': periodId,
+      'employeeId': employeeId,
+    });
+    return PayrollPaymentRecord.fromMap(data);
+  }
+
   Future<PayrollTotals> computeTotals(
     String periodId,
     String employeeId,

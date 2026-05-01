@@ -22,7 +22,11 @@ import 'application/nomina_controller.dart';
 import 'data/nomina_repository.dart';
 import 'nomina_models.dart';
 
-typedef _PayrollPeriodRow = ({PayrollEmployee employee, PayrollTotals totals});
+typedef _PayrollPeriodRow = ({
+  PayrollEmployee employee,
+  PayrollTotals totals,
+  PayrollPaymentRecord paymentStatus,
+});
 
 class _PayrollBulkSendProgress {
   const _PayrollBulkSendProgress({
@@ -433,7 +437,7 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
     }
   }
 
-  Future<List<({PayrollEmployee employee, PayrollTotals totals})>>
+  Future<List<_PayrollPeriodRow>>
   _loadOpenPeriodRows(WidgetRef ref, NominaHomeState state) async {
     final open = state.openPeriod;
     if (open == null) return const [];
@@ -445,15 +449,27 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
             .toList(growable: false)
           ..sort((a, b) => a.nombre.compareTo(b.nombre));
 
-    final rows = <({PayrollEmployee employee, PayrollTotals totals})>[];
+    final rows = <_PayrollPeriodRow>[];
+    final statuses = await repo.listPaymentStatuses(periodId: open.id);
+    final statusesByEmployee = {
+      for (final status in statuses) status.employeeId: status,
+    };
     for (final employee in employees) {
       final totals = await repo.computeTotals(open.id, employee.id);
-      rows.add((employee: employee, totals: totals));
+      rows.add((
+        employee: employee,
+        totals: totals,
+        paymentStatus: statusesByEmployee[employee.id] ??
+            PayrollPaymentRecord.draft(
+              periodId: open.id,
+              employeeId: employee.id,
+            ),
+      ));
     }
     return rows;
   }
 
-  Future<List<({PayrollEmployee employee, PayrollTotals totals})>>
+  Future<List<_PayrollPeriodRow>>
   _loadRowsForPeriod(
     WidgetRef ref,
     NominaHomeState state,
@@ -463,10 +479,22 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
     final employees = [...state.employees]
       ..sort((a, b) => a.nombre.compareTo(b.nombre));
 
-    final rows = <({PayrollEmployee employee, PayrollTotals totals})>[];
+    final statuses = await repo.listPaymentStatuses(periodId: period.id);
+    final statusesByEmployee = {
+      for (final status in statuses) status.employeeId: status,
+    };
+    final rows = <_PayrollPeriodRow>[];
     for (final employee in employees) {
       final totals = await repo.computeTotals(period.id, employee.id);
-      rows.add((employee: employee, totals: totals));
+      rows.add((
+        employee: employee,
+        totals: totals,
+        paymentStatus: statusesByEmployee[employee.id] ??
+            PayrollPaymentRecord.draft(
+              periodId: period.id,
+              employeeId: employee.id,
+            ),
+      ));
     }
     return rows;
   }
@@ -514,6 +542,7 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
     PayrollPeriod period,
   ) async {
     final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
+    final repo = ref.read(nominaRepositoryProvider);
     final rows = await _loadRowsForPeriod(ref, state, period);
     if (!context.mounted) return;
 
@@ -538,6 +567,27 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
             employee: row.employee,
             totals: row.totals,
           ),
+          onEditPayroll: (row) => _showEmployeePayrollDialog(
+            routeContext,
+            ref,
+            row.employee,
+            periodOverride: period,
+            paidLocked: row.paymentStatus.isPaid,
+          ),
+          onMarkPaid: (row) async {
+            final status = await repo.markPayrollPaid(
+              periodId: period.id,
+              employeeId: row.employee.id,
+            );
+            if (!routeContext.mounted) return null;
+            ScaffoldMessenger.of(routeContext).showSnackBar(
+              SnackBar(
+                content: Text('Nomina de ${row.employee.nombre} marcada como pagada'),
+              ),
+            );
+            return status;
+          },
+          onReloadRows: () => _loadRowsForPeriod(ref, state, period),
           money: money,
         ),
       ),
@@ -654,7 +704,7 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
 
   Future<Uint8List> _buildOpenPeriodPayrollPdfBytes(
     PayrollPeriod open,
-    List<({PayrollEmployee employee, PayrollTotals totals})> rows,
+    List<_PayrollPeriodRow> rows,
   ) async {
     final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
     final doc = pw.Document();
@@ -1085,7 +1135,7 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
   Future<void> _openOpenPeriodPdfPreviewDialog(
     BuildContext context,
     PayrollPeriod open,
-    List<({PayrollEmployee employee, PayrollTotals totals})> rows,
+    List<_PayrollPeriodRow> rows,
   ) async {
     final pdfBytes = await _buildOpenPeriodPayrollPdfBytes(open, rows);
     if (!context.mounted) return;
@@ -1205,8 +1255,10 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
   Future<void> _showEmployeePayrollDialog(
     BuildContext context,
     WidgetRef ref,
-    PayrollEmployee employee,
-  ) async {
+    PayrollEmployee employee, {
+    PayrollPeriod? periodOverride,
+    bool paidLocked = false,
+  }) async {
     final scaffoldContext = context;
     final flowSeq = TraceLog.nextSeq();
     TraceLog.log(
@@ -1216,7 +1268,7 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
     );
 
     final state = ref.read(nominaHomeControllerProvider);
-    final open = state.openPeriod;
+    final open = periodOverride ?? state.openPeriod;
     if (open == null) {
       await AppFeedback.showError(
         scaffoldContext,
@@ -1229,6 +1281,16 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
 
     final repo = ref.read(nominaRepositoryProvider);
     final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
+
+    var effectivePaidLocked = paidLocked;
+    if (!effectivePaidLocked) {
+      final statusRows = await repo.listPaymentStatuses(
+        periodId: open.id,
+        employeeId: employee.id,
+      );
+      effectivePaidLocked =
+          statusRows.isNotEmpty && statusRows.first.isPaid;
+    }
 
     var entries = await repo.listEntries(open.id, employee.id);
     var totals = await repo.computeTotals(open.id, employee.id);
@@ -1288,6 +1350,16 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                     Text('Seguro ley: ${money.format(totals.seguroLey)}'),
+                    if (effectivePaidLocked) ...[
+                      const SizedBox(height: 10),
+                      FilledButton.icon(
+                        onPressed: null,
+                        icon: const Icon(Icons.lock_outline),
+                        label: const Text(
+                          'Esta nomina fue pagada y no se puede editar',
+                        ),
+                      ),
+                    ],
                     if (totals.holidayWorked > 0)
                       Text(
                         'Feriado trabajado: ${money.format(totals.holidayWorked)}',
@@ -1395,7 +1467,7 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                     ),
                     const SizedBox(height: 8),
                     FilledButton.icon(
-                      onPressed: isSavingEntry
+                      onPressed: (isSavingEntry || effectivePaidLocked)
                           ? null
                           : () async {
                               TraceLog.log(
@@ -1573,6 +1645,7 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                               IconButton(
                                 tooltip: 'Eliminar',
                                 onPressed: () async {
+                                  if (effectivePaidLocked) return;
                                   await repo.deleteEntry(entry.id);
                                   await reload(setStateDialog);
                                 },
@@ -3601,7 +3674,7 @@ class _PayrollHistoryFullScreenState
 
   // ── Desktop inline detail ────────────────────────────────────────────────
   _PayrollHistoryPeriodSummary? _selectedItem;
-  List<_PayrollPeriodRow>? _detailRows;
+  Object? _detailRows;
   bool _detailLoading = false;
   String? _detailError;
   late final TextEditingController _detailSearchCtrl;
@@ -3701,10 +3774,22 @@ class _PayrollHistoryFullScreenState
       final employees = [
         ...ref.read(nominaHomeControllerProvider).employees,
       ]..sort((a, b) => a.nombre.compareTo(b.nombre));
+      final statuses = await repo.listPaymentStatuses(periodId: item.period.id);
+      final statusesByEmployee = {
+        for (final status in statuses) status.employeeId: status,
+      };
       final rows = <_PayrollPeriodRow>[];
       for (final employee in employees) {
         final totals = await repo.computeTotals(item.period.id, employee.id);
-        rows.add((employee: employee, totals: totals));
+        rows.add((
+          employee: employee,
+          totals: totals,
+          paymentStatus: statusesByEmployee[employee.id] ??
+              PayrollPaymentRecord.draft(
+                periodId: item.period.id,
+                employeeId: employee.id,
+              ),
+        ));
       }
       if (!mounted) return;
       setState(() {
@@ -3720,8 +3805,38 @@ class _PayrollHistoryFullScreenState
     }
   }
 
+  List<_PayrollPeriodRow> get _safeDetailRows {
+    final rawRows = _detailRows;
+    if (rawRows is! List) return const [];
+
+    return rawRows
+        .map<_PayrollPeriodRow?>((row) {
+          try {
+            final dynamic item = row;
+            final PayrollEmployee employee = item.employee as PayrollEmployee;
+            final PayrollTotals totals = item.totals as PayrollTotals;
+            final dynamic rawPaymentStatus = item.paymentStatus;
+            final paymentStatus = rawPaymentStatus is PayrollPaymentRecord
+                ? rawPaymentStatus
+                : PayrollPaymentRecord.draft(
+                    periodId: _selectedItem?.period.id ?? '',
+                    employeeId: employee.id,
+                  );
+            return (
+              employee: employee,
+              totals: totals,
+              paymentStatus: paymentStatus,
+            );
+          } catch (_) {
+            return null;
+          }
+        })
+        .whereType<_PayrollPeriodRow>()
+        .toList(growable: false);
+  }
+
   List<_PayrollPeriodRow> get _filteredDetailRows {
-    final rows = _detailRows ?? [];
+    final rows = _safeDetailRows;
     final query = _detailSearchCtrl.text.trim().toLowerCase();
     return rows
         .where((row) {
@@ -3950,7 +4065,7 @@ class _PayrollHistoryFullScreenState
                 ? _HistoryEmptyDetail()
                 : _HistoryInlineDetail(
                     item: _selectedItem!,
-                    rows: _detailRows,
+                    rows: _safeDetailRows,
                     loading: _detailLoading,
                     error: _detailError,
                     searchCtrl: _detailSearchCtrl,
@@ -3961,6 +4076,24 @@ class _PayrollHistoryFullScreenState
                         setState(() => _detailFilter = f),
                     onSendPayroll: (row) async {
                       await widget.onOpenDetails(_selectedItem!.period);
+                    },
+                    onEditPayroll: (row) async {
+                      await widget.onOpenDetails(_selectedItem!.period);
+                    },
+                    onMarkPaid: (row) async {
+                      await ref.read(nominaRepositoryProvider).markPayrollPaid(
+                            periodId: _selectedItem!.period.id,
+                            employeeId: row.employee.id,
+                          );
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            'Nomina de ${row.employee.nombre} marcada como pagada',
+                          ),
+                        ),
+                      );
+                      await _selectPeriod(_selectedItem!);
                     },
                     onExportPdf: () async {
                       await widget.onOpenDetails(_selectedItem!.period);
@@ -4350,6 +4483,8 @@ class _HistoryInlineDetail extends StatelessWidget {
     required this.money,
     required this.onFilterChange,
     required this.onSendPayroll,
+    required this.onEditPayroll,
+    required this.onMarkPaid,
     required this.onExportPdf,
   });
 
@@ -4363,6 +4498,8 @@ class _HistoryInlineDetail extends StatelessWidget {
   final NumberFormat money;
   final void Function(_PayrollDetailEmployeeFilter) onFilterChange;
   final Future<void> Function(_PayrollPeriodRow) onSendPayroll;
+  final Future<void> Function(_PayrollPeriodRow) onEditPayroll;
+  final Future<void> Function(_PayrollPeriodRow) onMarkPaid;
   final Future<void> Function() onExportPdf;
 
   @override
@@ -4567,6 +4704,10 @@ class _HistoryInlineDetail extends StatelessWidget {
                               row: row,
                               money: money,
                               onSendPayroll: () => onSendPayroll(row),
+                              onEditPayroll: () => onEditPayroll(row),
+                              onMarkPaid: row.paymentStatus.isPaid
+                                  ? null
+                                  : () => onMarkPaid(row),
                             );
                           },
                         ),
@@ -4646,6 +4787,9 @@ class _PayrollPeriodDetailsScreen extends StatefulWidget {
     required this.totalPagar,
     required this.onOpenPdf,
     required this.onSendPayroll,
+    required this.onEditPayroll,
+    required this.onMarkPaid,
+    required this.onReloadRows,
     required this.money,
   });
 
@@ -4654,6 +4798,9 @@ class _PayrollPeriodDetailsScreen extends StatefulWidget {
   final double totalPagar;
   final Future<void> Function() onOpenPdf;
   final Future<void> Function(_PayrollPeriodRow row) onSendPayroll;
+  final Future<void> Function(_PayrollPeriodRow row) onEditPayroll;
+  final Future<PayrollPaymentRecord?> Function(_PayrollPeriodRow row) onMarkPaid;
+  final Future<List<_PayrollPeriodRow>> Function() onReloadRows;
   final NumberFormat money;
 
   @override
@@ -4664,11 +4811,14 @@ class _PayrollPeriodDetailsScreen extends StatefulWidget {
 class _PayrollPeriodDetailsScreenState
     extends State<_PayrollPeriodDetailsScreen> {
   late final TextEditingController _searchController;
+  late List<_PayrollPeriodRow> _rows;
   _PayrollDetailEmployeeFilter _filter = _PayrollDetailEmployeeFilter.all;
+  bool _refreshingRows = false;
 
   @override
   void initState() {
     super.initState();
+    _rows = [...widget.rows];
     _searchController = TextEditingController();
     _searchController.addListener(() => setState(() {}));
   }
@@ -4679,9 +4829,21 @@ class _PayrollPeriodDetailsScreenState
     super.dispose();
   }
 
+  Future<void> _reloadRows() async {
+    if (_refreshingRows) return;
+    setState(() => _refreshingRows = true);
+    try {
+      final rows = await widget.onReloadRows();
+      if (!mounted) return;
+      setState(() => _rows = rows);
+    } finally {
+      if (mounted) setState(() => _refreshingRows = false);
+    }
+  }
+
   List<_PayrollPeriodRow> get _filteredRows {
     final query = _searchController.text.trim().toLowerCase();
-    return widget.rows
+    return _rows
         .where((row) {
           if (query.isNotEmpty &&
               !row.employee.nombre.toLowerCase().contains(query)) {
@@ -4790,7 +4952,12 @@ class _PayrollPeriodDetailsScreenState
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              widget.money.format(widget.totalPagar),
+                              widget.money.format(
+                                _rows.fold<double>(
+                                  0,
+                                  (sum, row) => sum + row.totals.total,
+                                ),
+                              ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: theme.textTheme.titleLarge?.copyWith(
@@ -4810,8 +4977,12 @@ class _PayrollPeriodDetailsScreenState
                       ),
                       const SizedBox(width: 10),
                       _PayrollMiniPill(
-                        icon: Icons.groups_outlined,
-                        label: '${filtered.length} empleados',
+                        icon: _refreshingRows
+                            ? Icons.sync_outlined
+                            : Icons.groups_outlined,
+                        label: _refreshingRows
+                            ? 'Actualizando'
+                            : '${filtered.length} empleados',
                       ),
                     ],
                   ),
@@ -4946,6 +5117,16 @@ class _PayrollPeriodDetailsScreenState
                         row: row,
                         money: widget.money,
                         onSendPayroll: () => widget.onSendPayroll(row),
+                        onEditPayroll: () async {
+                          await widget.onEditPayroll(row);
+                          await _reloadRows();
+                        },
+                        onMarkPaid: row.paymentStatus.isPaid
+                            ? null
+                            : () async {
+                                await widget.onMarkPaid(row);
+                                await _reloadRows();
+                              },
                       );
                     },
                   ),
@@ -5411,11 +5592,15 @@ class _PayrollPeriodEmployeeCard extends StatefulWidget {
     required this.row,
     required this.money,
     required this.onSendPayroll,
+    required this.onEditPayroll,
+    this.onMarkPaid,
   });
 
   final _PayrollPeriodRow row;
   final NumberFormat money;
   final Future<void> Function() onSendPayroll;
+  final Future<void> Function() onEditPayroll;
+  final Future<void> Function()? onMarkPaid;
 
   @override
   State<_PayrollPeriodEmployeeCard> createState() =>
@@ -5456,6 +5641,7 @@ class _PayrollPeriodEmployeeCardState
     final scheme = theme.colorScheme;
     final totals = widget.row.totals;
     final employee = widget.row.employee;
+    final isPaid = widget.row.paymentStatus.isPaid;
     final money = widget.money;
     // ignore: unused_local_variable
     final extras = totals.bonuses + totals.holidayWorked + totals.otherAdditions;
@@ -5491,7 +5677,9 @@ class _PayrollPeriodEmployeeCardState
                     height: 32,
                     margin: const EdgeInsets.only(right: 10),
                     decoration: BoxDecoration(
-                      color: isNegative
+                      color: isPaid
+                          ? scheme.primary
+                          : isNegative
                           ? scheme.error
                           : scheme.primary.withValues(alpha: 0.8),
                       borderRadius: BorderRadius.circular(99),
@@ -5762,6 +5950,36 @@ class _PayrollPeriodEmployeeCardState
                             ),
                           ),
                         ),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        alignment: WrapAlignment.end,
+                        spacing: 8,
+                        runSpacing: 6,
+                        children: [
+                          OutlinedButton.icon(
+                            onPressed: widget.onEditPayroll,
+                            icon: Icon(
+                              isPaid ? Icons.lock_outline : Icons.edit_outlined,
+                              size: 14,
+                            ),
+                            label: Text(
+                              isPaid
+                                  ? 'Esta nomina fue pagada'
+                                  : 'Editar nomina',
+                            ),
+                          ),
+                          FilledButton.icon(
+                            onPressed: isPaid ? null : widget.onMarkPaid,
+                            icon: Icon(
+                              isPaid
+                                  ? Icons.verified_outlined
+                                  : Icons.payments_outlined,
+                              size: 14,
+                            ),
+                            label: Text(isPaid ? 'Pagada' : 'Marcar pagada'),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 4),
                     ],

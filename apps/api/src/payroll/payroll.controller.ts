@@ -6,6 +6,7 @@ import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import { CreatePayrollPeriodDto } from './dto/create-payroll-period.dto';
 import { AddPayrollEntryDto, PayrollEntriesQueryDto } from './dto/payroll-entry.dto';
+import { MarkPayrollPaidDto, PayrollPaymentStatusQueryDto } from './dto/payroll-payment-status.dto';
 import { PayrollTotalsQueryDto } from './dto/payroll-query.dto';
 import { OverlapPeriodQueryDto } from './dto/overlap-period-query.dto';
 import { ReviewServiceCommissionDto } from './dto/review-service-commission.dto';
@@ -192,6 +193,23 @@ export class PayrollController {
     return { ok: true };
   }
 
+  @Get('payment-status')
+  @Roles(Role.ADMIN)
+  async listPaymentStatuses(@Req() req: Request, @Query() query: PayrollPaymentStatusQueryDto) {
+    const ownerId = await this.ownerIdFrom(req);
+    const rows = await this.payroll.listPaymentStatuses(ownerId, query.periodId, query.employeeId);
+    return rows.map((item) => this.mapPaymentStatus(item));
+  }
+
+  @Post('payment-status/mark-paid')
+  @Roles(Role.ADMIN)
+  async markPayrollPaid(@Req() req: Request, @Body() dto: MarkPayrollPaidDto) {
+    const ownerId = await this.ownerIdFrom(req);
+    const user = req.user as JwtUser;
+    const item = await this.payroll.markPayrollPaid(ownerId, dto.periodId, dto.employeeId, user.id);
+    return this.mapPaymentStatus(item);
+  }
+
   @Post('send-whatsapp')
   @Roles(Role.ADMIN)
   async sendPayrollWhatsapp(@Req() req: Request, @Body() dto: SendPayrollWhatsappDto) {
@@ -337,6 +355,30 @@ export class PayrollController {
       amount: Number(entry.amount ?? 0),
       cantidad: entry.cantidad == null ? null : Number(entry.cantidad),
       created_at: entry.createdAt.toISOString(),
+    };
+  }
+
+  private mapPaymentStatus(item: {
+    id: string;
+    ownerId: string;
+    periodId: string;
+    employeeId: string;
+    status: string;
+    paidAt: Date | null;
+    paidById: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+  }) {
+    return {
+      id: item.id,
+      owner_id: item.ownerId,
+      period_id: item.periodId,
+      employee_id: item.employeeId,
+      status: item.status,
+      paid_at: item.paidAt?.toISOString() ?? null,
+      paid_by_id: item.paidById,
+      created_at: item.createdAt.toISOString(),
+      updated_at: item.updatedAt.toISOString(),
     };
   }
 

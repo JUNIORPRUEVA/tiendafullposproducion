@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
   PayrollEntryType,
+  PayrollPaymentStatus,
   PayrollPeriodStatus,
   PayrollServiceCommissionStatus,
   Prisma,
@@ -307,6 +308,7 @@ export class PayrollService {
   }
 
   async addEntry(ownerId: string, dto: AddPayrollEntryDto) {
+    await this.assertPayrollEditable(ownerId, dto.periodId, dto.employeeId);
     const [employee, config] = await Promise.all([
       this.getEmployeeById(ownerId, dto.employeeId),
       this.getEmployeeConfig(ownerId, dto.periodId, dto.employeeId),
@@ -372,7 +374,7 @@ export class PayrollService {
     }
 
     const notificationConfig = await this.getPayrollNotificationConfig();
-    const targets = this.buildPayrollNotificationTargets(employee, notificationConfig.companyPhone);
+    const targets = this.buildPayrollEmployeeNotificationTargets(employee);
     if (targets.length === 0) {
       throw new BadRequestException('No hay un teléfono válido para enviar la nómina por WhatsApp');
     }
@@ -689,10 +691,85 @@ export class PayrollService {
   }
 
   async deleteEntry(ownerId: string, entryId: string) {
+    const entry = await this.prisma.payrollEntry.findFirst({
+      where: { ownerId, id: entryId },
+      select: { id: true, periodId: true, employeeId: true },
+    });
+    if (!entry) {
+      throw new NotFoundException('Movimiento no encontrado');
+    }
+    await this.assertPayrollEditable(ownerId, entry.periodId, entry.employeeId);
     const result = await this.prisma.payrollEntry.deleteMany({ where: { ownerId, id: entryId } });
     if (result.count === 0) {
       throw new NotFoundException('Movimiento no encontrado');
     }
+  }
+
+  async listPaymentStatuses(ownerId: string, periodId: string, employeeId?: string) {
+    return this.prisma.payrollEmployeePeriodStatus.findMany({
+      where: {
+        ownerId,
+        periodId,
+        ...(employeeId ? { employeeId } : {}),
+      },
+      orderBy: [{ paidAt: 'desc' }, { updatedAt: 'desc' }],
+    });
+  }
+
+  async getPaymentStatus(ownerId: string, periodId: string, employeeId: string) {
+    const status = await this.prisma.payrollEmployeePeriodStatus.findUnique({
+      where: {
+        ownerId_periodId_employeeId: {
+          ownerId,
+          periodId,
+          employeeId,
+        },
+      },
+    });
+    return status ?? {
+      id: '',
+      ownerId,
+      periodId,
+      employeeId,
+      status: PayrollPaymentStatus.DRAFT,
+      paidAt: null,
+      paidById: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+  }
+
+  async markPayrollPaid(ownerId: string, periodId: string, employeeId: string, paidById: string) {
+    const [period, employee] = await Promise.all([
+      this.getPeriodById(ownerId, periodId),
+      this.getEmployeeById(ownerId, employeeId),
+    ]);
+    if (!period) throw new NotFoundException('Quincena no encontrada');
+    if (!employee) throw new NotFoundException('Empleado de nomina no encontrado');
+
+    const now = new Date();
+    return this.prisma.payrollEmployeePeriodStatus.upsert({
+      where: {
+        ownerId_periodId_employeeId: {
+          ownerId,
+          periodId,
+          employeeId,
+        },
+      },
+      create: {
+        ownerId,
+        periodId,
+        employeeId,
+        status: PayrollPaymentStatus.PAID,
+        paidAt: now,
+        paidById,
+      },
+      update: {
+        status: PayrollPaymentStatus.PAID,
+        paidAt: now,
+        paidById,
+      },
+    });
   }
 
   async computeTotals(ownerId: string, periodId: string, employeeId: string) {
@@ -1035,6 +1112,23 @@ export class PayrollService {
     return 0;
   }
 
+  private async assertPayrollEditable(ownerId: string, periodId: string, employeeId: string) {
+    const status = await this.prisma.payrollEmployeePeriodStatus.findUnique({
+      where: {
+        ownerId_periodId_employeeId: {
+          ownerId,
+          periodId,
+          employeeId,
+        },
+      },
+      select: { status: true },
+    });
+
+    if (status?.status === PayrollPaymentStatus.PAID) {
+      throw new BadRequestException('Esta nomina fue pagada y no se puede editar.');
+    }
+  }
+
   private resolvePayrollEntryAmount(params: {
     type: PayrollEntryType;
     requestedAmount?: number;
@@ -1352,6 +1446,13 @@ export class PayrollService {
     }
 
     return targets;
+  }
+
+  private buildPayrollEmployeeNotificationTargets(employee: {
+    telefono?: string | null;
+    user?: { telefono?: string | null } | null;
+  }) {
+    return this.buildPayrollNotificationTargets(employee, null);
   }
 
   private buildPayrollEntryMessage(params: {

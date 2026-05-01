@@ -134,6 +134,9 @@ class ApiRoutes {
 
   static const payrollEntries = '/payroll/entries';
   static String payrollEntryDetail(String id) => '/payroll/entries/$id';
+  static const payrollPaymentStatus = '/payroll/payment-status';
+  static const payrollPaymentStatusMarkPaid =
+      '/payroll/payment-status/mark-paid';
   static const payrollPendingServiceCommissions =
       '/payroll/service-commissions/pending';
   static String payrollApproveServiceCommission(String id) =>
