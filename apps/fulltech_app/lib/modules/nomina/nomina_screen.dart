@@ -1319,6 +1319,50 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
     var notifyUser = false;
     var isSavingEntry = false;
     var isSendingPayroll = false;
+    final salaryForDailyRate =
+        config?.baseSalary ?? employee.salarioBaseQuincenal;
+    final dominicanDailySalary = salaryForDailyRate <= 0
+        ? 0.0
+        : (salaryForDailyRate * 2) / 23.83;
+
+    double currentQuantity() {
+      final raw = qtyCtrl.text.trim().replaceAll(',', '.');
+      final qty = double.tryParse(raw) ?? 1;
+      return qty > 0 ? qty : 1;
+    }
+
+    bool isAutomaticAmountType(PayrollEntryType type) {
+      return type == PayrollEntryType.ausencia ||
+          type == PayrollEntryType.feriadoTrabajado;
+    }
+
+    double automaticAmountForSelectedType() {
+      final qty = currentQuantity();
+      if (selectedType == PayrollEntryType.ausencia) {
+        return -(dominicanDailySalary * qty);
+      }
+      if (selectedType == PayrollEntryType.feriadoTrabajado) {
+        return holidayWasWorked ? dominicanDailySalary * qty : 0;
+      }
+      return 0;
+    }
+
+    void syncAutomaticAmount() {
+      if (!isAutomaticAmountType(selectedType)) return;
+      amountCtrl.text = automaticAmountForSelectedType().toStringAsFixed(2);
+    }
+
+    String amountHelperText() {
+      if (selectedType == PayrollEntryType.ausencia) {
+        return 'Auto: sueldo mensual / 23.83 x cantidad, aplicado como descuento.';
+      }
+      if (selectedType == PayrollEntryType.feriadoTrabajado) {
+        return holidayWasWorked
+            ? 'Auto: agrega 100% del salario diario para que el feriado quede doble.'
+            : 'Si no se trabajo, no se agrega pago adicional.';
+      }
+      return 'Indica el monto manual de este movimiento.';
+    }
 
     Future<void> reload(StateSetter setStateDialog) async {
       entries = await repo.listEntries(open.id, employee.id);
@@ -1411,7 +1455,14 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                               if (conceptCtrl.text.trim().isEmpty) {
                                 conceptCtrl.text = 'Feriado trabajado';
                               }
+                            } else if (value == PayrollEntryType.ausencia) {
+                              if (conceptCtrl.text.trim().isEmpty) {
+                                conceptCtrl.text = 'Ausencia';
+                              }
+                            } else {
+                              amountCtrl.clear();
                             }
+                            syncAutomaticAmount();
                           });
                         }
                       },
@@ -1432,6 +1483,9 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                         Expanded(
                           child: TextField(
                             controller: qtyCtrl,
+                            onChanged: (_) => setStateDialog(
+                              syncAutomaticAmount,
+                            ),
                             keyboardType: const TextInputType.numberWithOptions(
                               decimal: true,
                             ),
@@ -1444,13 +1498,13 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                         Expanded(
                           child: TextField(
                             controller: amountCtrl,
+                            readOnly: isAutomaticAmountType(selectedType),
                             keyboardType: const TextInputType.numberWithOptions(
                               decimal: true,
                             ),
-                            decoration: const InputDecoration(
+                            decoration: InputDecoration(
                               labelText: 'Monto',
-                              helperText:
-                                  'Ausencia y feriado se calculan automatico',
+                              helperText: amountHelperText(),
                             ),
                           ),
                         ),
@@ -1465,8 +1519,10 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                           'Aplica el 100% adicional del salario diario para completar el pago doble.',
                         ),
                         value: holidayWasWorked,
-                        onChanged: (value) =>
-                            setStateDialog(() => holidayWasWorked = value),
+                        onChanged: (value) => setStateDialog(() {
+                          holidayWasWorked = value;
+                          syncAutomaticAmount();
+                        }),
                       ),
                     ],
                     const SizedBox(height: 4),
@@ -1528,10 +1584,10 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                                   );
                                   return;
                                 }
-                                amount = 0;
+                                amount = automaticAmountForSelectedType();
                               } else if (selectedType ==
                                   PayrollEntryType.ausencia) {
-                                amount = 0;
+                                amount = automaticAmountForSelectedType();
                               } else {
                                 if (parsedAmount == null) {
                                   await AppFeedback.showError(
@@ -1578,6 +1634,9 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                                 setStateDialog(() {
                                   notifyUser = false;
                                   holidayWasWorked = true;
+                                  if (isAutomaticAmountType(selectedType)) {
+                                    syncAutomaticAmount();
+                                  }
                                 });
                                 await reload(setStateDialog);
                                 TraceLog.log(
