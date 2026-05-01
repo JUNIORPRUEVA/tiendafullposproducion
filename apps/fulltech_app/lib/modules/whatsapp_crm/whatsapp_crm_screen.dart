@@ -37,6 +37,7 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
   final _msgController = TextEditingController();
   final _scrollController = ScrollController();
   StreamSubscription<Map<String, dynamic>>? _whatsappSub;
+  Timer? _autoRefreshTimer;
   bool _showActionPanel = true;
   bool _showAiPanel = false;
 
@@ -47,11 +48,14 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
       if (!mounted) return;
       final user = ref.read(authStateProvider).user;
       if (user?.appRole != AppRole.admin) {
-        context.go(RouteAccess.defaultHomeForRole(user?.appRole ?? AppRole.unknown));
+        context.go(
+          RouteAccess.defaultHomeForRole(user?.appRole ?? AppRole.unknown),
+        );
         return;
       }
       ref.read(waCrmControllerProvider.notifier).loadUsers();
       _listenRealtime();
+      _startAutoRefresh();
     });
   }
 
@@ -64,8 +68,17 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
     });
   }
 
+  void _startAutoRefresh() {
+    _autoRefreshTimer?.cancel();
+    _autoRefreshTimer = Timer.periodic(const Duration(seconds: 6), (_) {
+      if (!mounted) return;
+      ref.read(waCrmControllerProvider.notifier).refreshActiveView();
+    });
+  }
+
   @override
   void dispose() {
+    _autoRefreshTimer?.cancel();
     _whatsappSub?.cancel();
     _msgController.dispose();
     _scrollController.dispose();
@@ -129,9 +142,7 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
           if (!isMobile)
             IconButton(
               icon: Icon(
-                _showAiPanel
-                    ? Icons.auto_awesome
-                    : Icons.auto_awesome_outlined,
+                _showAiPanel ? Icons.auto_awesome : Icons.auto_awesome_outlined,
               ),
               tooltip: _showAiPanel ? 'Ocultar IA' : 'Resumen IA del dia',
               onPressed: () => setState(() => _showAiPanel = !_showAiPanel),
@@ -140,7 +151,7 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
             icon: const Icon(Icons.refresh_rounded),
             tooltip: 'Actualizar',
             onPressed: () {
-              ref.read(waCrmControllerProvider.notifier).loadUsers();
+              ref.read(waCrmControllerProvider.notifier).refreshActiveView();
             },
           ),
         ],
@@ -165,7 +176,9 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
           child: _ConversationsPanel(
             state: state,
             onSelectConversation: (conv) {
-              ref.read(waCrmControllerProvider.notifier).selectConversation(conv);
+              ref
+                  .read(waCrmControllerProvider.notifier)
+                  .selectConversation(conv);
             },
             onSelectUser: (u) {
               ref.read(waCrmControllerProvider.notifier).selectUser(u);
@@ -186,10 +199,7 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
         if (_showActionPanel) ...[
           const VerticalDivider(width: 1),
           // Column 3: Actions
-          SizedBox(
-            width: 260,
-            child: _ActionsPanel(state: state),
-          ),
+          SizedBox(width: 260, child: _ActionsPanel(state: state)),
         ],
         if (_showAiPanel) ...[
           const VerticalDivider(width: 1),
@@ -222,7 +232,9 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
           child: _ConversationsPanel(
             state: state,
             onSelectConversation: (conv) {
-              ref.read(waCrmControllerProvider.notifier).selectConversation(conv);
+              ref
+                  .read(waCrmControllerProvider.notifier)
+                  .selectConversation(conv);
             },
             onSelectUser: (u) {
               ref.read(waCrmControllerProvider.notifier).selectUser(u);
@@ -257,9 +269,7 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
             elevation: 1,
             child: InkWell(
               onTap: () {
-                ref
-                    .read(waCrmControllerProvider.notifier)
-                    .clearSelection();
+                ref.read(waCrmControllerProvider.notifier).clearSelection();
               },
               child: Padding(
                 padding: const EdgeInsets.symmetric(
@@ -369,8 +379,9 @@ class _ConversationsPanelState extends State<_ConversationsPanel> {
         // ── User selector for conversations ──────────────────────────
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          color: theme.colorScheme.surfaceContainerHighest
-              .withValues(alpha: 0.4),
+          color: theme.colorScheme.surfaceContainerHighest.withValues(
+            alpha: 0.4,
+          ),
           child: _UserSelectorDropdown(
             users: state.users,
             selected: state.selectedUser,
@@ -384,20 +395,20 @@ class _ConversationsPanelState extends State<_ConversationsPanel> {
           child: state.loadingConversations
               ? const Center(child: CircularProgressIndicator())
               : state.conversations.isEmpty
-                  ? _EmptyConvState(loading: state.loadingUsers)
-                  : ListView.builder(
-                      itemCount: state.conversations.length,
-                      itemBuilder: (context, i) {
-                        final conv = state.conversations[i];
-                        final isSelected =
-                            state.selectedConversation?.id == conv.id;
-                        return _ConversationTile(
-                          conv: conv,
-                          isSelected: isSelected,
-                          onTap: () => widget.onSelectConversation(conv),
-                        );
-                      },
-                    ),
+              ? _EmptyConvState(loading: state.loadingUsers)
+              : ListView.builder(
+                  itemCount: state.conversations.length,
+                  itemBuilder: (context, i) {
+                    final conv = state.conversations[i];
+                    final isSelected =
+                        state.selectedConversation?.id == conv.id;
+                    return _ConversationTile(
+                      conv: conv,
+                      isSelected: isSelected,
+                      onTap: () => widget.onSelectConversation(conv),
+                    );
+                  },
+                ),
         ),
       ],
     );
@@ -430,10 +441,8 @@ class _InstancesSection extends StatelessWidget {
         InkWell(
           onTap: onToggleExpanded,
           child: Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            color: theme.colorScheme.primaryContainer
-                .withValues(alpha: 0.25),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            color: theme.colorScheme.primaryContainer.withValues(alpha: 0.25),
             child: Row(
               children: [
                 Icon(
@@ -473,10 +482,7 @@ class _InstancesSection extends StatelessWidget {
         if (expanded) ...[
           if (instances.isEmpty && !loading)
             Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 8,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               child: Text(
                 'Sin instancias configuradas',
                 style: theme.textTheme.bodySmall?.copyWith(
@@ -485,9 +491,7 @@ class _InstancesSection extends StatelessWidget {
               ),
             )
           else
-            ...instances.map(
-              (inst) => _InstanceRow(instance: inst),
-            ),
+            ...instances.map((inst) => _InstanceRow(instance: inst)),
         ],
       ],
     );
@@ -544,8 +548,7 @@ class _InstanceRow extends ConsumerWidget {
                   instance.instanceName,
                   style: theme.textTheme.bodySmall?.copyWith(
                     fontSize: 10,
-                    color:
-                        theme.colorScheme.onSurface.withValues(alpha: 0.45),
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.45),
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -561,10 +564,7 @@ class _InstanceRow extends ConsumerWidget {
             child: IconButton(
               iconSize: 18,
               padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(
-                minWidth: 28,
-                minHeight: 28,
-              ),
+              constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
               icon: Icon(
                 instance.webhookEnabled
                     ? Icons.webhook_rounded
@@ -573,8 +573,7 @@ class _InstanceRow extends ConsumerWidget {
                     ? Colors.green
                     : theme.colorScheme.onSurface.withValues(alpha: 0.35),
               ),
-              onPressed: () =>
-                  _showWebhookDialog(context, ref, instance),
+              onPressed: () => _showWebhookDialog(context, ref, instance),
             ),
           ),
         ],
@@ -628,10 +627,7 @@ class _WebhookDialogState extends State<_WebhookDialog> {
     try {
       final url = await widget.ref
           .read(waCrmControllerProvider.notifier)
-          .setInstanceWebhook(
-            widget.instance.instanceName,
-            enabled: value,
-          );
+          .setInstanceWebhook(widget.instance.instanceName, enabled: value);
       setState(() {
         _saving = false;
         _configuredUrl = url.isNotEmpty ? url : null;
@@ -670,8 +666,9 @@ class _WebhookDialogState extends State<_WebhookDialog> {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHighest
-                    .withValues(alpha: 0.5),
+                color: theme.colorScheme.surfaceContainerHighest.withValues(
+                  alpha: 0.5,
+                ),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Column(
@@ -680,8 +677,7 @@ class _WebhookDialogState extends State<_WebhookDialog> {
                   Row(
                     children: [
                       if (inst.isCompany)
-                        const Icon(Icons.business_rounded,
-                            size: 14)
+                        const Icon(Icons.business_rounded, size: 14)
                       else
                         const Icon(Icons.person_rounded, size: 14),
                       const SizedBox(width: 6),
@@ -701,8 +697,9 @@ class _WebhookDialogState extends State<_WebhookDialog> {
                   Text(
                     inst.instanceName,
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurface
-                          .withValues(alpha: 0.55),
+                      color: theme.colorScheme.onSurface.withValues(
+                        alpha: 0.55,
+                      ),
                       fontFamily: 'monospace',
                     ),
                   ),
@@ -737,8 +734,9 @@ class _WebhookDialogState extends State<_WebhookDialog> {
                       Text(
                         'Configura el webhook en Evolution API',
                         style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurface
-                              .withValues(alpha: 0.55),
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.55,
+                          ),
                         ),
                       ),
                     ],
@@ -800,7 +798,7 @@ class _WebhookDialogState extends State<_WebhookDialog> {
                         ),
                       ],
                     ),
-            if (_configuredUrl != null) ...[
+                    if (_configuredUrl != null) ...[
                       const SizedBox(height: 6),
                       const Divider(height: 1),
                       const SizedBox(height: 6),
@@ -918,9 +916,7 @@ class _UserSelectorDropdown extends StatelessWidget {
             value: u,
             child: Row(
               children: [
-                _StatusDot(
-                  status: u.instanceStatus,
-                ),
+                _StatusDot(status: u.instanceStatus),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -993,7 +989,9 @@ class _ConversationTile extends StatelessWidget {
           children: [
             CircleAvatar(
               radius: 22,
-              backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.15),
+              backgroundColor: theme.colorScheme.primary.withValues(
+                alpha: 0.15,
+              ),
               child: Text(
                 conv.displayName.isNotEmpty
                     ? conv.displayName[0].toUpperCase()
@@ -1027,8 +1025,9 @@ class _ConversationTile extends StatelessWidget {
                         Text(
                           timeStr,
                           style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurface
-                                .withValues(alpha: 0.5),
+                            color: theme.colorScheme.onSurface.withValues(
+                              alpha: 0.5,
+                            ),
                             fontSize: 11,
                           ),
                         ),
@@ -1041,8 +1040,9 @@ class _ConversationTile extends StatelessWidget {
                         child: Text(
                           last?.previewText ?? '',
                           style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurface
-                                .withValues(alpha: 0.6),
+                            color: theme.colorScheme.onSurface.withValues(
+                              alpha: 0.6,
+                            ),
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -1148,11 +1148,19 @@ Future<void> _openMedia(String mediaUrl, String? mimeType) async {
       final ext = _mimeToExtension(detectedMime);
       final tempDir = await getTemporaryDirectory();
       final hash = mediaUrl.hashCode.abs();
-      final file = File('${tempDir.path}${Platform.pathSeparator}wa_media_$hash$ext');
+      final file = File(
+        '${tempDir.path}${Platform.pathSeparator}wa_media_$hash$ext',
+      );
       await file.writeAsBytes(bytes, flush: true);
-      await launchUrl(Uri.file(file.path), mode: LaunchMode.externalApplication);
+      await launchUrl(
+        Uri.file(file.path),
+        mode: LaunchMode.externalApplication,
+      );
     } else {
-      await launchUrl(Uri.parse(mediaUrl), mode: LaunchMode.externalApplication);
+      await launchUrl(
+        Uri.parse(mediaUrl),
+        mode: LaunchMode.externalApplication,
+      );
     }
   } catch (e) {
     debugPrint('[WaCrm] _openMedia error: $e');
@@ -1264,8 +1272,9 @@ class _ChatPanel extends StatelessWidget {
             children: [
               CircleAvatar(
                 radius: 18,
-                backgroundColor:
-                    theme.colorScheme.primary.withValues(alpha: 0.15),
+                backgroundColor: theme.colorScheme.primary.withValues(
+                  alpha: 0.15,
+                ),
                 child: Text(
                   conv.displayName.isNotEmpty
                       ? conv.displayName[0].toUpperCase()
@@ -1291,8 +1300,9 @@ class _ChatPanel extends StatelessWidget {
                       Text(
                         conv.displayPhone!,
                         style: theme.textTheme.bodySmall?.copyWith(
-                          color:
-                              theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.5,
+                          ),
                         ),
                       ),
                   ],
@@ -1306,29 +1316,28 @@ class _ChatPanel extends StatelessWidget {
           child: state.loadingMessages
               ? const Center(child: CircularProgressIndicator())
               : state.messages.isEmpty
-                  ? Center(
-                      child: Text(
-                        'Sin mensajes aún',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: theme.colorScheme.onSurface
-                              .withValues(alpha: 0.4),
-                        ),
-                      ),
-                    )
-                  : ListView.builder(
-                      controller: scrollController,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      itemCount: state.messages.length,
-                      itemBuilder: (context, i) {
-                        return _MessageBubble(
-                          msg: state.messages[i],
-                          agentName: agentName,
-                        );
-                      },
+              ? Center(
+                  child: Text(
+                    'Sin mensajes aún',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
                     ),
+                  ),
+                )
+              : ListView.builder(
+                  controller: scrollController,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  itemCount: state.messages.length,
+                  itemBuilder: (context, i) {
+                    return _MessageBubble(
+                      msg: state.messages[i],
+                      agentName: agentName,
+                    );
+                  },
+                ),
         ),
         // Error banner
         if (state.error != null)
@@ -1497,11 +1506,16 @@ class _ImageContent extends StatelessWidget {
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.image_not_supported_outlined,
-                  size: 16, color: textColor),
+              Icon(
+                Icons.image_not_supported_outlined,
+                size: 16,
+                color: textColor,
+              ),
               const SizedBox(width: 4),
-              Text('Imagen no disponible',
-                  style: TextStyle(color: textColor, fontSize: 13)),
+              Text(
+                'Imagen no disponible',
+                style: TextStyle(color: textColor, fontSize: 13),
+              ),
             ],
           ),
         if (msg.caption?.isNotEmpty == true)
@@ -1563,11 +1577,11 @@ class _ImageContent extends StatelessWidget {
   }
 
   Widget _brokenImage() => Container(
-        width: 220,
-        height: 120,
-        color: Colors.grey.shade300,
-        child: const Icon(Icons.broken_image_rounded, size: 40),
-      );
+    width: 220,
+    height: 120,
+    color: Colors.grey.shade300,
+    child: const Icon(Icons.broken_image_rounded, size: 40),
+  );
 
   void _showFullImage(BuildContext context, String url) {
     Widget imageWidget;
@@ -1577,15 +1591,21 @@ class _ImageContent extends StatelessWidget {
         final bytes = base64Decode(url.substring(commaIdx + 1));
         imageWidget = Image.memory(bytes);
       } catch (_) {
-        imageWidget = const Icon(Icons.broken_image_rounded,
-            size: 64, color: Colors.white);
+        imageWidget = const Icon(
+          Icons.broken_image_rounded,
+          size: 64,
+          color: Colors.white,
+        );
       }
     } else if (!url.startsWith('http://') && !url.startsWith('https://')) {
       try {
         imageWidget = Image.memory(base64Decode(url));
       } catch (_) {
-        imageWidget = const Icon(Icons.broken_image_rounded,
-            size: 64, color: Colors.white);
+        imageWidget = const Icon(
+          Icons.broken_image_rounded,
+          size: 64,
+          color: Colors.white,
+        );
       }
     } else {
       imageWidget = Image.network(url);
@@ -1703,21 +1723,31 @@ class _AudioContentState extends State<_AudioContent> {
     final color = widget.textColor;
 
     if (widget.msg.mediaUrl == null) {
-      return Row(mainAxisSize: MainAxisSize.min, children: [
-        Icon(Icons.mic_off_rounded, color: color, size: 16),
-        const SizedBox(width: 6),
-        Text('Audio no disponible',
-            style: TextStyle(color: color, fontSize: 13)),
-      ]);
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.mic_off_rounded, color: color, size: 16),
+          const SizedBox(width: 6),
+          Text(
+            'Audio no disponible',
+            style: TextStyle(color: color, fontSize: 13),
+          ),
+        ],
+      );
     }
 
     if (_error != null) {
-      return Row(mainAxisSize: MainAxisSize.min, children: [
-        Icon(Icons.error_outline, color: color, size: 16),
-        const SizedBox(width: 6),
-        Text('Error al cargar audio',
-            style: TextStyle(color: color, fontSize: 13)),
-      ]);
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.error_outline, color: color, size: 16),
+          const SizedBox(width: 6),
+          Text(
+            'Error al cargar audio',
+            style: TextStyle(color: color, fontSize: 13),
+          ),
+        ],
+      );
     }
 
     // Not yet loaded — show tap-to-play
@@ -1735,7 +1765,9 @@ class _AudioContentState extends State<_AudioContent> {
                       child: Padding(
                         padding: const EdgeInsets.all(7),
                         child: CircularProgressIndicator(
-                            strokeWidth: 2.5, color: color),
+                          strokeWidth: 2.5,
+                          color: color,
+                        ),
                       ),
                     )
                   : Container(
@@ -1745,8 +1777,11 @@ class _AudioContentState extends State<_AudioContent> {
                         shape: BoxShape.circle,
                         color: color.withValues(alpha: 0.15),
                       ),
-                      child: Icon(Icons.play_arrow_rounded,
-                          color: color, size: 22),
+                      child: Icon(
+                        Icons.play_arrow_rounded,
+                        color: color,
+                        size: 22,
+                      ),
                     ),
               const SizedBox(width: 10),
               Expanded(
@@ -1754,11 +1789,14 @@ class _AudioContentState extends State<_AudioContent> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text('Audio',
-                        style: TextStyle(
-                            color: color,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600)),
+                    Text(
+                      'Audio',
+                      style: TextStyle(
+                        color: color,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                     const SizedBox(height: 2),
                     // Fake waveform bar
                     _StaticWaveform(color: color),
@@ -1772,9 +1810,9 @@ class _AudioContentState extends State<_AudioContent> {
     }
 
     // Initialized — show inline player
-  final player = _player!;
-  final progress = _duration.inMilliseconds > 0
-    ? (_position.inMilliseconds / _duration.inMilliseconds).clamp(0.0, 1.0)
+    final player = _player!;
+    final progress = _duration.inMilliseconds > 0
+        ? (_position.inMilliseconds / _duration.inMilliseconds).clamp(0.0, 1.0)
         : 0.0;
 
     return SizedBox(
@@ -1805,8 +1843,9 @@ class _AudioContentState extends State<_AudioContent> {
                 SliderTheme(
                   data: SliderThemeData(
                     trackHeight: 2.5,
-                    thumbShape:
-                        const RoundSliderThumbShape(enabledThumbRadius: 5),
+                    thumbShape: const RoundSliderThumbShape(
+                      enabledThumbRadius: 5,
+                    ),
                     overlayShape: SliderComponentShape.noOverlay,
                     activeTrackColor: color,
                     inactiveTrackColor: color.withValues(alpha: 0.25),
@@ -1825,14 +1864,20 @@ class _AudioContentState extends State<_AudioContent> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(_fmt(_position),
-                          style: TextStyle(
-                              color: color.withValues(alpha: 0.7),
-                              fontSize: 9)),
-                      Text(_fmt(_duration),
-                          style: TextStyle(
-                              color: color.withValues(alpha: 0.7),
-                              fontSize: 9)),
+                      Text(
+                        _fmt(_position),
+                        style: TextStyle(
+                          color: color.withValues(alpha: 0.7),
+                          fontSize: 9,
+                        ),
+                      ),
+                      Text(
+                        _fmt(_duration),
+                        style: TextStyle(
+                          color: color.withValues(alpha: 0.7),
+                          fontSize: 9,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -1850,8 +1895,26 @@ class _StaticWaveform extends StatelessWidget {
   const _StaticWaveform({required this.color});
   final Color color;
 
-  static const _heights = [4.0, 8.0, 12.0, 6.0, 14.0, 8.0, 10.0, 6.0, 4.0,
-    12.0, 8.0, 14.0, 6.0, 10.0, 8.0, 4.0, 12.0, 6.0];
+  static const _heights = [
+    4.0,
+    8.0,
+    12.0,
+    6.0,
+    14.0,
+    8.0,
+    10.0,
+    6.0,
+    4.0,
+    12.0,
+    8.0,
+    14.0,
+    6.0,
+    10.0,
+    8.0,
+    4.0,
+    12.0,
+    6.0,
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -1861,15 +1924,17 @@ class _StaticWaveform extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.center,
         children: _heights
-            .map((h) => Container(
-                  width: 3,
-                  height: h,
-                  margin: const EdgeInsets.symmetric(horizontal: 1),
-                  decoration: BoxDecoration(
-                    color: color.withValues(alpha: 0.5),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ))
+            .map(
+              (h) => Container(
+                width: 3,
+                height: h,
+                margin: const EdgeInsets.symmetric(horizontal: 1),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            )
             .toList(),
       ),
     );
@@ -1964,49 +2029,60 @@ class _VideoContentState extends State<_VideoContent> {
               color: Colors.black87,
               child: _error != null
                   ? const Center(
-                      child: Icon(Icons.error_outline,
-                          color: Colors.white70, size: 34),
+                      child: Icon(
+                        Icons.error_outline,
+                        color: Colors.white70,
+                        size: 34,
+                      ),
                     )
                   : _initialized && controller != null
-                      ? Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            media_kit_video.Video(controller: controller),
-                            if (!_playing)
-                              Container(
-                                width: 52,
-                                height: 52,
-                                decoration: const BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: Colors.black45,
-                                ),
-                                child: const Icon(Icons.play_arrow_rounded,
-                                    color: Colors.white, size: 34),
-                              ),
-                          ],
-                        )
-                      : _loading
-                          ? const Center(
-                              child: CircularProgressIndicator(
-                                  color: Colors.white),
-                            )
-                          : Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                const Icon(Icons.videocam_rounded,
-                                    color: Colors.white54, size: 40),
-                                Container(
-                                  width: 52,
-                                  height: 52,
-                                  decoration: const BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: Colors.black45,
-                                  ),
-                                  child: const Icon(Icons.play_arrow_rounded,
-                                      color: Colors.white, size: 34),
-                                ),
-                              ],
+                  ? Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        media_kit_video.Video(controller: controller),
+                        if (!_playing)
+                          Container(
+                            width: 52,
+                            height: 52,
+                            decoration: const BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.black45,
                             ),
+                            child: const Icon(
+                              Icons.play_arrow_rounded,
+                              color: Colors.white,
+                              size: 34,
+                            ),
+                          ),
+                      ],
+                    )
+                  : _loading
+                  ? const Center(
+                      child: CircularProgressIndicator(color: Colors.white),
+                    )
+                  : Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        const Icon(
+                          Icons.videocam_rounded,
+                          color: Colors.white54,
+                          size: 40,
+                        ),
+                        Container(
+                          width: 52,
+                          height: 52,
+                          decoration: const BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Colors.black45,
+                          ),
+                          child: const Icon(
+                            Icons.play_arrow_rounded,
+                            color: Colors.white,
+                            size: 34,
+                          ),
+                        ),
+                      ],
+                    ),
             ),
           ),
         ),
@@ -2116,8 +2192,9 @@ class _ChatInput extends StatelessWidget {
                   borderSide: BorderSide.none,
                 ),
                 filled: true,
-                fillColor: theme.colorScheme.surfaceContainerHighest
-                    .withValues(alpha: 0.5),
+                fillColor: theme.colorScheme.surfaceContainerHighest.withValues(
+                  alpha: 0.5,
+                ),
                 contentPadding: const EdgeInsets.symmetric(
                   horizontal: 16,
                   vertical: 10,
@@ -2246,7 +2323,8 @@ class _DailyAiPanel extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 FilledButton.icon(
-                  onPressed: state.loadingAiSummary || state.selectedUser == null
+                  onPressed:
+                      state.loadingAiSummary || state.selectedUser == null
                       ? null
                       : onGenerate,
                   icon: state.loadingAiSummary
@@ -2268,10 +2346,22 @@ class _DailyAiPanel extends StatelessWidget {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  _AiStatPill(label: 'Contactos', value: '${stats['contacts'] ?? 0}'),
-                  _AiStatPill(label: 'Recibidos', value: '${stats['incomingMessages'] ?? 0}'),
-                  _AiStatPill(label: 'Enviados', value: '${stats['outgoingMessages'] ?? 0}'),
-                  _AiStatPill(label: 'Media', value: '${stats['mediaMessages'] ?? 0}'),
+                  _AiStatPill(
+                    label: 'Contactos',
+                    value: '${stats['contacts'] ?? 0}',
+                  ),
+                  _AiStatPill(
+                    label: 'Recibidos',
+                    value: '${stats['incomingMessages'] ?? 0}',
+                  ),
+                  _AiStatPill(
+                    label: 'Enviados',
+                    value: '${stats['outgoingMessages'] ?? 0}',
+                  ),
+                  _AiStatPill(
+                    label: 'Media',
+                    value: '${stats['mediaMessages'] ?? 0}',
+                  ),
                 ],
               ),
             ),
@@ -2393,14 +2483,14 @@ class _ActionsPanel extends StatelessWidget {
                 icon: Icons.phone_outlined,
                 label: 'Teléfono',
                 value: conv.displayPhone!,
-            ),
+              ),
             if (conv.lastMessageAt != null)
               _InfoRow(
                 icon: Icons.access_time_rounded,
                 label: 'Último mensaje',
-                value: DateFormat('dd/MM HH:mm').format(
-                  conv.lastMessageAt!.toLocal(),
-                ),
+                value: DateFormat(
+                  'dd/MM HH:mm',
+                ).format(conv.lastMessageAt!.toLocal()),
               ),
             const SizedBox(height: 20),
             Divider(color: theme.colorScheme.outlineVariant),
@@ -2498,10 +2588,7 @@ class _InfoRow extends StatelessWidget {
                     color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
                   ),
                 ),
-                Text(
-                  value,
-                  style: theme.textTheme.bodySmall,
-                ),
+                Text(value, style: theme.textTheme.bodySmall),
               ],
             ),
           ),

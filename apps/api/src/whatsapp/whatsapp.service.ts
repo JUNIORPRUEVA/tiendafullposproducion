@@ -975,4 +975,17 @@ export class WhatsappService {
       }),
     });
   }
+
+  async findChats(instanceName: string, limit = 30): Promise<unknown> {
+    return this.fetchEvolution(`/chat/findChats/${encodeURIComponent(instanceName)}`, {
+      method: 'POST',
+      body: JSON.stringify({
+        take: limit,
+        limit,
+        orderBy: {
+          updatedAt: 'desc',
+        },
+      }),
+    });
+  }
 }

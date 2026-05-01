@@ -354,6 +354,45 @@ enum ServiceReportType {
   @@map("service_report_type")
 }
 
+enum EmployeeWarningSeverity {
+  LOW      @map("low")
+  MEDIUM   @map("medium")
+  HIGH     @map("high")
+  CRITICAL @map("critical")
+
+  @@map("employee_warning_severity")
+}
+
+enum EmployeeWarningStatus {
+  DRAFT            @map("draft")
+  PENDING_SIGNATURE @map("pending_signature")
+  SIGNED           @map("signed")
+  REFUSED_TO_SIGN  @map("refused_to_sign")
+  ANNULLED         @map("annulled")
+  ARCHIVED         @map("archived")
+
+  @@map("employee_warning_status")
+}
+
+enum EmployeeWarningCategory {
+  TARDINESS        @map("tardiness")
+  ABSENCE          @map("absence")
+  MISCONDUCT       @map("misconduct")
+  NEGLIGENCE       @map("negligence")
+  POLICY_VIOLATION @map("policy_violation")
+  INSUBORDINATION  @map("insubordination")
+  OTHER            @map("other")
+
+  @@map("employee_warning_category")
+}
+
+enum EmployeeWarningSignatureType {
+  SIGNED  @map("signed")
+  REFUSED @map("refused")
+
+  @@map("employee_warning_signature_type")
+}
+
 model User {
   id               String   @id @default(uuid()) @db.Uuid
   email            String   @unique
@@ -400,6 +439,12 @@ model User {
   payrollPeriods PayrollPeriod[]
   payrollEmployeeConfigs PayrollEmployeeConfig[]
   payrollEntries PayrollEntry[]
+  employeeWarningsAssigned EmployeeWarning[] @relation("EmployeeWarningAssignedUser")
+  employeeWarningsCreated EmployeeWarning[] @relation("EmployeeWarningCreatedByUser")
+  employeeWarningsAnnulled EmployeeWarning[] @relation("EmployeeWarningAnnulledByUser")
+  employeeWarningEvidencesUploaded EmployeeWarningEvidence[] @relation("EmployeeWarningEvidenceUploadedByUser")
+  employeeWarningSignatures EmployeeWarningSignature[] @relation("EmployeeWarningSignatureEmployeeUser")
+  employeeWarningAuditLogs EmployeeWarningAuditLog[] @relation("EmployeeWarningAuditActorUser")
   payrollEmployeePeriodStatuses PayrollEmployeePeriodStatus[]
   payrollServiceCommissionRequestsOwned PayrollServiceCommissionRequest[] @relation("PayrollServiceCommissionOwner")
   payrollServiceCommissionRequests PayrollServiceCommissionRequest[] @relation("PayrollServiceCommissionTechnicianUser")
@@ -443,6 +488,104 @@ model User {
   whatsappInstance UserWhatsappInstance?
 
   @@map("users")
+}
+
+model EmployeeWarning {
+  id                    String                       @id @default(uuid()) @db.Uuid
+  companyId             String                       @map("company_id") @db.Uuid
+  employeeUserId        String                       @map("employee_user_id") @db.Uuid
+  createdByUserId       String                       @map("created_by_user_id") @db.Uuid
+  warningNumber         String                       @map("warning_number")
+  warningDate           DateTime                     @map("warning_date")
+  incidentDate          DateTime                     @map("incident_date")
+  title                 String
+  category              EmployeeWarningCategory
+  severity              EmployeeWarningSeverity
+  legalBasis            String?                      @db.Text @map("legal_basis")
+  internalRuleReference String?                      @db.Text @map("internal_rule_reference")
+  description           String                       @db.Text
+  employeeExplanation   String?                      @db.Text @map("employee_explanation")
+  correctiveAction      String?                      @db.Text @map("corrective_action")
+  consequenceNote       String?                      @db.Text @map("consequence_note")
+  evidenceNotes         String?                      @db.Text @map("evidence_notes")
+  status                EmployeeWarningStatus        @default(DRAFT)
+  pdfUrl                String?                      @db.Text @map("pdf_url")
+  signedPdfUrl          String?                      @db.Text @map("signed_pdf_url")
+  createdAt             DateTime                     @default(now()) @map("created_at")
+  updatedAt             DateTime                     @updatedAt @map("updated_at")
+  submittedAt           DateTime?                    @map("submitted_at")
+  signedAt              DateTime?                    @map("signed_at")
+  refusedAt             DateTime?                    @map("refused_at")
+  annulledAt            DateTime?                    @map("annulled_at")
+  annulledByUserId      String?                      @map("annulled_by_user_id") @db.Uuid
+  annulmentReason       String?                      @db.Text @map("annulment_reason")
+
+  employeeUser          User                         @relation("EmployeeWarningAssignedUser", fields: [employeeUserId], references: [id], onDelete: Restrict)
+  createdByUser         User                         @relation("EmployeeWarningCreatedByUser", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  annulledByUser        User?                        @relation("EmployeeWarningAnnulledByUser", fields: [annulledByUserId], references: [id], onDelete: SetNull)
+  evidences             EmployeeWarningEvidence[]
+  signatures            EmployeeWarningSignature[]
+  auditLogs             EmployeeWarningAuditLog[]
+
+  @@index([companyId, employeeUserId])
+  @@index([companyId, status])
+  @@index([companyId, createdAt])
+  @@unique([companyId, warningNumber])
+  @@map("employee_warnings")
+}
+
+model EmployeeWarningEvidence {
+  id               String           @id @default(uuid()) @db.Uuid
+  warningId        String           @map("warning_id") @db.Uuid
+  fileUrl          String           @db.Text @map("file_url")
+  fileName         String           @map("file_name")
+  fileType         String           @map("file_type")
+  storageKey       String?          @map("storage_key")
+  uploadedByUserId String           @map("uploaded_by_user_id") @db.Uuid
+  createdAt        DateTime         @default(now()) @map("created_at")
+
+  warning          EmployeeWarning  @relation(fields: [warningId], references: [id], onDelete: Cascade)
+  uploadedByUser   User             @relation("EmployeeWarningEvidenceUploadedByUser", fields: [uploadedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([warningId, createdAt])
+  @@map("employee_warning_evidences")
+}
+
+model EmployeeWarningSignature {
+  id                String                       @id @default(uuid()) @db.Uuid
+  warningId         String                       @map("warning_id") @db.Uuid
+  employeeUserId    String                       @map("employee_user_id") @db.Uuid
+  signatureType     EmployeeWarningSignatureType @map("signature_type")
+  signatureImageUrl String?                      @db.Text @map("signature_image_url")
+  typedName         String                       @map("typed_name")
+  comment           String?                      @db.Text
+  ipAddress         String?                      @map("ip_address")
+  deviceInfo        String?                      @db.Text @map("device_info")
+  signedAt          DateTime                     @map("signed_at")
+  createdAt         DateTime                     @default(now()) @map("created_at")
+
+  warning           EmployeeWarning              @relation(fields: [warningId], references: [id], onDelete: Cascade)
+  employeeUser      User                         @relation("EmployeeWarningSignatureEmployeeUser", fields: [employeeUserId], references: [id], onDelete: Restrict)
+
+  @@index([warningId, signedAt])
+  @@map("employee_warning_signatures")
+}
+
+model EmployeeWarningAuditLog {
+  id          String           @id @default(uuid()) @db.Uuid
+  warningId   String           @map("warning_id") @db.Uuid
+  action      String
+  actorUserId String?          @map("actor_user_id") @db.Uuid
+  oldStatus   EmployeeWarningStatus? @map("old_status")
+  newStatus   EmployeeWarningStatus? @map("new_status")
+  metadataJson Json?           @map("metadata_json")
+  createdAt   DateTime         @default(now()) @map("created_at")
+
+  warning     EmployeeWarning  @relation(fields: [warningId], references: [id], onDelete: Cascade)
+  actorUser   User?            @relation("EmployeeWarningAuditActorUser", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([warningId, createdAt])
+  @@map("employee_warning_audit_logs")
 }
 
 model UserWhatsappInstance {

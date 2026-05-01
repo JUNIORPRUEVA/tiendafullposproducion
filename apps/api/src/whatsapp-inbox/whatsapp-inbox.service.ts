@@ -918,6 +918,14 @@ export class WhatsappInboxService {
   // ─── Query conversations for an instance ──────────────────────────────
 
   async getConversations(instanceId: string, limit = 50) {
+    await this.syncRecentChatsFromEvolution(instanceId).catch((error) => {
+      console.warn(
+        `[WhatsappInbox] No se pudieron sincronizar chats recientes para instancia ${instanceId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    });
+
     const conversations = await this.prisma.whatsappConversation.findMany({
       where: { instanceId },
       orderBy: { lastMessageAt: 'desc' },
@@ -943,6 +951,51 @@ export class WhatsappInboxService {
   }
 
   // ─── Query messages for a conversation ───────────────────────────────
+
+  async syncRecentChatsFromEvolution(instanceId: string) {
+    const instance = await this.prisma.userWhatsappInstance.findUnique({
+      where: { id: instanceId },
+      select: { id: true, instanceName: true, phoneNumber: true },
+    });
+    if (!instance) return { synced: 0 };
+
+    const raw = await this.whatsappService.findChats(instance.instanceName, 40);
+    const chats = Array.isArray(raw) ? raw : collectEvolutionMessageRecords(raw);
+    let synced = 0;
+
+    for (const chat of chats) {
+      const chatRecord = asRecord(chat);
+      if (!chatRecord) continue;
+      const lastMessage = asRecord(chatRecord.lastMessage);
+      if (!lastMessage) continue;
+      const chatRemoteJid = asString(chatRecord.remoteJid);
+      const payload = {
+        data: {
+          ...lastMessage,
+          pushName:
+            asString(lastMessage.pushName) ??
+            asString(chatRecord.pushName) ??
+            null,
+          key: {
+            ...(asRecord(lastMessage.key) ?? {}),
+            remoteJid:
+              asString(asRecord(lastMessage.key)?.remoteJid) ??
+              chatRemoteJid,
+          },
+        },
+      };
+      const parsed = this.parseEvolutionPayload(payload, {
+        instanceName: instance.instanceName,
+        instance,
+        eventName: 'CHAT_RECENT_SYNC',
+      });
+      if (!parsed) continue;
+      const result = await this.saveMessage(instance.id, parsed);
+      if (!result.duplicate) synced++;
+    }
+
+    return { synced };
+  }
 
   async getMessages(conversationId: string, limit = 50, before?: Date) {
     if (!before) {

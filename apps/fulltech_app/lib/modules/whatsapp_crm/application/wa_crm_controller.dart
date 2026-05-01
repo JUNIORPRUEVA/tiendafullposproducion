@@ -430,6 +430,41 @@ class WaCrmController extends StateNotifier<WaCrmState> {
 
   // ─── Send reply ──────────────────────────────────────────────────────
 
+  Future<void> refreshActiveView() async {
+    final user = state.selectedUser;
+    if (user == null) return;
+    try {
+      final convs = _mergeConversationsByPhone(
+        await _repo.getConversations(user.id),
+      );
+      final selected = state.selectedConversation;
+      WaCrmConversation? selectedReplacement;
+      if (selected != null) {
+        selectedReplacement = convs.cast<WaCrmConversation?>().firstWhere(
+          (conv) =>
+              conv?.id == selected.id ||
+              (conv?.instanceId == selected.instanceId &&
+                  conv?.cleanPhone != null &&
+                  conv?.cleanPhone == selected.cleanPhone),
+          orElse: () => selected,
+        );
+      }
+
+      List<WaCrmMessage>? messages;
+      if (selectedReplacement != null) {
+        messages = await _repo.getMessages(selectedReplacement.id);
+      }
+
+      state = state.copyWith(
+        conversations: convs,
+        selectedConversation: () => selectedReplacement,
+        messages: messages ?? state.messages,
+      );
+    } catch (e) {
+      debugPrint('[WaCrm] refreshActiveView error: $e');
+    }
+  }
+
   Future<void> sendReply(String text) async {
     final conv = state.selectedConversation;
     if (conv == null || text.trim().isEmpty) return;
