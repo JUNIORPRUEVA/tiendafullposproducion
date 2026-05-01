@@ -212,13 +212,17 @@ export class WhatsappInboxWebhookController {
         return { ok: true, ignored: true, reason: 'instance_not_registered' };
       }
 
-      const parsed = this.inboxService.parseEvolutionPayload(payload);
-      if (!parsed) {
+      const parsedMessages = this.inboxService.parseEvolutionPayloads(payload);
+      if (parsedMessages.length === 0) {
         return { ok: true, ignored: true, reason: 'unparseable_payload' };
       }
 
-      await this.inboxService.saveMessage(instance.id, parsed);
-      return { ok: true };
+      let saved = 0;
+      for (const parsed of parsedMessages) {
+        await this.inboxService.saveMessage(instance.id, parsed);
+        saved++;
+      }
+      return { ok: true, saved };
     } catch (err) {
       console.error('[WhatsappInbox][Webhook] Error processing webhook:', err);
       return { ok: true, error: String(err) }; // Always return 200 to Evolution API

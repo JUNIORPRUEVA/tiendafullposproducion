@@ -138,22 +138,68 @@ export class WhatsappInboxService {
 
   // ─── Parse Evolution API webhook payload ───────────────────────────────
 
+  parseEvolutionPayloads(payload: unknown): ParsedWhatsappMessage[] {
+    const p = asRecord(payload);
+    if (!p) return [];
+
+    if (Array.isArray(p.data)) {
+      return p.data
+        .map((item) => this.parseEvolutionPayload({ ...p, data: item }))
+        .filter((item): item is ParsedWhatsappMessage => !!item);
+    }
+
+    const data = asRecord(p.data);
+    if (Array.isArray(data?.messages)) {
+      return data.messages
+        .map((item) => this.parseEvolutionPayload({ ...p, data: item }))
+        .filter((item): item is ParsedWhatsappMessage => !!item);
+    }
+
+    const parsed = this.parseEvolutionPayload(payload);
+    return parsed ? [parsed] : [];
+  }
+
   parseEvolutionPayload(payload: unknown): ParsedWhatsappMessage | null {
     try {
-      const p = payload as Record<string, unknown>;
+      const p = asRecord(payload);
+      if (!p) return null;
       // Evolution API wraps message data in p.data
-      const data = (p.data ?? p) as Record<string, unknown>;
-      const key = data.key as Record<string, unknown> | undefined;
+      const data = asRecord(p.data) ?? asRecord(p.message) ?? p;
+      const messageObj =
+        asRecord(data.message) ??
+        asRecord(data.messageData) ??
+        asRecord(data.messageContent) ??
+        {};
+      const key = asRecord(data.key) ?? asRecord(messageObj.key) ?? asRecord(p.key);
       if (!key) return null;
 
-      const remoteJid = key.remoteJid as string | undefined;
+      const remoteJid =
+        asString(key.remoteJid) ??
+        asString(data.remoteJid) ??
+        asString(data.chatId) ??
+        asString(data.to) ??
+        asString(data.number) ??
+        asString(data.recipient);
       if (!remoteJid || remoteJid === 'status@broadcast') return null;
 
-      const fromMe = Boolean(key.fromMe);
-      const evolutionId = (key.id as string | undefined) ?? '';
-      const pushName = (data.pushName as string | undefined) ?? null;
-      const rawMessageType = (data.messageType as string | undefined) ?? '';
-      const messageObj = (data.message as Record<string, unknown> | undefined) ?? {};
+      const eventName = asString(p.event)?.toUpperCase() ?? '';
+      const fromMe = key.fromMe === undefined
+        ? eventName === 'SEND_MESSAGE' || data.fromMe === true
+        : Boolean(key.fromMe);
+      const evolutionId =
+        asString(key.id) ??
+        asString(data.id) ??
+        asString(data.messageId) ??
+        '';
+      const pushName = asString(data.pushName) ?? null;
+      const rawMessageType =
+        asString(data.messageType) ??
+        asString(data.type) ??
+        (asString(messageObj.conversation)
+          ? 'conversation'
+          : messageObj.extendedTextMessage
+            ? 'extendedTextMessage'
+            : '');
       const participantJid =
         asString(key.participant) ??
         asString(data.participant) ??
@@ -164,6 +210,9 @@ export class WhatsappInboxService {
         data.senderPn,
         data.phone,
         data.remotePhone,
+        data.number,
+        data.to,
+        data.recipient,
         participantJid,
         remoteJid,
       );
@@ -230,8 +279,20 @@ export class WhatsappInboxService {
         mediaMimeType = mediaMime(sticker, data, 'image/webp');
         mediaUrl = mediaUrlFromPayload(sticker, messageObj, data, mediaMimeType);
       } else {
-        // Unknown type: store raw body if possible
-        body = JSON.stringify(messageObj).substring(0, 500);
+        const text =
+          asString(messageObj.conversation) ??
+          asString(asRecord(messageObj.extendedTextMessage)?.text) ??
+          asString(data.text) ??
+          asString(data.body) ??
+          asString(data.messageText) ??
+          null;
+        if (text) {
+          messageType = WhatsappMessageType.TEXT;
+          body = text;
+        } else {
+          // Unknown type: store raw body if possible
+          body = JSON.stringify(messageObj).substring(0, 500);
+        }
       }
 
       return {
