@@ -175,6 +175,20 @@ class CierresDiariosController extends StateNotifier<CierresDiariosState> {
     try {
       final editing = state.editingClose;
       if (editing == null) {
+        final day = DateTime(date.year, date.month, date.day);
+        final sameDayRows = await ref
+            .read(contabilidadRepositoryProvider)
+            .listCloses(from: day, to: day, type: type);
+        final alreadyExists = sameDayRows.any((row) => !row.isRejected);
+        if (alreadyExists) {
+          state = state.copyWith(
+            saving: false,
+            error:
+                'Ya existe un cierre activo para esta categoria en esa fecha. Selecciona otra fecha o categoria.',
+          );
+          return;
+        }
+
         await ref
             .read(contabilidadRepositoryProvider)
             .createClose(

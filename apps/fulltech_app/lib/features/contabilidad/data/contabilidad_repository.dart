@@ -59,10 +59,16 @@ class ContabilidadRepository {
       );
 
       final rows = res.data is List ? (res.data as List) : const [];
-      return rows
-          .whereType<Map>()
-          .map((row) => CloseModel.fromJson(row.cast<String, dynamic>()))
-          .toList();
+      try {
+        return rows
+            .whereType<Map>()
+            .map((row) => CloseModel.fromJson(row.cast<String, dynamic>()))
+            .toList();
+      } catch (e) {
+        throw ApiException(
+          'Se recibieron cierres con formato inválido. Detalle: $e',
+        );
+      }
     } on DioException catch (e) {
       throw ApiException(
         _extractMessage(e.response?.data, 'No se pudieron cargar los cierres'),
@@ -104,6 +110,11 @@ class ContabilidadRepository {
           'expenses': expenses,
           'cashDelivered': cashDelivered,
           if (notes != null) 'notes': notes.trim(),
+          if (evidenceUrl != null) 'evidenceUrl': evidenceUrl,
+          if (evidenceFileName != null) 'evidenceFileName': evidenceFileName,
+          if (evidenceStorageKey != null) 'evidenceStorageKey': evidenceStorageKey,
+          if (evidenceMimeType != null) 'evidenceMimeType': evidenceMimeType,
+          if (expenseDetails.isNotEmpty) 'expenseDetails': expenseDetails,
         },
       );
       return CloseModel.fromJson((res.data as Map).cast<String, dynamic>());

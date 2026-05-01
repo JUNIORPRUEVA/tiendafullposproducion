@@ -125,30 +125,69 @@ class CloseModel {
     required this.updatedAt,
   });
 
+  static String _asString(dynamic value, {String fallback = ''}) {
+    if (value == null) return fallback;
+    final text = value.toString().trim();
+    return text.isEmpty ? fallback : text;
+  }
+
+  static double _asDouble(dynamic value, {double fallback = 0}) {
+    if (value is num) return value.toDouble();
+    if (value is String) {
+      final parsed = double.tryParse(value.trim().replaceAll(',', '.'));
+      if (parsed != null) return parsed;
+    }
+    return fallback;
+  }
+
+  static DateTime _asDate(dynamic value, {DateTime? fallback}) {
+    if (value is DateTime) return value;
+    if (value is String && value.trim().isNotEmpty) {
+      final parsed = DateTime.tryParse(value.trim());
+      if (parsed != null) return parsed;
+    }
+    return fallback ?? DateTime.fromMillisecondsSinceEpoch(0);
+  }
+
+  static DateTime? _asNullableDate(dynamic value) {
+    if (value == null) return null;
+    if (value is DateTime) return value;
+    if (value is String && value.trim().isNotEmpty) {
+      return DateTime.tryParse(value.trim());
+    }
+    return null;
+  }
+
   factory CloseModel.fromJson(Map<String, dynamic> json) {
     return CloseModel(
-      id: json['id'],
-      type: CloseTypeX.fromKey(json['type']),
-      date: DateTime.parse(json['date']),
-      status: json['status'],
-      cash: (json['cash'] as num).toDouble(),
-      transfer: (json['transfer'] as num).toDouble(),
+      id: _asString(json['id']),
+      type: CloseTypeX.fromKey(_asString(json['type'])),
+      date: _asDate(json['date']),
+      status: _asString(json['status'], fallback: 'pending'),
+      cash: _asDouble(json['cash']),
+      transfer: _asDouble(json['transfer']),
       transferBank: (json['transferBank'] as String?)?.trim().isEmpty == true
           ? null
           : json['transferBank'] as String?,
-      card: (json['card'] as num).toDouble(),
-      otherIncome: (json['otherIncome'] as num?)?.toDouble() ?? 0,
-      expenses: (json['expenses'] as num).toDouble(),
-      cashDelivered: (json['cashDelivered'] as num).toDouble(),
-      persistedTotalIncome: (json['totalIncome'] as num?)?.toDouble(),
-      persistedNetTotal: (json['netTotal'] as num?)?.toDouble(),
-      persistedDifference: (json['difference'] as num?)?.toDouble(),
+      card: _asDouble(json['card']),
+      otherIncome: _asDouble(json['otherIncome']),
+      expenses: _asDouble(json['expenses']),
+      cashDelivered: _asDouble(json['cashDelivered']),
+      persistedTotalIncome: json['totalIncome'] == null
+          ? null
+          : _asDouble(json['totalIncome']),
+      persistedNetTotal: json['netTotal'] == null
+          ? null
+          : _asDouble(json['netTotal']),
+      persistedDifference: json['difference'] == null
+          ? null
+          : _asDouble(json['difference']),
       notes: json['notes'] as String?,
-        evidenceUrl: json['evidenceUrl'] as String?,
-        evidenceFileName: json['evidenceFileName'] as String?,
-        evidenceStorageKey: json['evidenceStorageKey'] as String?,
-        evidenceMimeType: json['evidenceMimeType'] as String?,
-        expenseDetails: (json['expenseDetails'] as List? ?? const [])
+      evidenceUrl: json['evidenceUrl'] as String?,
+      evidenceFileName: json['evidenceFileName'] as String?,
+      evidenceStorageKey: json['evidenceStorageKey'] as String?,
+      evidenceMimeType: json['evidenceMimeType'] as String?,
+      expenseDetails: (json['expenseDetails'] as List? ?? const [])
           .whereType<Map>()
           .map((e) => e.cast<String, dynamic>())
           .toList(),
@@ -160,24 +199,20 @@ class CloseModel {
       createdByName: json['createdByName'] as String?,
       reviewedById: json['reviewedById'] as String?,
       reviewedByName: json['reviewedByName'] as String?,
-      reviewedAt: json['reviewedAt'] == null
-          ? null
-          : DateTime.parse(json['reviewedAt']),
+      reviewedAt: _asNullableDate(json['reviewedAt']),
       reviewNote: json['reviewNote'] as String?,
       aiRiskLevel: json['aiRiskLevel'] as String?,
       aiReportSummary: json['aiReportSummary'] as String?,
       aiReportJson: (json['aiReportJson'] as Map?)?.cast<String, dynamic>(),
-      aiGeneratedAt: json['aiGeneratedAt'] == null
-          ? null
-          : DateTime.parse(json['aiGeneratedAt']),
+      aiGeneratedAt: _asNullableDate(json['aiGeneratedAt']),
       transfers: (json['transfers'] as List? ?? const [])
           .whereType<Map>()
           .map(
             (row) => CloseTransferModel.fromJson(row.cast<String, dynamic>()),
           )
           .toList(),
-      createdAt: DateTime.parse(json['createdAt']),
-      updatedAt: DateTime.parse(json['updatedAt']),
+      createdAt: _asDate(json['createdAt']),
+      updatedAt: _asDate(json['updatedAt']),
     );
   }
 
@@ -211,7 +246,7 @@ class CloseTransferModel {
     return CloseTransferModel(
       id: json['id'] as String? ?? '',
       bankName: json['bankName'] as String? ?? '',
-      amount: (json['amount'] as num?)?.toDouble() ?? 0,
+      amount: CloseModel._asDouble(json['amount']),
       referenceNumber: json['referenceNumber'] as String?,
       note: json['note'] as String?,
       vouchers: (json['vouchers'] as List? ?? const [])

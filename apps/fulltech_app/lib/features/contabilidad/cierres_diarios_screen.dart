@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -136,8 +138,7 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                   SizedBox(
                     height: 48,
                     child: OutlinedButton.icon(
-                      onPressed: () =>
-                          _openHistoryDialog(context, state.closes),
+                      onPressed: () => _openHistoryScreen(context),
                       icon: const Icon(Icons.history),
                       label: Text(
                         'Historial de cierres (${state.closes.length})',
@@ -196,14 +197,19 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                     selected: _type == CloseType.tienda,
                     onPressed: editing
                         ? null
-                        : () => controller.setTypeFilter(CloseType.tienda),
+                        : () =>
+                            _trySelectType(CloseType.tienda, state, controller),
                   ),
                   _UnitChipButton(
                     label: 'PhytoEmagry',
                     selected: _type == CloseType.phytoemagry,
                     onPressed: editing
                         ? null
-                        : () => controller.setTypeFilter(CloseType.phytoemagry),
+                        : () => _trySelectType(
+                            CloseType.phytoemagry,
+                            state,
+                            controller,
+                          ),
                   ),
                   if (editing)
                     TextButton(
@@ -228,6 +234,15 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                         lastDate: DateTime(2100),
                       );
                       if (picked == null) return;
+                      if (_hasActiveCloseFor(
+                        picked,
+                        _type,
+                        state,
+                        excludingId: _editingId,
+                      )) {
+                        _showDuplicateDateMessage();
+                        return;
+                      }
                       setState(() => _date = picked);
                     },
               borderRadius: BorderRadius.circular(12),
@@ -319,6 +334,17 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                           ),
                         );
                         if (confirmed != true) return;
+
+                        if (!editing &&
+                            _hasActiveCloseFor(
+                              _date,
+                              _type,
+                              state,
+                              excludingId: _editingId,
+                            )) {
+                          _showDuplicateDateMessage();
+                          return;
+                        }
 
                         await controller.saveClose(
                           type: _type,
@@ -492,7 +518,9 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
               children: [
                 TableRow(
                   decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surfaceVariant,
+                    color: Theme.of(context)
+                        .colorScheme
+                        .surfaceContainerHighest,
                   ),
                   children: const [
                     Padding(
@@ -818,205 +846,746 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
     return double.tryParse(normalized) ?? 0;
   }
 
-  Future<void> _openHistoryDialog(
-    BuildContext context,
-    List<CloseModel> closes,
-  ) async {
-    await showDialog<void>(
-      context: context,
-      builder: (context) {
-        CloseType selectedType = _type;
-        String selectedStatus = 'TODOS';
-        DateTime? fromDate;
-        DateTime? toDate;
+  bool _sameDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
 
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            final filtered = closes.where((close) {
-              if (close.type != selectedType) return false;
-              if (fromDate != null) {
-                final from = DateTime(
-                  fromDate!.year,
-                  fromDate!.month,
-                  fromDate!.day,
-                );
-                if (close.date.isBefore(from)) return false;
-              }
-              if (toDate != null) {
-                final to = DateTime(
-                  toDate!.year,
-                  toDate!.month,
-                  toDate!.day,
-                  23,
-                  59,
-                  59,
-                );
-                if (close.date.isAfter(to)) return false;
-              }
-              if (selectedStatus != 'TODOS' && close.status != selectedStatus) {
-                return false;
-              }
-              return true;
-            }).toList();
+  bool _hasActiveCloseFor(
+    DateTime date,
+    CloseType type,
+    CierresDiariosState state, {
+    String? excludingId,
+  }) {
+    return state.closes.any((close) {
+      if (excludingId != null && close.id == excludingId) return false;
+      if (close.type != type) return false;
+      if (close.isRejected) return false;
+      return _sameDay(close.date, date);
+    });
+  }
 
-            return Dialog(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(
-                  maxWidth: 920,
-                  maxHeight: 650,
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Row(
-                        children: [
-                          const Expanded(
-                            child: Text(
-                              'Historial de cierres diarios',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ),
-                          IconButton(
-                            onPressed: () => Navigator.pop(context),
-                            icon: const Icon(Icons.close),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          OutlinedButton.icon(
-                            onPressed: () async {
-                              final range = await showDateRangePicker(
-                                context: context,
-                                firstDate: DateTime(2024),
-                                lastDate: DateTime(2100),
-                                initialDateRange: DateTimeRange(
-                                  start: fromDate ?? DateTime.now(),
-                                  end: toDate ?? DateTime.now(),
-                                ),
-                              );
-                              if (range == null) return;
-                              setDialogState(() {
-                                fromDate = range.start;
-                                toDate = range.end;
-                              });
-                            },
-                            icon: const Icon(Icons.date_range_outlined),
-                            label: Text(
-                              fromDate == null || toDate == null
-                                  ? 'Rango'
-                                  : '${_dateOnly(fromDate!)} - ${_dateOnly(toDate!)}',
-                            ),
-                          ),
-                          if (fromDate != null || toDate != null)
-                            TextButton(
-                              onPressed: () {
-                                setDialogState(() {
-                                  fromDate = null;
-                                  toDate = null;
-                                });
-                              },
-                              child: const Text('Limpiar rango'),
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          FilterChip(
-                            label: const Text('Tienda'),
-                            selected: selectedType == CloseType.tienda,
-                            onSelected: (_) => setDialogState(
-                              () => selectedType = CloseType.tienda,
-                            ),
-                          ),
-                          FilterChip(
-                            label: const Text('PhytoEmagry'),
-                            selected: selectedType == CloseType.phytoemagry,
-                            onSelected: (_) => setDialogState(
-                              () => selectedType = CloseType.phytoemagry,
-                            ),
-                          ),
-                          DropdownButtonHideUnderline(
-                            child: DropdownButton<String>(
-                              value: selectedStatus,
-                              items: const [
-                                DropdownMenuItem(
-                                  value: 'TODOS',
-                                  child: Text('Estado: Todos'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'pending',
-                                  child: Text('Pendiente'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'approved',
-                                  child: Text('Aprobado'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'rejected',
-                                  child: Text('Rechazado'),
-                                ),
-                              ],
-                              onChanged: (value) {
-                                if (value == null) return;
-                                setDialogState(() => selectedStatus = value);
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        '${filtered.length} resultados',
-                        style: Theme.of(context).textTheme.labelLarge,
-                      ),
-                      const SizedBox(height: 8),
-                      if (filtered.isEmpty)
-                        const Expanded(
-                          child: Center(
-                            child: Text(
-                              'No hay cierres para el filtro seleccionado.',
-                            ),
-                          ),
-                        )
-                      else
-                        Expanded(
-                          child: ListView.separated(
-                            itemCount: filtered.length,
-                            separatorBuilder: (_, __) =>
-                                const SizedBox(height: 8),
-                            itemBuilder: (context, index) {
-                              return _HistoryCloseTile(
-                                close: filtered[index],
-                                onDuplicate: () {
-                                  Navigator.of(context).pop();
-                                  _duplicateRejectedClose(filtered[index]);
-                                },
-                              );
-                            },
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
+  void _showDuplicateDateMessage() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Ya existe un cierre activo para esta categoria y fecha. Selecciona otra fecha o categoria.',
+        ),
+      ),
     );
   }
+
+  void _trySelectType(
+    CloseType type,
+    CierresDiariosState state,
+    CierresDiariosController controller,
+  ) {
+    if (
+        _hasActiveCloseFor(_date, type, state, excludingId: _editingId)) {
+      _showDuplicateDateMessage();
+      return;
+    }
+    controller.setTypeFilter(type);
+  }
+
+  Future<void> _openHistoryScreen(BuildContext context) async {
+    final closeToDuplicate = await Navigator.of(context).push<CloseModel>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => _HistoryFullScreenPage(initialType: _type),
+      ),
+    );
+    if (closeToDuplicate != null) {
+      _duplicateRejectedClose(closeToDuplicate);
+    }
+  }
+}
+
+class _HistoryFullScreenPage extends ConsumerStatefulWidget {
+  final CloseType initialType;
+
+  const _HistoryFullScreenPage({required this.initialType});
+
+  @override
+  ConsumerState<_HistoryFullScreenPage> createState() =>
+      _HistoryFullScreenPageState();
+}
+
+class _HistoryFullScreenPageState
+    extends ConsumerState<_HistoryFullScreenPage> {
+  late CloseType _selectedType = widget.initialType;
+  String _selectedStatus = 'TODOS';
+  DateTime? _fromDate;
+  DateTime? _toDate;
+
+  String _dateOnly(DateTime date) => DateFormat('dd/MM/yyyy').format(date);
+
+  bool _isWithinRange(CloseModel close) {
+    if (_fromDate != null) {
+      final from = DateTime(_fromDate!.year, _fromDate!.month, _fromDate!.day);
+      if (close.date.isBefore(from)) return false;
+    }
+    if (_toDate != null) {
+      final to = DateTime(
+        _toDate!.year,
+        _toDate!.month,
+        _toDate!.day,
+        23,
+        59,
+        59,
+      );
+      if (close.date.isAfter(to)) return false;
+    }
+    return true;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = ref.watch(cierresDiariosControllerProvider);
+    final filtered = state.closes.where((close) {
+      if (close.type != _selectedType) return false;
+      if (_selectedStatus != 'TODOS' && close.status != _selectedStatus) {
+        return false;
+      }
+      return _isWithinRange(close);
+    }).toList();
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Historial de cierres diarios'),
+        actions: [
+          IconButton(
+            tooltip: 'Actualizar',
+            onPressed: () =>
+                ref.read(cierresDiariosControllerProvider.notifier).refresh(),
+            icon: const Icon(Icons.refresh),
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          if (state.loading) const LinearProgressIndicator(),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          final range = await showDateRangePicker(
+                            context: context,
+                            firstDate: DateTime(2024),
+                            lastDate: DateTime(2100),
+                            initialDateRange: DateTimeRange(
+                              start: _fromDate ?? DateTime.now(),
+                              end: _toDate ?? DateTime.now(),
+                            ),
+                          );
+                          if (range == null) return;
+                          setState(() {
+                            _fromDate = range.start;
+                            _toDate = range.end;
+                          });
+                        },
+                        icon: const Icon(Icons.date_range_outlined),
+                        label: Text(
+                          _fromDate == null || _toDate == null
+                              ? 'Elegir rango'
+                              : '${_dateOnly(_fromDate!)} - ${_dateOnly(_toDate!)}',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    if (_fromDate != null || _toDate != null)
+                      TextButton(
+                        onPressed: () =>
+                            setState(() {
+                              _fromDate = null;
+                              _toDate = null;
+                            }),
+                        child: const Text('Limpiar'),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    FilterChip(
+                      label: const Text('Tienda'),
+                      selected: _selectedType == CloseType.tienda,
+                      onSelected: (_) =>
+                          setState(() => _selectedType = CloseType.tienda),
+                    ),
+                    const SizedBox(width: 8),
+                    FilterChip(
+                      label: const Text('PhytoEmagry'),
+                      selected: _selectedType == CloseType.phytoemagry,
+                      onSelected: (_) => setState(
+                        () => _selectedType = CloseType.phytoemagry,
+                      ),
+                    ),
+                    const Spacer(),
+                    DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: _selectedStatus,
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'TODOS',
+                            child: Text('Estado: Todos'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'pending',
+                            child: Text('Pendiente'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'approved',
+                            child: Text('Aprobado'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'rejected',
+                            child: Text('Rechazado'),
+                          ),
+                        ],
+                        onChanged: (value) {
+                          if (value == null) return;
+                          setState(() => _selectedStatus = value);
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    '${filtered.length} registros',
+                    style: Theme.of(context).textTheme.labelLarge,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: filtered.isEmpty
+                ? const Center(
+                    child: Text(
+                      'No hay cierres para el filtro seleccionado.',
+                    ),
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 18),
+                    itemCount: filtered.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    itemBuilder: (context, index) {
+                      final close = filtered[index];
+                      final statusLabel = switch (close.status) {
+                        'approved' => 'Aprobado',
+                        'rejected' => 'Rechazado',
+                        _ => 'Pendiente',
+                      };
+                      return Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(14),
+                          onTap: () async {
+                            final duplicate = await Navigator.of(context).push<
+                                CloseModel>(
+                              MaterialPageRoute(
+                                builder: (_) => _CloseDetailFullScreenPage(
+                                  closeId: close.id,
+                                ),
+                              ),
+                            );
+                            if (duplicate != null && context.mounted) {
+                              Navigator.of(context).pop(duplicate);
+                            }
+                          },
+                          child: Ink(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .outlineVariant,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        '${close.type.label} · ${DateFormat('dd/MM/yyyy').format(close.date)}',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 15,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        'Creado por ${close.createdByName ?? close.createdById ?? 'N/D'}',
+                                        style:
+                                            Theme.of(context).textTheme.bodySmall,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(999),
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .surfaceContainerHighest,
+                                  ),
+                                  child: Text(
+                                    statusLabel,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                const Icon(Icons.chevron_right_rounded),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CloseDetailFullScreenPage extends ConsumerStatefulWidget {
+  final String closeId;
+
+  const _CloseDetailFullScreenPage({required this.closeId});
+
+  @override
+  ConsumerState<_CloseDetailFullScreenPage> createState() =>
+      _CloseDetailFullScreenPageState();
+}
+
+class _CloseDetailFullScreenPageState
+    extends ConsumerState<_CloseDetailFullScreenPage> {
+  bool _runningAi = false;
+  String _aiStep = '';
+
+  String _money(double value) =>
+      NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$ ').format(value);
+
+  Future<void> _runAiReport(CloseModel close) async {
+    if (_runningAi) return;
+    setState(() {
+      _runningAi = true;
+      _aiStep = 'Preparando contexto contable...';
+    });
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    if (!mounted) return;
+    setState(() {
+      _aiStep =
+          'Analizando diferencia contra gastos, ingresos y comprobantes...';
+    });
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    if (!mounted) return;
+    setState(() {
+      _aiStep = 'Generando reporte IA y guardando resultado...';
+    });
+    try {
+      await ref
+          .read(cierresDiariosControllerProvider.notifier)
+          .generateAiReport(close.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Informe IA generado correctamente.')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _runningAi = false;
+          _aiStep = '';
+        });
+      }
+    }
+  }
+
+  Future<void> _askApproveReject({
+    required CloseModel close,
+    required bool approve,
+  }) async {
+    final ctrl = TextEditingController();
+    final note = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(approve ? 'Aprobar cierre' : 'Rechazar cierre'),
+        content: TextField(
+          controller: ctrl,
+          maxLines: 3,
+          decoration: const InputDecoration(labelText: 'Nota de revisión'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, ctrl.text),
+            child: const Text('Confirmar'),
+          ),
+        ],
+      ),
+    );
+    if (note == null) return;
+    final controller = ref.read(cierresDiariosControllerProvider.notifier);
+    if (approve) {
+      await controller.approveClose(close.id, reviewNote: note);
+    } else {
+      await controller.rejectClose(close.id, reviewNote: note);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = ref.watch(cierresDiariosControllerProvider);
+    CloseModel? close;
+    for (final item in state.closes) {
+      if (item.id == widget.closeId) {
+        close = item;
+        break;
+      }
+    }
+    final role = ref.watch(authStateProvider).user?.role;
+    final canReview = role == 'ADMIN' || role == 'ASISTENTE';
+
+    if (close == null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Detalle de cierre')),
+        body: const Center(
+          child: Text('No se encontró el cierre seleccionado.'),
+        ),
+      );
+    }
+    final currentClose = close;
+
+    final statusLabel = switch (currentClose.status) {
+      'approved' => 'Aprobado',
+      'rejected' => 'Rechazado',
+      _ => 'Pendiente',
+    };
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(
+          'Detalle · ${currentClose.type.label} · ${DateFormat('dd/MM/yyyy').format(currentClose.date)}',
+        ),
+        actions: [
+          if (currentClose.isRejected)
+            TextButton.icon(
+              onPressed: () => Navigator.of(context).pop(currentClose),
+              icon: const Icon(Icons.copy_outlined),
+              label: const Text('Duplicar'),
+            ),
+          const SizedBox(width: 8),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(18, 14, 18, 24),
+        children: [
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              _InfoPill(label: 'Estado', value: statusLabel),
+              _InfoPill(
+                label: 'Creado por',
+                value:
+                    currentClose.createdByName ?? currentClose.createdById ?? 'N/D',
+              ),
+              _InfoPill(
+                label: 'Creado en',
+                value: DateFormat('dd/MM/yyyy h:mm a', 'es_DO')
+                    .format(currentClose.createdAt),
+              ),
+              if (currentClose.reviewedAt != null)
+                _InfoPill(
+                  label: 'Revisado en',
+                  value: DateFormat('dd/MM/yyyy h:mm a', 'es_DO')
+                      .format(currentClose.reviewedAt!),
+                ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              _MoneyPill(label: 'Total ingresos', value: _money(currentClose.incomeTotal)),
+              _MoneyPill(label: 'Total neto', value: _money(currentClose.netTotal)),
+              _MoneyPill(label: 'Diferencia', value: _money(currentClose.difference)),
+              _MoneyPill(label: 'Efectivo', value: _money(currentClose.cash)),
+              _MoneyPill(label: 'Transferencia', value: _money(currentClose.transfer)),
+              _MoneyPill(label: 'Tarjeta', value: _money(currentClose.card)),
+              _MoneyPill(label: 'Otros ingresos', value: _money(currentClose.otherIncome)),
+              _MoneyPill(label: 'Gastos', value: _money(currentClose.expenses)),
+              _MoneyPill(
+                label: 'Efectivo entregado',
+                value: _money(currentClose.cashDelivered),
+              ),
+            ],
+          ),
+          if (currentClose.expenseDetails.isNotEmpty) ...[
+            const SizedBox(height: 18),
+            Text(
+              'Detalle de gastos',
+              style: Theme.of(context)
+                  .textTheme
+                  .titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 8),
+            ...currentClose.expenseDetails.map(
+              (row) {
+                final concept = (row['concept'] as String?)?.trim();
+                final amount = (row['amount'] as num?)?.toDouble() ?? 0;
+                return ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(concept?.isNotEmpty == true ? concept! : 'Sin concepto'),
+                  trailing: Text(
+                    _money(amount),
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                );
+              },
+            ),
+          ],
+          const SizedBox(height: 18),
+          Text(
+            'Transferencias y vouchers',
+            style: Theme.of(context)
+                .textTheme
+                .titleMedium
+                ?.copyWith(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 8),
+          if (currentClose.transfers.isEmpty)
+            const Text('Sin transferencias registradas.')
+          else
+            ...currentClose.transfers.asMap().entries.map((entry) {
+              final transfer = entry.value;
+              return ExpansionTile(
+                tilePadding: EdgeInsets.zero,
+                title: Text(
+                  '${entry.key + 1}. ${transfer.bankName} · ${_money(transfer.amount)}',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                subtitle: Text(
+                  [
+                    if ((transfer.referenceNumber ?? '').trim().isNotEmpty)
+                      'Ref: ${transfer.referenceNumber}',
+                    if ((transfer.note ?? '').trim().isNotEmpty)
+                      transfer.note!.trim(),
+                  ].join(' · '),
+                ),
+                children: transfer.vouchers
+                    .map(
+                      (voucher) => ListTile(
+                        contentPadding: const EdgeInsets.only(left: 4, right: 4),
+                        leading: Icon(
+                          voucher.mimeType.startsWith('image/')
+                              ? Icons.image_outlined
+                              : Icons.picture_as_pdf_outlined,
+                        ),
+                        title: Text(
+                          voucher.fileName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        subtitle: Text(voucher.mimeType),
+                        trailing: OutlinedButton(
+                          onPressed: () =>
+                              _showVoucherPreviewDialog(context, voucher),
+                          child: const Text('Expandir'),
+                        ),
+                      ),
+                    )
+                    .toList(),
+              );
+            }),
+            if (currentClose.evidenceUrl != null &&
+              currentClose.evidenceFileName != null) ...[
+            const SizedBox(height: 18),
+            Text(
+              'Voucher de cierre POS',
+              style: Theme.of(context)
+                  .textTheme
+                  .titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w800),
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(
+                (currentClose.evidenceMimeType ?? '').startsWith('image/')
+                    ? Icons.image_outlined
+                    : Icons.picture_as_pdf_outlined,
+              ),
+              title: Text(currentClose.evidenceFileName!),
+              subtitle: Text(currentClose.evidenceMimeType ?? 'archivo'),
+              trailing: OutlinedButton(
+                onPressed: () => _showVoucherPreviewDialog(
+                  context,
+                  CloseTransferVoucherModel(
+                    storageKey: currentClose.evidenceStorageKey ?? '',
+                    fileUrl: currentClose.evidenceUrl!,
+                    fileName: currentClose.evidenceFileName!,
+                    mimeType: currentClose.evidenceMimeType ?? '',
+                  ),
+                ),
+                child: const Text('Expandir'),
+              ),
+            ),
+          ],
+          if ((currentClose.notes ?? '').trim().isNotEmpty) ...[
+            const SizedBox(height: 18),
+            Text(
+              'Notas',
+              style: Theme.of(context)
+                  .textTheme
+                  .titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 8),
+            Text(currentClose.notes!.trim()),
+          ],
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: _runningAi ? null : () => _runAiReport(currentClose),
+                  icon: const Icon(Icons.auto_awesome_outlined),
+                  label: const Text('Generar reporte IA'),
+                ),
+              ),
+            ],
+          ),
+          if (_runningAi) ...[
+            const SizedBox(height: 10),
+            LinearProgressIndicator(
+              color: AppTheme.primaryColor,
+              backgroundColor:
+                  Theme.of(context).colorScheme.surfaceContainerHighest,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _aiStep,
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(fontWeight: FontWeight.w600),
+            ),
+          ],
+          if ((currentClose.aiReportSummary ?? '').trim().isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Text(
+              'Resultado IA',
+              style: Theme.of(context)
+                  .textTheme
+                  .titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 8),
+            _InfoPill(
+              label: 'Riesgo',
+              value: (currentClose.aiRiskLevel ?? 'N/D').toUpperCase(),
+            ),
+            const SizedBox(height: 8),
+            Text(currentClose.aiReportSummary!.trim()),
+            if ((currentClose.aiReportJson ?? const {}).isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Text(
+                const JsonEncoder.withIndent('  ').convert(currentClose.aiReportJson),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  fontFamily: 'monospace',
+                ),
+              ),
+            ],
+          ],
+          if (currentClose.isPending && canReview) ...[
+            const SizedBox(height: 18),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () =>
+                        _askApproveReject(close: currentClose, approve: false),
+                    icon: const Icon(Icons.close),
+                    label: const Text('Rechazar'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: () =>
+                        _askApproveReject(close: currentClose, approve: true),
+                    icon: const Icon(Icons.verified_outlined),
+                    label: const Text('Aprobar'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+void _showVoucherPreviewDialog(
+  BuildContext context,
+  CloseTransferVoucherModel voucher,
+) {
+  showDialog<void>(
+    context: context,
+    builder: (context) => Dialog(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 860, maxHeight: 700),
+        child: Column(
+          children: [
+            ListTile(
+              title: Text(voucher.fileName),
+              subtitle: Text(voucher.mimeType),
+              trailing: IconButton(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.close),
+              ),
+            ),
+            Expanded(
+              child: voucher.mimeType.startsWith('image/')
+                  ? InteractiveViewer(child: Image.network(voucher.fileUrl))
+                  : Padding(
+                      padding: const EdgeInsets.all(18),
+                      child: SelectableText(voucher.fileUrl),
+                    ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 class _MoneyPill extends StatelessWidget {
@@ -1403,233 +1972,6 @@ class _InfoPill extends StatelessWidget {
         ],
       ),
     );
-  }
-}
-
-class _HistoryCloseTile extends ConsumerWidget {
-  final CloseModel close;
-  final VoidCallback onDuplicate;
-
-  const _HistoryCloseTile({required this.close, required this.onDuplicate});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$ ');
-    final transferBank = (close.transferBank ?? '').trim();
-    final currentRole = ref.watch(authStateProvider).user?.role;
-    final canReview = currentRole == 'ADMIN' || currentRole == 'ASISTENTE';
-    final statusLabel = switch (close.status) {
-      'approved' => 'Aprobado',
-      'rejected' => 'Rechazado',
-      _ => 'Pendiente',
-    };
-
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-      ),
-      child: ExpansionTile(
-        tilePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-        childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-        title: Text(
-          '${close.type.label} · ${DateFormat('dd/MM/yyyy').format(close.date)}',
-          style: const TextStyle(fontWeight: FontWeight.w800),
-        ),
-        subtitle: Text(
-          'Total ingresos: ${money.format(close.incomeTotal)} - Neto: ${money.format(close.netTotal)} - $statusLabel',
-        ),
-        children: [
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              _MoneyPill(
-                label: 'Total ingresos',
-                value: money.format(close.incomeTotal),
-              ),
-              _MoneyPill(
-                label: 'Total neto',
-                value: money.format(close.netTotal),
-              ),
-              _MoneyPill(
-                label: 'Diferencia',
-                value: money.format(close.difference),
-              ),
-              _MoneyPill(label: 'Efectivo', value: money.format(close.cash)),
-              _MoneyPill(
-                label: 'Transferencia',
-                value: money.format(close.transfer),
-              ),
-              _MoneyPill(label: 'Tarjeta', value: money.format(close.card)),
-              _MoneyPill(
-                label: 'Otros ingresos',
-                value: money.format(close.otherIncome),
-              ),
-              _MoneyPill(label: 'Gastos', value: money.format(close.expenses)),
-              _MoneyPill(
-                label: 'Efectivo entregado',
-                value: money.format(close.cashDelivered),
-              ),
-              _InfoPill(label: 'Estado', value: statusLabel),
-              _InfoPill(
-                label: 'Creado por',
-                value: close.createdByName ?? close.createdById ?? 'N/D',
-              ),
-            ],
-          ),
-          if (close.transfer > 0) ...[
-            const SizedBox(height: 10),
-            Text(
-              'Banco: ${_humanBank(transferBank)} · Monto: ${money.format(close.transfer)}',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-                color: AppTheme.primaryColor,
-              ),
-            ),
-          ],
-          const SizedBox(height: 8),
-          Text(
-            'Creado por: ${close.createdByName ?? close.createdById ?? 'N/D'} · ${DateFormat('dd/MM/yyyy h:mm a', 'es_DO').format(close.createdAt)}',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-          if ((close.notes ?? '').trim().isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Notas: ${close.notes!.trim()}',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-            ),
-          ],
-          if (close.reviewedAt != null) ...[
-            const SizedBox(height: 4),
-            Text(
-              'Revisado por: ${close.reviewedByName ?? close.reviewedById ?? 'N/D'} - ${DateFormat('dd/MM/yyyy h:mm a', 'es_DO').format(close.reviewedAt!)}',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
-          if (canReview) ...[
-            const SizedBox(height: 10),
-            Align(
-              alignment: Alignment.centerRight,
-              child: OutlinedButton.icon(
-                onPressed: () async {
-                  await ref
-                      .read(cierresDiariosControllerProvider.notifier)
-                      .generateAiReport(close.id);
-                  if (context.mounted) Navigator.of(context).pop();
-                },
-                icon: const Icon(Icons.auto_awesome_outlined),
-                label: const Text('Informe IA'),
-              ),
-            ),
-          ],
-          if ((close.aiReportSummary ?? '').trim().isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'IA ${close.aiRiskLevel ?? 'N/D'}: ${close.aiReportSummary}',
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-            ),
-          ],
-          if (close.isPending && canReview) ...[
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                OutlinedButton.icon(
-                  onPressed: () async {
-                    final note = await _askReviewNote(
-                      context,
-                      'Rechazar cierre',
-                    );
-                    if (note == null) return;
-                    await ref
-                        .read(cierresDiariosControllerProvider.notifier)
-                        .rejectClose(close.id, reviewNote: note);
-                    if (context.mounted) Navigator.of(context).pop();
-                  },
-                  icon: const Icon(Icons.close),
-                  label: const Text('Rechazar'),
-                ),
-                const SizedBox(width: 8),
-                FilledButton.icon(
-                  onPressed: () async {
-                    final note = await _askReviewNote(
-                      context,
-                      'Aprobar cierre',
-                    );
-                    if (note == null) return;
-                    await ref
-                        .read(cierresDiariosControllerProvider.notifier)
-                        .approveClose(close.id, reviewNote: note);
-                    if (context.mounted) Navigator.of(context).pop();
-                  },
-                  icon: const Icon(Icons.verified_outlined),
-                  label: const Text('Aprobar'),
-                ),
-              ],
-            ),
-          ],
-          if (close.isRejected) ...[
-            const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerRight,
-              child: OutlinedButton.icon(
-                onPressed: onDuplicate,
-                icon: const Icon(Icons.copy_outlined),
-                label: const Text('Duplicar para corregir'),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Future<String?> _askReviewNote(BuildContext context, String title) {
-    final ctrl = TextEditingController();
-    return showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: TextField(
-          controller: ctrl,
-          maxLines: 3,
-          decoration: const InputDecoration(labelText: 'Nota de revision'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, ctrl.text),
-            child: const Text('Confirmar'),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-String _humanBank(String raw) {
-  final normalized = raw.trim().toUpperCase();
-  switch (normalized) {
-    case 'POPULAR':
-      return 'Banco Popular';
-    case 'BANRESERVAS':
-      return 'Banreservas';
-    case 'BHD':
-      return 'BHD';
-    case 'OTRO':
-      return 'Otro';
-    default:
-      return raw.isEmpty ? 'No indicado' : raw;
   }
 }
 

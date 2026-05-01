@@ -926,8 +926,23 @@ export class ContabilidadService {
         transfer.vouchers.map((voucher) => voucher.fileUrl),
       ),
     ];
+    const expectedDifference = Number(close.cash) - Number(close.cashDelivered);
+    const normalizedDifference = Number(close.difference);
+    const expenseDetails = Array.isArray(close.expenseDetails)
+      ? close.expenseDetails
+      : [];
     const context = {
-      close,
+      close: {
+        ...close,
+        expectedDifference,
+        normalizedDifference,
+        expenseDetails,
+      },
+      analysisFocus: {
+        mustEvaluateDifferenceAgainstExpenses: true,
+        differenceCanBeJustifiedByDocumentedExpenses: true,
+        prioritizeFraudSignalsOnlyWhenUnsupportedByEvidence: true,
+      },
       previousClosings: previous.map((item) => ({
         id: item.id,
         date: item.date,
@@ -959,7 +974,7 @@ export class ContabilidadService {
         {
           type: 'text',
           text:
-            'Analiza este cierre diario contable. Devuelve SOLO JSON con riskLevel(low|medium|high), summary, detectedIssues[], suggestedAdminActions[], confidenceLevel y evidenceReviewed[]. ' +
+            'Analiza este cierre diario contable y sus evidencias. Devuelve SOLO JSON con: riskLevel(low|medium|high), summary, detectedIssues[], suggestedAdminActions[], confidenceLevel, evidenceReviewed[], financialBreakdown{difference,expenses,isDifferenceReasonable,reasoning}, fraudSignals[], and auditorNotes[]. Regla critica: evalua si la diferencia se explica por gastos registrados y soportes (voucher/evidencia); no elevar riesgo sin justificar contradiccion. ' +
             JSON.stringify(context),
         },
         ...evidenceUrls
