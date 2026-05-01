@@ -843,6 +843,9 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
     required PayrollTotals totals,
   }) async {
     final settings = await ref.read(companySettingsRepositoryProvider).getSettings();
+    final entries = await ref
+        .read(nominaRepositoryProvider)
+        .listEntries(period.id, employee.id);
     final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
     final companyName = settings.companyName.trim().isEmpty
         ? 'FULLTECH'
@@ -955,6 +958,20 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                 money.format(totals.deductions),
                 highlight: true,
               ),
+              if (entries.isNotEmpty) ...[
+                pw.SizedBox(height: 10),
+                pw.Text(
+                  'MOVIMIENTOS DE LA QUINCENA',
+                  style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+                ),
+                pw.SizedBox(height: 4),
+                ...entries.map(
+                  (entry) => _pdfTotalLine(
+                    '${DateFormat('dd/MM/yyyy').format(entry.date)} - ${entry.type.label}: ${entry.concept}',
+                    money.format(entry.amount),
+                  ),
+                ),
+              ],
               pw.Divider(),
               pw.Text(
                 'Neto a pagar: ${money.format(totals.total)}',
