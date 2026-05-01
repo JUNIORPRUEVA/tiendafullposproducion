@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -102,6 +104,19 @@ class EmployeeWarningsRepository {
   Future<EmployeeWarning> myWarning(String id) async {
     final res = await _dio.get(ApiRoutes.employeeWarningsMy(id));
     return EmployeeWarning.fromJson(res.data as Map<String, dynamic>);
+  }
+
+  /// Downloads the warning PDF bytes through the authenticated API endpoint.
+  /// Returns the raw bytes to be rendered with SfPdfViewer.memory().
+  Future<Uint8List> getMyWarningPdfBytes(String id) async {
+    final res = await _dio.get<List<int>>(
+      ApiRoutes.employeeWarningsMyPdf(id),
+      options: Options(responseType: ResponseType.bytes),
+    );
+    if (res.data == null || res.data!.isEmpty) {
+      throw Exception('El servidor no devolvió contenido del PDF');
+    }
+    return Uint8List.fromList(res.data!);
   }
 
   Future<EmployeeWarning> sign(

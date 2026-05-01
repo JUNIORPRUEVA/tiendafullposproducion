@@ -596,6 +596,43 @@ export class EmployeeWarningsService {
     return this.prisma.employeeWarning.findUnique({ where: { id }, include: WARNING_INCLUDE });
   }
 
+  // ─── Employee: stream PDF ─────────────────────────────────────────────────────
+
+  async getMyPdfBytes(
+    id: string,
+    userId: string,
+  ): Promise<{ body: Buffer; contentType: string; filename: string }> {
+    const companyId = this.getCompanyId();
+    const warning = await this.prisma.employeeWarning.findFirst({
+      where: { id, companyId, employeeUserId: userId },
+      select: { id: true, pdfUrl: true, warningNumber: true },
+    });
+
+    if (!warning) throw new NotFoundException('Amonestación no encontrada');
+    if (!warning.pdfUrl) {
+      throw new NotFoundException(
+        'El PDF de esta amonestación aún no está disponible. Contacta a Recursos Humanos.',
+      );
+    }
+
+    // Derive the R2 object key.
+    // When R2_PUBLIC_BASE_URL is not configured, buildPublicUrl returns the raw
+    // object key (no scheme). When it IS configured it returns a full https URL.
+    let objectKey: string;
+    try {
+      const url = new URL(warning.pdfUrl);
+      // It's a full URL — extract the path without leading slash as the key.
+      objectKey = url.pathname.replace(/^\//, '');
+    } catch {
+      // Not a valid absolute URL → it's already the raw object key.
+      objectKey = warning.pdfUrl;
+    }
+
+    const { body, contentType } = await this.r2.getObject(objectKey);
+    const filename = `amonestacion-${warning.warningNumber}.pdf`;
+    return { body, contentType: contentType ?? 'application/pdf', filename };
+  }
+
   // ─── PDF generation ───────────────────────────────────────────────────────────
 
   private async generatePdfBuffer(warning: any, withSignature = false): Promise<Buffer> {

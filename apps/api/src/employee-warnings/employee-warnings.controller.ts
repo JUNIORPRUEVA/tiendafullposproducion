@@ -10,13 +10,14 @@ import {
   Put,
   Query,
   Req,
+  Res,
   UploadedFile,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthGuard } from '@nestjs/passport';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { memoryStorage } from 'multer';
 import { Role } from '@prisma/client';
 import { RolesGuard } from '../auth/roles.guard';
@@ -153,6 +154,28 @@ export class EmployeeWarningsController {
   myWarning(@Param('id') id: string, @Req() req: Request) {
     const user = req.user as RequestUser;
     return this.service.findMyWarning(id, user.id ?? '');
+  }
+
+  /** Employee: download the warning PDF (served through the API with auth) */
+  @Get('me/:id/pdf')
+  async getMyPdf(
+    @Param('id') id: string,
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
+    const user = req.user as RequestUser;
+    const { body, contentType, filename } = await this.service.getMyPdfBytes(
+      id,
+      user.id ?? '',
+    );
+    res
+      .set({
+        'Content-Type': contentType,
+        'Content-Disposition': `inline; filename="${filename}"`,
+        'Content-Length': body.length,
+        'Cache-Control': 'private, max-age=300',
+      })
+      .send(body);
   }
 
   /** Employee: sign a warning */

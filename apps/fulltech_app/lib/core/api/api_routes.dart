@@ -262,6 +262,7 @@ class ApiRoutes {
   static String employeeWarningEvidences(String id) => '/employee-warnings/$id/evidences';
   static const employeeWarningsMyPending = '/employee-warnings/me/pending';
   static String employeeWarningsMy(String id) => '/employee-warnings/me/$id';
+  static String employeeWarningsMyPdf(String id) => '/employee-warnings/me/$id/pdf';
   static String employeeWarningsMySign(String id) => '/employee-warnings/me/$id/sign';
   static String employeeWarningsMyRefuse(String id) => '/employee-warnings/me/$id/refuse';
 }

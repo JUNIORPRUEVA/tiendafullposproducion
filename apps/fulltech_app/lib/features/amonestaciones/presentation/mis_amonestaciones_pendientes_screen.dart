@@ -1,15 +1,18 @@
+﻿import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
-import 'package:url_launcher/url_launcher.dart';
 
-import '../../../core/api/env.dart';
 import '../application/warnings_controller.dart';
 import '../data/employee_warning_model.dart';
 import '../data/employee_warnings_repository.dart';
 import 'warning_labels.dart';
 
-/// Screen shown to the authenticated employee listing their pending warnings.
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Screen
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
 class MisAmonestacionesPendientesScreen extends ConsumerWidget {
   const MisAmonestacionesPendientesScreen({super.key});
 
@@ -18,16 +21,19 @@ class MisAmonestacionesPendientesScreen extends ConsumerWidget {
     final async = ref.watch(myPendingWarningsProvider);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F6FA),
+      backgroundColor: const Color(0xFFF0F2F8),
       appBar: AppBar(
-        title: const Text('Pendientes de firma',
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+        title: const Text(
+          'Pendientes de firma',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+        ),
         backgroundColor: const Color(0xFF1a1a2e),
         foregroundColor: Colors.white,
         elevation: 0,
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh_rounded),
+            tooltip: 'Actualizar',
             onPressed: () => ref.invalidate(myPendingWarningsProvider),
           ),
         ],
@@ -38,36 +44,26 @@ class MisAmonestacionesPendientesScreen extends ConsumerWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.error_outline, color: Colors.red, size: 42),
-              const SizedBox(height: 8),
-              Text('$e', textAlign: TextAlign.center),
+              const Icon(Icons.error_outline, color: Colors.red, size: 48),
               const SizedBox(height: 12),
-              ElevatedButton(
-                  onPressed: () => ref.invalidate(myPendingWarningsProvider),
-                  child: const Text('Reintentar')),
+              Text('$e', textAlign: TextAlign.center, style: const TextStyle(color: Colors.red)),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: () => ref.invalidate(myPendingWarningsProvider),
+                icon: const Icon(Icons.refresh),
+                label: const Text('Reintentar'),
+              ),
             ],
           ),
         ),
         data: (list) => list.isEmpty
-            ? const Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.check_circle_outline,
-                        size: 52, color: Colors.green),
-                    SizedBox(height: 8),
-                    Text('No tienes amonestaciones pendientes',
-                        style: TextStyle(color: Colors.grey, fontSize: 15)),
-                  ],
-                ),
-              )
+            ? const _EmptyState()
             : RefreshIndicator(
-                onRefresh: () async =>
-                    ref.invalidate(myPendingWarningsProvider),
+                onRefresh: () async => ref.invalidate(myPendingWarningsProvider),
                 child: ListView.builder(
-                  padding: const EdgeInsets.all(14),
+                  padding: const EdgeInsets.fromLTRB(14, 14, 14, 80),
                   itemCount: list.length,
-                  itemBuilder: (context, i) => _PendingCard(warning: list[i]),
+                  itemBuilder: (context, i) => _WarningCard(warning: list[i]),
                 ),
               ),
       ),
@@ -75,291 +71,93 @@ class MisAmonestacionesPendientesScreen extends ConsumerWidget {
   }
 }
 
-class _PendingCard extends StatefulWidget {
-  final EmployeeWarning warning;
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Empty state
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-  const _PendingCard({required this.warning});
-
-  @override
-  State<_PendingCard> createState() => _PendingCardState();
-}
-
-class _PendingCardState extends State<_PendingCard> {
-  bool _expanded = false;
-
-  List<String> _buildPdfCandidates(String rawUrl) {
-    final value = rawUrl.trim();
-    if (value.isEmpty) return const [];
-
-    final out = <String>[];
-    final seen = <String>{};
-    void addCandidate(String? v) {
-      final candidate = (v ?? '').trim();
-      if (candidate.isEmpty) return;
-      if (seen.add(candidate)) out.add(candidate);
-    }
-
-    final uri = Uri.tryParse(value);
-    if (uri != null && uri.hasScheme) {
-      addCandidate(uri.toString());
-    } else {
-      final normalized = value.replaceAll('\\', '/');
-      final baseUrl = Env.apiBaseUrl.trim().replaceAll(RegExp(r'/+$'), '');
-      if (baseUrl.isNotEmpty) {
-        if (normalized.startsWith('/')) {
-          addCandidate('$baseUrl$normalized');
-        } else if (normalized.startsWith('./')) {
-          addCandidate('$baseUrl/${normalized.substring(2)}');
-        } else {
-          addCandidate('$baseUrl/$normalized');
-        }
-      }
-      addCandidate(normalized);
-    }
-
-    final baseUri = Uri.tryParse(Env.apiBaseUrl.trim());
-    if (baseUri != null) {
-      final originals = List<String>.from(out);
-      for (final candidate in originals) {
-        final cUri = Uri.tryParse(candidate);
-        if (cUri == null || !cUri.hasScheme) continue;
-        if (cUri.host != baseUri.host) continue;
-
-        final segments = cUri.pathSegments.where((s) => s.isNotEmpty).toList();
-        if (segments.isEmpty) continue;
-        if (segments.first == 'api') {
-          final noApi = cUri.replace(pathSegments: segments.skip(1));
-          addCandidate(noApi.toString());
-        } else {
-          final withApi = cUri.replace(pathSegments: ['api', ...segments]);
-          addCandidate(withApi.toString());
-        }
-      }
-    }
-
-    return out;
-  }
-
-  Future<void> _openPdf(BuildContext context, String rawUrl) async {
-    final candidates = _buildPdfCandidates(rawUrl);
-    if (candidates.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('No se pudo construir la URL del PDF'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-      return;
-    }
-
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => _PendingWarningPdfViewerScreen(candidateUrls: candidates),
-      ),
-    );
-  }
+class _EmptyState extends StatelessWidget {
+  const _EmptyState();
 
   @override
-  Widget build(BuildContext context) {
-    final w = widget.warning;
-    final severityColor = WarningLabels.severityColor(w.severity);
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(10),
-        side: BorderSide(color: severityColor.withOpacity(0.3)),
-      ),
-      child: Column(
-        children: [
-          InkWell(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(10)),
-            onTap: () => setState(() => _expanded = !_expanded),
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(w.warningNumber,
-                            style: const TextStyle(
-                                fontWeight: FontWeight.bold, fontSize: 14)),
-                      ),
-                      _Pill(
-                          label: WarningLabels.severity[w.severity] ??
-                              w.severity,
-                          color: severityColor),
-                      Icon(
-                          _expanded
-                              ? Icons.expand_less
-                              : Icons.expand_more,
-                          size: 20,
-                          color: Colors.grey),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(w.title,
-                      style: const TextStyle(
-                          fontSize: 14, fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 2),
-                  Text(
-                      WarningLabels.category[w.category] ?? w.category,
-                      style: TextStyle(
-                          fontSize: 12, color: Colors.grey.shade500)),
-                  const SizedBox(height: 4),
-                  Text('Emitida el ${WarningLabels.fmt(w.warningDate)}',
-                      style: TextStyle(
-                          fontSize: 12, color: Colors.grey.shade500)),
-                ],
+  Widget build(BuildContext context) => Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                color: Colors.green.withValues(alpha: 0.1),
+                shape: BoxShape.circle,
               ),
+              child: const Icon(Icons.check_circle_outline, size: 44, color: Colors.green),
             ),
-          ),
-          if (_expanded) ...[
-            const Divider(height: 1),
-            Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Descripción',
-                      style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF1a1a2e))),
-                  const SizedBox(height: 4),
-                  Text(w.description,
-                      style:
-                          const TextStyle(fontSize: 13, height: 1.5)),
-                  if (w.legalBasis != null) ...[
-                    const SizedBox(height: 10),
-                    const Text('Base legal',
-                        style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF1a1a2e))),
-                    const SizedBox(height: 4),
-                    Text(w.legalBasis!,
-                        style: const TextStyle(fontSize: 13)),
-                  ],
-                  if (w.correctiveAction != null) ...[
-                    const SizedBox(height: 10),
-                    const Text('Acción correctiva',
-                        style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF1a1a2e))),
-                    const SizedBox(height: 4),
-                    Text(w.correctiveAction!,
-                        style: const TextStyle(fontSize: 13)),
-                  ],
-                  if (w.pdfUrl != null) ...[
-                    const SizedBox(height: 12),
-                    OutlinedButton.icon(
-                      onPressed: () => _openPdf(context, w.pdfUrl!),
-                      icon: const Icon(Icons.picture_as_pdf_outlined,
-                          size: 16),
-                      label:
-                          const Text('Ver PDF', style: TextStyle(fontSize: 13)),
-                      style: OutlinedButton.styleFrom(
-                          minimumSize: const Size(double.infinity, 38)),
-                    ),
-                  ],
-                ],
-              ),
+            const SizedBox(height: 16),
+            const Text(
+              'Todo en orden',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1a1a2e)),
             ),
-            const Divider(height: 1),
-            _SignatureActions(warning: w),
+            const SizedBox(height: 6),
+            const Text(
+              'No tienes amonestaciones pendientes de firma.',
+              style: TextStyle(color: Colors.grey, fontSize: 14),
+              textAlign: TextAlign.center,
+            ),
           ],
-        ],
-      ),
-    );
-  }
-}
-
-class _PendingWarningPdfViewerScreen extends StatefulWidget {
-  final List<String> candidateUrls;
-
-  const _PendingWarningPdfViewerScreen({required this.candidateUrls});
-
-  @override
-  State<_PendingWarningPdfViewerScreen> createState() =>
-      _PendingWarningPdfViewerScreenState();
-}
-
-class _PendingWarningPdfViewerScreenState
-    extends State<_PendingWarningPdfViewerScreen> {
-  int _index = 0;
-
-  String get _currentUrl => widget.candidateUrls[_index];
-
-  void _onLoadFailed(PdfDocumentLoadFailedDetails details) {
-    if (_index + 1 < widget.candidateUrls.length) {
-      setState(() => _index += 1);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Intentando ruta alternativa para abrir el PDF...'),
-          backgroundColor: Colors.orange,
         ),
       );
-      return;
-    }
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('No se pudo cargar el PDF: ${details.description}'),
-        backgroundColor: Colors.red,
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Documento PDF'),
-        backgroundColor: const Color(0xFF1a1a2e),
-        foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            tooltip: 'Abrir externo',
-            icon: const Icon(Icons.open_in_new),
-            onPressed: () => launchUrl(
-              Uri.parse(_currentUrl),
-              mode: LaunchMode.externalApplication,
-            ),
-          ),
-        ],
-      ),
-      body: SfPdfViewer.network(
-        _currentUrl,
-        key: ValueKey(_currentUrl),
-        canShowPaginationDialog: true,
-        enableDoubleTapZooming: true,
-        canShowScrollHead: true,
-        canShowScrollStatus: true,
-        onDocumentLoadFailed: _onLoadFailed,
-      ),
-    );
-  }
 }
 
-class _SignatureActions extends ConsumerStatefulWidget {
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Warning card â€” full text view + PDF button + action buttons
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+class _WarningCard extends ConsumerStatefulWidget {
   final EmployeeWarning warning;
-  const _SignatureActions({required this.warning});
+  const _WarningCard({required this.warning});
 
   @override
-  ConsumerState<_SignatureActions> createState() =>
-      _SignatureActionsState();
+  ConsumerState<_WarningCard> createState() => _WarningCardState();
 }
 
-class _SignatureActionsState extends ConsumerState<_SignatureActions> {
+class _WarningCardState extends ConsumerState<_WarningCard> {
   bool _loading = false;
 
+  EmployeeWarning get w => widget.warning;
+
+  Color get _severityColor => WarningLabels.severityColor(w.severity);
+
+  // â”€â”€ View PDF â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  Future<void> _viewPdf() async {
+    setState(() => _loading = true);
+    try {
+      final bytes = await ref
+          .read(employeeWarningsRepositoryProvider)
+          .getMyWarningPdfBytes(w.id);
+
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => _PdfBytesViewerScreen(
+            bytes: bytes,
+            filename: 'amonestacion-${w.warningNumber}.pdf',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('No se pudo cargar el PDF: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  // â”€â”€ Sign â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   Future<void> _sign() async {
     final nameCtrl = TextEditingController();
     final commentCtrl = TextEditingController();
@@ -367,46 +165,71 @@ class _SignatureActionsState extends ConsumerState<_SignatureActions> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Firmar amonestación'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        title: const Row(
           children: [
-            const Text(
-              'Al firmar confirmas haber recibido y leído esta amonestación. '
-              'Esto no implica que estés de acuerdo con su contenido.',
-              style: TextStyle(fontSize: 13),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: nameCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Tu nombre completo (firma)',
-                border: OutlineInputBorder(),
-                isDense: true,
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: commentCtrl,
-              maxLines: 2,
-              decoration: const InputDecoration(
-                labelText: 'Comentario (opcional)',
-                border: OutlineInputBorder(),
-                isDense: true,
-              ),
-            ),
+            Icon(Icons.draw_outlined, color: Color(0xFF1a1a2e), size: 20),
+            SizedBox(width: 8),
+            Text('Firmar amonestaciÃ³n'),
           ],
+        ),
+        content: SizedBox(
+          width: 360,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF3CD),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFFFD700).withValues(alpha: 0.5)),
+                ),
+                child: const Text(
+                  'Al firmar confirmas haber recibido y leÃ­do esta amonestaciÃ³n. '
+                  'Esto no implica que estÃ©s de acuerdo con su contenido.',
+                  style: TextStyle(fontSize: 12, color: Color(0xFF856404)),
+                ),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: nameCtrl,
+                textCapitalization: TextCapitalization.words,
+                decoration: const InputDecoration(
+                  labelText: 'Tu nombre completo (firma)',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                  prefixIcon: Icon(Icons.person_outline, size: 18),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: commentCtrl,
+                maxLines: 2,
+                decoration: const InputDecoration(
+                  labelText: 'Comentario (opcional)',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+            ],
+          ),
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('Cancelar')),
-          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton.icon(
             style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF1a1a2e),
-                foregroundColor: Colors.white),
+              backgroundColor: const Color(0xFF1a1a2e),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Firmar'),
+            icon: const Icon(Icons.check, size: 16),
+            label: const Text('Firmar'),
           ),
         ],
       ),
@@ -417,26 +240,23 @@ class _SignatureActionsState extends ConsumerState<_SignatureActions> {
     setState(() => _loading = true);
     try {
       await ref.read(employeeWarningsRepositoryProvider).sign(
-            widget.warning.id,
+            w.id,
             typedName: nameCtrl.text.trim(),
-            comment: commentCtrl.text.trim().isEmpty
-                ? null
-                : commentCtrl.text.trim(),
+            comment: commentCtrl.text.trim().isEmpty ? null : commentCtrl.text.trim(),
           );
       ref.invalidate(myPendingWarningsProvider);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-              content: Text('Amonestación firmada correctamente'),
-              backgroundColor: Colors.green),
+            content: Text('âœ“ AmonestaciÃ³n firmada correctamente'),
+            backgroundColor: Colors.green,
+          ),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text('Error al firmar: $e'),
-              backgroundColor: Colors.red),
+          SnackBar(content: Text('Error al firmar: $e'), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -444,6 +264,7 @@ class _SignatureActionsState extends ConsumerState<_SignatureActions> {
     }
   }
 
+  // â”€â”€ Refuse â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   Future<void> _refuse() async {
     final nameCtrl = TextEditingController();
     final commentCtrl = TextEditingController();
@@ -451,43 +272,71 @@ class _SignatureActionsState extends ConsumerState<_SignatureActions> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Negarse a firmar'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        title: const Row(
           children: [
-            const Text(
-              'Tu negativa a firmar quedará registrada junto a tu nombre y motivo.',
-              style: TextStyle(fontSize: 13),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: nameCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Tu nombre completo',
-                border: OutlineInputBorder(),
-                isDense: true,
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: commentCtrl,
-              maxLines: 3,
-              decoration: const InputDecoration(
-                labelText: 'Motivo de la negativa (requerido)',
-                border: OutlineInputBorder(),
-                isDense: true,
-              ),
-            ),
+            Icon(Icons.cancel_outlined, color: Colors.red, size: 20),
+            SizedBox(width: 8),
+            Text('Negarse a firmar'),
           ],
+        ),
+        content: SizedBox(
+          width: 360,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.red.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+                ),
+                child: const Text(
+                  'Tu negativa quedarÃ¡ registrada con tu nombre y motivo. '
+                  'Este acto tambiÃ©n queda documentado.',
+                  style: TextStyle(fontSize: 12, color: Colors.red),
+                ),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: nameCtrl,
+                textCapitalization: TextCapitalization.words,
+                decoration: const InputDecoration(
+                  labelText: 'Tu nombre completo',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                  prefixIcon: Icon(Icons.person_outline, size: 18),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: commentCtrl,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: 'Motivo de la negativa (requerido)',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+            ],
+          ),
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('Cancelar')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Registrar negativa'),
+            icon: const Icon(Icons.close, size: 16),
+            label: const Text('Registrar negativa'),
           ),
         ],
       ),
@@ -498,8 +347,9 @@ class _SignatureActionsState extends ConsumerState<_SignatureActions> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-              content: Text('Nombre y motivo son requeridos'),
-              backgroundColor: Colors.red),
+            content: Text('Nombre y motivo son requeridos'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
       return;
@@ -508,7 +358,7 @@ class _SignatureActionsState extends ConsumerState<_SignatureActions> {
     setState(() => _loading = true);
     try {
       await ref.read(employeeWarningsRepositoryProvider).refuse(
-            widget.warning.id,
+            w.id,
             typedName: nameCtrl.text.trim(),
             comment: commentCtrl.text.trim(),
           );
@@ -516,15 +366,15 @@ class _SignatureActionsState extends ConsumerState<_SignatureActions> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-              content: Text('Negativa registrada'),
-              backgroundColor: Colors.orange),
+            content: Text('Negativa registrada correctamente'),
+            backgroundColor: Colors.orange,
+          ),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text('Error: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -532,42 +382,193 @@ class _SignatureActionsState extends ConsumerState<_SignatureActions> {
     }
   }
 
+  // â”€â”€ Build â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(14),
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      elevation: 3,
+      shadowColor: _severityColor.withValues(alpha: 0.2),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: _severityColor.withValues(alpha: 0.35), width: 1.2),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // â”€â”€ Company header â”€â”€
+          _CompanyHeader(severityColor: _severityColor),
+
+          // â”€â”€ Warning metadata â”€â”€
+          _WarningMetaSection(warning: w),
+
+          // â”€â”€ Full text content â”€â”€
+          _WarningTextSection(warning: w),
+
+          // â”€â”€ PDF button â”€â”€
+          if (w.pdfUrl != null && w.pdfUrl!.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+              child: OutlinedButton.icon(
+                onPressed: _loading ? null : _viewPdf,
+                icon: _loading
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.picture_as_pdf_rounded, size: 18, color: Color(0xFFe63946)),
+                label: const Text(
+                  'Ver carta completa (PDF)',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 42),
+                  side: const BorderSide(color: Color(0xFFe63946)),
+                  foregroundColor: const Color(0xFFe63946),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+            ),
+
+          const Divider(height: 1),
+
+          // â”€â”€ Action buttons â”€â”€
+          Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _loading ? null : _refuse,
+                    icon: const Icon(Icons.close, size: 16),
+                    label: const Text('No firmar', style: TextStyle(fontWeight: FontWeight.w600)),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Colors.red),
+                      foregroundColor: Colors.red,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _loading ? null : _sign,
+                    icon: _loading
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Icon(Icons.draw_outlined, size: 16),
+                    label: const Text(
+                      'Firmar',
+                      style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF1a1a2e),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Company header widget
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+class _CompanyHeader extends StatelessWidget {
+  final Color severityColor;
+  const _CompanyHeader({required this.severityColor});
+
+  static const _companyName = 'FULLTECH, SRL';
+  static const _department = 'Recursos Humanos';
+  static const _docType = 'AMONESTACIÃ“N LABORAL';
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Color(0xFF1a1a2e), Color(0xFF16213e)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       child: Row(
         children: [
-          Expanded(
-            child: OutlinedButton.icon(
-              onPressed: _loading ? null : _refuse,
-              icon: const Icon(Icons.close, size: 16, color: Colors.red),
-              label: const Text('No firmar',
-                  style: TextStyle(color: Colors.red, fontSize: 13)),
-              style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: Colors.red),
-                padding: const EdgeInsets.symmetric(vertical: 10),
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+            ),
+            child: Center(
+              child: Image.asset(
+                'assets/logoprincipal.png',
+                width: 28,
+                height: 28,
+                errorBuilder: (_, __, ___) => const Icon(
+                  Icons.business,
+                  color: Colors.white70,
+                  size: 24,
+                ),
               ),
             ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 12),
           Expanded(
-            child: ElevatedButton.icon(
-              onPressed: _loading ? null : _sign,
-              icon: _loading
-                  ? const SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white),
-                    )
-                  : const Icon(Icons.check, size: 16),
-              label: const Text('Firmar',
-                  style: TextStyle(fontSize: 13)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF1a1a2e),
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  _companyName,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 15,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '$_department Â· $_docType',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.65),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: severityColor.withValues(alpha: 0.85),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: const Text(
+              'PENDIENTE',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 10,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.8,
               ),
             ),
           ),
@@ -577,25 +578,275 @@ class _SignatureActionsState extends ConsumerState<_SignatureActions> {
   }
 }
 
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Warning metadata section
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+class _WarningMetaSection extends StatelessWidget {
+  final EmployeeWarning warning;
+  const _WarningMetaSection({required this.warning});
+
+  @override
+  Widget build(BuildContext context) {
+    final w = warning;
+    final severityColor = WarningLabels.severityColor(w.severity);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  w.warningNumber,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
+                    color: Color(0xFF1a1a2e),
+                    letterSpacing: 0.3,
+                  ),
+                ),
+              ),
+              _Pill(
+                label: WarningLabels.severity[w.severity] ?? w.severity,
+                color: severityColor,
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            w.title,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF1a1a2e),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              _InfoChip(
+                icon: Icons.category_outlined,
+                label: WarningLabels.category[w.category] ?? w.category,
+              ),
+              _InfoChip(
+                icon: Icons.calendar_today_outlined,
+                label: 'Emitida: ${WarningLabels.fmt(w.warningDate)}',
+              ),
+              _InfoChip(
+                icon: Icons.event_outlined,
+                label: 'Incidente: ${WarningLabels.fmt(w.incidentDate)}',
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Full text content section
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+class _WarningTextSection extends StatelessWidget {
+  final EmployeeWarning warning;
+  const _WarningTextSection({required this.warning});
+
+  @override
+  Widget build(BuildContext context) {
+    final w = warning;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Divider(),
+          _Section(
+            title: 'DescripciÃ³n de los hechos',
+            icon: Icons.description_outlined,
+            content: w.description,
+          ),
+          if (w.legalBasis != null && w.legalBasis!.isNotEmpty)
+            _Section(
+              title: 'Base legal',
+              icon: Icons.gavel_outlined,
+              content: w.legalBasis!,
+            ),
+          if (w.internalRuleReference != null && w.internalRuleReference!.isNotEmpty)
+            _Section(
+              title: 'Referencia reglamento interno',
+              icon: Icons.menu_book_outlined,
+              content: w.internalRuleReference!,
+            ),
+          if (w.correctiveAction != null && w.correctiveAction!.isNotEmpty)
+            _Section(
+              title: 'AcciÃ³n correctiva requerida',
+              icon: Icons.build_outlined,
+              content: w.correctiveAction!,
+              highlightColor: const Color(0xFFFFF3CD),
+            ),
+          if (w.consequenceNote != null && w.consequenceNote!.isNotEmpty)
+            _Section(
+              title: 'Consecuencias',
+              icon: Icons.warning_amber_outlined,
+              content: w.consequenceNote!,
+              highlightColor: const Color(0xFFFFEBEB),
+            ),
+          if (w.employeeExplanation != null && w.employeeExplanation!.isNotEmpty)
+            _Section(
+              title: 'Descargo del empleado',
+              icon: Icons.chat_bubble_outline,
+              content: w.employeeExplanation!,
+            ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+}
+
+class _Section extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final String content;
+  final Color? highlightColor;
+
+  const _Section({
+    required this.title,
+    required this.icon,
+    required this.content,
+    this.highlightColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 15, color: const Color(0xFF1a1a2e)),
+              const SizedBox(width: 6),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1a1a2e),
+                  letterSpacing: 0.2,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: highlightColor ?? const Color(0xFFF8F9FB),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.grey.withValues(alpha: 0.15)),
+            ),
+            child: Text(
+              content,
+              style: const TextStyle(
+                fontSize: 13.5,
+                height: 1.55,
+                color: Color(0xFF2D2D2D),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// PDF bytes viewer screen
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+class _PdfBytesViewerScreen extends StatelessWidget {
+  final Uint8List bytes;
+  final String filename;
+
+  const _PdfBytesViewerScreen({required this.bytes, required this.filename});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(filename, style: const TextStyle(fontSize: 15)),
+        backgroundColor: const Color(0xFF1a1a2e),
+        foregroundColor: Colors.white,
+        elevation: 0,
+      ),
+      body: SfPdfViewer.memory(
+        bytes,
+        canShowPaginationDialog: true,
+        enableDoubleTapZooming: true,
+        canShowScrollHead: true,
+        canShowScrollStatus: true,
+      ),
+    );
+  }
+}
+
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Helpers
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
 class _Pill extends StatelessWidget {
   final String label;
   final Color color;
-
   const _Pill({required this.label, required this.color});
 
   @override
   Widget build(BuildContext context) => Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.12),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withOpacity(0.4)),
+          color: color.withValues(alpha: 0.13),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: color.withValues(alpha: 0.35)),
         ),
-        child: Text(label,
-            style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w600,
-                color: color)),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            color: color,
+          ),
+        ),
+      );
+}
+
+class _InfoChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  const _InfoChip({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF0F2F8),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 12, color: Colors.grey.shade600),
+            const SizedBox(width: 4),
+            Text(label, style: TextStyle(fontSize: 11, color: Colors.grey.shade700)),
+          ],
+        ),
       );
 }
