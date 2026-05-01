@@ -497,6 +497,7 @@ model WhatsappConversation {
   messages WhatsappMessage[]
 
   @@unique([instanceId, remoteJid])
+  @@unique([instanceId, remotePhone])
   @@index([instanceId, lastMessageAt(sort: Desc)])
   @@map("whatsapp_conversations")
 }

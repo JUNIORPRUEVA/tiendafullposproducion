@@ -24,14 +24,17 @@ class WaCrmConversation {
   String? get cleanPhone {
     final candidates = [remotePhone, remoteJid];
     for (final value in candidates) {
-      final raw = (value ?? '').trim();
+      final raw = (value ?? '').trim().toLowerCase();
       if (raw.isEmpty) continue;
       final beforeAt = raw.split('@').first;
-      final digits = beforeAt.replaceAll(RegExp(r'\D'), '');
+      final beforeDevice = beforeAt.split(':').first;
+      final digits = beforeDevice.replaceAll(RegExp(r'\D'), '');
       if (digits.length >= 7 && digits.length <= 15) return digits;
     }
     return null;
   }
+
+  String get mergeKey => '$instanceId:${cleanPhone ?? remoteJid}';
 
   String? get displayPhone {
     final phone = cleanPhone;
@@ -47,7 +50,11 @@ class WaCrmConversation {
 
   String get displayName {
     final name = (remoteName ?? '').trim();
-    if (name.isNotEmpty && !_looksTechnicalId(name)) return name;
+    if (name.isNotEmpty &&
+        name.toLowerCase() != 'me' &&
+        !_looksTechnicalId(name)) {
+      return name;
+    }
     final phone = displayPhone;
     if (phone != null) return phone;
     return 'Contacto WhatsApp';
@@ -63,12 +70,19 @@ class WaCrmConversation {
     }
     return WaCrmConversation(
       id: json['id'] as String,
-      instanceId: json['instanceId'] as String? ?? json['instance_id'] as String? ?? '',
-      remoteJid: json['remoteJid'] as String? ?? json['remote_jid'] as String? ?? '',
-      remotePhone: json['remotePhone'] as String? ?? json['remote_phone'] as String?,
-      remoteName: json['remoteName'] as String? ?? json['remote_name'] as String?,
-      lastMessageAt: _parseDate(json['lastMessageAt'] ?? json['last_message_at']),
-      unreadCount: (json['unreadCount'] as num?)?.toInt() ??
+      instanceId:
+          json['instanceId'] as String? ?? json['instance_id'] as String? ?? '',
+      remoteJid:
+          json['remoteJid'] as String? ?? json['remote_jid'] as String? ?? '',
+      remotePhone:
+          json['remotePhone'] as String? ?? json['remote_phone'] as String?,
+      remoteName:
+          json['remoteName'] as String? ?? json['remote_name'] as String?,
+      lastMessageAt: _parseDate(
+        json['lastMessageAt'] ?? json['last_message_at'],
+      ),
+      unreadCount:
+          (json['unreadCount'] as num?)?.toInt() ??
           (json['unread_count'] as num?)?.toInt() ??
           0,
       lastMessage: lastMsg,

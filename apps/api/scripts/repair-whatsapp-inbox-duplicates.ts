@@ -1,8 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import {
-  normalizeInstanceName,
-  normalizeWhatsappIdentity,
-} from '../src/whatsapp-inbox/whatsapp-identity.util';
+import { normalizeWhatsappIdentity, normalizeWhatsappPhone } from '../src/whatsapp-inbox/whatsapp-identity.util';
 
 type ConversationWithMeta = {
   id: string;
@@ -10,70 +7,68 @@ type ConversationWithMeta = {
   remoteJid: string;
   remotePhone: string | null;
   remoteName: string | null;
+  lastMessageAt: Date | null;
   createdAt: Date;
-  updatedAt: Date;
-  instance: { instanceName: string };
-  _count: { messages: number };
+  instance: { phoneNumber: string | null };
+  messages: Array<{ id: string; sentAt: Date; direction: string; rawPayload: unknown }>;
 };
 
-type MergePlan = {
-  groupKey: string;
-  normalizedPhone: string;
-  normalizedInstanceName: string;
-  keepConversationId: string;
-  duplicateConversationIds: string[];
-  movedMessages: number;
-};
-
-function pickKeeper(conversations: ConversationWithMeta[]): ConversationWithMeta {
-  const sorted = [...conversations].sort((a, b) => {
-    if (b._count.messages !== a._count.messages) {
-      return b._count.messages - a._count.messages;
-    }
-    return a.createdAt.getTime() - b.createdAt.getTime();
-  });
-  return sorted[0]!;
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
-function buildMergePlan(conversations: ConversationWithMeta[]): MergePlan[] {
-  const grouped = new Map<string, ConversationWithMeta[]>();
+function rawKeyRemotePhone(rawPayload: unknown): string | null {
+  const root = asRecord(rawPayload);
+  const data = asRecord(root?.data) ?? asRecord(root?.message) ?? root;
+  const message = asRecord(data?.message) ?? asRecord(data?.messageData) ?? asRecord(data?.messageContent);
+  const key = asRecord(data?.key) ?? asRecord(message?.key) ?? asRecord(root?.key);
+  return normalizeWhatsappPhone(key?.remoteJid);
+}
 
-  for (const conv of conversations) {
-    const identity = normalizeWhatsappIdentity(conv.remotePhone ?? conv.remoteJid);
-    if (!identity.normalizedPhone) continue;
+function groupingPhone(conv: ConversationWithMeta): string | null {
+  const directPhone =
+    normalizeWhatsappPhone(conv.remotePhone) ??
+    normalizeWhatsappPhone(conv.remoteJid);
+  const instancePhone = normalizeWhatsappPhone(conv.instance.phoneNumber);
+  const suspiciousMe =
+    (conv.remoteName ?? '').trim().toLowerCase() === 'me' ||
+    (!!directPhone && !!instancePhone && directPhone === instancePhone);
 
-    const normalizedInst = normalizeInstanceName(conv.instance.instanceName);
-    if (!normalizedInst) continue;
+  if (!suspiciousMe) return directPhone;
 
-    const key = `${normalizedInst}::${identity.normalizedPhone}`;
-    const list = grouped.get(key) ?? [];
-    list.push(conv);
-    grouped.set(key, list);
+  for (const message of conv.messages) {
+    const rawPhone = rawKeyRemotePhone(message.rawPayload);
+    if (rawPhone && rawPhone !== instancePhone) return rawPhone;
   }
 
-  const plans: MergePlan[] = [];
-  for (const [groupKey, list] of grouped.entries()) {
-    if (list.length <= 1) continue;
+  return directPhone && directPhone !== instancePhone ? directPhone : null;
+}
 
-    const keeper = pickKeeper(list);
-    const duplicates = list.filter((item) => item.id !== keeper.id);
-    const movedMessages = duplicates.reduce(
-      (total, item) => total + item._count.messages,
-      0,
-    );
+function pickKeeper(conversations: ConversationWithMeta[]): ConversationWithMeta {
+  return [...conversations].sort((a, b) => {
+    if (b.messages.length !== a.messages.length) return b.messages.length - a.messages.length;
+    return a.createdAt.getTime() - b.createdAt.getTime();
+  })[0]!;
+}
 
-    plans.push({
-      groupKey,
-      normalizedPhone: normalizeWhatsappIdentity(keeper.remotePhone ?? keeper.remoteJid)
-        .normalizedPhone!,
-      normalizedInstanceName: normalizeInstanceName(keeper.instance.instanceName),
-      keepConversationId: keeper.id,
-      duplicateConversationIds: duplicates.map((item) => item.id),
-      movedMessages,
-    });
-  }
-
-  return plans;
+async function recomputeConversation(prisma: PrismaClient, conversationId: string) {
+  const latest = await prisma.whatsappMessage.findFirst({
+    where: { conversationId },
+    orderBy: { sentAt: 'desc' },
+    select: { sentAt: true },
+  });
+  const unreadCount = await prisma.whatsappMessage.count({
+    where: { conversationId, direction: 'INCOMING' },
+  });
+  await prisma.whatsappConversation.update({
+    where: { id: conversationId },
+    data: {
+      lastMessageAt: latest?.sentAt ?? null,
+      unreadCount,
+    },
+  });
 }
 
 async function main() {
@@ -81,32 +76,45 @@ async function main() {
   const execute = process.argv.includes('--execute');
 
   try {
-    const conversations = await prisma.whatsappConversation.findMany({
+    const conversations = (await prisma.whatsappConversation.findMany({
       include: {
-        instance: { select: { instanceName: true } },
-        _count: { select: { messages: true } },
+        instance: { select: { phoneNumber: true } },
+        messages: {
+          select: { id: true, sentAt: true, direction: true, rawPayload: true },
+          orderBy: { sentAt: 'desc' },
+        },
       },
       orderBy: { createdAt: 'asc' },
-    }) as ConversationWithMeta[];
+    })) as ConversationWithMeta[];
 
-    const plans = buildMergePlan(conversations);
-    const totalDuplicates = plans.reduce(
-      (sum, plan) => sum + plan.duplicateConversationIds.length,
-      0,
-    );
-    const totalMessagesToMove = plans.reduce(
-      (sum, plan) => sum + plan.movedMessages,
-      0,
-    );
+    const groups = new Map<string, ConversationWithMeta[]>();
+    for (const conv of conversations) {
+      const phone = groupingPhone(conv);
+      if (!phone) continue;
+      const key = `${conv.instanceId}:${phone}`;
+      groups.set(key, [...(groups.get(key) ?? []), conv]);
+    }
+
+    const plans = [...groups.entries()]
+      .filter(([, list]) => list.length > 1)
+      .map(([key, list]) => {
+        const keeper = pickKeeper(list);
+        return {
+          key,
+          phone: key.split(':').pop()!,
+          keeper,
+          duplicates: list.filter((item) => item.id !== keeper.id),
+        };
+      });
 
     console.log('[whatsapp-inbox][repair] mode=', execute ? 'EXECUTE' : 'DRY-RUN');
     console.log('[whatsapp-inbox][repair] groups=', plans.length);
-    console.log('[whatsapp-inbox][repair] duplicateConversations=', totalDuplicates);
-    console.log('[whatsapp-inbox][repair] messagesToMove=', totalMessagesToMove);
+    console.log('[whatsapp-inbox][repair] duplicateConversations=', plans.reduce((sum, p) => sum + p.duplicates.length, 0));
+    console.log('[whatsapp-inbox][repair] messagesToMove=', plans.reduce((sum, p) => sum + p.duplicates.reduce((s, d) => s + d.messages.length, 0), 0));
 
     for (const plan of plans) {
       console.log(
-        `[whatsapp-inbox][repair][plan] key=${plan.groupKey} keep=${plan.keepConversationId} duplicates=${plan.duplicateConversationIds.join(',')} moveMessages=${plan.movedMessages}`,
+        `[whatsapp-inbox][repair][plan] key=${plan.key} keep=${plan.keeper.id} duplicates=${plan.duplicates.map((d) => d.id).join(',')} moveMessages=${plan.duplicates.reduce((sum, d) => sum + d.messages.length, 0)}`,
       );
     }
 
@@ -115,30 +123,35 @@ async function main() {
       return;
     }
 
-    const result = await prisma.$transaction(async (tx) => {
-      let movedMessages = 0;
-      let deletedConversations = 0;
-
-      for (const plan of plans) {
-        const move = await tx.whatsappMessage.updateMany({
-          where: { conversationId: { in: plan.duplicateConversationIds } },
-          data: { conversationId: plan.keepConversationId },
+    for (const plan of plans) {
+      await prisma.$transaction(async (tx) => {
+        const duplicateIds = plan.duplicates.map((item) => item.id);
+        await tx.whatsappMessage.updateMany({
+          where: { conversationId: { in: duplicateIds } },
+          data: { conversationId: plan.keeper.id },
         });
-        movedMessages += move.count;
-
-        const del = await tx.whatsappConversation.deleteMany({
-          where: { id: { in: plan.duplicateConversationIds } },
+        await tx.whatsappConversation.update({
+          where: { id: plan.keeper.id },
+          data: {
+            remotePhone: plan.phone,
+            remoteJid: normalizeWhatsappIdentity(plan.keeper.remoteJid).normalizedJid ?? plan.keeper.remoteJid,
+            remoteName:
+              (plan.keeper.remoteName ?? '').trim().toLowerCase() === 'me'
+                ? plan.phone
+                : plan.keeper.remoteName,
+          },
         });
-        deletedConversations += del.count;
-      }
+        await tx.whatsappConversation.deleteMany({
+          where: { id: { in: duplicateIds } },
+        });
+      });
+      await recomputeConversation(prisma, plan.keeper.id);
+      console.log(
+        `[whatsapp-inbox][repair][merged] key=${plan.key} keep=${plan.keeper.id} removed=${plan.duplicates.length}`,
+      );
+    }
 
-      return { movedMessages, deletedConversations };
-    });
-
-    console.log('[whatsapp-inbox][repair] Execute completed.');
-    console.log('[whatsapp-inbox][repair] movedMessages=', result.movedMessages);
-    console.log('[whatsapp-inbox][repair] deletedConversations=', result.deletedConversations);
-    console.log('[whatsapp-inbox][repair] NOTE: No whatsapp contacts table exists in current schema, so only conversations/messages were repaired.');
+    console.log('[whatsapp-inbox][repair] Execute completed. No messages were deleted.');
   } finally {
     await prisma.$disconnect();
   }

@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+
 import '../../core/auth/auth_provider.dart';
+import '../../core/models/user_model.dart';
 import '../../core/routing/routes.dart';
-import '../../core/widgets/custom_app_bar.dart';
 import '../../core/widgets/app_drawer.dart';
+import '../../core/widgets/custom_app_bar.dart';
 import '../../core/widgets/user_avatar.dart';
 
 String _getInitials(String name) {
@@ -56,194 +58,391 @@ class UserScreen extends ConsumerWidget {
               ),
       ),
       drawer: buildAdaptiveDrawer(context, currentUser: user),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header con avatar
-            Center(
+      body: user == null
+          ? const Center(child: CircularProgressIndicator())
+          : _UserDetailContent(
+              user: user,
+              onEdit: () => context.push(Routes.profile),
+              onLogout: () async {
+                await ref.read(authStateProvider.notifier).logout();
+                if (context.mounted) {
+                  context.go(Routes.login);
+                }
+              },
+            ),
+    );
+  }
+}
+
+class _UserDetailContent extends StatelessWidget {
+  final UserModel user;
+  final VoidCallback onEdit;
+  final Future<void> Function() onLogout;
+
+  const _UserDetailContent({
+    required this.user,
+    required this.onEdit,
+    required this.onLogout,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final infoItems = <(String, String)>[
+      if (user.telefono.trim().isNotEmpty) ('Teléfono', user.telefono.trim()),
+      if ((user.cedula ?? '').trim().isNotEmpty) ('Cédula', user.cedula!.trim()),
+      if ((user.telefonoFamiliar ?? '').trim().isNotEmpty)
+        ('Tel. familiar', user.telefonoFamiliar!.trim()),
+      if (user.fechaNacimiento != null)
+        ('Nacimiento', DateFormat('dd/MM/yyyy').format(user.fechaNacimiento!)),
+      if (user.edad != null) ('Edad', '${user.edad} años'),
+      ('Estado civil', user.estaCasado ? 'Casado' : 'Soltero'),
+      ('Hijos', user.tieneHijos ? 'Sí' : 'No'),
+      if ((user.experienciaLaboral ?? '').trim().isNotEmpty)
+        ('Experiencia', user.experienciaLaboral!.trim()),
+      if (user.fechaIngreso != null)
+        ('Ingreso', DateFormat('dd/MM/yyyy').format(user.fechaIngreso!)),
+      if (user.fechaIngreso != null) ('Días empresa', '${user.diasEnEmpresa ?? 0}'),
+      ('Licencia', user.licenciaConducir ? 'Sí' : 'No'),
+      ('Vehículo', user.vehiculo ? 'Sí' : 'No'),
+      ('Casa propia', user.casaPropia ? 'Sí' : 'No'),
+      if ((user.cuentaNominaPreferencial ?? '').trim().isNotEmpty)
+        ('Nómina', user.cuentaNominaPreferencial!.trim()),
+      ('Rol', ((user.role ?? '').trim().isEmpty) ? '—' : user.role!.trim()),
+      ('Estado', user.blocked ? 'Bloqueado' : 'Activo'),
+      if (user.createdAt != null)
+        ('Miembro desde', DateFormat('dd/MM/yyyy').format(user.createdAt!)),
+    ];
+
+    final docs = <(String, String)>[
+      if ((user.fotoPersonalUrl ?? '').trim().isNotEmpty)
+        ('Perfil', user.fotoPersonalUrl!.trim()),
+      if ((user.fotoCedulaUrl ?? '').trim().isNotEmpty)
+        ('Cédula', user.fotoCedulaUrl!.trim()),
+      if ((user.fotoLicenciaUrl ?? '').trim().isNotEmpty)
+        ('Licencia', user.fotoLicenciaUrl!.trim()),
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = constraints.maxWidth >= 1100
+            ? 4
+            : constraints.maxWidth >= 760
+            ? 3
+            : 2;
+
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1200),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  UserAvatar(
-                    radius: 50,
-                    backgroundColor: Theme.of(context).colorScheme.primary,
-                    imageUrl: user?.fotoPersonalUrl,
-                    child: Text(
-                      _getInitials(user?.nombreCompleto ?? 'U'),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
+                  _HeaderStrip(user: user),
+                  const SizedBox(height: 16),
+                  const _SectionTitle('Datos'),
+                  const SizedBox(height: 10),
+                  _Panel(
+                    child: _DataGrid(items: infoItems, columns: columns),
+                  ),
+                  if (user.habilidades.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    const _SectionTitle('Habilidades'),
+                    const SizedBox(height: 10),
+                    _Panel(
+                      child: Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: user.habilidades
+                            .map(
+                              (h) => Chip(
+                                label: Text(
+                                  h,
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                                visualDensity: VisualDensity.compact,
+                                materialTapTargetSize:
+                                    MaterialTapTargetSize.shrinkWrap,
+                              ),
+                            )
+                            .toList(growable: false),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    user?.nombreCompleto ?? 'Usuario',
-                    style: Theme.of(context).textTheme.displayMedium,
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    user?.email ?? 'Sin email',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.outline,
-                      fontSize: 14,
+                  ],
+                  if (docs.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    const _SectionTitle('Imágenes'),
+                    const SizedBox(height: 10),
+                    _Panel(
+                      child: Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: docs
+                            .map((doc) => _SmallPreview(label: doc.$1, url: doc.$2))
+                            .toList(growable: false),
+                      ),
                     ),
-                    textAlign: TextAlign.center,
+                  ],
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.edit),
+                          label: const Text('Editar Perfil'),
+                          onPressed: onEdit,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          icon: const Icon(Icons.logout),
+                          label: const Text('Cerrar Sesión'),
+                          onPressed: () async => onLogout(),
+                        ),
+                      ),
+                    ],
                   ),
+                  const SizedBox(height: 20),
                 ],
               ),
             ),
-            const SizedBox(height: 32),
+          ),
+        );
+      },
+    );
+  }
+}
 
-            // Información personal
-            Text(
-              'Información Personal',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 12),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: _InfoList(
-                  children: [
-                    if ((user?.nombreCompleto ?? '').trim().isNotEmpty)
-                      _InfoRow('Nombre Completo', user!.nombreCompleto.trim()),
-                    if ((user?.email ?? '').trim().isNotEmpty)
-                      _InfoRow('Email', user!.email.trim()),
-                    if ((user?.telefono ?? '').trim().isNotEmpty)
-                      _InfoRow('Teléfono', user!.telefono.trim()),
-                    if ((user?.cedula ?? '').trim().isNotEmpty)
-                      _InfoRow('Cédula', user!.cedula!.trim()),
-                    if ((user?.experienciaLaboral ?? '').trim().isNotEmpty)
-                      _InfoRow(
-                        'Experiencia Laboral',
-                        user!.experienciaLaboral!.trim(),
-                      ),
-                    if (user?.fechaIngreso != null) ...[
-                      _InfoRow(
-                        'Fecha de ingreso',
-                        DateFormat('dd/MM/yyyy').format(user!.fechaIngreso!),
-                      ),
-                      _InfoRow(
-                        'Días en la empresa',
-                        (user.diasEnEmpresa ?? 0).toString(),
-                      ),
-                    ],
-                    if (user?.fechaNacimiento != null)
-                      _InfoRow(
-                        'Fecha de nacimiento',
-                        DateFormat('dd/MM/yyyy').format(user!.fechaNacimiento!),
-                      ),
-                  ],
-                ),
+class _HeaderStrip extends StatelessWidget {
+  final UserModel user;
+
+  const _HeaderStrip({required this.user});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final name = user.nombreCompleto.trim().isEmpty
+        ? 'Usuario'
+        : user.nombreCompleto.trim();
+    final email = user.email.trim();
+
+    return _Panel(
+      child: Row(
+        children: [
+          UserAvatar(
+            radius: 34,
+            backgroundColor: scheme.primary,
+            imageUrl: user.fotoPersonalUrl,
+            child: Text(
+              _getInitials(user.nombreCompleto),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
               ),
             ),
-            const SizedBox(height: 24),
-
-            // Nómina
-            if ((user?.cuentaNominaPreferencial ?? '').trim().isNotEmpty) ...[
-              Text('Nómina', style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 12),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: _InfoList(
-                    children: [
-                      _InfoRow(
-                        'Cuenta preferencial',
-                        user!.cuentaNominaPreferencial!.trim(),
-                      ),
-                    ],
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-              ),
-              const SizedBox(height: 24),
-            ],
-
-            // Habilidades
-            if (user != null && user.habilidades.isNotEmpty) ...[
-              Text(
-                'Habilidades',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 12),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: user.habilidades
-                          .map((h) => Chip(label: Text(h)))
-                          .toList(growable: false),
+                if (email.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    email,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.outline,
+                      fontWeight: FontWeight.w600,
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
+                ],
+              ],
+            ),
+          ),
+          _StatusPill(active: !user.blocked),
+        ],
+      ),
+    );
+  }
+}
+
+class _SectionTitle extends StatelessWidget {
+  final String text;
+
+  const _SectionTitle(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Row(
+      children: [
+        Text(
+          text.toUpperCase(),
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            color: scheme.primary,
+            letterSpacing: 0.9,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(child: Divider(color: scheme.outlineVariant, height: 1)),
+      ],
+    );
+  }
+}
+
+class _Panel extends StatelessWidget {
+  final Widget child;
+
+  const _Panel({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: child,
+    );
+  }
+}
+
+class _DataGrid extends StatelessWidget {
+  final List<(String, String)> items;
+  final int columns;
+
+  const _DataGrid({required this.items, required this.columns});
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const gap = 12.0;
+        final width = (constraints.maxWidth - gap * (columns - 1)) / columns;
+        return Wrap(
+          spacing: gap,
+          runSpacing: 12,
+          children: items
+              .map(
+                (item) => SizedBox(
+                  width: width,
+                  child: _DataCell(label: item.$1, value: item.$2),
+                ),
+              )
+              .toList(growable: false),
+        );
+      },
+    );
+  }
+}
+
+class _DataCell extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _DataCell({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            color: theme.colorScheme.outline,
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+        ),
+      ],
+    );
+  }
+}
+
+class _SmallPreview extends StatelessWidget {
+  final String label;
+  final String url;
+
+  const _SmallPreview({required this.label, required this.url});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: () => showDialog<void>(
+        context: context,
+        builder: (_) => Dialog(
+          insetPadding: const EdgeInsets.all(20),
+          child: InteractiveViewer(
+            child: Image.network(
+              url,
+              fit: BoxFit.contain,
+              errorBuilder: (_, __, ___) => SizedBox(
+                width: 280,
+                height: 220,
+                child: Icon(Icons.broken_image_outlined, color: scheme.outline),
+              ),
+            ),
+          ),
+        ),
+      ),
+      child: SizedBox(
+        width: 100,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.network(
+                url,
+                width: 100,
+                height: 72,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => Container(
+                  width: 100,
+                  height: 72,
+                  color: scheme.surfaceContainerHighest,
+                  child: Icon(Icons.broken_image_outlined, color: scheme.outline),
                 ),
               ),
-              const SizedBox(height: 24),
-            ],
-
-            // Información de cuenta
+            ),
+            const SizedBox(height: 4),
             Text(
-              'Información de Cuenta',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 12),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  children: [
-                    _InfoRow('Rol', user?.role ?? '—'),
-                    _InfoRow(
-                      'Estado',
-                      user?.blocked == true ? 'Bloqueado' : 'Activo',
-                      statusColor: user?.blocked == true
-                          ? Theme.of(context).colorScheme.error
-                          : Colors.green,
-                    ),
-                    if (user?.createdAt != null)
-                      _InfoRow(
-                        'Miembro desde',
-                        DateFormat('dd/MM/yyyy').format(user!.createdAt!),
-                      ),
-                  ],
-                ),
+              label,
+              style: TextStyle(
+                color: scheme.outline,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
               ),
             ),
-            const SizedBox(height: 32),
-
-            // Botones de acción
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                icon: const Icon(Icons.edit),
-                label: const Text('Editar Perfil'),
-                onPressed: () {
-                  context.push(Routes.profile);
-                },
-              ),
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                icon: const Icon(Icons.logout),
-                label: const Text('Cerrar Sesión'),
-                onPressed: () async {
-                  await ref.read(authStateProvider.notifier).logout();
-                  if (context.mounted) {
-                    context.go(Routes.login);
-                  }
-                },
-              ),
-            ),
-            const SizedBox(height: 32),
           ],
         ),
       ),
@@ -251,83 +450,44 @@ class UserScreen extends ConsumerWidget {
   }
 }
 
-class _InfoRow extends StatelessWidget {
-  final String label;
-  final String value;
-  final Color? statusColor;
+class _StatusPill extends StatelessWidget {
+  final bool active;
 
-  const _InfoRow(this.label, this.value, {this.statusColor});
+  const _StatusPill({required this.active});
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              color: Theme.of(context).colorScheme.outline,
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          Row(
-            children: [
-              if (statusColor != null)
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: statusColor,
-                    shape: BoxShape.circle,
-                  ),
-                  margin: const EdgeInsets.only(right: 8),
-                ),
-              Text(
-                value,
-                style: Theme.of(
-                  context,
-                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
-              ),
-            ],
-          ),
-        ],
+    final scheme = Theme.of(context).colorScheme;
+    final color = active ? Colors.green : scheme.error;
+    final bg = active ? Colors.green.withAlpha(28) : scheme.errorContainer;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(999),
       ),
-    );
-  }
-}
-
-class _Divider extends StatelessWidget {
-  const _Divider();
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Divider(color: Theme.of(context).dividerColor, height: 16),
-    );
-  }
-}
-
-class _InfoList extends StatelessWidget {
-  final List<Widget> children;
-
-  const _InfoList({required this.children});
-
-  @override
-  Widget build(BuildContext context) {
-    final visible = children.whereType<Widget>().toList(growable: false);
-    if (visible.isEmpty) return const SizedBox.shrink();
-
-    return Column(
-      children: [
-        for (var i = 0; i < visible.length; i++) ...[
-          if (i > 0) const _Divider(),
-          visible[i],
-        ],
-      ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 7,
+              height: 7,
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              active ? 'Activo' : 'Bloqueado',
+              style: TextStyle(
+                color: color,
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

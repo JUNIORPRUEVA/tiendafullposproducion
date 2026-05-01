@@ -20,6 +20,17 @@ export function normalizeInstanceName(value: unknown): string {
   return raw.replace(/[^a-z0-9]/g, '');
 }
 
+export function normalizeWhatsappPhone(value: unknown): string | null {
+  const raw = normalizeString(value).toLowerCase();
+  if (!raw) return null;
+
+  const beforeAt = raw.split('@')[0] ?? raw;
+  const withoutDevice = beforeAt.split(':')[0] ?? beforeAt;
+  const digits = withoutDevice.replace(/\D/g, '');
+  if (digits.length < 7 || digits.length > 15) return null;
+  return digits;
+}
+
 export function normalizeWhatsappIdentity(input: unknown): NormalizedWhatsappIdentity {
   const raw = normalizeString(input);
   if (!raw) {
@@ -31,11 +42,8 @@ export function normalizeWhatsappIdentity(input: unknown): NormalizedWhatsappIde
   const localPartRaw = atIndex >= 0 ? lowered.slice(0, atIndex) : lowered;
   const domainRaw = atIndex >= 0 ? lowered.slice(atIndex + 1) : '';
 
-  // Some payloads include device/resource suffixes in local part: 1809xxxxxxx:12
   const localNoResource = localPartRaw.split(':')[0]?.trim() ?? '';
-  const digits = localNoResource.replace(/\D/g, '');
-  const normalizedPhone =
-    digits.length >= 7 && digits.length <= 15 ? digits : null;
+  const normalizedPhone = normalizeWhatsappPhone(raw);
 
   const canonicalLocal = normalizedPhone ?? localNoResource.replace(/\s+/g, '');
   if (!canonicalLocal) {

@@ -359,8 +359,25 @@ class WaCrmController extends StateNotifier<WaCrmState> {
   Future<void> loadConversations(String userId) async {
     state = state.copyWith(loadingConversations: true, error: () => null);
     try {
-      final convs = await _repo.getConversations(userId);
-      state = state.copyWith(conversations: convs, loadingConversations: false);
+      final convs = _mergeConversationsByPhone(
+        await _repo.getConversations(userId),
+      );
+      final selected = state.selectedConversation;
+      final selectedReplacement = selected == null
+          ? null
+          : convs.cast<WaCrmConversation?>().firstWhere(
+              (conv) =>
+                  conv?.id == selected.id ||
+                  (conv?.instanceId == selected.instanceId &&
+                      conv?.cleanPhone != null &&
+                      conv?.cleanPhone == selected.cleanPhone),
+              orElse: () => selected,
+            );
+      state = state.copyWith(
+        conversations: convs,
+        loadingConversations: false,
+        selectedConversation: () => selectedReplacement,
+      );
     } catch (e, st) {
       debugPrint('[WaCrm] loadConversations error: $e\n$st');
       state = state.copyWith(
@@ -463,6 +480,50 @@ class WaCrmController extends StateNotifier<WaCrmState> {
     return null;
   }
 
+  List<WaCrmConversation> _mergeConversationsByPhone(
+    List<WaCrmConversation> conversations,
+  ) {
+    final byKey = <String, WaCrmConversation>{};
+    for (final conv in conversations) {
+      final phone = conv.cleanPhone;
+      final key = phone == null || phone.isEmpty
+          ? '${conv.instanceId}:${conv.remoteJid}'
+          : '${conv.instanceId}:$phone';
+      final existing = byKey[key];
+      if (existing == null) {
+        byKey[key] = conv;
+        continue;
+      }
+      final existingTime = existing.lastMessageAt ?? DateTime(0);
+      final convTime = conv.lastMessageAt ?? DateTime(0);
+      final newest = convTime.isAfter(existingTime) ? conv : existing;
+      final oldest = convTime.isAfter(existingTime) ? existing : conv;
+      byKey[key] = WaCrmConversation(
+        id: newest.id,
+        instanceId: newest.instanceId,
+        remoteJid: newest.remoteJid.isNotEmpty
+            ? newest.remoteJid
+            : oldest.remoteJid,
+        remotePhone: newest.cleanPhone ?? oldest.cleanPhone,
+        remoteName:
+            newest.remoteName != null &&
+                newest.remoteName!.trim().toLowerCase() != 'me'
+            ? newest.remoteName
+            : oldest.remoteName,
+        lastMessageAt: newest.lastMessageAt ?? oldest.lastMessageAt,
+        unreadCount: newest.unreadCount + oldest.unreadCount,
+        lastMessage: newest.lastMessage ?? oldest.lastMessage,
+      );
+    }
+    final merged = byKey.values.toList();
+    merged.sort((a, b) {
+      final tA = a.lastMessageAt ?? DateTime(0);
+      final tB = b.lastMessageAt ?? DateTime(0);
+      return tB.compareTo(tA);
+    });
+    return merged;
+  }
+
   // ─── Real-time message push ───────────────────────────────────────────
 
   void handleRealtimeMessage(Map<String, dynamic> data) {
@@ -502,11 +563,35 @@ class WaCrmController extends StateNotifier<WaCrmState> {
       };
       final msg = WaCrmMessage.fromJson(normalizedMsg);
 
+      final selected = state.selectedConversation;
+      final selectedPhone = selected?.cleanPhone;
+      final sameSelectedConversation =
+          selected?.id == targetConversationId ||
+          (selected != null &&
+              selected.instanceId ==
+                  (incomingConv?.instanceId ?? selected.instanceId) &&
+              selectedPhone != null &&
+              selectedPhone == incomingPhone);
+
       // If this conversation is currently open, append message
-      if (state.selectedConversation?.id == targetConversationId) {
+      if (sameSelectedConversation) {
         final alreadyExists = state.messages.any((m) => m.id == msg.id);
         if (!alreadyExists) {
           state = state.copyWith(messages: [...state.messages, msg]);
+        }
+        if (selected?.id != targetConversationId && incomingConv != null) {
+          state = state.copyWith(
+            selectedConversation: () => WaCrmConversation(
+              id: targetConversationId,
+              instanceId: incomingConv.instanceId,
+              remoteJid: incomingConv.remoteJid,
+              remotePhone: incomingConv.remotePhone,
+              remoteName: incomingConv.remoteName,
+              lastMessageAt: incomingConv.lastMessageAt,
+              unreadCount: incomingConv.unreadCount,
+              lastMessage: incomingConv.lastMessage,
+            ),
+          );
         }
       }
 
@@ -533,13 +618,9 @@ class WaCrmController extends StateNotifier<WaCrmState> {
         } else {
           updatedList = [updatedConv, ...state.conversations];
         }
-        // Sort by lastMessageAt desc
-        updatedList.sort((a, b) {
-          final tA = a.lastMessageAt ?? DateTime(0);
-          final tB = b.lastMessageAt ?? DateTime(0);
-          return tB.compareTo(tA);
-        });
-        state = state.copyWith(conversations: updatedList);
+        state = state.copyWith(
+          conversations: _mergeConversationsByPhone(updatedList),
+        );
       }
 
       if (requiresConversationRefresh && state.selectedUser != null) {
