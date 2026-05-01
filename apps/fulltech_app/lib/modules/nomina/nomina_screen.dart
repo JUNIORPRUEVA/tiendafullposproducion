@@ -530,6 +530,21 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
           items: historyItems,
           onOpenDetails: (period) =>
               _openPastPeriodDetailsDialog(routeContext, ref, state, period),
+          onEditPayroll: (dialogContext, period, row) =>
+              _showEmployeePayrollDialog(
+            dialogContext,
+            ref,
+            row.employee,
+            periodOverride: period,
+            paidLocked: row.paymentStatus.isPaid,
+          ),
+          onSendPayroll: (dialogContext, period, row) => _sendPayrollToWhatsApp(
+            dialogContext,
+            ref,
+            period: period,
+            employee: row.employee,
+            totals: row.totals,
+          ),
         ),
       ),
     );
@@ -3654,10 +3669,22 @@ class _PayrollHistoryFullScreen extends ConsumerStatefulWidget {
   const _PayrollHistoryFullScreen({
     required this.items,
     required this.onOpenDetails,
+    required this.onEditPayroll,
+    required this.onSendPayroll,
   });
 
   final List<_PayrollHistoryPeriodSummary> items;
   final Future<void> Function(PayrollPeriod period) onOpenDetails;
+  final Future<void> Function(
+    BuildContext context,
+    PayrollPeriod period,
+    _PayrollPeriodRow row,
+  ) onEditPayroll;
+  final Future<void> Function(
+    BuildContext context,
+    PayrollPeriod period,
+    _PayrollPeriodRow row,
+  ) onSendPayroll;
 
   @override
   ConsumerState<_PayrollHistoryFullScreen> createState() =>
@@ -4075,10 +4102,19 @@ class _PayrollHistoryFullScreenState
                     onFilterChange: (f) =>
                         setState(() => _detailFilter = f),
                     onSendPayroll: (row) async {
-                      await widget.onOpenDetails(_selectedItem!.period);
+                      await widget.onSendPayroll(
+                        context,
+                        _selectedItem!.period,
+                        row,
+                      );
                     },
                     onEditPayroll: (row) async {
-                      await widget.onOpenDetails(_selectedItem!.period);
+                      await widget.onEditPayroll(
+                        context,
+                        _selectedItem!.period,
+                        row,
+                      );
+                      await _selectPeriod(_selectedItem!);
                     },
                     onMarkPaid: (row) async {
                       await ref.read(nominaRepositoryProvider).markPayrollPaid(
@@ -5927,57 +5963,33 @@ class _PayrollPeriodEmployeeCardState
                       ),
                       const SizedBox(height: 8),
                       // ── Send button ────────────────────────────────
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: OutlinedButton.icon(
-                          onPressed: widget.onSendPayroll,
-                          icon: const Icon(
-                              Icons.send_to_mobile_outlined,
-                              size: 14),
-                          label: const Text('Enviar nómina'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: scheme.primary,
-                            side: BorderSide(
-                              color: scheme.primary.withValues(alpha: 0.4),
-                            ),
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 6),
-                            textStyle: theme.textTheme.labelSmall?.copyWith(
-                              fontWeight: FontWeight.w700,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        alignment: WrapAlignment.end,
-                        spacing: 8,
-                        runSpacing: 6,
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
                         children: [
-                          OutlinedButton.icon(
+                          IconButton.filledTonal(
+                            tooltip: 'Enviar nomina',
+                            onPressed: widget.onSendPayroll,
+                            icon: const Icon(Icons.send_to_mobile_outlined),
+                          ),
+                          const SizedBox(width: 6),
+                          IconButton.filledTonal(
+                            tooltip: isPaid
+                                ? 'Esta nomina fue pagada y no se puede editar'
+                                : 'Editar nomina',
                             onPressed: widget.onEditPayroll,
                             icon: Icon(
                               isPaid ? Icons.lock_outline : Icons.edit_outlined,
-                              size: 14,
-                            ),
-                            label: Text(
-                              isPaid
-                                  ? 'Esta nomina fue pagada'
-                                  : 'Editar nomina',
                             ),
                           ),
-                          FilledButton.icon(
+                          const SizedBox(width: 6),
+                          IconButton.filled(
+                            tooltip: isPaid ? 'Nomina pagada' : 'Marcar pagada',
                             onPressed: isPaid ? null : widget.onMarkPaid,
                             icon: Icon(
                               isPaid
                                   ? Icons.verified_outlined
                                   : Icons.payments_outlined,
-                              size: 14,
                             ),
-                            label: Text(isPaid ? 'Pagada' : 'Marcar pagada'),
                           ),
                         ],
                       ),
