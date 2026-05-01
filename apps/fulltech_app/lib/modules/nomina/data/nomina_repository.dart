@@ -228,6 +228,43 @@ class NominaRepository {
     }
   }
 
+  Future<void> schedulePayrollToWhatsApp({
+    required String employeeId,
+    required String periodId,
+    required Uint8List bytes,
+    required DateTime scheduledFor,
+    String? fileName,
+    String? messageText,
+  }) async {
+    try {
+      await _dio
+          .post(
+            ApiRoutes.payrollSendWhatsappSchedule,
+            data: {
+              'employeeId': employeeId,
+              'periodId': periodId,
+              'pdfBase64': base64Encode(bytes),
+              'scheduledFor': scheduledFor.toUtc().toIso8601String(),
+              if ((fileName ?? '').trim().isNotEmpty)
+                'fileName': fileName!.trim(),
+              if ((messageText ?? '').trim().isNotEmpty)
+                'messageText': messageText!.trim(),
+            },
+            options: _requestOptions(),
+          )
+          .timeout(const Duration(seconds: 20));
+    } on TimeoutException {
+      throw ApiException(
+        'No se pudo programar la nomina porque el servidor tardo demasiado.',
+      );
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e, 'No se pudo programar la nomina por WhatsApp'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
   Future<List<PayrollServiceCommissionRequest>>
   listPendingServiceCommissionRequests() async {
     final rows = await _getList(ApiRoutes.payrollPendingServiceCommissions);

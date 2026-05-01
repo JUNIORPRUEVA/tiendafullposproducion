@@ -546,6 +546,14 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
             employee: row.employee,
             totals: row.totals,
           ),
+          onSchedulePayroll: (dialogContext, period, row) =>
+              _schedulePayrollToWhatsApp(
+            dialogContext,
+            ref,
+            period: period,
+            employee: row.employee,
+            totals: row.totals,
+          ),
           onPreviewPayroll: (dialogContext, period, row) =>
               _previewEmployeePayrollPdf(
             dialogContext,
@@ -585,6 +593,13 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
           onOpenPdf: () =>
               _openOpenPeriodPdfPreviewDialog(routeContext, period, rows),
           onSendPayroll: (row) => _sendPayrollToWhatsApp(
+            routeContext,
+            ref,
+            period: period,
+            employee: row.employee,
+            totals: row.totals,
+          ),
+          onSchedulePayroll: (row) => _schedulePayrollToWhatsApp(
             routeContext,
             ref,
             period: period,
@@ -859,130 +874,361 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
         : employee.puesto!.trim();
 
     final doc = pw.Document(title: 'Nomina ${employee.nombre}', author: companyName);
+    final primary = PdfColor.fromInt(0xFF0B5D6E);
+    final primaryDark = PdfColor.fromInt(0xFF083E4A);
+    final surface = PdfColor.fromInt(0xFFF4F7FA);
+    final lineColor = PdfColor.fromInt(0xFFE0E7EF);
+    final danger = PdfColor.fromInt(0xFFB42318);
+
+    pw.Widget amountLine(
+      String label,
+      String value, {
+      bool strong = false,
+      PdfColor? color,
+    }) {
+      return pw.Container(
+        padding: const pw.EdgeInsets.symmetric(vertical: 4),
+        decoration: pw.BoxDecoration(
+          border: pw.Border(
+            bottom: pw.BorderSide(color: lineColor, width: 0.45),
+          ),
+        ),
+        child: pw.Row(
+          children: [
+            pw.Expanded(
+              child: pw.Text(
+                label,
+                style: pw.TextStyle(
+                  fontSize: strong ? 10.5 : 9.5,
+                  fontWeight: strong ? pw.FontWeight.bold : pw.FontWeight.normal,
+                  color: PdfColors.blueGrey800,
+                ),
+              ),
+            ),
+            pw.Text(
+              value,
+              style: pw.TextStyle(
+                fontSize: strong ? 10.5 : 9.5,
+                fontWeight: strong ? pw.FontWeight.bold : pw.FontWeight.normal,
+                color: color ?? PdfColors.blueGrey900,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    pw.Widget section(String title, List<pw.Widget> children) {
+      return pw.Container(
+        margin: const pw.EdgeInsets.only(top: 10),
+        padding: const pw.EdgeInsets.fromLTRB(12, 10, 12, 10),
+        decoration: pw.BoxDecoration(
+          color: PdfColors.white,
+          border: pw.Border.all(color: lineColor, width: 0.8),
+          borderRadius: pw.BorderRadius.circular(8),
+        ),
+        child: pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Text(
+              title,
+              style: pw.TextStyle(
+                fontSize: 10,
+                fontWeight: pw.FontWeight.bold,
+                color: primaryDark,
+              ),
+            ),
+            pw.SizedBox(height: 5),
+            ...children,
+          ],
+        ),
+      );
+    }
+
     doc.addPage(
-      pw.Page(
+      pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
-        build: (context) => pw.Padding(
-          padding: const pw.EdgeInsets.all(24),
-          child: pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Center(
-                child: pw.Column(
-                  children: [
-                    pw.Text(
-                      companyName,
-                      style: pw.TextStyle(
-                        fontSize: 17,
-                        fontWeight: pw.FontWeight.bold,
+        margin: const pw.EdgeInsets.all(28),
+        footer: (context) => pw.Align(
+          alignment: pw.Alignment.centerRight,
+          child: pw.Text(
+            'Pagina ${context.pageNumber} de ${context.pagesCount}',
+            style: const pw.TextStyle(fontSize: 8, color: PdfColors.blueGrey400),
+          ),
+        ),
+        build: (context) => [
+          pw.Container(
+            padding: const pw.EdgeInsets.all(16),
+            decoration: pw.BoxDecoration(
+              color: primary,
+              borderRadius: pw.BorderRadius.circular(10),
+            ),
+            child: pw.Row(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Expanded(
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(
+                        companyName,
+                        style: pw.TextStyle(
+                          color: PdfColors.white,
+                          fontSize: 18,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
                       ),
-                    ),
-                    if (companyRnc.isNotEmpty) ...[
-                      pw.SizedBox(height: 2),
-                      pw.Text('RNC: $companyRnc'),
+                      pw.SizedBox(height: 4),
+                      if (companyRnc.isNotEmpty)
+                        pw.Text(
+                          'RNC: $companyRnc',
+                          style: const pw.TextStyle(
+                            color: PdfColors.white,
+                            fontSize: 9,
+                          ),
+                        ),
+                      if (companyPhone.isNotEmpty)
+                        pw.Text(
+                          'Tel: $companyPhone',
+                          style: const pw.TextStyle(
+                            color: PdfColors.white,
+                            fontSize: 9,
+                          ),
+                        ),
                     ],
-                    if (companyPhone.isNotEmpty) pw.Text('Tel: $companyPhone'),
-                    pw.SizedBox(height: 8),
-                    pw.Text(
-                      'COMPROBANTE DE PAGO DE NÓMINA',
-                      style: pw.TextStyle(
-                        fontSize: 12,
-                        fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+                pw.Container(
+                  padding: const pw.EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: pw.BoxDecoration(
+                    color: PdfColors.white,
+                    borderRadius: pw.BorderRadius.circular(8),
+                  ),
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.end,
+                    children: [
+                      pw.Text(
+                        'COMPROBANTE DE NOMINA',
+                        style: pw.TextStyle(
+                          color: primaryDark,
+                          fontSize: 10,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-              pw.SizedBox(height: 12),
-              pw.Divider(),
-              pw.SizedBox(height: 6),
-              pw.Text('Empleado: ${employee.nombre}'),
-              pw.Text('Cargo: $roleLabel'),
-              pw.Text('Quincena: ${period.title}'),
-              pw.Text('Rango: $range'),
-              pw.SizedBox(height: 16),
-              pw.Text(
-                'ADICIONES',
-                style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
-              ),
-              _pdfTotalLine('Salario quincenal', money.format(totals.baseSalary)),
-              if (totals.serviceCommissions > 0)
-                _pdfTotalLine(
-                  'Comision por instalaciones',
-                  money.format(totals.serviceCommissions),
-                ),
-              if (totals.commissions > 0)
-                _pdfTotalLine(
-                  'Comision por ventas',
-                  money.format(totals.commissions),
-                ),
-              if (totals.bonuses > 0)
-                _pdfTotalLine('Bonificaciones', money.format(totals.bonuses)),
-              if (totals.holidayWorked > 0)
-                _pdfTotalLine(
-                  'Feriados trabajados',
-                  money.format(totals.holidayWorked),
-                ),
-              if (totals.otherAdditions > 0)
-                _pdfTotalLine(
-                  'Otros ingresos',
-                  money.format(totals.otherAdditions),
-                ),
-              _pdfTotalLine(
-                'Total adiciones',
-                money.format(totals.additions),
-                highlight: true,
-              ),
-              pw.SizedBox(height: 10),
-              pw.Text(
-                'DEDUCCIONES',
-                style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
-              ),
-              if (totals.seguroLey > 0)
-                _pdfTotalLine('Seguro de ley', money.format(totals.seguroLey)),
-              if (totals.absences > 0)
-                _pdfTotalLine('Ausencias', money.format(totals.absences)),
-              if (totals.late > 0)
-                _pdfTotalLine('Tardanzas', money.format(totals.late)),
-              if (totals.advances > 0)
-                _pdfTotalLine('Adelantos', money.format(totals.advances)),
-              if (totals.otherDeductions > 0)
-                _pdfTotalLine(
-                  'Otros descuentos',
-                  money.format(totals.otherDeductions),
-                ),
-              if (totals.deductions <= 0)
-                _pdfTotalLine('Sin deducciones', money.format(0)),
-              _pdfTotalLine(
-                'Total deducciones',
-                money.format(totals.deductions),
-                highlight: true,
-              ),
-              if (entries.isNotEmpty) ...[
-                pw.SizedBox(height: 10),
-                pw.Text(
-                  'MOVIMIENTOS DE LA QUINCENA',
-                  style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
-                ),
-                pw.SizedBox(height: 4),
-                ...entries.map(
-                  (entry) => _pdfTotalLine(
-                    '${DateFormat('dd/MM/yyyy').format(entry.date)} - ${entry.type.label}: ${entry.concept}',
-                    money.format(entry.amount),
+                      pw.SizedBox(height: 4),
+                      pw.Text(
+                        DateFormat('dd/MM/yyyy').format(DateTime.now()),
+                        style: const pw.TextStyle(
+                          color: PdfColors.blueGrey600,
+                          fontSize: 9,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
-              pw.Divider(),
-              pw.Text(
-                'Neto a pagar: ${money.format(totals.total)}',
-                style: pw.TextStyle(
-                  fontSize: 14,
-                  fontWeight: pw.FontWeight.bold,
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
+          pw.SizedBox(height: 12),
+          pw.Container(
+            padding: const pw.EdgeInsets.all(12),
+            decoration: pw.BoxDecoration(
+              color: surface,
+              borderRadius: pw.BorderRadius.circular(8),
+              border: pw.Border.all(color: lineColor, width: 0.8),
+            ),
+            child: pw.Row(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Expanded(
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(
+                        employee.nombre,
+                        style: pw.TextStyle(
+                          fontSize: 14,
+                          fontWeight: pw.FontWeight.bold,
+                          color: PdfColors.blueGrey900,
+                        ),
+                      ),
+                      pw.SizedBox(height: 4),
+                      pw.Text(
+                        'Cargo: $roleLabel',
+                        style: const pw.TextStyle(
+                          fontSize: 9,
+                          color: PdfColors.blueGrey700,
+                        ),
+                      ),
+                      pw.Text(
+                        'Quincena: ${period.title}',
+                        style: const pw.TextStyle(
+                          fontSize: 9,
+                          color: PdfColors.blueGrey700,
+                        ),
+                      ),
+                      pw.Text(
+                        'Rango: $range',
+                        style: const pw.TextStyle(
+                          fontSize: 9,
+                          color: PdfColors.blueGrey700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                pw.Container(
+                  padding: const pw.EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
+                  decoration: pw.BoxDecoration(
+                    color: PdfColors.white,
+                    borderRadius: pw.BorderRadius.circular(8),
+                    border: pw.Border.all(color: lineColor, width: 0.8),
+                  ),
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.end,
+                    children: [
+                      pw.Text(
+                        'Total pagado',
+                        style: const pw.TextStyle(
+                          fontSize: 9,
+                          color: PdfColors.blueGrey600,
+                        ),
+                      ),
+                      pw.SizedBox(height: 3),
+                      pw.Text(
+                        money.format(totals.total),
+                        style: pw.TextStyle(
+                          fontSize: 16,
+                          fontWeight: pw.FontWeight.bold,
+                          color: primaryDark,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          section('ADICIONES', [
+            amountLine('Salario quincenal', money.format(totals.baseSalary)),
+            if (totals.serviceCommissions > 0)
+              amountLine(
+                'Comision por instalaciones',
+                money.format(totals.serviceCommissions),
+              ),
+            if (totals.commissions > 0)
+              amountLine('Comision por ventas', money.format(totals.commissions)),
+            if (totals.bonuses > 0)
+              amountLine('Bonificaciones', money.format(totals.bonuses)),
+            if (totals.holidayWorked > 0)
+              amountLine('Feriados trabajados', money.format(totals.holidayWorked)),
+            if (totals.otherAdditions > 0)
+              amountLine('Otros ingresos', money.format(totals.otherAdditions)),
+            amountLine(
+              'Total adiciones',
+              money.format(totals.additions),
+              strong: true,
+              color: primaryDark,
+            ),
+          ]),
+          section('DEDUCCIONES', [
+            if (totals.seguroLey > 0)
+              amountLine('Seguro de ley', money.format(totals.seguroLey), color: danger),
+            if (totals.absences > 0)
+              amountLine('Ausencias', money.format(totals.absences), color: danger),
+            if (totals.late > 0)
+              amountLine('Tardanzas', money.format(totals.late), color: danger),
+            if (totals.advances > 0)
+              amountLine('Adelantos', money.format(totals.advances), color: danger),
+            if (totals.otherDeductions > 0)
+              amountLine(
+                'Otros descuentos',
+                money.format(totals.otherDeductions),
+                color: danger,
+              ),
+            if (totals.deductions <= 0)
+              amountLine('Sin deducciones', money.format(0)),
+            amountLine(
+              'Total deducciones',
+              money.format(totals.deductions),
+              strong: true,
+              color: danger,
+            ),
+          ]),
+          if (entries.isNotEmpty)
+            section('MOVIMIENTOS DE LA QUINCENA', [
+              pw.TableHelper.fromTextArray(
+                headers: const ['Fecha', 'Tipo', 'Concepto', 'Monto'],
+                data: entries
+                    .map(
+                      (entry) => [
+                        DateFormat('dd/MM/yyyy').format(entry.date),
+                        entry.type.label,
+                        entry.concept,
+                        money.format(entry.amount),
+                      ],
+                    )
+                    .toList(),
+                headerStyle: pw.TextStyle(
+                  fontSize: 8.5,
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColors.white,
+                ),
+                headerDecoration: pw.BoxDecoration(color: primaryDark),
+                cellStyle: const pw.TextStyle(fontSize: 8.5),
+                cellAlignment: pw.Alignment.centerLeft,
+                cellPadding: const pw.EdgeInsets.symmetric(
+                  horizontal: 6,
+                  vertical: 5,
+                ),
+                border: pw.TableBorder.all(color: lineColor, width: 0.45),
+              ),
+            ]),
+          pw.SizedBox(height: 12),
+          pw.Container(
+            padding: const pw.EdgeInsets.all(14),
+            decoration: pw.BoxDecoration(
+              color: primaryDark,
+              borderRadius: pw.BorderRadius.circular(10),
+            ),
+            child: pw.Row(
+              children: [
+                pw.Expanded(
+                  child: pw.Text(
+                    'TOTAL PAGADO',
+                    style: pw.TextStyle(
+                      color: PdfColors.white,
+                      fontSize: 12,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                ),
+                pw.Text(
+                  money.format(totals.total),
+                  style: pw.TextStyle(
+                    color: PdfColors.white,
+                    fontSize: 18,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          pw.SizedBox(height: 8),
+          pw.Text(
+            'Documento generado automaticamente por el sistema de nomina.',
+            style: const pw.TextStyle(
+              fontSize: 8,
+              color: PdfColors.blueGrey500,
+            ),
+          ),
+        ],
       ),
     );
 
@@ -1073,6 +1319,157 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
     await Printing.layoutPdf(
       name: _buildEmployeePayrollPdfFileName(employee, period),
       onLayout: (_) async => bytes,
+    );
+  }
+
+  Future<DateTime?> _pickPayrollScheduledAt(BuildContext context) async {
+    var selected = DateTime.now().add(const Duration(hours: 1));
+
+    return showDialog<DateTime>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setStateDialog) {
+          final label = DateFormat(
+            'dd/MM/yyyy h:mm a',
+            'es_DO',
+          ).format(selected);
+
+          Future<void> pickDate() async {
+            final picked = await showDatePicker(
+              context: dialogContext,
+              initialDate: selected,
+              firstDate: DateTime.now(),
+              lastDate: DateTime.now().add(const Duration(days: 365)),
+            );
+            if (picked == null) return;
+            setStateDialog(() {
+              selected = DateTime(
+                picked.year,
+                picked.month,
+                picked.day,
+                selected.hour,
+                selected.minute,
+              );
+            });
+          }
+
+          Future<void> pickTime() async {
+            final picked = await showTimePicker(
+              context: dialogContext,
+              initialTime: TimeOfDay.fromDateTime(selected),
+            );
+            if (picked == null) return;
+            setStateDialog(() {
+              selected = DateTime(
+                selected.year,
+                selected.month,
+                selected.day,
+                picked.hour,
+                picked.minute,
+              );
+            });
+          }
+
+          return AlertDialog(
+            title: const Text('Programar envio'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Se enviara en: $label'),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: pickDate,
+                        icon: const Icon(Icons.event_outlined),
+                        label: const Text('Fecha'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: pickTime,
+                        icon: const Icon(Icons.schedule_outlined),
+                        label: const Text('Hora'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton.icon(
+                onPressed: () {
+                  if (selected.isBefore(DateTime.now())) {
+                    AppFeedback.showError(
+                      dialogContext,
+                      'Selecciona una fecha y hora futura.',
+                      fallbackContext: dialogContext,
+                      scope: 'NominaSchedulePayroll',
+                    );
+                    return;
+                  }
+                  Navigator.pop(dialogContext, selected);
+                },
+                icon: const Icon(Icons.schedule_send_outlined),
+                label: const Text('Programar'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _schedulePayrollToWhatsApp(
+    BuildContext context,
+    WidgetRef ref, {
+    required PayrollPeriod period,
+    required PayrollEmployee employee,
+    required PayrollTotals totals,
+  }) async {
+    final scheduledAt = await _pickPayrollScheduledAt(context);
+    if (scheduledAt == null || !context.mounted) return;
+
+    final bytes = await _buildEmployeePayrollPdfBytes(
+      ref: ref,
+      period: period,
+      employee: employee,
+      totals: totals,
+    );
+
+    try {
+      await ref.read(nominaRepositoryProvider).schedulePayrollToWhatsApp(
+            employeeId: employee.id,
+            periodId: period.id,
+            bytes: bytes,
+            fileName: _buildEmployeePayrollPdfFileName(employee, period),
+            scheduledFor: scheduledAt,
+          );
+    } catch (error) {
+      if (!context.mounted) return;
+      final message = error is ApiException ? error.message : error.toString();
+      await AppFeedback.showError(
+        context,
+        'No se pudo programar la nomina de ${employee.nombre}: $message',
+        fallbackContext: context,
+        scope: 'NominaSchedulePayroll',
+      );
+      return;
+    }
+
+    if (!context.mounted) return;
+    await AppFeedback.showInfo(
+      context,
+      'Nomina de ${employee.nombre} programada para ${DateFormat('dd/MM/yyyy h:mm a', 'es_DO').format(scheduledAt)}.',
+      fallbackContext: context,
+      scope: 'NominaSchedulePayroll',
     );
   }
 
@@ -2021,6 +2418,19 @@ class _NominaScreenState extends ConsumerState<NominaScreen> {
                       )
                     : const Icon(Icons.send_to_mobile_outlined),
                 label: const Text('Enviar nómina'),
+              ),
+              IconButton.filledTonal(
+                tooltip: 'Programar envio',
+                onPressed: isSendingPayroll
+                    ? null
+                    : () => _schedulePayrollToWhatsApp(
+                          scaffoldContext,
+                          ref,
+                          period: open,
+                          employee: employee,
+                          totals: totals,
+                        ),
+                icon: const Icon(Icons.event_available_outlined),
               ),
               TextButton(
                 onPressed: () => Navigator.pop(context),
@@ -3972,6 +4382,7 @@ class _PayrollHistoryFullScreen extends ConsumerStatefulWidget {
     required this.onOpenDetails,
     required this.onEditPayroll,
     required this.onSendPayroll,
+    required this.onSchedulePayroll,
     required this.onPreviewPayroll,
   });
 
@@ -3987,6 +4398,11 @@ class _PayrollHistoryFullScreen extends ConsumerStatefulWidget {
     PayrollPeriod period,
     _PayrollPeriodRow row,
   ) onSendPayroll;
+  final Future<void> Function(
+    BuildContext context,
+    PayrollPeriod period,
+    _PayrollPeriodRow row,
+  ) onSchedulePayroll;
   final Future<void> Function(
     BuildContext context,
     PayrollPeriod period,
@@ -4415,6 +4831,13 @@ class _PayrollHistoryFullScreenState
                         row,
                       );
                     },
+                    onSchedulePayroll: (row) async {
+                      await widget.onSchedulePayroll(
+                        context,
+                        _selectedItem!.period,
+                        row,
+                      );
+                    },
                     onPreviewPayroll: (row) async {
                       await widget.onPreviewPayroll(
                         context,
@@ -4833,6 +5256,7 @@ class _HistoryInlineDetail extends StatelessWidget {
     required this.money,
     required this.onFilterChange,
     required this.onSendPayroll,
+    required this.onSchedulePayroll,
     required this.onPreviewPayroll,
     required this.onEditPayroll,
     required this.onMarkPaid,
@@ -4849,6 +5273,7 @@ class _HistoryInlineDetail extends StatelessWidget {
   final NumberFormat money;
   final void Function(_PayrollDetailEmployeeFilter) onFilterChange;
   final Future<void> Function(_PayrollPeriodRow) onSendPayroll;
+  final Future<void> Function(_PayrollPeriodRow) onSchedulePayroll;
   final Future<void> Function(_PayrollPeriodRow) onPreviewPayroll;
   final Future<void> Function(_PayrollPeriodRow) onEditPayroll;
   final Future<void> Function(_PayrollPeriodRow) onMarkPaid;
@@ -5056,6 +5481,7 @@ class _HistoryInlineDetail extends StatelessWidget {
                               row: row,
                               money: money,
                               onSendPayroll: () => onSendPayroll(row),
+                              onSchedulePayroll: () => onSchedulePayroll(row),
                               onPreviewPayroll: () => onPreviewPayroll(row),
                               onEditPayroll: () => onEditPayroll(row),
                               onMarkPaid: row.paymentStatus.isPaid
@@ -5140,6 +5566,7 @@ class _PayrollPeriodDetailsScreen extends StatefulWidget {
     required this.totalPagar,
     required this.onOpenPdf,
     required this.onSendPayroll,
+    required this.onSchedulePayroll,
     required this.onPreviewPayroll,
     required this.onEditPayroll,
     required this.onMarkPaid,
@@ -5152,6 +5579,7 @@ class _PayrollPeriodDetailsScreen extends StatefulWidget {
   final double totalPagar;
   final Future<void> Function() onOpenPdf;
   final Future<void> Function(_PayrollPeriodRow row) onSendPayroll;
+  final Future<void> Function(_PayrollPeriodRow row) onSchedulePayroll;
   final Future<void> Function(_PayrollPeriodRow row) onPreviewPayroll;
   final Future<void> Function(_PayrollPeriodRow row) onEditPayroll;
   final Future<PayrollPaymentRecord?> Function(_PayrollPeriodRow row) onMarkPaid;
@@ -5472,6 +5900,7 @@ class _PayrollPeriodDetailsScreenState
                         row: row,
                         money: widget.money,
                         onSendPayroll: () => widget.onSendPayroll(row),
+                        onSchedulePayroll: () => widget.onSchedulePayroll(row),
                         onPreviewPayroll: () => widget.onPreviewPayroll(row),
                         onEditPayroll: () async {
                           await widget.onEditPayroll(row);
@@ -5948,6 +6377,7 @@ class _PayrollPeriodEmployeeCard extends StatefulWidget {
     required this.row,
     required this.money,
     required this.onSendPayroll,
+    required this.onSchedulePayroll,
     required this.onPreviewPayroll,
     required this.onEditPayroll,
     this.onMarkPaid,
@@ -5956,6 +6386,7 @@ class _PayrollPeriodEmployeeCard extends StatefulWidget {
   final _PayrollPeriodRow row;
   final NumberFormat money;
   final Future<void> Function() onSendPayroll;
+  final Future<void> Function() onSchedulePayroll;
   final Future<void> Function() onPreviewPayroll;
   final Future<void> Function() onEditPayroll;
   final Future<void> Function()? onMarkPaid;
@@ -6303,6 +6734,12 @@ class _PayrollPeriodEmployeeCardState
                             tooltip: 'Enviar nomina',
                             onPressed: widget.onSendPayroll,
                             icon: const Icon(Icons.send_to_mobile_outlined),
+                          ),
+                          const SizedBox(width: 6),
+                          IconButton.filledTonal(
+                            tooltip: 'Programar envio',
+                            onPressed: widget.onSchedulePayroll,
+                            icon: const Icon(Icons.event_available_outlined),
                           ),
                           const SizedBox(width: 6),
                           IconButton.filledTonal(

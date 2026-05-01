@@ -282,6 +282,8 @@ export class NotificationsService {
     payload?: unknown;
     recipientUserId?: string | null;
     senderUserId?: string | null;
+    scheduledFor?: Date | string | null;
+    allowOutsideBusinessHours?: boolean;
   }) {
     const rawPhone = (params.toNumber ?? '').toString().trim();
     const normalized = this.evolution.normalizeWhatsAppNumber(rawPhone);
@@ -290,7 +292,20 @@ export class NotificationsService {
     const bytes = params.bytes instanceof Uint8Array ? params.bytes : new Uint8Array(params.bytes);
     let messageText = (params.messageText ?? '').toString();
     messageText = await this.maybeInjectOrderNumber(messageText, params.payload);
-    const nextAttemptAt = this.getInitialAttemptAt();
+    const scheduledFor = params.scheduledFor
+      ? new Date(params.scheduledFor)
+      : null;
+    const nextAttemptAt = scheduledFor && !Number.isNaN(scheduledFor.getTime())
+      ? scheduledFor
+      : this.getInitialAttemptAt();
+    const payload = params.allowOutsideBusinessHours
+      ? {
+          ...((params.payload && typeof params.payload === 'object' && !Array.isArray(params.payload))
+            ? params.payload as Record<string, unknown>
+            : { payload: params.payload }),
+          allowOutsideBusinessHours: true,
+        }
+      : params.payload;
 
     const data = {
       channel: 'WHATSAPP' as const,
@@ -302,7 +317,7 @@ export class NotificationsService {
       mediaBase64: bytes.length ? Buffer.from(bytes).toString('base64') : null,
       mediaFileName: fileName,
       mediaMimeType: mimeType,
-      payload: this.attachSenderUserId(params.payload, params.senderUserId),
+      payload: this.attachSenderUserId(payload, params.senderUserId),
       recipientUserId: (params.recipientUserId ?? null) as any,
       toNumber: rawPhone,
       toNumberNormalized: normalized || '',
@@ -455,12 +470,16 @@ export class NotificationsService {
         const payload = (row.payload ?? null) as any;
         const kind = payload?.kind ? String(payload.kind) : '';
         const senderUserId = this.extractSenderUserId(payload);
+        const allowOutsideBusinessHours =
+          payload && typeof payload === 'object' && !Array.isArray(payload)
+            ? (payload as Record<string, unknown>).allowOutsideBusinessHours === true
+            : false;
         if (kind === 'reservation_reminder') {
           await this.disableLegacyReservationReminder(row);
           continue;
         }
 
-        if (!isWithinNotificationBusinessHours()) {
+        if (!allowOutsideBusinessHours && !isWithinNotificationBusinessHours()) {
           await this.prisma.notificationOutbox.update({
             where: { id: row.id },
             data: {

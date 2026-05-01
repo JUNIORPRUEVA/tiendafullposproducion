@@ -9,9 +9,10 @@ import {
   ServiceOrderType,
 } from '@prisma/client';
 import { EvolutionWhatsAppService } from '../notifications/evolution-whatsapp.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AddPayrollEntryDto } from './dto/payroll-entry.dto';
-import { SendPayrollWhatsappDto } from './dto/send-payroll-whatsapp.dto';
+import { SchedulePayrollWhatsappDto, SendPayrollWhatsappDto } from './dto/send-payroll-whatsapp.dto';
 import { UpsertPayrollConfigDto } from './dto/upsert-payroll-config.dto';
 import { UpsertPayrollEmployeeDto } from './dto/upsert-payroll-employee.dto';
 
@@ -22,6 +23,7 @@ export class PayrollService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly evolutionWhatsApp: EvolutionWhatsAppService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async resolveCompanyOwnerId(fallbackUserId: string) {
@@ -415,6 +417,82 @@ export class PayrollService {
       normalizedPhone: delivery.normalizedPhone,
       target: delivery.label,
       sentAt: new Date().toISOString(),
+    };
+  }
+
+  async schedulePayrollWhatsapp(ownerId: string, dto: SchedulePayrollWhatsappDto) {
+    const scheduledFor = new Date(dto.scheduledFor);
+    if (Number.isNaN(scheduledFor.getTime())) {
+      throw new BadRequestException('La fecha programada no es valida');
+    }
+    if (scheduledFor.getTime() <= Date.now() + 30_000) {
+      throw new BadRequestException('La fecha y hora programada debe ser futura');
+    }
+
+    const [employee, period] = await Promise.all([
+      this.prisma.payrollEmployee.findFirst({
+        where: { ownerId, id: dto.employeeId },
+        include: {
+          user: {
+            select: { id: true, telefono: true, nombreCompleto: true },
+          },
+        },
+      }),
+      this.prisma.payrollPeriod.findFirst({
+        where: { ownerId, id: dto.periodId },
+        select: { id: true, title: true, startDate: true, endDate: true },
+      }),
+    ]);
+
+    if (!employee) {
+      throw new NotFoundException('Empleado de nomina no encontrado');
+    }
+    if (!period) {
+      throw new NotFoundException('Quincena no encontrada');
+    }
+
+    const notificationConfig = await this.getPayrollNotificationConfig();
+    const targets = this.buildPayrollEmployeeNotificationTargets(employee);
+    if (targets.length === 0) {
+      throw new BadRequestException('No hay un telefono valido para enviar la nomina por WhatsApp');
+    }
+
+    const bytes = this.parsePdfBase64(dto.pdfBase64);
+    const fileName = (dto.fileName ?? '').trim() || this.buildPayrollPdfFileName(employee.nombre, period.title);
+    const customMessage = (dto.messageText ?? '').trim();
+    const message = customMessage || this.buildPayrollPdfMessage(
+      employee.nombre,
+      period.title,
+      notificationConfig.companyName,
+    );
+    const target = targets[0];
+
+    const job = await this.notifications.enqueueWhatsAppDocument({
+      toNumber: target.rawPhone,
+      messageText: message,
+      fileName,
+      bytes,
+      mimeType: 'application/pdf',
+      dedupeKey: `payroll-pdf:${ownerId}:${period.id}:${employee.id}:${scheduledFor.toISOString()}`,
+      payload: {
+        kind: 'payroll_pdf',
+        ownerId,
+        employeeId: employee.id,
+        periodId: period.id,
+        scheduledFor: scheduledFor.toISOString(),
+        target: target.label,
+      },
+      recipientUserId: employee.userId ?? null,
+      scheduledFor,
+      allowOutsideBusinessHours: true,
+    });
+
+    return {
+      ok: true,
+      queuedId: job.id,
+      scheduledFor: scheduledFor.toISOString(),
+      normalizedPhone: target.normalizedPhone,
+      target: target.label,
     };
   }
 

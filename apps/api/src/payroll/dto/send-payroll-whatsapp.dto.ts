@@ -1,4 +1,4 @@
-import { IsBase64, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import { IsBase64, IsISO8601, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 
 export class SendPayrollWhatsappDto {
   @IsUUID()
@@ -19,4 +19,9 @@ export class SendPayrollWhatsappDto {
   @IsString()
   @MaxLength(1500)
   messageText?: string;
+}
+
+export class SchedulePayrollWhatsappDto extends SendPayrollWhatsappDto {
+  @IsISO8601()
+  scheduledFor!: string;
 }
