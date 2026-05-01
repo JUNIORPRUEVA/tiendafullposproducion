@@ -27,11 +27,11 @@ class ApiRoutes {
   static const punchAdmin = '/admin/punch';
   static const punchAttendanceSummary = '/admin/attendance/summary';
   static String punchAttendanceUser(String id) => '/admin/attendance/user/$id';
-    static const adminSales = '/admin/sales';
+  static const adminSales = '/admin/sales';
   static const adminSalesSummary = '/admin/sales/summary';
-    static const adminServiceCommissions = '/admin/service-commissions';
-    static const adminServiceCommissionsSummary =
-            '/admin/service-commissions/summary';
+  static const adminServiceCommissions = '/admin/service-commissions';
+  static const adminServiceCommissionsSummary =
+      '/admin/service-commissions/summary';
   static const adminPanelOverview = '/admin/panel/overview';
   static const adminPanelAiInsights = '/admin/panel/ai-insights';
 
@@ -43,6 +43,10 @@ class ApiRoutes {
   static const contabilidadCloses = '/contabilidad/closes';
   static String contabilidadCloseDetail(String id) =>
       '/contabilidad/closes/$id';
+  static String contabilidadCloseApprove(String id) =>
+      '/contabilidad/closes/$id/approve';
+  static String contabilidadCloseReject(String id) =>
+      '/contabilidad/closes/$id/reject';
   static const contabilidadDepositOrders = '/contabilidad/deposit-orders';
   static String contabilidadDepositOrderDetail(String id) =>
       '/contabilidad/deposit-orders/$id';
@@ -188,7 +192,7 @@ class ApiRoutes {
   static String documentFlowGenerate(String id) =>
       '/document-flows/$id/generate';
   static String documentFlowSend(String id) => '/document-flows/$id/send';
-    static String documentFlowDelete(String id) => '/document-flows/$id';
+  static String documentFlowDelete(String id) => '/document-flows/$id';
 
   // Asistente IA (global)
   static const aiChat = '/ai/chat';

@@ -11,6 +11,13 @@ export enum CloseType {
   CAPSULAS = 'CAPSULAS',
   POS = 'POS',
   TIENDA = 'TIENDA',
+  PHYTOEMAGRY = 'PHYTOEMAGRY',
+}
+
+export enum CloseStatus {
+  PENDING = 'pending',
+  APPROVED = 'approved',
+  REJECTED = 'rejected',
 }
 
 export class CreateCloseDto {
@@ -18,11 +25,7 @@ export class CreateCloseDto {
   type!: CloseType;
 
   @IsDateString()
-  @IsOptional()
-  date?: string;
-
-  @IsString()
-  status!: string;
+  date!: string;
 
   @IsNumber()
   @Min(0)
@@ -42,18 +45,31 @@ export class CreateCloseDto {
 
   @IsNumber()
   @Min(0)
+  @IsOptional()
+  otherIncome?: number;
+
+  @IsNumber()
+  @Min(0)
   expenses!: number;
 
   @IsNumber()
   @Min(0)
   cashDelivered!: number;
+
+  @IsString()
+  @IsOptional()
+  notes?: string;
+
+  @IsString()
+  @IsOptional()
+  evidenceUrl?: string;
+
+  @IsString()
+  @IsOptional()
+  evidenceFileName?: string;
 }
 
 export class UpdateCloseDto {
-  @IsString()
-  @IsOptional()
-  status?: string;
-
   @IsNumber()
   @IsOptional()
   @Min(0)
@@ -76,10 +92,27 @@ export class UpdateCloseDto {
   @IsNumber()
   @IsOptional()
   @Min(0)
+  otherIncome?: number;
+
+  @IsNumber()
+  @IsOptional()
+  @Min(0)
   expenses?: number;
 
   @IsNumber()
   @IsOptional()
   @Min(0)
   cashDelivered?: number;
+
+  @IsString()
+  @IsOptional()
+  notes?: string;
+
+  @IsString()
+  @IsOptional()
+  evidenceUrl?: string;
+
+  @IsString()
+  @IsOptional()
+  evidenceFileName?: string;
 }

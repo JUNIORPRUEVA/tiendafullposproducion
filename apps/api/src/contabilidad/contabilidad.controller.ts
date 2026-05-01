@@ -25,7 +25,7 @@ import { Roles } from '../auth/roles.decorator';
 import { R2Service } from '../storage/r2.service';
 import { sanitizeFileName } from '../storage/helpers/storage_helpers';
 import { ContabilidadService } from './contabilidad.service';
-import { CreateCloseDto, UpdateCloseDto } from './close.dto';
+import { CloseStatus, CreateCloseDto, UpdateCloseDto } from './close.dto';
 import {
   CreateDepositOrderDto,
   DepositOrdersQueryDto,
@@ -57,7 +57,10 @@ export class ContabilidadController {
   @Post('closes')
   @Roles('ADMIN', 'ASISTENTE')
   async createClose(@Body() dto: CreateCloseDto, @Req() req: Request) {
-    return this.contabilidadService.createClose(dto, (req.user ?? {}) as RequestActor);
+    return this.contabilidadService.createClose(
+      dto,
+      (req.user ?? {}) as RequestActor,
+    );
   }
 
   @Get('closes')
@@ -79,14 +82,45 @@ export class ContabilidadController {
 
   @Put('closes/:id')
   @Roles('ADMIN', 'ASISTENTE')
-  async updateClose(@Param('id') id: string, @Body() dto: UpdateCloseDto, @Req() req: Request) {
-    return this.contabilidadService.updateClose(id, dto, (req.user ?? {}) as RequestActor);
+  async updateClose(
+    @Param('id') id: string,
+    @Body() dto: UpdateCloseDto,
+    @Req() req: Request,
+  ) {
+    return this.contabilidadService.updateClose(
+      id,
+      dto,
+      (req.user ?? {}) as RequestActor,
+    );
   }
 
   @Delete('closes/:id')
   @Roles('ADMIN', 'ASISTENTE')
   async deleteClose(@Param('id') id: string, @Req() req: Request) {
-    return this.contabilidadService.deleteClose(id, (req.user ?? {}) as RequestActor);
+    return this.contabilidadService.deleteClose(
+      id,
+      (req.user ?? {}) as RequestActor,
+    );
+  }
+
+  @Post('closes/:id/approve')
+  @Roles('ADMIN', 'ASISTENTE')
+  async approveClose(@Param('id') id: string, @Req() req: Request) {
+    return this.contabilidadService.reviewClose(
+      id,
+      CloseStatus.APPROVED,
+      (req.user ?? {}) as RequestActor,
+    );
+  }
+
+  @Post('closes/:id/reject')
+  @Roles('ADMIN', 'ASISTENTE')
+  async rejectClose(@Param('id') id: string, @Req() req: Request) {
+    return this.contabilidadService.reviewClose(
+      id,
+      CloseStatus.REJECTED,
+      (req.user ?? {}) as RequestActor,
+    );
   }
 
   @Post('deposit-orders')
@@ -147,7 +181,9 @@ export class ContabilidadController {
           file.mimetype === 'application/pdf';
         if (!isAllowed) {
           return cb(
-            new BadRequestException('Solo se permiten voucher en PNG/JPG/WEBP/PDF'),
+            new BadRequestException(
+              'Solo se permiten voucher en PNG/JPG/WEBP/PDF',
+            ),
             false,
           );
         }
@@ -168,13 +204,15 @@ export class ContabilidadController {
 
     const original = sanitizeFileName(file.originalname ?? 'voucher-deposito');
     const ext = extname(original).toLowerCase();
-    const safeExt = ext && /\.(png|jpe?g|webp|pdf)$/.test(ext)
-      ? ext
-      : file.mimetype === 'application/pdf'
-        ? '.pdf'
-        : '.jpg';
+    const safeExt =
+      ext && /\.(png|jpe?g|webp|pdf)$/.test(ext)
+        ? ext
+        : file.mimetype === 'application/pdf'
+          ? '.pdf'
+          : '.jpg';
     const contentType =
-      /^image\/(png|jpe?g|webp)$/.test(file.mimetype) || file.mimetype === 'application/pdf'
+      /^image\/(png|jpe?g|webp)$/.test(file.mimetype) ||
+      file.mimetype === 'application/pdf'
         ? file.mimetype
         : safeExt === '.png'
           ? 'image/png'
@@ -189,18 +227,23 @@ export class ContabilidadController {
     const now = new Date();
     const month = String(now.getUTCMonth() + 1).padStart(2, '0');
     const baseName = original.replace(/\.[^/.]+$/, '') || 'voucher';
-    const objectKey = `contabilidad/deposit-orders/${now.getUTCFullYear()}/${month}/${ownerSegment}/${randomUUID()}-${baseName}${safeExt}`
-      .replace(/\s+/g, '_')
-      .replace(/[^a-zA-Z0-9/_\-.]/g, '');
+    const objectKey =
+      `contabilidad/deposit-orders/${now.getUTCFullYear()}/${month}/${ownerSegment}/${randomUUID()}-${baseName}${safeExt}`
+        .replace(/\s+/g, '_')
+        .replace(/[^a-zA-Z0-9/_\-.]/g, '');
 
     const uploadDirEnv = (process.env['UPLOAD_DIR'] ?? '').trim();
     const volumeDir = '/uploads';
     const volumeExists = fs.existsSync(volumeDir);
-    const uploadDir = uploadDirEnv.length > 0
-      ? ((uploadDirEnv === './uploads' || uploadDirEnv === 'uploads') && volumeExists
+    const uploadDir =
+      uploadDirEnv.length > 0
+        ? (uploadDirEnv === './uploads' || uploadDirEnv === 'uploads') &&
+          volumeExists
           ? volumeDir
-          : uploadDirEnv)
-      : (volumeExists ? volumeDir : join(process.cwd(), 'uploads'));
+          : uploadDirEnv
+        : volumeExists
+          ? volumeDir
+          : join(process.cwd(), 'uploads');
 
     const relativePath = `/${posix.join('uploads', objectKey)}`;
     const segments = objectKey.split('/');
@@ -222,7 +265,10 @@ export class ContabilidadController {
       });
     } catch (r2Err) {
       // eslint-disable-next-line no-console
-      console.warn('[deposit-orders/voucher] R2 mirror failed, local file is used:', r2Err);
+      console.warn(
+        '[deposit-orders/voucher] R2 mirror failed, local file is used:',
+        r2Err,
+      );
     }
 
     return this.contabilidadService.attachDepositOrderVoucher(
@@ -279,19 +325,24 @@ export class ContabilidadController {
     const now = new Date();
     const month = String(now.getUTCMonth() + 1).padStart(2, '0');
     const baseName = original.replace(/\.[^/.]+$/, '') || 'factura';
-    const objectKey = `contabilidad/fiscal-invoices/${now.getUTCFullYear()}/${month}/${ownerSegment}/${randomUUID()}-${baseName}${safeExt}`
-      .replace(/\s+/g, '_')
-      .replace(/[^a-zA-Z0-9/_\-.]/g, '');
+    const objectKey =
+      `contabilidad/fiscal-invoices/${now.getUTCFullYear()}/${month}/${ownerSegment}/${randomUUID()}-${baseName}${safeExt}`
+        .replace(/\s+/g, '_')
+        .replace(/[^a-zA-Z0-9/_\-.]/g, '');
 
     // Resolve local upload directory (same logic as main.ts / StorageController).
     const uploadDirEnv = (process.env['UPLOAD_DIR'] ?? '').trim();
     const volumeDir = '/uploads';
     const volumeExists = fs.existsSync(volumeDir);
-    const uploadDir = uploadDirEnv.length > 0
-      ? ((uploadDirEnv === './uploads' || uploadDirEnv === 'uploads') && volumeExists
+    const uploadDir =
+      uploadDirEnv.length > 0
+        ? (uploadDirEnv === './uploads' || uploadDirEnv === 'uploads') &&
+          volumeExists
           ? volumeDir
-          : uploadDirEnv)
-      : (volumeExists ? volumeDir : join(process.cwd(), 'uploads'));
+          : uploadDirEnv
+        : volumeExists
+          ? volumeDir
+          : join(process.cwd(), 'uploads');
 
     const relativePath = `/${posix.join('uploads', objectKey)}`;
     const segments = objectKey.split('/');
@@ -304,9 +355,7 @@ export class ContabilidadController {
     // Build a full absolute URL the Flutter app can reach.
     const host = (req.get('host') ?? '').trim();
     const protocol = (req.protocol ?? 'https').trim();
-    const url = host
-      ? `${protocol}://${host}${relativePath}`
-      : relativePath;
+    const url = host ? `${protocol}://${host}${relativePath}` : relativePath;
 
     // Optional R2 mirror — failure is non-fatal.
     try {
@@ -317,7 +366,10 @@ export class ContabilidadController {
       });
     } catch (r2Err) {
       // eslint-disable-next-line no-console
-      console.warn('[fiscal-invoices/upload] R2 mirror failed, local file is used:', r2Err);
+      console.warn(
+        '[fiscal-invoices/upload] R2 mirror failed, local file is used:',
+        r2Err,
+      );
     }
 
     return {

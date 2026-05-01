@@ -11,7 +11,7 @@ import {
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateCloseDto, UpdateCloseDto } from './close.dto';
+import { CloseStatus, CreateCloseDto, UpdateCloseDto } from './close.dto';
 import {
   CreateDepositOrderDto,
   DepositOrdersQueryDto,
@@ -101,8 +101,26 @@ export class ContabilidadService {
   private ensureAdmin(actor: Actor) {
     this.normalizeRoleGuard(actor);
     if ((actor.role ?? '').toUpperCase() !== 'ADMIN') {
-      throw new ForbiddenException('Solo administración puede editar o eliminar depósitos');
+      throw new ForbiddenException(
+        'Solo administración puede editar o eliminar depósitos',
+      );
     }
+  }
+
+  private ensureReviewer(actor: Actor) {
+    this.normalizeRoleGuard(actor);
+    const role = (actor.role ?? '').toUpperCase();
+    if (role !== 'ADMIN' && role !== 'ASISTENTE') {
+      throw new ForbiddenException(
+        'Solo administraciÃ³n o contabilidad puede revisar cierres',
+      );
+    }
+  }
+
+  private accountingDay(input: Date) {
+    const value = new Date(input);
+    value.setHours(0, 0, 0, 0);
+    return value;
   }
 
   private parseType(value?: string): CloseType | undefined {
@@ -111,6 +129,8 @@ export class ContabilidadService {
     if (normalized === 'CAPSULAS') return CloseType.CAPSULAS;
     if (normalized === 'POS') return CloseType.POS;
     if (normalized === 'TIENDA') return CloseType.TIENDA;
+    if (normalized === 'PHYTOEMAGRY' || normalized === 'PHYTO')
+      return CloseType.PHYTOEMAGRY;
     return undefined;
   }
 
@@ -157,18 +177,32 @@ export class ContabilidadService {
 
     this.validateTransferData(dto.transfer, dto.transferBank);
     const normalizedTransferBank = this.normalizeTransferBank(dto.transferBank);
+    const date = this.accountingDay(new Date(dto.date));
+    const existing = await this.prisma.close.findFirst({
+      where: { type: dto.type, date, status: { not: CloseStatus.REJECTED } },
+      select: { id: true },
+    });
+    if (existing) {
+      throw new BadRequestException(
+        'Ya existe un cierre activo para esta unidad de negocio en esa fecha.',
+      );
+    }
 
     return this.prisma.close.create({
       data: {
         type: dto.type,
-        date: dto.date ? new Date(dto.date) : new Date(),
-        status: dto.status,
+        date,
+        status: CloseStatus.PENDING,
         cash: dto.cash,
         transfer: dto.transfer,
         transferBank: normalizedTransferBank,
         card: dto.card,
+        otherIncome: dto.otherIncome ?? 0,
         expenses: dto.expenses,
         cashDelivered: dto.cashDelivered,
+        notes: this.toNullableTrimmed(dto.notes),
+        evidenceUrl: this.toNullableTrimmed(dto.evidenceUrl),
+        evidenceFileName: this.toNullableTrimmed(dto.evidenceFileName),
         createdById: actor.id!,
         createdByName: creator?.nombreCompleto ?? null,
       },
@@ -214,6 +248,14 @@ export class ContabilidadService {
 
     const close = await this.prisma.close.findUnique({ where: { id } });
     if (!close) throw new NotFoundException('Cierre no encontrado');
+    if (
+      close.status === CloseStatus.APPROVED ||
+      close.status === CloseStatus.REJECTED
+    ) {
+      throw new BadRequestException(
+        'Este cierre ya fue revisado y no se puede editar.',
+      );
+    }
 
     const nextTransfer = dto.transfer ?? Number(close.transfer);
     const nextTransferBankRaw = dto.transferBank ?? close.transferBank;
@@ -225,7 +267,20 @@ export class ContabilidadService {
       where: { id },
       data: {
         ...dto,
-        transferBank: dto.transfer == null && dto.transferBank == null
+        notes:
+          dto.notes === undefined
+            ? undefined
+            : this.toNullableTrimmed(dto.notes),
+        evidenceUrl:
+          dto.evidenceUrl === undefined
+            ? undefined
+            : this.toNullableTrimmed(dto.evidenceUrl),
+        evidenceFileName:
+          dto.evidenceFileName === undefined
+            ? undefined
+            : this.toNullableTrimmed(dto.evidenceFileName),
+        transferBank:
+          dto.transfer == null && dto.transferBank == null
             ? undefined
             : normalizedTransferBank,
       },
@@ -238,8 +293,38 @@ export class ContabilidadService {
     const close = await this.prisma.close.findUnique({ where: { id } });
     if (!close) throw new NotFoundException('Cierre no encontrado');
 
-    return this.prisma.close.delete({
+    throw new BadRequestException(
+      'Los cierres diarios no se eliminan. Rechaza el registro para conservar la trazabilidad.',
+    );
+  }
+
+  async reviewClose(id: string, status: CloseStatus, actor: Actor) {
+    this.ensureReviewer(actor);
+    if (status !== CloseStatus.APPROVED && status !== CloseStatus.REJECTED) {
+      throw new BadRequestException('Estado de revisiÃ³n invÃ¡lido');
+    }
+
+    const close = await this.prisma.close.findUnique({ where: { id } });
+    if (!close) throw new NotFoundException('Cierre no encontrado');
+    if (close.status !== CloseStatus.PENDING) {
+      throw new BadRequestException(
+        'Solo los cierres pendientes se pueden revisar.',
+      );
+    }
+
+    const reviewer = await this.prisma.user.findUnique({
+      where: { id: actor.id! },
+      select: { nombreCompleto: true },
+    });
+
+    return this.prisma.close.update({
       where: { id },
+      data: {
+        status,
+        reviewedById: actor.id!,
+        reviewedByName: reviewer?.nombreCompleto ?? null,
+        reviewedAt: new Date(),
+      },
     });
   }
 
@@ -300,16 +385,25 @@ export class ContabilidadService {
     return row;
   }
 
-  async updateDepositOrder(id: string, dto: UpdateDepositOrderDto, actor: Actor) {
+  async updateDepositOrder(
+    id: string,
+    dto: UpdateDepositOrderDto,
+    actor: Actor,
+  ) {
     this.ensureAdmin(actor);
 
-    const existing = await this.prisma.depositOrder.findUnique({ where: { id } });
-    if (!existing) throw new NotFoundException('Depósito bancario no encontrado');
+    const existing = await this.prisma.depositOrder.findUnique({
+      where: { id },
+    });
+    if (!existing)
+      throw new NotFoundException('Depósito bancario no encontrado');
 
-    const status = dto.status != null
-      ? (dto.status as unknown as DepositOrderStatus)
-      : undefined;
-    const markingExecuted = status === DepositOrderStatusDto.EXECUTED || dto.voucherUrl != null;
+    const status =
+      dto.status != null
+        ? (dto.status as unknown as DepositOrderStatus)
+        : undefined;
+    const markingExecuted =
+      status === DepositOrderStatusDto.EXECUTED || dto.voucherUrl != null;
 
     const executor = markingExecuted
       ? await this.prisma.user.findUnique({
@@ -321,22 +415,38 @@ export class ContabilidadService {
     return this.prisma.depositOrder.update({
       where: { id },
       data: {
-        ...(dto.windowFrom != null ? { windowFrom: new Date(dto.windowFrom) } : {}),
+        ...(dto.windowFrom != null
+          ? { windowFrom: new Date(dto.windowFrom) }
+          : {}),
         ...(dto.windowTo != null ? { windowTo: new Date(dto.windowTo) } : {}),
         ...(dto.bankName != null ? { bankName: dto.bankName.trim() } : {}),
-        ...(dto.bankAccount != null ? { bankAccount: this.toNullableTrimmed(dto.bankAccount) } : {}),
+        ...(dto.bankAccount != null
+          ? { bankAccount: this.toNullableTrimmed(dto.bankAccount) }
+          : {}),
         ...(dto.collaboratorName != null
           ? { collaboratorName: this.toNullableTrimmed(dto.collaboratorName) }
           : {}),
         ...(dto.note != null ? { note: this.toNullableTrimmed(dto.note) } : {}),
-        ...(dto.reserveAmount != null ? { reserveAmount: dto.reserveAmount } : {}),
-        ...(dto.totalAvailableCash != null ? { totalAvailableCash: dto.totalAvailableCash } : {}),
+        ...(dto.reserveAmount != null
+          ? { reserveAmount: dto.reserveAmount }
+          : {}),
+        ...(dto.totalAvailableCash != null
+          ? { totalAvailableCash: dto.totalAvailableCash }
+          : {}),
         ...(dto.depositTotal != null ? { depositTotal: dto.depositTotal } : {}),
-        ...(dto.closesCountByType != null ? { closesCountByType: dto.closesCountByType } : {}),
-        ...(dto.depositByType != null ? { depositByType: dto.depositByType } : {}),
-        ...(dto.accountByType != null ? { accountByType: dto.accountByType } : {}),
+        ...(dto.closesCountByType != null
+          ? { closesCountByType: dto.closesCountByType }
+          : {}),
+        ...(dto.depositByType != null
+          ? { depositByType: dto.depositByType }
+          : {}),
+        ...(dto.accountByType != null
+          ? { accountByType: dto.accountByType }
+          : {}),
         ...(status != null ? { status } : {}),
-        ...(dto.voucherUrl != null ? { voucherUrl: this.toNullableTrimmed(dto.voucherUrl) } : {}),
+        ...(dto.voucherUrl != null
+          ? { voucherUrl: this.toNullableTrimmed(dto.voucherUrl) }
+          : {}),
         ...(dto.voucherFileName != null
           ? { voucherFileName: this.toNullableTrimmed(dto.voucherFileName) }
           : {}),
@@ -366,10 +476,15 @@ export class ContabilidadService {
   ) {
     this.ensureAdmin(actor);
 
-    const existing = await this.prisma.depositOrder.findUnique({ where: { id } });
-    if (!existing) throw new NotFoundException('Depósito bancario no encontrado');
+    const existing = await this.prisma.depositOrder.findUnique({
+      where: { id },
+    });
+    if (!existing)
+      throw new NotFoundException('Depósito bancario no encontrado');
     if (existing.status === DepositOrderStatus.CANCELLED) {
-      throw new BadRequestException('No se puede adjuntar voucher a un depósito cancelado');
+      throw new BadRequestException(
+        'No se puede adjuntar voucher a un depósito cancelado',
+      );
     }
 
     const executor = await this.prisma.user.findUnique({
@@ -394,8 +509,11 @@ export class ContabilidadService {
   async deleteDepositOrder(id: string, actor: Actor) {
     this.ensureAdmin(actor);
 
-    const existing = await this.prisma.depositOrder.findUnique({ where: { id } });
-    if (!existing) throw new NotFoundException('Depósito bancario no encontrado');
+    const existing = await this.prisma.depositOrder.findUnique({
+      where: { id },
+    });
+    if (!existing)
+      throw new NotFoundException('Depósito bancario no encontrado');
 
     return this.prisma.depositOrder.delete({ where: { id } });
   }
@@ -443,17 +561,25 @@ export class ContabilidadService {
     });
   }
 
-  async updateFiscalInvoice(id: string, dto: UpdateFiscalInvoiceDto, actor: Actor) {
+  async updateFiscalInvoice(
+    id: string,
+    dto: UpdateFiscalInvoiceDto,
+    actor: Actor,
+  ) {
     this.normalizeRoleGuard(actor);
 
-    const existing = await this.prisma.fiscalInvoice.findUnique({ where: { id } });
+    const existing = await this.prisma.fiscalInvoice.findUnique({
+      where: { id },
+    });
     if (!existing) throw new NotFoundException('Factura fiscal no encontrada');
 
     return this.prisma.fiscalInvoice.update({
       where: { id },
       data: {
         ...(dto.kind != null ? { kind: dto.kind } : {}),
-        ...(dto.invoiceDate != null ? { invoiceDate: new Date(dto.invoiceDate) } : {}),
+        ...(dto.invoiceDate != null
+          ? { invoiceDate: new Date(dto.invoiceDate) }
+          : {}),
         ...(dto.imageUrl != null ? { imageUrl: dto.imageUrl.trim() } : {}),
         ...(dto.note != null ? { note: dto.note.trim() || null } : {}),
       },
@@ -463,7 +589,9 @@ export class ContabilidadService {
   async deleteFiscalInvoice(id: string, actor: Actor) {
     this.normalizeRoleGuard(actor);
 
-    const existing = await this.prisma.fiscalInvoice.findUnique({ where: { id } });
+    const existing = await this.prisma.fiscalInvoice.findUnique({
+      where: { id },
+    });
     if (!existing) throw new NotFoundException('Factura fiscal no encontrada');
 
     return this.prisma.fiscalInvoice.delete({ where: { id } });
@@ -527,7 +655,9 @@ export class ContabilidadService {
   ) {
     this.normalizeRoleGuard(actor);
 
-    const existing = await this.prisma.payableService.findUnique({ where: { id } });
+    const existing = await this.prisma.payableService.findUnique({
+      where: { id },
+    });
     if (!existing) {
       throw new NotFoundException('Servicio por pagar no encontrado');
     }
@@ -544,7 +674,9 @@ export class ContabilidadService {
           ? { description: this.toNullableTrimmed(dto.description) }
           : {}),
         ...(dto.frequency != null ? { frequency: dto.frequency } : {}),
-        ...(dto.defaultAmount != null ? { defaultAmount: dto.defaultAmount } : {}),
+        ...(dto.defaultAmount != null
+          ? { defaultAmount: dto.defaultAmount }
+          : {}),
         ...(dto.nextDueDate != null
           ? { nextDueDate: new Date(dto.nextDueDate) }
           : {}),
@@ -602,7 +734,8 @@ export class ContabilidadService {
         data: {
           lastPaidAt: paidAt,
           nextDueDate,
-          active: service.frequency === PayableFrequency.ONE_TIME ? false : true,
+          active:
+            service.frequency === PayableFrequency.ONE_TIME ? false : true,
         },
       });
 

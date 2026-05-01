@@ -1,4 +1,4 @@
-enum CloseType { capsulas, pos, tienda }
+enum CloseType { capsulas, pos, tienda, phytoemagry }
 
 extension CloseTypeX on CloseType {
   String get label {
@@ -9,6 +9,8 @@ extension CloseTypeX on CloseType {
         return 'POS';
       case CloseType.tienda:
         return 'Tienda';
+      case CloseType.phytoemagry:
+        return 'PhytoEmagry';
     }
   }
 
@@ -20,16 +22,21 @@ extension CloseTypeX on CloseType {
         return 'pos';
       case CloseType.tienda:
         return 'tienda';
+      case CloseType.phytoemagry:
+        return 'phytoemagry';
     }
   }
 
   static CloseType fromKey(String value) {
-    switch (value) {
-      case 'capsulas':
-        return CloseType.capsulas;
+    switch (value.trim().toLowerCase()) {
       case 'pos':
         return CloseType.pos;
       case 'tienda':
+        return CloseType.tienda;
+      case 'phytoemagry':
+      case 'phyto':
+      case 'capsulas':
+        return CloseType.phytoemagry;
       default:
         return CloseType.tienda;
     }
@@ -38,10 +45,11 @@ extension CloseTypeX on CloseType {
 
 class CloseSummary {
   final CloseType type;
-  final String status; // pending/draft/closed
+  final String status; // pending/approved/rejected
   final double cash;
   final double transfer;
   final double card;
+  final double otherIncome;
   final double expenses;
   final double cashDelivered;
 
@@ -51,14 +59,13 @@ class CloseSummary {
     required this.cash,
     required this.transfer,
     required this.card,
+    this.otherIncome = 0,
     required this.expenses,
     required this.cashDelivered,
   });
 
-  double get incomeTotal => cash + transfer + card;
+  double get incomeTotal => cash + transfer + card + otherIncome;
+  double get netTotal => incomeTotal - expenses;
 
-  double get difference {
-    final expectedCash = cash - expenses;
-    return cashDelivered - expectedCash;
-  }
+  double get difference => cash - cashDelivered;
 }

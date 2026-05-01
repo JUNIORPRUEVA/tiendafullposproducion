@@ -78,9 +78,10 @@ class ContabilidadRepository {
     required double transfer,
     String? transferBank,
     required double card,
+    double otherIncome = 0,
     required double expenses,
     required double cashDelivered,
-    String status = 'closed',
+    String? notes,
   }) async {
     try {
       final res = await _dio.post(
@@ -88,13 +89,14 @@ class ContabilidadRepository {
         data: {
           'type': type.apiValue,
           'date': date.toIso8601String(),
-          'status': status,
           'cash': cash,
           'transfer': transfer,
           if (transfer > 0) 'transferBank': transferBank?.trim(),
           'card': card,
+          'otherIncome': otherIncome,
           'expenses': expenses,
           'cashDelivered': cashDelivered,
+          if (notes != null) 'notes': notes.trim(),
         },
       );
       return CloseModel.fromJson((res.data as Map).cast<String, dynamic>());
@@ -112,9 +114,10 @@ class ContabilidadRepository {
     required double transfer,
     String? transferBank,
     required double card,
+    required double otherIncome,
     required double expenses,
     required double cashDelivered,
-    String? status,
+    String? notes,
   }) async {
     try {
       final res = await _dio.put(
@@ -124,9 +127,10 @@ class ContabilidadRepository {
           'transfer': transfer,
           'transferBank': transfer > 0 ? transferBank?.trim() : null,
           'card': card,
+          'otherIncome': otherIncome,
           'expenses': expenses,
           'cashDelivered': cashDelivered,
-          if (status != null) 'status': status,
+          if (notes != null) 'notes': notes.trim(),
         },
       );
       return CloseModel.fromJson((res.data as Map).cast<String, dynamic>());
@@ -147,6 +151,16 @@ class ContabilidadRepository {
         e.response?.statusCode,
       );
     }
+  }
+
+  Future<CloseModel> approveClose(String id) async {
+    final res = await _dio.post(ApiRoutes.contabilidadCloseApprove(id));
+    return CloseModel.fromJson((res.data as Map).cast<String, dynamic>());
+  }
+
+  Future<CloseModel> rejectClose(String id) async {
+    final res = await _dio.post(ApiRoutes.contabilidadCloseReject(id));
+    return CloseModel.fromJson((res.data as Map).cast<String, dynamic>());
   }
 
   Future<DepositOrderModel> createDepositOrder({
@@ -219,7 +233,10 @@ class ContabilidadRepository {
           .toList();
     } on DioException catch (e) {
       throw ApiException(
-        _extractMessage(e.response?.data, 'No se pudieron cargar los depósitos'),
+        _extractMessage(
+          e.response?.data,
+          'No se pudieron cargar los depósitos',
+        ),
         e.response?.statusCode,
       );
     }
@@ -313,10 +330,10 @@ class ContabilidadRepository {
       final mediaType = ext == 'pdf'
           ? MediaType('application', 'pdf')
           : ext == 'png'
-              ? MediaType('image', 'png')
-              : ext == 'webp'
-                  ? MediaType('image', 'webp')
-                  : MediaType('image', 'jpeg');
+          ? MediaType('image', 'png')
+          : ext == 'webp'
+          ? MediaType('image', 'webp')
+          : MediaType('image', 'jpeg');
 
       final form = FormData.fromMap({
         'file': MultipartFile.fromBytes(
@@ -352,8 +369,8 @@ class ContabilidadRepository {
       final mediaType = ext == 'png'
           ? MediaType('image', 'png')
           : ext == 'webp'
-              ? MediaType('image', 'webp')
-              : MediaType('image', 'jpeg');
+          ? MediaType('image', 'webp')
+          : MediaType('image', 'jpeg');
 
       final form = FormData.fromMap({
         'file': MultipartFile.fromBytes(
@@ -492,9 +509,7 @@ class ContabilidadRepository {
     try {
       final res = await _dio.get(
         ApiRoutes.contabilidadPayableServices,
-        queryParameters: {
-          if (active != null) 'active': active,
-        },
+        queryParameters: {if (active != null) 'active': active},
       );
 
       final rows = res.data is List ? (res.data as List) : const [];

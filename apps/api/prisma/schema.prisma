@@ -28,6 +28,7 @@ enum CloseType {
   CAPSULAS
   POS
   TIENDA
+  PHYTOEMAGRY
 }
 
 enum DepositOrderStatus {
@@ -881,21 +882,29 @@ model Close {
   id            String    @id @default(uuid()) @db.Uuid
   type          CloseType
   date          DateTime  @default(now())
-  status        String    // pending/draft/closed
+  status        String    @default("pending") // pending/approved/rejected
   cash          Decimal   @db.Decimal(12, 2)
   transfer      Decimal   @db.Decimal(12, 2)
   transferBank  String?
   card          Decimal   @db.Decimal(12, 2)
+  otherIncome   Decimal   @default(0) @db.Decimal(12, 2)
   expenses      Decimal   @db.Decimal(12, 2)
   cashDelivered Decimal   @db.Decimal(12, 2)
+  notes         String?
+  evidenceUrl   String?
+  evidenceFileName String?
   createdById   String?   @db.Uuid
   createdByName String?
+  reviewedById  String?   @db.Uuid
+  reviewedByName String?
+  reviewedAt    DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
   @@index([date])
   @@index([type])
   @@index([createdById])
+  @@index([reviewedById])
 }
 
 model DepositOrder {

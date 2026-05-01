@@ -45,7 +45,7 @@ class CierresDiariosState {
       from: range.from,
       to: range.to,
       preset: CierresRangePreset.quincena,
-      typeFilter: CloseType.capsulas,
+      typeFilter: CloseType.tienda,
     );
   }
 
@@ -82,8 +82,8 @@ class CierresDiariosState {
 
 final cierresDiariosControllerProvider =
     StateNotifierProvider<CierresDiariosController, CierresDiariosState>((ref) {
-  return CierresDiariosController(ref);
-});
+      return CierresDiariosController(ref);
+    });
 
 class CierresDiariosController extends StateNotifier<CierresDiariosState> {
   final Ref ref;
@@ -95,16 +95,15 @@ class CierresDiariosController extends StateNotifier<CierresDiariosState> {
   Future<void> load() async {
     state = state.copyWith(loading: true, clearError: true);
     try {
-      final rows = await ref.read(contabilidadRepositoryProvider).listCloses(
-            from: state.from,
-            to: state.to,
-        type: null,
-          );
+      final rows = await ref
+          .read(contabilidadRepositoryProvider)
+          .listCloses(from: state.from, to: state.to, type: null);
 
       state = state.copyWith(loading: false, closes: rows);
     } catch (e) {
-      final message =
-          e is ApiException ? e.message : 'No se pudieron cargar los cierres';
+      final message = e is ApiException
+          ? e.message
+          : 'No se pudieron cargar los cierres';
       state = state.copyWith(loading: false, error: message);
     }
   }
@@ -131,11 +130,7 @@ class CierresDiariosController extends StateNotifier<CierresDiariosState> {
         return;
     }
 
-    state = state.copyWith(
-      preset: preset,
-      from: range.from,
-      to: range.to,
-    );
+    state = state.copyWith(preset: preset, from: range.from, to: range.to);
     await load();
   }
 
@@ -167,46 +162,59 @@ class CierresDiariosController extends StateNotifier<CierresDiariosState> {
     required double transfer,
     String? transferBank,
     required double card,
+    required double otherIncome,
     required double expenses,
     required double cashDelivered,
+    String? notes,
   }) async {
     state = state.copyWith(saving: true, clearError: true);
 
     try {
       final editing = state.editingClose;
       if (editing == null) {
-        await ref.read(contabilidadRepositoryProvider).createClose(
+        await ref
+            .read(contabilidadRepositoryProvider)
+            .createClose(
               type: type,
               date: date,
               cash: cash,
               transfer: transfer,
               transferBank: transferBank,
               card: card,
+              otherIncome: otherIncome,
               expenses: expenses,
               cashDelivered: cashDelivered,
-              status: 'closed',
+              notes: notes,
             );
       } else {
-        await ref.read(contabilidadRepositoryProvider).updateClose(
+        if (!editing.isPending) {
+          state = state.copyWith(
+            saving: false,
+            error: 'Este cierre ya fue revisado y no se puede editar.',
+          );
+          return;
+        }
+        await ref
+            .read(contabilidadRepositoryProvider)
+            .updateClose(
               id: editing.id,
               cash: cash,
               transfer: transfer,
               transferBank: transferBank,
               card: card,
+              otherIncome: otherIncome,
               expenses: expenses,
               cashDelivered: cashDelivered,
-              status: 'closed',
+              notes: notes,
             );
       }
 
-      state = state.copyWith(
-        saving: false,
-        clearEditing: true,
-      );
+      state = state.copyWith(saving: false, clearEditing: true);
       await load();
     } catch (e) {
-      final message =
-          e is ApiException ? e.message : 'No se pudo guardar el cierre';
+      final message = e is ApiException
+          ? e.message
+          : 'No se pudo guardar el cierre';
       state = state.copyWith(saving: false, error: message);
     }
   }
@@ -218,9 +226,38 @@ class CierresDiariosController extends StateNotifier<CierresDiariosState> {
       state = state.copyWith(clearDeleting: true);
       await load();
     } catch (e) {
-      final message =
-          e is ApiException ? e.message : 'No se pudo eliminar el cierre';
+      final message = e is ApiException
+          ? e.message
+          : 'No se pudo eliminar el cierre';
       state = state.copyWith(error: message, clearDeleting: true);
+    }
+  }
+
+  Future<void> approveClose(String id) async {
+    state = state.copyWith(saving: true, clearError: true);
+    try {
+      await ref.read(contabilidadRepositoryProvider).approveClose(id);
+      state = state.copyWith(saving: false);
+      await load();
+    } catch (e) {
+      final message = e is ApiException
+          ? e.message
+          : 'No se pudo aprobar el cierre';
+      state = state.copyWith(saving: false, error: message);
+    }
+  }
+
+  Future<void> rejectClose(String id) async {
+    state = state.copyWith(saving: true, clearError: true);
+    try {
+      await ref.read(contabilidadRepositoryProvider).rejectClose(id);
+      state = state.copyWith(saving: false);
+      await load();
+    } catch (e) {
+      final message = e is ApiException
+          ? e.message
+          : 'No se pudo rechazar el cierre';
+      state = state.copyWith(saving: false, error: message);
     }
   }
 }
