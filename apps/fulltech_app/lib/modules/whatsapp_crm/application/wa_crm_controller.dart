@@ -608,9 +608,9 @@ class WaCrmController extends StateNotifier<WaCrmState> {
     try {
       final convData = data['conversation'] as Map<String, dynamic>?;
       final convId =
-          data['conversationId'] as String? ??
-          data['conversation_id'] as String? ??
-          convData?['id'] as String?;
+          sanitizeWaText(data['conversationId']) ??
+          sanitizeWaText(data['conversation_id']) ??
+          sanitizeWaText(convData?['id']);
       final payloadMessage = data['message'] as Map<String, dynamic>?;
       final msgData = payloadMessage ?? (data['id'] != null ? data : null);
 
@@ -621,8 +621,8 @@ class WaCrmController extends StateNotifier<WaCrmState> {
           : null;
       final incomingPhone =
           incomingConv?.cleanPhone ??
-          _normalizedPhoneFromRaw(msgData['remotePhone'] as String?) ??
-          _normalizedPhoneFromRaw(msgData['remoteJid'] as String?);
+          _normalizedPhoneFromRaw(sanitizeWaText(msgData['remotePhone'])) ??
+          _normalizedPhoneFromRaw(sanitizeWaText(msgData['remoteJid']));
       final byPhone = _findConversationByPhone(incomingPhone);
 
       final targetConversationId = (byPhone != null && byPhone.id != convId)

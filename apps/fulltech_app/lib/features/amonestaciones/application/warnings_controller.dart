@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/auth/auth_provider.dart';
 import '../data/employee_warning_model.dart';
 import '../data/employee_warnings_repository.dart';
 
@@ -133,6 +134,10 @@ final warningDetailProvider =
 
 final myPendingWarningsProvider =
     FutureProvider<List<EmployeeWarning>>((ref) async {
+  final userId = ref.watch(authStateProvider.select((s) => s.user?.id));
+  if (userId == null || userId.trim().isEmpty) {
+    return const <EmployeeWarning>[];
+  }
   return ref.watch(employeeWarningsRepositoryProvider).myPending();
 });
 

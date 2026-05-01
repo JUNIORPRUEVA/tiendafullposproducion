@@ -200,8 +200,10 @@ class CustomAppBar extends ConsumerWidget implements PreferredSizeWidget {
     final user = ref.watch(authStateProvider).user;
     if (user == null) return null;
 
-    // Show this only in the principal appbar (root with drawer, no back).
-    final isPrimaryAppBar = backButton == null && hasDrawer;
+    // Show this only in the principal appbar (screen that owns drawer).
+    // Some flows keep a back stack even on top modules, so relying on backButton
+    // would incorrectly hide pending notifications.
+    final isPrimaryAppBar = hasDrawer;
     if (!isPrimaryAppBar) return null;
 
     final pendingCount = ref.watch(myPendingWarningsCountProvider);

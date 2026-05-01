@@ -3,9 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../core/api/env.dart';
 import '../../../core/auth/app_role.dart';
 import '../../../core/auth/auth_provider.dart';
-import '../../../core/auth/auth_repository.dart';
 import '../application/warnings_controller.dart';
 import '../data/employee_warning_model.dart';
 import '../data/employee_warnings_repository.dart';
@@ -233,16 +233,16 @@ class _WarningDetailScreenState extends ConsumerState<WarningDetailScreen> {
   Future<void> _submit(BuildContext context, EmployeeWarning w) async {
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Enviar para firma'),
         content: const Text(
             'Se generará el PDF y el empleado podrá firmar desde la app. ¿Continuar?'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context, false),
+              onPressed: () => Navigator.pop(dialogContext, false),
               child: const Text('Cancelar')),
           ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
+              onPressed: () => Navigator.pop(dialogContext, true),
               child: const Text('Enviar')),
         ],
       ),
@@ -275,7 +275,7 @@ class _WarningDetailScreenState extends ConsumerState<WarningDetailScreen> {
     final reasonCtrl = TextEditingController();
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Anular amonestación'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -293,12 +293,12 @@ class _WarningDetailScreenState extends ConsumerState<WarningDetailScreen> {
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context, false),
+              onPressed: () => Navigator.pop(dialogContext, false),
               child: const Text('Cancelar')),
           ElevatedButton(
             style:
                 ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => Navigator.pop(dialogContext, true),
             child: const Text('Anular'),
           ),
         ],
@@ -439,25 +439,62 @@ class _WarningDetailScreenState extends ConsumerState<WarningDetailScreen> {
     }
   }
 
-  String? _resolvePdfUrl(String rawUrl) {
+  List<String> _buildPdfCandidates(String rawUrl) {
     final value = rawUrl.trim();
-    if (value.isEmpty) return null;
+    if (value.isEmpty) return const [];
+
+    final out = <String>[];
+    final seen = <String>{};
+    void addCandidate(String? v) {
+      final candidate = (v ?? '').trim();
+      if (candidate.isEmpty) return;
+      if (seen.add(candidate)) out.add(candidate);
+    }
 
     final uri = Uri.tryParse(value);
-    if (uri == null) return null;
-    if (uri.hasScheme) return uri.toString();
+    if (uri != null && uri.hasScheme) {
+      addCandidate(uri.toString());
+    } else {
+      final normalized = value.replaceAll('\\', '/');
+      final baseUrl = Env.apiBaseUrl.trim().replaceAll(RegExp(r'/+$'), '');
+      if (baseUrl.isNotEmpty) {
+        if (normalized.startsWith('/')) {
+          addCandidate('$baseUrl$normalized');
+        } else if (normalized.startsWith('./')) {
+          addCandidate('$baseUrl/${normalized.substring(2)}');
+        } else {
+          addCandidate('$baseUrl/$normalized');
+        }
+      }
+      addCandidate(normalized);
+    }
 
-    final baseUrl = ref.read(dioProvider).options.baseUrl.trim();
-    if (baseUrl.isEmpty) return null;
+    final baseUri = Uri.tryParse(Env.apiBaseUrl.trim());
+    if (baseUri != null) {
+      final originals = List<String>.from(out);
+      for (final candidate in originals) {
+        final cUri = Uri.tryParse(candidate);
+        if (cUri == null || !cUri.hasScheme) continue;
+        if (cUri.host != baseUri.host) continue;
 
-    final baseUri = Uri.tryParse(baseUrl);
-    if (baseUri == null) return null;
-    return baseUri.resolveUri(uri).toString();
+        final segments = cUri.pathSegments.where((s) => s.isNotEmpty).toList();
+        if (segments.isEmpty) continue;
+        if (segments.first == 'api') {
+          final noApi = cUri.replace(pathSegments: segments.skip(1));
+          addCandidate(noApi.toString());
+        } else {
+          final withApi = cUri.replace(pathSegments: ['api', ...segments]);
+          addCandidate(withApi.toString());
+        }
+      }
+    }
+
+    return out;
   }
 
   Future<void> _openPdfInApp(BuildContext context, String rawUrl) async {
-    final resolved = _resolvePdfUrl(rawUrl);
-    if (resolved == null) {
+    final candidates = _buildPdfCandidates(rawUrl);
+    if (candidates.isEmpty) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -471,7 +508,7 @@ class _WarningDetailScreenState extends ConsumerState<WarningDetailScreen> {
 
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => _WarningPdfViewerScreen(pdfUrl: resolved),
+        builder: (_) => _WarningPdfViewerScreen(candidateUrls: candidates),
       ),
     );
   }
@@ -726,10 +763,39 @@ class _PdfButton extends StatelessWidget {
       );
 }
 
-class _WarningPdfViewerScreen extends StatelessWidget {
-  final String pdfUrl;
+class _WarningPdfViewerScreen extends StatefulWidget {
+  final List<String> candidateUrls;
 
-  const _WarningPdfViewerScreen({required this.pdfUrl});
+  const _WarningPdfViewerScreen({required this.candidateUrls});
+
+  @override
+  State<_WarningPdfViewerScreen> createState() => _WarningPdfViewerScreenState();
+}
+
+class _WarningPdfViewerScreenState extends State<_WarningPdfViewerScreen> {
+  int _index = 0;
+
+  String get _currentUrl => widget.candidateUrls[_index];
+
+  void _onLoadFailed(PdfDocumentLoadFailedDetails details) {
+    if (_index + 1 < widget.candidateUrls.length) {
+      setState(() => _index += 1);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Intentando ruta alternativa para abrir el PDF...'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('No se pudo cargar el PDF: ${details.description}'),
+        backgroundColor: Colors.red,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -738,21 +804,25 @@ class _WarningPdfViewerScreen extends StatelessWidget {
         title: const Text('Documento PDF'),
         backgroundColor: const Color(0xFF1a1a2e),
         foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            tooltip: 'Abrir externo',
+            icon: const Icon(Icons.open_in_new),
+            onPressed: () => launchUrl(
+              Uri.parse(_currentUrl),
+              mode: LaunchMode.externalApplication,
+            ),
+          ),
+        ],
       ),
       body: SfPdfViewer.network(
-        pdfUrl,
+        _currentUrl,
+        key: ValueKey(_currentUrl),
         canShowPaginationDialog: true,
         enableDoubleTapZooming: true,
         canShowScrollHead: true,
         canShowScrollStatus: true,
-        onDocumentLoadFailed: (details) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('No se pudo cargar el PDF: ${details.description}'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        },
+        onDocumentLoadFailed: _onLoadFailed,
       ),
     );
   }

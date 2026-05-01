@@ -36,7 +36,7 @@ class WaCrmRepository {
         '/whatsapp/admin/instance-webhook',
         data: {'instanceName': instanceName, 'enabled': enabled},
       );
-      return (res.data?['webhookUrl'] as String?) ?? '';
+      return sanitizeWaText(res.data?['webhookUrl']) ?? '';
     } on DioException catch (e) {
       String msg = 'Error configurando webhook en Evolution API';
       final data = e.response?.data;
@@ -45,10 +45,10 @@ class WaCrmRepository {
         if (raw is List) {
           msg = raw.join(', ');
         } else if (raw != null) {
-          msg = raw.toString();
+          msg = sanitizeWaText(raw.toString()) ?? msg;
         }
       } else if (data is String && data.isNotEmpty) {
-        msg = data;
+        msg = sanitizeWaText(data) ?? msg;
       }
       throw Exception(msg);
     }

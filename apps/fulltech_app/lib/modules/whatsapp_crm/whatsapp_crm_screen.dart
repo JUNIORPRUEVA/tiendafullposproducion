@@ -885,7 +885,7 @@ class _WebhookDialogState extends State<_WebhookDialog> {
                       const SizedBox(width: 6),
                       Expanded(
                         child: Text(
-                          inst.userName,
+                          _waText(inst.userName),
                           style: theme.textTheme.bodyMedium?.copyWith(
                             fontWeight: FontWeight.w600,
                           ),
@@ -897,7 +897,7 @@ class _WebhookDialogState extends State<_WebhookDialog> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    inst.instanceName,
+                    _waText(inst.instanceName),
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.onSurface.withValues(
                         alpha: 0.55,
@@ -961,7 +961,7 @@ class _WebhookDialogState extends State<_WebhookDialog> {
             if (_error != null) ...[
               const SizedBox(height: 8),
               Text(
-                _error!,
+                _waText(_error),
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.error,
                 ),
@@ -1014,7 +1014,7 @@ class _WebhookDialogState extends State<_WebhookDialog> {
                       ),
                       const SizedBox(height: 2),
                       SelectableText(
-                        _configuredUrl!,
+                        _waText(_configuredUrl),
                         style: theme.textTheme.bodySmall?.copyWith(
                           fontFamily: 'monospace',
                           fontSize: 10,
@@ -1122,7 +1122,7 @@ class _UserSelectorDropdown extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    u.name,
+                    _waText(u.name),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -1502,7 +1502,7 @@ class _ChatPanel extends StatelessWidget {
                     ),
                     if (conv.displayPhone != null)
                       Text(
-                        conv.displayPhone!,
+                        _waText(conv.displayPhone),
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: theme.colorScheme.onSurface.withValues(
                             alpha: 0.5,
@@ -2666,14 +2666,14 @@ class _AiStatPill extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            label,
+            _waText(label),
             style: theme.textTheme.labelSmall?.copyWith(
               color: scheme.onSurfaceVariant,
               fontWeight: FontWeight.w700,
             ),
           ),
           Text(
-            value,
+            _waText(value),
             style: theme.textTheme.titleSmall?.copyWith(
               fontWeight: FontWeight.w900,
             ),
@@ -2817,7 +2817,7 @@ class _InfoRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  label,
+                  _waText(label),
                   style: theme.textTheme.labelSmall?.copyWith(
                     color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
                   ),

@@ -14,18 +14,57 @@ import { Request } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { extname } from 'node:path';
+import { join, posix } from 'node:path';
 import type { Express } from 'express';
 import { randomUUID } from 'crypto';
+import * as fs from 'node:fs';
 import { R2Service } from '../storage/r2.service';
 import { sanitizeFileName } from '../storage/helpers/storage_helpers';
+import { ConfigService } from '@nestjs/config';
 
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 @Controller('users')
 export class UsersController {
+  private readonly publicBaseUrl: string;
+
   constructor(
     private readonly users: UsersService,
     private readonly r2: R2Service,
-  ) {}
+    config: ConfigService,
+  ) {
+    const base =
+      config.get<string>('PUBLIC_BASE_URL') ??
+      config.get<string>('API_BASE_URL') ??
+      '';
+    this.publicBaseUrl = base.trim().replace(/\/$/, '');
+  }
+
+  private resolveUploadDir(): string {
+    const fromEnv = (process.env.UPLOAD_DIR ?? '').trim();
+    const volumeDir = '/uploads';
+    const volumeExists = fs.existsSync(volumeDir);
+
+    if (fromEnv.length > 0) {
+      if ((fromEnv === './uploads' || fromEnv === 'uploads') && volumeExists) {
+        return volumeDir;
+      }
+      return fromEnv;
+    }
+
+    return volumeExists ? volumeDir : join(process.cwd(), 'uploads');
+  }
+
+  private buildAbsoluteUrl(req: Request, relativePath: string): string {
+    const proto = (req.get('x-forwarded-proto') ?? req.protocol ?? 'http')
+      .split(',')[0]
+      .trim();
+    const host = (req.get('x-forwarded-host') ?? req.get('host') ?? '')
+      .split(',')[0]
+      .trim();
+    const requestBase = host ? `${proto}://${host}` : '';
+    const baseUrl = this.publicBaseUrl || requestBase;
+    return baseUrl ? `${baseUrl}${relativePath}` : relativePath;
+  }
 
   @Post('upload')
   // Any authenticated user can upload a profile/document image.
@@ -84,14 +123,42 @@ export class UsersController {
       .replace(/\s+/g, '_')
       .replace(/[^a-zA-Z0-9/_\-.]/g, '');
 
-    await this.r2.putObject({
-      objectKey,
-      body: file.buffer,
-      contentType,
-    });
+    // Local uploads folder is source of truth for /uploads serving.
+    const uploadDir = this.resolveUploadDir();
+    const absoluteFilePath = join(uploadDir, ...objectKey.split('/'));
+    fs.mkdirSync(join(uploadDir, ...objectKey.split('/').slice(0, -1)), { recursive: true });
+    fs.writeFileSync(absoluteFilePath, file.buffer);
+    if (!fs.existsSync(absoluteFilePath)) {
+      throw new BadRequestException('No se pudo persistir el archivo en disco');
+    }
 
-    const url = this.r2.buildPublicUrl(objectKey);
-    return { url, objectKey, kind, userId: targetUserId, fileName: original };
+    try {
+      await this.r2.putObject({
+        objectKey: `uploads/${objectKey}`,
+        body: file.buffer,
+        contentType,
+      });
+    } catch (error) {
+      // Keep local upload as source of truth even when R2 is not configured.
+      // eslint-disable-next-line no-console
+      console.warn('[users/upload] R2 mirror failed, continuing with local storage only', error);
+    }
+
+    const relativePath = `/${posix.join('uploads', objectKey)}`;
+    const r2PublicUrl = this.r2.buildPublicUrl(`uploads/${objectKey}`);
+    const url =
+      r2PublicUrl.startsWith('http://') || r2PublicUrl.startsWith('https://')
+        ? r2PublicUrl
+        : this.buildAbsoluteUrl(req, relativePath);
+
+    return {
+      url,
+      objectKey: `uploads/${objectKey}`,
+      relativePath,
+      kind,
+      userId: targetUserId,
+      fileName: original,
+    };
   }
 
   @Post()

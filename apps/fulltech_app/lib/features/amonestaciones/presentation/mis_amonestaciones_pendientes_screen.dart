@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
+import 'package:url_launcher/url_launcher.dart';
 
-import '../../../core/auth/auth_repository.dart';
+import '../../../core/api/env.dart';
 import '../application/warnings_controller.dart';
 import '../data/employee_warning_model.dart';
 import '../data/employee_warnings_repository.dart';
@@ -15,7 +16,6 @@ class MisAmonestacionesPendientesScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(myPendingWarningsProvider);
-    final baseUrl = ref.watch(dioProvider).options.baseUrl;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F6FA),
@@ -67,8 +67,7 @@ class MisAmonestacionesPendientesScreen extends ConsumerWidget {
                 child: ListView.builder(
                   padding: const EdgeInsets.all(14),
                   itemCount: list.length,
-                  itemBuilder: (context, i) =>
-                      _PendingCard(warning: list[i], baseUrl: baseUrl),
+                  itemBuilder: (context, i) => _PendingCard(warning: list[i]),
                 ),
               ),
       ),
@@ -78,9 +77,8 @@ class MisAmonestacionesPendientesScreen extends ConsumerWidget {
 
 class _PendingCard extends StatefulWidget {
   final EmployeeWarning warning;
-  final String baseUrl;
 
-  const _PendingCard({required this.warning, required this.baseUrl});
+  const _PendingCard({required this.warning});
 
   @override
   State<_PendingCard> createState() => _PendingCardState();
@@ -89,24 +87,62 @@ class _PendingCard extends StatefulWidget {
 class _PendingCardState extends State<_PendingCard> {
   bool _expanded = false;
 
-  String? _resolvePdfUrl(String rawUrl) {
+  List<String> _buildPdfCandidates(String rawUrl) {
     final value = rawUrl.trim();
-    if (value.isEmpty) return null;
+    if (value.isEmpty) return const [];
+
+    final out = <String>[];
+    final seen = <String>{};
+    void addCandidate(String? v) {
+      final candidate = (v ?? '').trim();
+      if (candidate.isEmpty) return;
+      if (seen.add(candidate)) out.add(candidate);
+    }
 
     final uri = Uri.tryParse(value);
-    if (uri == null) return null;
-    if (uri.hasScheme) return uri.toString();
+    if (uri != null && uri.hasScheme) {
+      addCandidate(uri.toString());
+    } else {
+      final normalized = value.replaceAll('\\', '/');
+      final baseUrl = Env.apiBaseUrl.trim().replaceAll(RegExp(r'/+$'), '');
+      if (baseUrl.isNotEmpty) {
+        if (normalized.startsWith('/')) {
+          addCandidate('$baseUrl$normalized');
+        } else if (normalized.startsWith('./')) {
+          addCandidate('$baseUrl/${normalized.substring(2)}');
+        } else {
+          addCandidate('$baseUrl/$normalized');
+        }
+      }
+      addCandidate(normalized);
+    }
 
-    final base = widget.baseUrl.trim();
-    if (base.isEmpty) return null;
-    final baseUri = Uri.tryParse(base);
-    if (baseUri == null) return null;
-    return baseUri.resolveUri(uri).toString();
+    final baseUri = Uri.tryParse(Env.apiBaseUrl.trim());
+    if (baseUri != null) {
+      final originals = List<String>.from(out);
+      for (final candidate in originals) {
+        final cUri = Uri.tryParse(candidate);
+        if (cUri == null || !cUri.hasScheme) continue;
+        if (cUri.host != baseUri.host) continue;
+
+        final segments = cUri.pathSegments.where((s) => s.isNotEmpty).toList();
+        if (segments.isEmpty) continue;
+        if (segments.first == 'api') {
+          final noApi = cUri.replace(pathSegments: segments.skip(1));
+          addCandidate(noApi.toString());
+        } else {
+          final withApi = cUri.replace(pathSegments: ['api', ...segments]);
+          addCandidate(withApi.toString());
+        }
+      }
+    }
+
+    return out;
   }
 
   Future<void> _openPdf(BuildContext context, String rawUrl) async {
-    final resolved = _resolvePdfUrl(rawUrl);
-    if (resolved == null) {
+    final candidates = _buildPdfCandidates(rawUrl);
+    if (candidates.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -120,7 +156,7 @@ class _PendingCardState extends State<_PendingCard> {
 
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => _PendingWarningPdfViewerScreen(pdfUrl: resolved),
+        builder: (_) => _PendingWarningPdfViewerScreen(candidateUrls: candidates),
       ),
     );
   }
@@ -245,10 +281,41 @@ class _PendingCardState extends State<_PendingCard> {
   }
 }
 
-class _PendingWarningPdfViewerScreen extends StatelessWidget {
-  final String pdfUrl;
+class _PendingWarningPdfViewerScreen extends StatefulWidget {
+  final List<String> candidateUrls;
 
-  const _PendingWarningPdfViewerScreen({required this.pdfUrl});
+  const _PendingWarningPdfViewerScreen({required this.candidateUrls});
+
+  @override
+  State<_PendingWarningPdfViewerScreen> createState() =>
+      _PendingWarningPdfViewerScreenState();
+}
+
+class _PendingWarningPdfViewerScreenState
+    extends State<_PendingWarningPdfViewerScreen> {
+  int _index = 0;
+
+  String get _currentUrl => widget.candidateUrls[_index];
+
+  void _onLoadFailed(PdfDocumentLoadFailedDetails details) {
+    if (_index + 1 < widget.candidateUrls.length) {
+      setState(() => _index += 1);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Intentando ruta alternativa para abrir el PDF...'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('No se pudo cargar el PDF: ${details.description}'),
+        backgroundColor: Colors.red,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -257,21 +324,25 @@ class _PendingWarningPdfViewerScreen extends StatelessWidget {
         title: const Text('Documento PDF'),
         backgroundColor: const Color(0xFF1a1a2e),
         foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            tooltip: 'Abrir externo',
+            icon: const Icon(Icons.open_in_new),
+            onPressed: () => launchUrl(
+              Uri.parse(_currentUrl),
+              mode: LaunchMode.externalApplication,
+            ),
+          ),
+        ],
       ),
       body: SfPdfViewer.network(
-        pdfUrl,
+        _currentUrl,
+        key: ValueKey(_currentUrl),
         canShowPaginationDialog: true,
         enableDoubleTapZooming: true,
         canShowScrollHead: true,
         canShowScrollStatus: true,
-        onDocumentLoadFailed: (details) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('No se pudo cargar el PDF: ${details.description}'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        },
+        onDocumentLoadFailed: _onLoadFailed,
       ),
     );
   }
@@ -295,7 +366,7 @@ class _SignatureActionsState extends ConsumerState<_SignatureActions> {
 
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Firmar amonestación'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -328,13 +399,13 @@ class _SignatureActionsState extends ConsumerState<_SignatureActions> {
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context, false),
+              onPressed: () => Navigator.pop(dialogContext, false),
               child: const Text('Cancelar')),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF1a1a2e),
                 foregroundColor: Colors.white),
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => Navigator.pop(dialogContext, true),
             child: const Text('Firmar'),
           ),
         ],
@@ -379,7 +450,7 @@ class _SignatureActionsState extends ConsumerState<_SignatureActions> {
 
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Negarse a firmar'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -411,11 +482,11 @@ class _SignatureActionsState extends ConsumerState<_SignatureActions> {
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context, false),
+              onPressed: () => Navigator.pop(dialogContext, false),
               child: const Text('Cancelar')),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => Navigator.pop(dialogContext, true),
             child: const Text('Registrar negativa'),
           ),
         ],
