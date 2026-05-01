@@ -107,25 +107,54 @@ export class WhatsappService {
     enabled: boolean,
   ): Promise<void> {
     const webhookUrl = this.buildWebhookUrl(instanceName);
+    const events = [
+      'MESSAGES_UPSERT',
+      'MESSAGES_UPDATE',
+      'MESSAGES_DELETE',
+      'SEND_MESSAGE',
+      'CONNECTION_UPDATE',
+    ];
 
-    // Evolution API v2 format: nested under "webhook" key with camelCase
-    const payloadV2 = {
+    // Evolution API v2 official format.
+    // SEND_MESSAGE is required to see messages sent directly from the connected WhatsApp instance.
+    const payload = {
+      enabled,
+      url: webhookUrl,
+      webhook_by_events: false,
+      webhook_base64: true,
+      events,
+    };
+
+    // Some deployed Evolution builds still accept only the manager-style nested shape.
+    const legacyPayload = {
       webhook: {
         enabled,
         url: webhookUrl,
         byEvents: false,
-        base64: true,          // include base64 media so images/audio/docs arrive in the webhook
-        events: ['MESSAGES_UPSERT', 'SEND_MESSAGE', 'MESSAGES_UPDATE'],
+        base64: true,
+        webhookByEvents: false,
+        webhookBase64: true,
+        events,
       },
     };
 
-    await this.fetchEvolution(`/webhook/set/${encodeURIComponent(instanceName)}`, {
-      method: 'POST',
-      body: JSON.stringify(payloadV2),
-    });
+    try {
+      await this.fetchEvolution(`/webhook/set/${encodeURIComponent(instanceName)}`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+    } catch (error) {
+      console.warn(
+        `[WhatsApp][Webhook] Formato oficial falló para "${instanceName}", intentando formato legacy: ${this.describeEvolutionError(error)}`,
+      );
+      await this.fetchEvolution(`/webhook/set/${encodeURIComponent(instanceName)}`, {
+        method: 'POST',
+        body: JSON.stringify(legacyPayload),
+      });
+    }
 
     console.log(
-      `[WhatsApp][Webhook] Configurado webhook para "${instanceName}" enabled=${enabled} url=${webhookUrl}`,
+      `[WhatsApp][Webhook] Configurado webhook para "${instanceName}" enabled=${enabled} events=${events.join(',')} url=${webhookUrl}`,
     );
   }
 

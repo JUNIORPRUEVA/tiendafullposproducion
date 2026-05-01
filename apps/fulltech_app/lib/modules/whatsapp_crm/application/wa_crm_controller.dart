@@ -205,6 +205,7 @@ class WaCrmController extends StateNotifier<WaCrmState> {
   WaCrmController(this._repo) : super(const WaCrmState());
 
   final WaCrmRepository _repo;
+  bool _autoSyncedWebhookEvents = false;
 
   // ─── Clear selection (mobile back) ──────────────────────────────────
 
@@ -223,9 +224,27 @@ class WaCrmController extends StateNotifier<WaCrmState> {
       final raw = await _repo.listAllInstancesForCrm();
       final instances = raw.map(WaCrmInstanceEntry.fromJson).toList();
       state = state.copyWith(allInstances: instances, loadingInstances: false);
+      if (!_autoSyncedWebhookEvents) {
+        _autoSyncedWebhookEvents = true;
+        unawaited(_resyncEnabledWebhookEvents(instances));
+      }
     } catch (e, st) {
       debugPrint('[WaCrm] loadAllInstances error: $e\n$st');
       state = state.copyWith(loadingInstances: false);
+    }
+  }
+
+  Future<void> _resyncEnabledWebhookEvents(
+    List<WaCrmInstanceEntry> instances,
+  ) async {
+    for (final instance in instances.where((item) => item.webhookEnabled)) {
+      try {
+        await _repo.setInstanceWebhook(instance.instanceName, enabled: true);
+      } catch (e) {
+        debugPrint(
+          '[WaCrm] auto webhook event sync failed for ${instance.instanceName}: $e',
+        );
+      }
     }
   }
 

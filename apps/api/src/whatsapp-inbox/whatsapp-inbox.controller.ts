@@ -165,6 +165,7 @@ export class WhatsappInboxController {
 export class WhatsappInboxWebhookController {
   constructor(private readonly inboxService: WhatsappInboxService) {}
 
+  @Post(':instanceName/:eventName')
   @Post(':instanceName')
   async receiveWebhook(
     @Param('instanceName') instanceName: string,
