@@ -1,16 +1,12 @@
-import { IsBase64, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import { IsBase64, IsIn, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 
 export class SendCotizacionWhatsappDto {
   @IsUUID()
   quotationId!: string;
 
   @IsString()
-  @MaxLength(80)
-  customerName!: string;
-
-  @IsString()
-  @MaxLength(40)
-  customerPhone!: string;
+  @IsIn(['admin', 'client'])
+  destinationType!: 'admin' | 'client';
 
   @IsBase64()
   pdfBase64!: string;

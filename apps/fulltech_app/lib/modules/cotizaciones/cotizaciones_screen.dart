@@ -7,7 +7,6 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:printing/printing.dart';
 
-import '../../core/api/env.dart';
 import '../../core/auth/auth_provider.dart';
 import '../../core/auth/app_role.dart';
 import '../../core/cache/fulltech_cache_manager.dart';
@@ -2265,22 +2264,19 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     );
   }
 
-  Future<void> _sendCotizacionPdfToCustomer({
+  Future<void> enviarPdfCotizacionACliente({
     required CotizacionModel cotizacion,
     required Uint8List pdfBytes,
   }) async {
-    final customerPhone = (cotizacion.customerPhone ?? '').trim();
-    final customerName = cotizacion.customerName.trim();
-    if (customerPhone.isEmpty) {
-      throw ApiException(
-        'La cotización no tiene un teléfono de cliente configurado para enviar el PDF.',
-        null,
-      );
+    final customerId = (cotizacion.customerId ?? '').trim();
+    if (customerId.isEmpty) {
+      throw ApiException('La cotización no tiene cliente asociado.', null);
     }
 
-    if (customerName.isEmpty) {
+    final customerPhone = (cotizacion.customerPhone ?? '').trim();
+    if (customerPhone.isEmpty) {
       throw ApiException(
-        'La cotización no tiene un nombre de cliente válido para enviar el PDF.',
+        'El cliente no tiene teléfono válido para enviar la cotización.',
         null,
       );
     }
@@ -2293,8 +2289,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
         .read(cotizacionesRepositoryProvider)
         .sendWhatsAppQuotation(
           quotationId: cotizacion.id,
-          customerName: customerName,
-          customerPhone: customerPhone,
+          destinationType: 'client',
           pdfBytes: pdfBytes,
           fileName: fileName,
           messageText: _buildCustomerDeliveryMessage(
@@ -2329,7 +2324,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
   }
 
   String _customerDeliverySuccessMessage() {
-    return 'Cotización enviada al cliente.';
+    return 'Cotización enviada al cliente correctamente.';
   }
 
   String _customerDeliveryTimeoutMessage() {
@@ -2340,18 +2335,10 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     return 'No se pudo enviar el PDF al cliente';
   }
 
-  Future<void> _sendCotizacionForAdminApproval({
+  Future<void> enviarPdfCotizacionAAdmin({
     required CotizacionModel cotizacion,
     Uint8List? pdfBytes,
   }) async {
-    final adminPhone = Env.quotationApprovalAdminPhone;
-    if (adminPhone.isEmpty) {
-      throw ApiException(
-        'Falta QUOTATION_APPROVAL_ADMIN_PHONE en la configuración de la app.',
-        null,
-      );
-    }
-
     final company = await _getCompanySettingsForPdf();
     final bytes =
         pdfBytes ??
@@ -2364,8 +2351,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
         .read(cotizacionesRepositoryProvider)
         .sendWhatsAppQuotation(
           quotationId: cotizacion.id,
-          customerName: cotizacion.customerName,
-          customerPhone: adminPhone,
+          destinationType: 'admin',
           pdfBytes: bytes,
           fileName: fileName,
           messageText: _buildAdminApprovalMessage(cotizacion),
@@ -2430,15 +2416,13 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
         final compact = media.width < 560;
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            final customerPhone = (cotizacion.customerPhone ?? '').trim();
-            final canSend = customerPhone.isNotEmpty && !sendingWhatsApp;
-            final adminPhone = Env.quotationApprovalAdminPhone.trim();
-            final canSendAdmin = adminPhone.isNotEmpty && !sendingAdminApproval;
+            final canSend = !sendingWhatsApp;
+            final canSendAdmin = !sendingAdminApproval;
 
             Future<void> sendWhatsApp() async {
               setDialogState(() => sendingWhatsApp = true);
               try {
-                await _sendCotizacionPdfToCustomer(
+                await enviarPdfCotizacionACliente(
                   cotizacion: cotizacion,
                   pdfBytes: bytes,
                 ).timeout(const Duration(seconds: 25));
@@ -2471,14 +2455,14 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
             Future<void> sendAdminApproval() async {
               setDialogState(() => sendingAdminApproval = true);
               try {
-                await _sendCotizacionForAdminApproval(
+                await enviarPdfCotizacionAAdmin(
                   cotizacion: cotizacion,
                   pdfBytes: bytes,
                 ).timeout(const Duration(seconds: 25));
                 if (!scaffoldContext.mounted) return;
                 ScaffoldMessenger.maybeOf(scaffoldContext)?.showSnackBar(
                   const SnackBar(
-                    content: Text('Cotización enviada al administrador.'),
+                    content: Text('Cotización enviada al admin correctamente.'),
                   ),
                 );
               } on TimeoutException {

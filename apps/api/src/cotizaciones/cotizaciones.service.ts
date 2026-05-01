@@ -102,6 +102,87 @@ export class CotizacionesService {
     return `Hola ${safeCustomerName}, te compartimos tu cotización de ${companyName}. Si deseas continuar, responde a este mensaje y te ayudamos.`;
   }
 
+  private ensureQuoteAccessForSend(
+    user: { id: string; role: Role },
+    quotation: { createdByUserId: string },
+  ) {
+    if (user.role === Role.ADMIN) return;
+    if (quotation.createdByUserId !== user.id) {
+      throw new ForbiddenException('No tienes permiso para enviar esta cotización.');
+    }
+  }
+
+  private async ensureConnectedUserInstance(userId: string) {
+    const instance = await this.prisma.userWhatsappInstance.findUnique({
+      where: { userId },
+      select: {
+        id: true,
+        instanceName: true,
+        status: true,
+        phoneNumber: true,
+      },
+    });
+
+    const status = (instance?.status ?? '').trim().toLowerCase();
+    const isConnected = status === 'connected' || status === 'open';
+    if (!instance || !isConnected) {
+      throw new BadRequestException(
+        'Debes conectar tu WhatsApp antes de enviar cotizaciones.',
+      );
+    }
+
+    return instance;
+  }
+
+  private async resolveAdminDestinationPhone() {
+    const appConfig = await this.prisma.appConfig.findUnique({
+      where: { id: 'global' },
+      select: {
+        phonePreferential: true,
+        phone: true,
+      },
+    });
+
+    const candidates = [
+      appConfig?.phonePreferential,
+      appConfig?.phone,
+      this.config.get<string>('QUOTATION_APPROVAL_ADMIN_PHONE'),
+      process.env.QUOTATION_APPROVAL_ADMIN_PHONE,
+    ];
+
+    for (const finalPhone of candidates) {
+      const normalized = this.evolutionWhatsApp.normalizeWhatsAppNumber(
+        (finalPhone ?? '').trim(),
+      );
+      if (normalized) {
+        return normalized;
+      }
+    }
+
+    throw new BadRequestException(
+      'No hay número admin configurado para recibir cotizaciones por WhatsApp.',
+    );
+  }
+
+  private resolveClientDestination(quotation: {
+    customerId: string | null;
+    customerPhone: string;
+  }) {
+    if (!quotation.customerId) {
+      throw new BadRequestException('La cotización no tiene cliente asociado.');
+    }
+
+    const normalizedPhone = this.evolutionWhatsApp.normalizeWhatsAppNumber(
+      quotation.customerPhone,
+    );
+    if (!normalizedPhone) {
+      throw new BadRequestException(
+        'El cliente no tiene teléfono válido para enviar la cotización.',
+      );
+    }
+    return normalizedPhone;
+  }
+
   private buildQuotesListCacheKey(
     user: { id: string; role: Role },
     query: { customerPhone?: string; take?: number },
@@ -476,14 +557,16 @@ export class CotizacionesService {
     dto: SendCotizacionWhatsappDto,
   ) {
     const quotationId = dto.quotationId.trim();
-    const customerPhone = dto.customerPhone.trim();
-    const customerName = dto.customerName.trim();
+    const destinationType = dto.destinationType;
     const customMessage = (dto.messageText ?? '').trim();
     const quotation = await this.prisma.cotizacion.findUnique({
       where: { id: quotationId },
       select: {
         id: true,
         createdByUserId: true,
+        customerId: true,
+        customerName: true,
+        customerPhone: true,
       },
     });
 
@@ -491,50 +574,57 @@ export class CotizacionesService {
       throw new NotFoundException('Cotización no encontrada.');
     }
 
-    const senderUserId = quotation.createdByUserId?.trim();
-    if (!senderUserId) {
-      throw new BadRequestException(
-        'La cotización no tiene un creador asignado para enviar por su instancia personal.',
-      );
-    }
+    this.ensureQuoteAccessForSend(user, quotation);
 
-    if (!customerPhone) {
-      throw new BadRequestException('El teléfono del cliente es obligatorio.');
-    }
-    if (!customerName) {
-      throw new BadRequestException('El nombre del cliente es obligatorio.');
-    }
+    const senderInstance = await this.ensureConnectedUserInstance(user.id);
+
+    const destinationPhone =
+      destinationType === 'admin'
+        ? await this.resolveAdminDestinationPhone()
+        : this.resolveClientDestination(quotation);
 
     const bytes = this.parsePdfBase64(dto.pdfBase64);
     const fileName = (dto.fileName ?? '').trim() || 'cotizacion.pdf';
-    const normalizedPhone = this.evolutionWhatsApp.normalizeWhatsAppNumber(customerPhone);
-    const caption = customMessage ? '' : await this.buildQuoteWhatsAppCaption(customerName);
+    const caption =
+      customMessage || destinationType === 'admin'
+        ? ''
+        : await this.buildQuoteWhatsAppCaption(quotation.customerName);
 
-    if (customMessage) {
-      await this.evolutionWhatsApp.sendTextMessage({
-        toNumber: customerPhone,
-        message: customMessage,
-        senderUserId,
+    try {
+      if (customMessage) {
+        await this.evolutionWhatsApp.sendTextMessage({
+          toNumber: destinationPhone,
+          message: customMessage,
+          senderUserId: user.id,
+          requirePersonalInstance: true,
+        });
+      }
+
+      await this.evolutionWhatsApp.sendPdfDocument({
+        toNumber: destinationPhone,
+        bytes,
+        fileName,
+        caption,
+        senderUserId: user.id,
         requirePersonalInstance: true,
       });
+    } catch (error) {
+      this.logger.error(
+        `Quote PDF WhatsApp send failed quotationId=${quotationId} userId=${user.id} destinationType=${destinationType} destinationPhone=${destinationPhone} instanceId=${senderInstance.id} instanceName=${senderInstance.instanceName} error=${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      throw error;
     }
 
-    await this.evolutionWhatsApp.sendPdfDocument({
-      toNumber: customerPhone,
-      bytes,
-      fileName,
-      caption,
-      senderUserId,
-      requirePersonalInstance: true,
-    });
-
     this.logger.log(
-      `Quote WhatsApp sent by actor=${user.id} sender=${senderUserId} role=${user.role} to=${normalizedPhone || customerPhone} quotation=${quotationId}`,
+      `Quote PDF WhatsApp sent quotationId=${quotationId} userId=${user.id} destinationType=${destinationType} destinationPhone=${destinationPhone} instanceId=${senderInstance.id} instanceName=${senderInstance.instanceName} success=true`,
     );
 
     return {
       ok: true,
-      normalizedPhone,
+      destinationType,
+      destinationPhone,
       sentAt: new Date().toISOString(),
     };
   }

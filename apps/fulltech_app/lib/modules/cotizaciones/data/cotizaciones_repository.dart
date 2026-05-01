@@ -349,8 +349,7 @@ class CotizacionesRepository {
 
   Future<void> sendWhatsAppQuotation({
     required String quotationId,
-    required String customerName,
-    required String customerPhone,
+    required String destinationType,
     required List<int> pdfBytes,
     String? fileName,
     String? messageText,
@@ -360,8 +359,7 @@ class CotizacionesRepository {
         ApiRoutes.cotizacionSendWhatsapp,
         data: {
           'quotationId': quotationId.trim(),
-          'customerName': customerName.trim(),
-          'customerPhone': customerPhone.trim(),
+          'destinationType': destinationType.trim().toLowerCase(),
           'pdfBase64': base64Encode(pdfBytes),
           if (fileName != null && fileName.trim().isNotEmpty)
             'fileName': fileName.trim(),

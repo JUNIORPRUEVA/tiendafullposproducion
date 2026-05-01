@@ -1,0 +1,61 @@
+workflows:
+  ios-release-no-codesign:
+    name: iOS Release Build (No Codesign)
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      flutter: stable
+      xcode: latest
+      groups:
+        - app_store_connect
+      vars:
+        APP_DIR: apps/fulltech_app
+        BUNDLE_ID: com.fulltech.app
+        APPLE_TEAM_ID: $APPLE_TEAM_ID
+        APP_STORE_CONNECT_KEY_IDENTIFIER: $APP_STORE_CONNECT_KEY_IDENTIFIER
+        APP_STORE_CONNECT_ISSUER_ID: $APP_STORE_CONNECT_ISSUER_ID
+        APP_STORE_CONNECT_PRIVATE_KEY: $APP_STORE_CONNECT_PRIVATE_KEY
+    scripts:
+      - name: Flutter pub get
+        script: |
+          cd "$APP_DIR"
+          flutter pub get
+      - name: Static analysis
+        script: |
+          cd "$APP_DIR"
+          flutter analyze
+      - name: Build iOS release without codesign
+        script: |
+          cd "$APP_DIR"
+          flutter build ios --release --no-codesign
+    artifacts:
+      - apps/fulltech_app/build/ios/iphoneos/Runner.app
+      - apps/fulltech_app/build/ios/iphoneos/*.app
+      - apps/fulltech_app/build/ios/**/*.xcarchive
+
+  ios-testflight-placeholder:
+    name: iOS TestFlight Placeholder
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      flutter: stable
+      xcode: latest
+      groups:
+        - app_store_connect
+      vars:
+        APP_DIR: apps/fulltech_app
+        BUNDLE_ID: com.fulltech.app
+        APPLE_TEAM_ID: $APPLE_TEAM_ID
+        APP_STORE_CONNECT_KEY_IDENTIFIER: $APP_STORE_CONNECT_KEY_IDENTIFIER
+        APP_STORE_CONNECT_ISSUER_ID: $APP_STORE_CONNECT_ISSUER_ID
+        APP_STORE_CONNECT_PRIVATE_KEY: $APP_STORE_CONNECT_PRIVATE_KEY
+    scripts:
+      - name: Prepare dependencies
+        script: |
+          cd "$APP_DIR"
+          flutter pub get
+          flutter analyze
+      - name: TestFlight build placeholder
+        script: |
+          echo "Configure iOS signing certificates/profiles in Codemagic before enabling TestFlight publishing."
+          echo "Required vars: APPLE_TEAM_ID, BUNDLE_ID, APP_STORE_CONNECT_KEY_IDENTIFIER, APP_STORE_CONNECT_ISSUER_ID, APP_STORE_CONNECT_PRIVATE_KEY."
