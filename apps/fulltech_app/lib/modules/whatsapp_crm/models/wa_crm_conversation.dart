@@ -11,6 +11,7 @@ class WaCrmConversation {
     required this.remoteJid,
     this.remotePhone,
     this.remoteName,
+    this.remoteAvatarUrl,
     this.lastMessageAt,
     this.unreadCount = 0,
     this.lastMessage,
@@ -21,6 +22,7 @@ class WaCrmConversation {
   final String remoteJid;
   final String? remotePhone;
   final String? remoteName;
+  final String? remoteAvatarUrl;
   final DateTime? lastMessageAt;
   final int unreadCount;
   final WaCrmMessage? lastMessage;
@@ -89,6 +91,14 @@ class WaCrmConversation {
       ),
       remoteName: _safeConversationText(
         json['remoteName'] ?? json['remote_name'],
+      ),
+      remoteAvatarUrl: _safeConversationText(
+        json['remoteAvatarUrl'] ??
+            json['remote_avatar_url'] ??
+            json['profilePicUrl'] ??
+            json['avatarUrl'] ??
+            json['photoUrl'] ??
+            json['pictureUrl'],
       ),
       lastMessageAt: _parseDate(
         json['lastMessageAt'] ?? json['last_message_at'],

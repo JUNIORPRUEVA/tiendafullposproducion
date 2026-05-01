@@ -17,6 +17,7 @@ import '../../core/realtime/operations_realtime_service.dart';
 import '../../core/routing/route_access.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
+import '../../core/widgets/user_avatar.dart';
 import '../whatsapp_crm/application/wa_crm_controller.dart';
 import '../whatsapp_crm/models/wa_crm_conversation.dart';
 import '../whatsapp_crm/models/wa_crm_message.dart';
@@ -28,6 +29,13 @@ const double _kTabletBreak = 960;
 
 String _waText(dynamic value, [String fallback = '']) {
   return sanitizeWaText(value) ?? fallback;
+}
+
+String _waInitial(dynamic value, [String fallback = '?']) {
+  final text = _waText(value).trim();
+  if (text.isEmpty) return fallback;
+  final firstRune = text.runes.first;
+  return String.fromCharCode(firstRune).toUpperCase();
 }
 
 class WhatsappCrmScreen extends ConsumerStatefulWidget {
@@ -1189,15 +1197,12 @@ class _ConversationTile extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
           children: [
-            CircleAvatar(
+            UserAvatar(
+              imageUrl: conv.remoteAvatarUrl,
               radius: 22,
-              backgroundColor: theme.colorScheme.primary.withValues(
-                alpha: 0.15,
-              ),
+              backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.15),
               child: Text(
-                _waText(conv.displayName).isNotEmpty
-                    ? _waText(conv.displayName)[0].toUpperCase()
-                    : '?',
+                _waInitial(conv.displayName),
                 style: TextStyle(
                   color: theme.colorScheme.primary,
                   fontWeight: FontWeight.bold,
@@ -1474,15 +1479,12 @@ class _ChatPanel extends StatelessWidget {
           ),
           child: Row(
             children: [
-              CircleAvatar(
+              UserAvatar(
+                imageUrl: conv.remoteAvatarUrl,
                 radius: 18,
-                backgroundColor: theme.colorScheme.primary.withValues(
-                  alpha: 0.15,
-                ),
+                backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.15),
                 child: Text(
-                  _waText(conv.displayName).isNotEmpty
-                      ? _waText(conv.displayName)[0].toUpperCase()
-                      : '?',
+                  _waInitial(conv.displayName),
                   style: TextStyle(
                     color: theme.colorScheme.primary,
                     fontWeight: FontWeight.bold,

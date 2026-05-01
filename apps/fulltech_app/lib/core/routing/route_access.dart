@@ -63,7 +63,7 @@ class RouteAccess {
       case Routes.amonestaciones:
         return AppPermission.viewWarnings;
       case Routes.misAmonestacionesPendientes:
-        return AppPermission.viewMyWarnings;
+        return null;
       case Routes.users:
       case Routes.user:
         return AppPermission.manageUsers;

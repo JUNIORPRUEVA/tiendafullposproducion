@@ -4,7 +4,6 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../features/amonestaciones/application/warnings_controller.dart';
-import '../auth/app_permissions.dart';
 import '../auth/app_role.dart';
 import '../auth/auth_provider.dart';
 import '../location/location_tracker_provider.dart';
@@ -219,12 +218,7 @@ class DesktopShellAppBar extends ConsumerWidget {
       currentUser?.appRole ?? AppRole.unknown,
     );
     final pendingWarningsCount = ref.watch(myPendingWarningsCountProvider);
-    final canViewMyWarnings = hasPermission(
-      currentUser?.appRole ?? AppRole.unknown,
-      AppPermission.viewMyWarnings,
-    );
-    final showPendingWarningsIcon =
-        canViewMyWarnings && pendingWarningsCount > 0;
+    final showPendingWarningsIcon = pendingWarningsCount > 0;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 240),
@@ -335,7 +329,11 @@ class DesktopShellAppBar extends ConsumerWidget {
               ],
               const SizedBox(width: 10),
               ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: showUserMeta ? 260 : 56),
+                constraints: BoxConstraints(
+                  maxWidth: showUserMeta
+                      ? 260
+                      : (showPendingWarningsIcon ? 100 : 56),
+                ),
                 child: Container(
                   padding: EdgeInsets.symmetric(
                     horizontal: collapsed ? 8 : 10,

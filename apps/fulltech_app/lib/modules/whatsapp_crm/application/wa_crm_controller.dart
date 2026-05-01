@@ -420,6 +420,7 @@ class WaCrmController extends StateNotifier<WaCrmState> {
                 remoteJid: c.remoteJid,
                 remotePhone: c.remotePhone,
                 remoteName: c.remoteName,
+                remoteAvatarUrl: c.remoteAvatarUrl,
                 lastMessageAt: c.lastMessageAt,
                 unreadCount: 0,
               )
@@ -588,6 +589,11 @@ class WaCrmController extends StateNotifier<WaCrmState> {
                 newest.remoteName!.trim().toLowerCase() != 'me'
             ? newest.remoteName
             : oldest.remoteName,
+        remoteAvatarUrl:
+          (newest.remoteAvatarUrl != null &&
+            newest.remoteAvatarUrl!.trim().isNotEmpty)
+          ? newest.remoteAvatarUrl
+          : oldest.remoteAvatarUrl,
         lastMessageAt: newest.lastMessageAt ?? oldest.lastMessageAt,
         unreadCount: newest.unreadCount + oldest.unreadCount,
         lastMessage: newest.lastMessage ?? oldest.lastMessage,
@@ -665,6 +671,7 @@ class WaCrmController extends StateNotifier<WaCrmState> {
               remoteJid: incomingConv.remoteJid,
               remotePhone: incomingConv.remotePhone,
               remoteName: incomingConv.remoteName,
+              remoteAvatarUrl: incomingConv.remoteAvatarUrl,
               lastMessageAt: incomingConv.lastMessageAt,
               unreadCount: incomingConv.unreadCount,
               lastMessage: incomingConv.lastMessage,
@@ -681,6 +688,7 @@ class WaCrmController extends StateNotifier<WaCrmState> {
           remoteJid: incomingConv.remoteJid,
           remotePhone: incomingConv.remotePhone,
           remoteName: incomingConv.remoteName,
+          remoteAvatarUrl: incomingConv.remoteAvatarUrl,
           lastMessageAt: incomingConv.lastMessageAt,
           unreadCount: incomingConv.unreadCount,
           lastMessage: incomingConv.lastMessage,

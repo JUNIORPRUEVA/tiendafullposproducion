@@ -8,7 +8,10 @@ String? sanitizeWaText(dynamic value) {
   final out = StringBuffer();
   for (var i = 0; i < units.length; i++) {
     final unit = units[i];
-    if (unit >= 0xD800 && unit <= 0xDBFF) {
+    final isHigh = unit >= 0xD800 && unit <= 0xDBFF;
+    final isLow = unit >= 0xDC00 && unit <= 0xDFFF;
+
+    if (isHigh) {
       if (i + 1 < units.length) {
         final next = units[i + 1];
         if (next >= 0xDC00 && next <= 0xDFFF) {
@@ -21,10 +24,17 @@ String? sanitizeWaText(dynamic value) {
       out.write('\uFFFD');
       continue;
     }
-    if (unit >= 0xDC00 && unit <= 0xDFFF) {
+
+    if (isLow) {
       out.write('\uFFFD');
       continue;
     }
+
+    // Keep common whitespace, but drop other control chars to avoid render issues.
+    if (unit < 0x20 && unit != 0x09 && unit != 0x0A && unit != 0x0D) {
+      continue;
+    }
+
     out.writeCharCode(unit);
   }
   return out.toString();

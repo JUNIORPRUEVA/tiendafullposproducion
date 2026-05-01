@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/amonestaciones/application/warnings_controller.dart';
-import '../auth/app_permissions.dart';
 import '../auth/app_role.dart';
 import '../auth/auth_provider.dart';
 import '../routing/routes.dart';
@@ -76,9 +75,6 @@ class CustomAppBar extends ConsumerWidget implements PreferredSizeWidget {
     final primaryPendingAction = _buildPrimaryPendingAction(
       context: context,
       ref: ref,
-      role: role,
-      backButton: backButton,
-      hasDrawer: hasDrawer,
     );
 
     final resolvedActions = <Widget>[
@@ -193,29 +189,20 @@ class CustomAppBar extends ConsumerWidget implements PreferredSizeWidget {
   Widget? _buildPrimaryPendingAction({
     required BuildContext context,
     required WidgetRef ref,
-    required AppRole? role,
-    required Widget? backButton,
-    required bool hasDrawer,
   }) {
     final user = ref.watch(authStateProvider).user;
     if (user == null) return null;
 
-    // Show this only in the principal appbar (screen that owns drawer).
-    // Some flows keep a back stack even on top modules, so relying on backButton
-    // would incorrectly hide pending notifications.
-    final isPrimaryAppBar = hasDrawer;
-    if (!isPrimaryAppBar) return null;
-
+    // Show pending indicator on any top-level screen (mobile or desktop).
+    // On mobile the screen owns a drawer; on desktop it does not — but we
+    // still want the badge visible next to the profile avatar.
     final pendingCount = ref.watch(myPendingWarningsCountProvider);
-    final canViewMyWarnings = hasPermission(
-      role ?? AppRole.unknown,
-      AppPermission.viewMyWarnings,
-    );
+    if (pendingCount <= 0) return null;
 
     return Padding(
       padding: const EdgeInsets.only(right: 8),
       child: _AnimatedPendingWarningsAction(
-        visible: canViewMyWarnings && pendingCount > 0,
+        visible: true,
         count: pendingCount,
         onTap: () => context.push(Routes.misAmonestacionesPendientes),
       ),

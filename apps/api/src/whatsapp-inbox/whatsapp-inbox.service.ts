@@ -267,6 +267,41 @@ function collectEvolutionMessageRecords(value: unknown): unknown[] {
   return [];
 }
 
+function conversationIdentityKeys(
+  remoteJid: unknown,
+  remotePhone: unknown,
+): string[] {
+  const keys: string[] = [];
+  const phone = firstPhone(remotePhone, remoteJid);
+  if (phone) keys.push(`phone:${phone}`);
+
+  const jid = asString(remoteJid)?.toLowerCase();
+  if (jid) keys.push(`jid:${jid}`);
+
+  return Array.from(new Set(keys));
+}
+
+function extractChatAvatarUrl(chatRecord: JsonRecord): string | null {
+  const contact =
+    asRecord(chatRecord.contact) ?? asRecord(chatRecord.contactInfo);
+  const picture = asRecord(chatRecord.picture) ?? asRecord(contact?.picture);
+
+  return (
+    asString(chatRecord.profilePicUrl) ??
+    asString(chatRecord.profilePictureUrl) ??
+    asString(chatRecord.avatarUrl) ??
+    asString(chatRecord.photoUrl) ??
+    asString(chatRecord.pictureUrl) ??
+    asString(contact?.profilePicUrl) ??
+    asString(contact?.profilePictureUrl) ??
+    asString(contact?.avatarUrl) ??
+    asString(contact?.photoUrl) ??
+    asString(contact?.pictureUrl) ??
+    asString(picture?.url) ??
+    null
+  );
+}
+
 function payloadKeyRemoteJid(value: unknown): string | null {
   const root = asRecord(value);
   const data = asRecord(root?.data) ?? asRecord(root?.message) ?? root;
@@ -1136,13 +1171,18 @@ export class WhatsappInboxService {
   // ─── Query conversations for an instance ──────────────────────────────
 
   async getConversations(instanceId: string, limit = 50) {
-    await this.syncRecentChatsFromEvolution(instanceId).catch((error) => {
+    let avatarByConversationKey = new Map<string, string>();
+    await this.syncRecentChatsFromEvolution(instanceId)
+      .then((sync) => {
+        avatarByConversationKey = sync.avatarByConversationKey;
+      })
+      .catch((error) => {
       console.warn(
         `[WhatsappInbox] No se pudieron sincronizar chats recientes para instancia ${instanceId}: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
-    });
+      });
 
     const conversations = await this.prisma.whatsappConversation.findMany({
       where: {
@@ -1166,25 +1206,38 @@ export class WhatsappInboxService {
         },
       },
     });
-    return conversations.map((conversation) =>
-      this.normalizeConversationForResponse(conversation),
-    );
+    return conversations.map((conversation) => {
+      const normalized = this.normalizeConversationForResponse(conversation);
+      const avatarUrl =
+        conversationIdentityKeys(normalized.remoteJid, normalized.remotePhone)
+          .map((key) => avatarByConversationKey.get(key) ?? null)
+          .find((value) => value != null && value.trim().length > 0) ?? null;
+      return {
+        ...normalized,
+        remoteAvatarUrl: avatarUrl,
+      };
+    });
   }
 
   // ─── Query messages for a conversation ───────────────────────────────
 
-  async syncRecentChatsFromEvolution(instanceId: string) {
+  async syncRecentChatsFromEvolution(
+    instanceId: string,
+  ): Promise<{ synced: number; avatarByConversationKey: Map<string, string> }> {
     const instance = await this.prisma.userWhatsappInstance.findUnique({
       where: { id: instanceId },
       select: { id: true, instanceName: true, phoneNumber: true },
     });
-    if (!instance) return { synced: 0 };
+    if (!instance) {
+      return { synced: 0, avatarByConversationKey: new Map<string, string>() };
+    }
 
     const raw = await this.whatsappService.findChats(instance.instanceName, 40);
     const chats = Array.isArray(raw)
       ? raw
       : collectEvolutionMessageRecords(raw);
     let synced = 0;
+    const avatarByConversationKey = new Map<string, string>();
 
     for (const chat of chats) {
       const chatRecord = asRecord(chat);
@@ -1192,6 +1245,15 @@ export class WhatsappInboxService {
       const lastMessage = asRecord(chatRecord.lastMessage);
       if (!lastMessage) continue;
       const chatRemoteJid = asString(chatRecord.remoteJid);
+      const avatarUrl = extractChatAvatarUrl(chatRecord);
+      if (avatarUrl) {
+        for (const key of conversationIdentityKeys(
+          chatRemoteJid,
+          chatRecord.remotePhone,
+        )) {
+          avatarByConversationKey.set(key, avatarUrl);
+        }
+      }
       const payload = {
         data: {
           ...lastMessage,
@@ -1216,7 +1278,7 @@ export class WhatsappInboxService {
       if (!result.duplicate) synced++;
     }
 
-    return { synced };
+    return { synced, avatarByConversationKey };
   }
 
   private async resolveKnownCustomerPhoneAlias(
