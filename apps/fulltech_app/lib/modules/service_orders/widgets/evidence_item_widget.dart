@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:video_player/video_player.dart';
 
-import '../../../core/api/env.dart';
 import '../../../core/utils/local_file_image.dart';
+import '../../../core/utils/service_media_url.dart';
 import '../../../core/utils/video_preview_controller.dart';
 import '../service_order_models.dart';
 
@@ -40,7 +40,7 @@ class EvidenceItemWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final resolvedUrl = _resolveMediaUrl(url ?? text ?? '');
+    final resolvedUrl = resolveServiceMediaUrl(url ?? text ?? '');
     final effectiveVideoSource = (localPath ?? '').trim().isNotEmpty
         ? localPath!.trim()
         : resolvedUrl;
@@ -525,40 +525,6 @@ class _MediaErrorBox extends StatelessWidget {
       ),
     );
   }
-}
-
-String _resolveMediaUrl(String raw) {
-  final value = raw.trim();
-  if (value.isEmpty) return '';
-
-  final uri = Uri.tryParse(value);
-  if (uri != null && uri.hasScheme) {
-    if (kDebugMode) {
-      debugPrint('MEDIA URL (image/video absolute): ${uri.toString()}');
-    }
-    return uri.toString();
-  }
-
-  final normalized = value.replaceAll('\\', '/');
-  final baseUrl = Env.apiBaseUrl.trim().replaceAll(RegExp(r'/+$'), '');
-
-  if (normalized.startsWith('/uploads/')) {
-    return '$baseUrl$normalized';
-  }
-  if (normalized.startsWith('uploads/')) {
-    return '$baseUrl/$normalized';
-  }
-  if (normalized.startsWith('./uploads/')) {
-    return '$baseUrl/${normalized.substring(2)}';
-  }
-
-  final resolved = normalized.startsWith('/')
-      ? '$baseUrl$normalized'
-      : '$baseUrl/$normalized';
-  if (kDebugMode) {
-    debugPrint('MEDIA URL (image/video resolved): $resolved');
-  }
-  return resolved;
 }
 
 String _formatDuration(Duration duration) {

@@ -2,7 +2,10 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
 
+import '../../../core/ai_assistant/domain/models/ai_chat_context.dart';
+import '../../../core/ai_assistant/domain/services/ai_assistant_service.dart';
 import '../../../core/utils/app_feedback.dart';
 import '../../../core/utils/safe_url_launcher.dart';
 import '../service_order_models.dart';
@@ -12,6 +15,8 @@ import 'service_order_status_confirmation_dialog.dart';
 enum _EvidencePickType { image, video }
 
 enum _ActionTone { primary, secondary, neutral }
+
+enum ServiceOrderQuickActionsPresentation { bottomSheet, mobileRightPanel }
 
 class ServiceOrderQuickActionsConfig {
   const ServiceOrderQuickActionsConfig({
@@ -35,9 +40,62 @@ Future<void> showServiceOrderQuickActionsModal({
   required String orderId,
   required ServiceOrderModel order,
   required VoidCallback onOrderUpdated,
+  ServiceOrderQuickActionsPresentation presentation =
+      ServiceOrderQuickActionsPresentation.bottomSheet,
   ServiceOrderQuickActionsConfig actionConfig =
       const ServiceOrderQuickActionsConfig(),
 }) async {
+  if (presentation == ServiceOrderQuickActionsPresentation.mobileRightPanel) {
+    await showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Panel de gestión',
+      barrierColor: Colors.black.withValues(alpha: 0.45),
+      transitionDuration: const Duration(milliseconds: 240),
+      pageBuilder: (sheetContext, animation, secondaryAnimation) {
+        return _ServiceOrderQuickActionsSheet(
+          orderId: orderId,
+          order: order,
+          parentContext: context,
+          onOrderUpdated: onOrderUpdated,
+          actionConfig: actionConfig,
+          presentation: presentation,
+        );
+      },
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        final curved = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutQuart,
+          reverseCurve: Curves.easeInQuart,
+        );
+        final scale = Tween<double>(
+          begin: 0.965,
+          end: 1,
+        ).animate(
+          CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutBack,
+            reverseCurve: Curves.easeInCubic,
+          ),
+        );
+        return FadeTransition(
+          opacity: curved,
+          child: ScaleTransition(
+            scale: scale,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0.24, 0),
+                end: Offset.zero,
+              ).animate(curved),
+              child: child,
+            ),
+          ),
+        );
+      },
+    );
+    return;
+  }
+
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
@@ -51,6 +109,7 @@ Future<void> showServiceOrderQuickActionsModal({
         parentContext: context,
         onOrderUpdated: onOrderUpdated,
         actionConfig: actionConfig,
+        presentation: presentation,
       );
     },
   );
@@ -63,6 +122,7 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
     required this.parentContext,
     required this.onOrderUpdated,
     required this.actionConfig,
+    required this.presentation,
   });
 
   final String orderId;
@@ -70,6 +130,7 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
   final BuildContext parentContext;
   final VoidCallback onOrderUpdated;
   final ServiceOrderQuickActionsConfig actionConfig;
+  final ServiceOrderQuickActionsPresentation presentation;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -77,79 +138,41 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final screenSize = MediaQuery.sizeOf(context);
+    final isMobileRightPanel =
+        presentation == ServiceOrderQuickActionsPresentation.mobileRightPanel;
     final targetWidth = screenSize.width >= 900
         ? 336.0
         : screenSize.width >= 600
         ? 322.0
         : (screenSize.width * 0.82).clamp(286.0, 332.0);
-    final canMarkInProgress =
-        order.status != ServiceOrderStatus.enProceso &&
-        order.status
-            .nextStatusesForRole(canFinalizeDirectly: true)
-            .contains(ServiceOrderStatus.enProceso);
-    final canMarkPaused =
-        order.status != ServiceOrderStatus.enPausa &&
-        order.status
-            .nextStatusesForRole(canFinalizeDirectly: true)
-            .contains(ServiceOrderStatus.enPausa);
-    final canMarkFinalized =
-        order.status != ServiceOrderStatus.finalizado &&
-        order.status
-            .nextStatusesForRole(canFinalizeDirectly: true)
-            .contains(ServiceOrderStatus.finalizado);
-    final actionCards = <Widget>[
-      if (canMarkInProgress)
-        _ActionButton(
-          icon: Icons.play_circle_outline_rounded,
-          label: order.status == ServiceOrderStatus.enPausa
-              ? 'Reanudar'
-              : 'En proceso',
-          tone: _ActionTone.primary,
-          isLoading: state.loading,
-          onTap: state.loading
-              ? null
-              : () => _changeStatusDirect(
-                  context,
-                  ref,
-                  ServiceOrderStatus.enProceso,
-                  successMessage: 'Orden marcada en proceso',
-                ),
-        ),
-      if (canMarkPaused)
-        _ActionButton(
-          icon: Icons.pause_circle_outline_rounded,
-          label: 'En pausa',
-          tone: _ActionTone.secondary,
-          isLoading: state.loading,
-          onTap: state.loading
-              ? null
-              : () => _changeStatusDirect(
-                  context,
-                  ref,
-                  ServiceOrderStatus.enPausa,
-                  successMessage: 'Orden marcada en pausa',
-                ),
-        ),
-      if (canMarkFinalized)
-        _ActionButton(
-          icon: Icons.task_alt_rounded,
-          label: 'Finalizar',
-          tone: _ActionTone.primary,
-          isLoading: state.loading,
-          onTap: state.loading
-              ? null
-              : () => _changeStatusDirect(
-                  context,
-                  ref,
-                  ServiceOrderStatus.finalizado,
-                  successMessage: 'Orden marcada finalizada',
-                ),
-        ),
+    final isTechnicianMobilePanel = isMobileRightPanel;
+    final allowedStatuses = order.status.nextStatusesForRole(
+      canFinalizeDirectly: true,
+    );
+    final statusSequence = isTechnicianMobilePanel
+        ? <ServiceOrderStatus>[
+            ServiceOrderStatus.enProceso,
+            ServiceOrderStatus.enPausa,
+            ServiceOrderStatus.finalizado,
+          ]
+        : <ServiceOrderStatus>[
+            ServiceOrderStatus.pendiente,
+            ServiceOrderStatus.enProceso,
+            ServiceOrderStatus.enPausa,
+            ServiceOrderStatus.finalizado,
+            ServiceOrderStatus.pospuesta,
+            ServiceOrderStatus.cancelado,
+          ];
+    final visibleStatusOptions = statusSequence.where((status) {
+      return status == order.status || allowedStatuses.contains(status);
+    }).toList(growable: false);
+    final quickActionCards = <_ActionButton>[
       _ActionButton(
         icon: Icons.description_outlined,
         label: 'Reporte final',
         tone: _ActionTone.secondary,
         isLoading: state.loading,
+        minHeight: 56,
         onTap: state.loading ? null : () => _addFinalReport(context, ref),
       ),
       _ActionButton(
@@ -157,6 +180,7 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
         label: 'Video',
         tone: _ActionTone.secondary,
         isLoading: state.loading,
+        minHeight: 56,
         onTap: state.loading
             ? null
             : () => _addEvidence(context, ref, _EvidencePickType.video),
@@ -166,15 +190,26 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
         label: 'Imagen',
         tone: _ActionTone.secondary,
         isLoading: state.loading,
+        minHeight: 56,
         onTap: state.loading
             ? null
             : () => _addEvidence(context, ref, _EvidencePickType.image),
       ),
+      if (isTechnicianMobilePanel)
+        _ActionButton(
+          icon: Icons.notes_rounded,
+          label: 'Texto',
+          tone: _ActionTone.secondary,
+          isLoading: state.loading,
+          minHeight: 56,
+          onTap: state.loading ? null : () => _addTextEvidence(context, ref),
+        ),
       if (actionConfig.clientCallUri != null)
         _ActionButton(
           icon: Icons.call_outlined,
           label: 'Llamar cliente',
           isLoading: state.loading,
+          minHeight: 56,
           onTap: () => _openExternalAction(
             context,
             actionConfig.clientCallUri!,
@@ -186,6 +221,7 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
           icon: Icons.chat_bubble_outline_rounded,
           label: 'WhatsApp cliente',
           isLoading: state.loading,
+          minHeight: 56,
           onTap: () => _openExternalAction(
             context,
             actionConfig.clientWhatsAppUri!,
@@ -198,6 +234,7 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
           icon: Icons.location_searching_rounded,
           label: 'Ir al GPS',
           isLoading: state.loading,
+          minHeight: 56,
           onTap: () => _openExternalAction(
             context,
             actionConfig.locationUri!,
@@ -209,6 +246,7 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
           icon: Icons.support_agent_rounded,
           label: 'Vendedor',
           isLoading: state.loading,
+          minHeight: 56,
           onTap: () => _openExternalAction(
             context,
             actionConfig.sellerConversationUri!,
@@ -221,6 +259,7 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
           icon: Icons.headset_mic_outlined,
           label: 'Servicio al cliente',
           isLoading: state.loading,
+          minHeight: 56,
           onTap: () => _openExternalAction(
             context,
             actionConfig.supportConversationUri!,
@@ -229,6 +268,290 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
           ),
         ),
     ];
+    final clientName = (order.client?.nombre ?? 'Cliente ${order.clientId}')
+        .trim();
+    final serviceSummary =
+        '${order.serviceType.label} · ${order.category.label}';
+    final scheduledAtLabel = _formatScheduledAt(order.scheduledFor);
+
+    final statusSection = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SectionTitle(
+          icon: Icons.sync_alt_rounded,
+          title: 'Cambiar estado',
+        ),
+        const SizedBox(height: 8),
+        for (var index = 0; index < visibleStatusOptions.length; index++) ...[
+          _ActionButton(
+            icon: _statusIcon(visibleStatusOptions[index]),
+            label: visibleStatusOptions[index].label,
+            tone: _statusTone(visibleStatusOptions[index]),
+            isLoading: state.loading,
+            selected: visibleStatusOptions[index] == order.status,
+            minHeight: 58,
+            onTap: state.loading || visibleStatusOptions[index] == order.status
+                ? null
+                : () => _changeStatusDirect(
+                    context,
+                    ref,
+                    visibleStatusOptions[index],
+                    successMessage:
+                        'Orden marcada ${visibleStatusOptions[index].confirmationLabel}',
+                requireDetailedConfirmation: isTechnicianMobilePanel,
+                clientName: clientName,
+                  ),
+          ),
+          if (index < visibleStatusOptions.length - 1)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Divider(
+                height: 1,
+                thickness: 0.8,
+                color: colorScheme.outlineVariant.withValues(alpha: 0.22),
+              ),
+            ),
+        ],
+      ],
+    );
+
+    final quickActionsSection = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SectionTitle(
+          icon: Icons.flash_on_rounded,
+          title: isTechnicianMobilePanel ? 'Compromiso' : 'Acciones rápidas',
+        ),
+        const SizedBox(height: 8),
+        if (isTechnicianMobilePanel)
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+            decoration: BoxDecoration(
+              color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.52),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: colorScheme.outlineVariant.withValues(alpha: 0.75),
+              ),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.info_outline_rounded,
+                  size: 16,
+                  color: colorScheme.primary,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Video: 1 a 2 videos · Imagen: 3 a 5 imágenes · Texto: obligatorio',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w700,
+                      height: 1.25,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            const spacing = 8.0;
+            final tileWidth = (constraints.maxWidth - spacing) / 2;
+            return Wrap(
+              spacing: spacing,
+              runSpacing: spacing,
+              children: quickActionCards
+                  .map(
+                    (card) => SizedBox(
+                      width: tileWidth,
+                      child: card,
+                    ),
+                  )
+                  .toList(growable: false),
+            );
+          },
+        ),
+      ],
+    );
+
+    if (isMobileRightPanel) {
+      final panelWidth = (screenSize.width * 0.82).clamp(
+        screenSize.width * 0.78,
+        screenSize.width * 0.86,
+      );
+      return SafeArea(
+        child: Align(
+          alignment: Alignment.centerRight,
+          child: SizedBox(
+            width: panelWidth,
+            height: double.infinity,
+            child: Material(
+              color: Colors.transparent,
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      colorScheme.surface,
+                      colorScheme.surfaceContainerLow.withValues(alpha: 0.98),
+                    ],
+                    begin: Alignment.topRight,
+                    end: Alignment.bottomLeft,
+                  ),
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(26),
+                    bottomLeft: Radius.circular(26),
+                  ),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x2A102A43),
+                      blurRadius: 28,
+                      offset: Offset(-8, 0),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 14, 10, 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  clientName.isEmpty
+                                      ? 'Cliente sin nombre'
+                                      : clientName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: -0.15,
+                                  ),
+                                ),
+                              ),
+                              IconButton(
+                                tooltip: 'Cerrar',
+                                onPressed: () => Navigator.of(context).pop(),
+                                icon: const Icon(Icons.close_rounded),
+                                visualDensity: VisualDensity.compact,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            serviceSummary,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.labelLarge?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: order.status.color.withValues(
+                                    alpha: 0.16,
+                                  ),
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: Text(
+                                  order.status.label,
+                                  style: theme.textTheme.labelMedium?.copyWith(
+                                    color: order.status.color,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                              if (scheduledAtLabel != null)
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.schedule_rounded,
+                                      size: 15,
+                                      color: colorScheme.onSurfaceVariant,
+                                    ),
+                                    const SizedBox(width: 5),
+                                    Text(
+                                      scheduledAtLabel,
+                                      style: theme.textTheme.labelMedium
+                                          ?.copyWith(
+                                            color: colorScheme.onSurfaceVariant,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                    ),
+                                  ],
+                                ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    Divider(
+                      height: 1,
+                      thickness: 1,
+                      color: colorScheme.outlineVariant.withValues(alpha: 0.34),
+                    ),
+                    if (state.error != null)
+                      Container(
+                        width: double.infinity,
+                        margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: colorScheme.errorContainer.withValues(
+                            alpha: 0.92,
+                          ),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          state.error!,
+                          style: TextStyle(
+                            color: colorScheme.onErrorContainer,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            statusSection,
+                            const SizedBox(height: 14),
+                            quickActionsSection,
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
 
     return SafeArea(
       child: Padding(
@@ -303,49 +626,9 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
                         ),
                       ),
                     ],
-                    for (
-                      var index = 0;
-                      index < actionCards.length;
-                      index++
-                    ) ...[
-                      actionCards[index],
-                      if (index < actionCards.length - 1)
-                        Padding(
-                          padding: EdgeInsets.fromLTRB(
-                            10,
-                            (actionCards[index] as _ActionButton).tone !=
-                                    (actionCards[index + 1] as _ActionButton)
-                                        .tone
-                                ? 4
-                                : 0,
-                            10,
-                            (actionCards[index] as _ActionButton).tone !=
-                                    (actionCards[index + 1] as _ActionButton)
-                                        .tone
-                                ? 4
-                                : 0,
-                          ),
-                          child: Divider(
-                            height: 1,
-                            thickness:
-                                (actionCards[index] as _ActionButton).tone !=
-                                    (actionCards[index + 1] as _ActionButton)
-                                        .tone
-                                ? 0.95
-                                : 0.65,
-                            color:
-                                (actionCards[index] as _ActionButton).tone !=
-                                    (actionCards[index + 1] as _ActionButton)
-                                        .tone
-                                ? colorScheme.outlineVariant.withValues(
-                                    alpha: 0.54,
-                                  )
-                                : colorScheme.outlineVariant.withValues(
-                                    alpha: 0.22,
-                                  ),
-                          ),
-                        ),
-                    ],
+                    statusSection,
+                    const SizedBox(height: 10),
+                    quickActionsSection,
                   ],
                 ),
               ),
@@ -361,20 +644,41 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
     WidgetRef ref,
     ServiceOrderStatus selected, {
     required String successMessage,
+    required bool requireDetailedConfirmation,
+    required String clientName,
   }) async {
     if (selected == order.status) {
       return;
     }
 
+    if (requireDetailedConfirmation && selected == ServiceOrderStatus.finalizado) {
+      final validationMessage = _validateTechnicianCommitmentBeforeFinalize();
+      if (validationMessage != null) {
+        if (!sheetContext.mounted) return;
+        await AppFeedback.showError(sheetContext, validationMessage);
+        return;
+      }
+    }
+
     try {
-      final didChange = await showServiceOrderStatusConfirmationDialog(
-        context: sheetContext,
-        status: selected,
-        initialScheduledAt: order.scheduledFor,
-        onConfirm: (scheduledAt) => ref
-            .read(serviceOrderCardActionsProvider(orderId).notifier)
-            .changeStatus(selected, scheduledAt: scheduledAt),
-      );
+      final didChange = requireDetailedConfirmation
+          ? await _showTechnicianStatusConfirmDialog(
+              sheetContext,
+              current: order.status,
+              selected: selected,
+              clientName: clientName,
+              onConfirm: () => ref
+                  .read(serviceOrderCardActionsProvider(orderId).notifier)
+                  .changeStatus(selected),
+            )
+          : await showServiceOrderStatusConfirmationDialog(
+              context: sheetContext,
+              status: selected,
+              initialScheduledAt: order.scheduledFor,
+              onConfirm: (scheduledAt) => ref
+                  .read(serviceOrderCardActionsProvider(orderId).notifier)
+                  .changeStatus(selected, scheduledAt: scheduledAt),
+            );
 
       if (!didChange) {
         return;
@@ -394,6 +698,79 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
         error ?? 'No se pudo cambiar el estado',
       );
     }
+  }
+
+  Future<bool> _showTechnicianStatusConfirmDialog(
+    BuildContext context, {
+    required ServiceOrderStatus current,
+    required ServiceOrderStatus selected,
+    required String clientName,
+    required Future<void> Function() onConfirm,
+  }) async {
+    var confirmed = false;
+    var isSubmitting = false;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            Future<void> handleConfirm() async {
+              if (isSubmitting) return;
+              setState(() => isSubmitting = true);
+              try {
+                await onConfirm();
+                confirmed = true;
+              } finally {
+                if (dialogContext.mounted) {
+                  Navigator.of(dialogContext).pop();
+                }
+              }
+            }
+
+            return AlertDialog(
+              title: const Text('Confirmar cambio de estado'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '¿Estás seguro de marcar esta orden como ${selected.confirmationLabel.toUpperCase()}?',
+                  ),
+                  const SizedBox(height: 10),
+                  Text('Cliente: $clientName'),
+                  const SizedBox(height: 4),
+                  Text('Estado actual: ${current.label}'),
+                  const SizedBox(height: 2),
+                  Text('Estado nuevo: ${selected.label}'),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSubmitting
+                      ? null
+                      : () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cancelar'),
+                ),
+                FilledButton(
+                  onPressed: isSubmitting ? null : handleConfirm,
+                  child: isSubmitting
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2.2),
+                        )
+                      : const Text('Confirmar'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    return confirmed;
   }
 
   Future<void> _addEvidence(
@@ -518,6 +895,7 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
 
     final reportText = await _promptMultilineInput(
       sheetContext,
+      ref: ref,
       title: 'Reporte final',
       hintText: _reportHintText(reportType),
       confirmLabel: 'Guardar reporte',
@@ -528,9 +906,14 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
     }
 
     try {
+      final normalizedReport = await _normalizeReportWithAi(
+        ref,
+        reportText,
+      );
+
       await ref
           .read(serviceOrderCardActionsProvider(orderId).notifier)
-          .addTechnicalReport(reportType, reportText);
+          .addTechnicalReport(reportType, normalizedReport);
 
       if (!sheetContext.mounted) return;
       Navigator.pop(sheetContext);
@@ -544,6 +927,44 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
       await AppFeedback.showError(
         sheetContext,
         error ?? 'No se pudo guardar el reporte',
+      );
+    }
+  }
+
+  Future<void> _addTextEvidence(BuildContext sheetContext, WidgetRef ref) async {
+    if (!sheetContext.mounted) return;
+
+    final textValue = await _promptMultilineInput(
+      sheetContext,
+      ref: ref,
+      title: 'Texto de compromiso',
+      hintText: 'Escribe la evidencia en texto obligatoria para completar la orden.',
+      confirmLabel: 'Guardar texto',
+    );
+
+    if (textValue == null || textValue.trim().isEmpty) {
+      return;
+    }
+
+    try {
+        final normalizedText = await _normalizeReportWithAi(ref, textValue);
+
+        await ref
+          .read(serviceOrderCardActionsProvider(orderId).notifier)
+          .addTextEvidence(normalizedText);
+
+      if (!sheetContext.mounted) return;
+      Navigator.pop(sheetContext);
+
+      if (!parentContext.mounted) return;
+      await AppFeedback.showInfo(parentContext, 'Texto guardado correctamente');
+      onOrderUpdated();
+    } catch (_) {
+      if (!sheetContext.mounted) return;
+      final error = ref.read(serviceOrderCardActionsProvider(orderId)).error;
+      await AppFeedback.showError(
+        sheetContext,
+        error ?? 'No se pudo guardar el texto',
       );
     }
   }
@@ -571,14 +992,52 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
     }
   }
 
-  static Future<String?> _promptMultilineInput(
+  Future<String> _normalizeReportWithAi(WidgetRef ref, String rawInput) async {
+    final normalizedInput = rawInput.trim();
+    if (normalizedInput.isEmpty) {
+      return normalizedInput;
+    }
+
+    try {
+      final aiService = ref.read(aiAssistantServiceProvider);
+      final result = await aiService.chat(
+        context: AiChatContext(
+          module: 'service_orders',
+          screenName: 'service_order_quick_actions',
+          entityType: 'service_order',
+          entityId: orderId,
+        ),
+        message:
+            'Convierte este borrador en un reporte tecnico breve, claro y profesional en espanol. '
+            'Mantiene solo hechos del texto, ordenalo por: Trabajo realizado, Hallazgos, Materiales/Pendientes, Resultado final. '
+            'No inventes datos ni agregues saludos.\n\n'
+            'Texto base:\n$normalizedInput',
+        history: const [],
+      );
+
+      final aiText = result.content.trim();
+      return aiText.isEmpty ? normalizedInput : aiText;
+    } catch (error, stackTrace) {
+      debugPrint('No se pudo normalizar reporte con IA: $error');
+      debugPrint('$stackTrace');
+      return normalizedInput;
+    }
+  }
+
+  Future<String?> _promptMultilineInput(
     BuildContext context, {
+    required WidgetRef ref,
     required String title,
     required String hintText,
     required String confirmLabel,
   }) async {
     final formKey = GlobalKey<FormState>();
-    var draftValue = '';
+    final textController = TextEditingController();
+    final speech = stt.SpeechToText();
+    var isListening = false;
+    var isAiProcessing = false;
+    var voiceSeedText = '';
+    var voiceCaption = 'Toca el microfono para dictar por voz';
 
     final result = await showModalBottomSheet<String>(
       context: context,
@@ -590,6 +1049,77 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
         final screenHeight = MediaQuery.sizeOf(modalContext).height;
         final bottomInset = MediaQuery.viewInsetsOf(modalContext).bottom;
 
+        Future<void> stopVoice(StateSetter setModalState) async {
+          if (!isListening) {
+            return;
+          }
+          await speech.stop();
+          if (!modalContext.mounted) {
+            return;
+          }
+          setModalState(() {
+            isListening = false;
+            voiceCaption = 'Dictado finalizado';
+          });
+        }
+
+        Future<void> startVoice(StateSetter setModalState) async {
+          final available = await speech.initialize(
+            onStatus: (status) {
+              if (!modalContext.mounted) return;
+              if (status == 'done' || status == 'notListening') {
+                setModalState(() {
+                  isListening = false;
+                  voiceCaption = 'Dictado finalizado';
+                });
+              }
+            },
+            onError: (error) {
+              if (!modalContext.mounted) return;
+              setModalState(() {
+                isListening = false;
+                voiceCaption =
+                    'No se pudo usar microfono. Puedes escribir manualmente.';
+              });
+            },
+          );
+
+          if (!available) {
+            if (!modalContext.mounted) return;
+            setModalState(() {
+              voiceCaption =
+                  'No hay reconocimiento de voz disponible en este dispositivo';
+            });
+            return;
+          }
+
+          voiceSeedText = textController.text.trim();
+          setModalState(() {
+            isListening = true;
+            voiceCaption = 'Escuchando... habla normal y toca de nuevo para parar';
+          });
+
+          await speech.listen(
+            partialResults: true,
+            onResult: (result) {
+              if (!modalContext.mounted) return;
+              final recognized = result.recognizedWords.trim();
+              if (recognized.isEmpty) {
+                return;
+              }
+
+              final merged = [
+                voiceSeedText,
+                recognized,
+              ].where((item) => item.isNotEmpty).join('\n');
+              textController.value = TextEditingValue(
+                text: merged,
+                selection: TextSelection.collapsed(offset: merged.length),
+              );
+            },
+          );
+        }
+
         return SafeArea(
           child: AnimatedPadding(
             duration: const Duration(milliseconds: 180),
@@ -599,105 +1129,176 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
               height: screenHeight * 0.9,
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                child: Form(
-                  key: formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: theme.textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Anote requerimiento extra del cliente, solicitudes, levantamiento y cualquier observación relevante del servicio.',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
-                          height: 1.3,
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: colorScheme.outlineVariant),
-                          color: colorScheme.surfaceContainerLow,
-                        ),
-                        child: const Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _InstructionBullet(
-                              text: 'Detalle qué se hizo en la visita técnica.',
-                            ),
-                            SizedBox(height: 6),
-                            _InstructionBullet(
-                              text:
-                                  'Anote requerimientos extra del cliente o solicitudes especiales.',
-                            ),
-                            SizedBox(height: 6),
-                            _InstructionBullet(
-                              text:
-                                  'Registre levantamiento, materiales faltantes o pendientes detectados.',
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      Expanded(
-                        child: TextFormField(
-                          initialValue: draftValue,
-                          minLines: null,
-                          maxLines: null,
-                          expands: true,
-                          autofocus: true,
-                          textAlignVertical: TextAlignVertical.top,
-                          decoration: InputDecoration(
-                            hintText: hintText,
-                            alignLabelWithHint: true,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                            filled: true,
-                            fillColor: colorScheme.surface,
-                          ),
-                          onChanged: (value) => draftValue = value,
-                          validator: (value) {
-                            if ((value ?? '').trim().isEmpty) {
-                              return 'Este campo es obligatorio';
-                            }
-                            return null;
-                          },
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      Row(
+                child: StatefulBuilder(
+                  builder: (statefulContext, setModalState) {
+                    return Form(
+                      key: formKey,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Expanded(
-                            child: OutlinedButton(
-                              onPressed: () => Navigator.pop(modalContext),
-                              child: const Text('Cancelar'),
+                          Text(
+                            title,
+                            style: theme.textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.w800,
                             ),
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: FilledButton(
-                              onPressed: () {
-                                if (!formKey.currentState!.validate()) {
-                                  return;
-                                }
-                                Navigator.pop(modalContext, draftValue.trim());
-                              },
-                              child: Text(confirmLabel),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Habla o escribe; al guardar, la IA organiza el reporte automaticamente.',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
                             ),
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: isAiProcessing
+                                      ? null
+                                      : () async {
+                                          if (isListening) {
+                                            await stopVoice(setModalState);
+                                          } else {
+                                            await startVoice(setModalState);
+                                          }
+                                        },
+                                  icon: Icon(
+                                    isListening
+                                        ? Icons.stop_circle_outlined
+                                        : Icons.mic_none_rounded,
+                                  ),
+                                  label: Text(
+                                    isListening ? 'Detener voz' : 'Grabar voz',
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: FilledButton.tonalIcon(
+                                  onPressed: isAiProcessing
+                                      ? null
+                                      : () async {
+                                          final currentValue =
+                                              textController.text.trim();
+                                          if (currentValue.isEmpty) {
+                                            return;
+                                          }
+                                          setModalState(() {
+                                            isAiProcessing = true;
+                                          });
+                                          final polished =
+                                              await _normalizeReportWithAi(
+                                                ref,
+                                                currentValue,
+                                              );
+                                          if (!modalContext.mounted) return;
+                                          textController.value =
+                                              TextEditingValue(
+                                                text: polished,
+                                                selection:
+                                                    TextSelection.collapsed(
+                                                      offset: polished.length,
+                                                    ),
+                                              );
+                                          setModalState(() {
+                                            isAiProcessing = false;
+                                          });
+                                        },
+                                  icon: isAiProcessing
+                                      ? const SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : const Icon(Icons.auto_awesome_rounded),
+                                  label: const Text('Ordenar IA'),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            voiceCaption,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Expanded(
+                            child: TextFormField(
+                              controller: textController,
+                              minLines: null,
+                              maxLines: null,
+                              expands: true,
+                              autofocus: true,
+                              textAlignVertical: TextAlignVertical.top,
+                              decoration: InputDecoration(
+                                hintText: hintText,
+                                alignLabelWithHint: true,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                filled: true,
+                                fillColor: colorScheme.surface,
+                              ),
+                              validator: (value) {
+                                if ((value ?? '').trim().isEmpty) {
+                                  return 'Este campo es obligatorio';
+                                }
+                                return null;
+                              },
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton(
+                                  onPressed: () async {
+                                    await stopVoice(setModalState);
+                                    if (!modalContext.mounted) return;
+                                    Navigator.pop(modalContext);
+                                  },
+                                  child: const Text('Cancelar'),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: FilledButton(
+                                  onPressed: isAiProcessing
+                                      ? null
+                                      : () async {
+                                          if (!formKey.currentState!
+                                              .validate()) {
+                                            return;
+                                          }
+                                          await stopVoice(setModalState);
+                                          setModalState(() {
+                                            isAiProcessing = true;
+                                          });
+                                          final polished =
+                                              await _normalizeReportWithAi(
+                                                ref,
+                                                textController.text,
+                                              );
+                                          if (!modalContext.mounted) return;
+                                          Navigator.pop(
+                                            modalContext,
+                                            polished.trim(),
+                                          );
+                                        },
+                                  child: Text(confirmLabel),
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
-                    ],
-                  ),
+                    );
+                  },
                 ),
               ),
             ),
@@ -706,7 +1307,74 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
       },
     );
 
+    textController.dispose();
+
     return result;
+  }
+
+  IconData _statusIcon(ServiceOrderStatus status) {
+    switch (status) {
+      case ServiceOrderStatus.pendiente:
+        return Icons.schedule_send_rounded;
+      case ServiceOrderStatus.enProceso:
+        return Icons.play_circle_outline_rounded;
+      case ServiceOrderStatus.enPausa:
+        return Icons.pause_circle_outline_rounded;
+      case ServiceOrderStatus.finalizado:
+        return Icons.task_alt_rounded;
+      case ServiceOrderStatus.pospuesta:
+        return Icons.event_busy_rounded;
+      case ServiceOrderStatus.cancelado:
+        return Icons.cancel_outlined;
+    }
+  }
+
+  _ActionTone _statusTone(ServiceOrderStatus status) {
+    switch (status) {
+      case ServiceOrderStatus.enProceso:
+      case ServiceOrderStatus.finalizado:
+        return _ActionTone.primary;
+      case ServiceOrderStatus.enPausa:
+      case ServiceOrderStatus.pospuesta:
+        return _ActionTone.secondary;
+      case ServiceOrderStatus.pendiente:
+      case ServiceOrderStatus.cancelado:
+        return _ActionTone.neutral;
+    }
+  }
+
+  String? _formatScheduledAt(DateTime? scheduledAt) {
+    if (scheduledAt == null) {
+      return null;
+    }
+    final local = scheduledAt.toLocal();
+    final hour = local.hour.toString().padLeft(2, '0');
+    final minute = local.minute.toString().padLeft(2, '0');
+    final day = local.day.toString().padLeft(2, '0');
+    final month = local.month.toString().padLeft(2, '0');
+    return '$day/$month/${local.year} · $hour:$minute';
+  }
+
+  String? _validateTechnicianCommitmentBeforeFinalize() {
+    final technicalEvidences = order.evidences
+        .where((item) => item.type.isTechnicalEvidence)
+        .toList(growable: false);
+    final imageCount = technicalEvidences.where((item) => item.type.isImage).length;
+    final videoCount = technicalEvidences.where((item) => item.type.isVideo).length;
+    final hasTextEvidence = technicalEvidences.any(
+      (item) => item.type.isText && item.content.trim().isNotEmpty,
+    );
+    final hasReportText = order.reports.any((item) => item.report.trim().isNotEmpty);
+
+    final textComplete = hasTextEvidence || hasReportText;
+    final imagesComplete = imageCount >= 3 && imageCount <= 5;
+    final videosComplete = videoCount >= 1 && videoCount <= 2;
+
+    if (textComplete && imagesComplete && videosComplete) {
+      return null;
+    }
+
+    return 'Para finalizar esta orden debes completar el compromiso: texto obligatorio, 3 a 5 imágenes y 1 a 2 videos.';
   }
 }
 
@@ -717,6 +1385,8 @@ class _ActionButton extends StatelessWidget {
     required this.isLoading,
     required this.onTap,
     this.tone = _ActionTone.neutral,
+    this.selected = false,
+    this.minHeight = 52,
   });
 
   final IconData icon;
@@ -724,6 +1394,8 @@ class _ActionButton extends StatelessWidget {
   final bool isLoading;
   final VoidCallback? onTap;
   final _ActionTone tone;
+  final bool selected;
+  final double minHeight;
 
   @override
   Widget build(BuildContext context) {
@@ -747,25 +1419,38 @@ class _ActionButton extends StatelessWidget {
         : isSecondary
         ? const Color(0xFF4B7E98).withValues(alpha: 0.08)
         : colorScheme.primary.withValues(alpha: 0.08);
+    final selectedColor = colorScheme.primary.withValues(alpha: 0.09);
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
         onTap: enabled && !isLoading ? onTap : null,
-        child: Ink(
-          decoration: BoxDecoration(
-            color: tileColor,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-          child: Row(
+        splashColor: leadingColor.withValues(alpha: 0.08),
+        highlightColor: leadingColor.withValues(alpha: 0.05),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: minHeight),
+          child: Ink(
+            decoration: BoxDecoration(
+              color: selected ? selectedColor : tileColor,
+              borderRadius: BorderRadius.circular(12),
+              border: selected
+                  ? Border.all(
+                      color: colorScheme.primary.withValues(alpha: 0.26),
+                    )
+                  : null,
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Container(
                 width: 2.5,
-                height: 26,
+                height: minHeight - 24,
                 decoration: BoxDecoration(
-                  color: isPrimary
+                  color: selected
+                      ? colorScheme.primary
+                      : isPrimary
                       ? const Color(0xFF155E82)
                       : isSecondary
                       ? const Color(0xFFB7D0DE)
@@ -802,6 +1487,7 @@ class _ActionButton extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodyMedium?.copyWith(
                     fontWeight: FontWeight.w800,
+                    fontSize: 15,
                     letterSpacing: -0.1,
                     color: enabled
                         ? colorScheme.onSurface
@@ -809,12 +1495,21 @@ class _ActionButton extends StatelessWidget {
                   ),
                 ),
               ),
-              Icon(
-                Icons.chevron_right_rounded,
-                size: 14,
-                color: leadingColor.withValues(alpha: enabled ? 0.72 : 0.4),
-              ),
+              selected
+                  ? Icon(
+                      Icons.check_circle_rounded,
+                      size: 18,
+                      color: colorScheme.primary,
+                    )
+                  : Icon(
+                      Icons.chevron_right_rounded,
+                      size: 16,
+                      color: leadingColor.withValues(
+                        alpha: enabled ? 0.72 : 0.4,
+                      ),
+                    ),
             ],
+            ),
           ),
         ),
       ),
@@ -822,39 +1517,25 @@ class _ActionButton extends StatelessWidget {
   }
 }
 
-class _InstructionBullet extends StatelessWidget {
-  const _InstructionBullet({required this.text});
+class _SectionTitle extends StatelessWidget {
+  const _SectionTitle({required this.icon, required this.title});
 
-  final String text;
+  final IconData icon;
+  final String title;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.only(top: 4),
-          child: Container(
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: colorScheme.primary,
-            ),
-          ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            text,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: colorScheme.onSurfaceVariant,
-              height: 1.25,
-              fontWeight: FontWeight.w600,
-            ),
+        Icon(icon, size: 16, color: colorScheme.primary),
+        const SizedBox(width: 7),
+        Text(
+          title,
+          style: theme.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.1,
           ),
         ),
       ],

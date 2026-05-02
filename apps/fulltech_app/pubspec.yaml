@@ -81,6 +81,7 @@ dependencies:
   media_kit_libs_windows_video: ^1.0.11
   media_kit_libs_android_video: ^1.3.8
   media_kit_libs_ios_video: ^1.1.4
+  speech_to_text: ^7.0.0
 
 dev_dependencies:
   flutter_test:

@@ -585,13 +585,28 @@ class PayrollServiceCommissionRequest {
 
 class PayrollHistoryItem {
   final String entryId;
+  final String paymentId;
   final String employeeName;
   final String periodId;
   final String periodTitle;
   final DateTime periodStart;
   final DateTime periodEnd;
   final String periodStatus;
+  final String paymentStatus;
+  final DateTime? paymentDate;
+  final String? paymentMethod;
+  final String? paymentReference;
+  final String? notes;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
   final double baseSalary;
+  final double commissions;
+  final double bonuses;
+  final double discounts;
+  final double overtime;
+  final double totalGross;
+  final double totalDiscounted;
+  final double totalNetPaid;
   final double commissionFromSales;
   final double overtimeAmount;
   final double bonusesAmount;
@@ -602,13 +617,28 @@ class PayrollHistoryItem {
 
   const PayrollHistoryItem({
     required this.entryId,
+    this.paymentId = '',
     this.employeeName = '',
     required this.periodId,
     required this.periodTitle,
     required this.periodStart,
     required this.periodEnd,
     required this.periodStatus,
+    this.paymentStatus = 'DRAFT',
+    this.paymentDate,
+    this.paymentMethod,
+    this.paymentReference,
+    this.notes,
+    this.createdAt,
+    this.updatedAt,
     required this.baseSalary,
+    this.commissions = 0,
+    this.bonuses = 0,
+    this.discounts = 0,
+    this.overtime = 0,
+    this.totalGross = 0,
+    this.totalDiscounted = 0,
+    this.totalNetPaid = 0,
     required this.commissionFromSales,
     required this.overtimeAmount,
     required this.bonusesAmount,
@@ -618,26 +648,79 @@ class PayrollHistoryItem {
     required this.netTotal,
   });
 
-  bool get isPaid => periodStatus.toUpperCase() == 'PAID';
+    bool get isPaid {
+    final status = paymentStatus.trim().toUpperCase();
+    if (status == 'PAID') return true;
+    return periodStatus.trim().toUpperCase() == 'PAID';
+    }
+
+    String get statusLabel {
+      final status = paymentStatus.trim().toUpperCase();
+      if (status == 'PAID') return 'Pagado';
+      if (status == 'DRAFT') return 'Pendiente';
+      return status.isEmpty ? 'Pendiente' : status;
+    }
 
   factory PayrollHistoryItem.fromMap(Map<String, dynamic> map) {
+    final baseSalary = (map['base_salary'] as num?)?.toDouble() ??
+      (map['salary_base'] as num?)?.toDouble() ??
+      0;
+    final gross = (map['gross_total'] as num?)?.toDouble() ??
+      (map['total_gross'] as num?)?.toDouble() ??
+      0;
+    final deducted = (map['deductions_amount'] as num?)?.toDouble() ??
+      (map['total_discounted'] as num?)?.toDouble() ??
+      (map['discounts'] as num?)?.toDouble() ??
+      0;
+    final net = (map['net_total'] as num?)?.toDouble() ??
+      (map['total_net_paid'] as num?)?.toDouble() ??
+      0;
+
     return PayrollHistoryItem(
       entryId: (map['entry_id'] ?? '').toString(),
+      paymentId: (map['payment_id'] ?? '').toString(),
       employeeName: (map['employee_name'] ?? '').toString(),
       periodId: (map['period_id'] ?? '').toString(),
       periodTitle: (map['period_title'] ?? '').toString(),
       periodStart: DateTime.parse((map['period_start']).toString()),
       periodEnd: DateTime.parse((map['period_end']).toString()),
       periodStatus: (map['period_status'] ?? 'DRAFT').toString(),
-      baseSalary: (map['base_salary'] as num?)?.toDouble() ?? 0,
+      paymentStatus: (map['payment_status'] ?? map['period_status'] ?? 'DRAFT')
+        .toString(),
+      paymentDate: map['payment_date'] != null
+        ? DateTime.tryParse(map['payment_date'].toString())
+        : null,
+      paymentMethod: map['payment_method']?.toString(),
+      paymentReference: map['reference']?.toString(),
+      notes: map['notes']?.toString(),
+      createdAt: map['created_at'] != null
+        ? DateTime.tryParse(map['created_at'].toString())
+        : null,
+      updatedAt: map['updated_at'] != null
+        ? DateTime.tryParse(map['updated_at'].toString())
+        : null,
+      baseSalary: baseSalary,
+      commissions: (map['commissions'] as num?)?.toDouble() ??
+        (map['commission_from_sales'] as num?)?.toDouble() ??
+        0,
+      bonuses: (map['bonuses'] as num?)?.toDouble() ??
+        (map['bonuses_amount'] as num?)?.toDouble() ??
+        0,
+      discounts: (map['discounts'] as num?)?.toDouble() ?? deducted,
+      overtime: (map['overtime'] as num?)?.toDouble() ??
+        (map['overtime_amount'] as num?)?.toDouble() ??
+        0,
+      totalGross: (map['total_gross'] as num?)?.toDouble() ?? gross,
+      totalDiscounted: (map['total_discounted'] as num?)?.toDouble() ?? deducted,
+      totalNetPaid: (map['total_net_paid'] as num?)?.toDouble() ?? net,
       commissionFromSales:
           (map['commission_from_sales'] as num?)?.toDouble() ?? 0,
       overtimeAmount: (map['overtime_amount'] as num?)?.toDouble() ?? 0,
       bonusesAmount: (map['bonuses_amount'] as num?)?.toDouble() ?? 0,
-      deductionsAmount: (map['deductions_amount'] as num?)?.toDouble() ?? 0,
+      deductionsAmount: deducted,
       benefitsAmount: (map['benefits_amount'] as num?)?.toDouble() ?? 0,
-      grossTotal: (map['gross_total'] as num?)?.toDouble() ?? 0,
-      netTotal: (map['net_total'] as num?)?.toDouble() ?? 0,
+      grossTotal: gross,
+      netTotal: net,
     );
   }
 

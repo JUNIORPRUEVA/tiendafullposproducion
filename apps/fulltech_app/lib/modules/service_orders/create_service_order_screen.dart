@@ -11,6 +11,7 @@ import '../../core/routing/app_navigator.dart';
 import '../../core/routing/routes.dart';
 import '../../core/utils/app_feedback.dart';
 import '../../core/utils/money_formatters.dart';
+import '../../core/utils/service_media_url.dart';
 import '../../core/utils/video_preview_controller.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/app_navigation.dart';
@@ -2067,7 +2068,7 @@ class MediaPreviewCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final source = reference.previewSource;
+    final source = _resolvedReferenceSource(reference);
 
     return Container(
       width: width,
@@ -2194,7 +2195,7 @@ class MediaPreviewCard extends StatelessWidget {
                                             fit: BoxFit.contain,
                                           )
                                         : Image.network(
-                                            reference.previewSource,
+                                            _resolvedReferenceSource(reference),
                                             fit: BoxFit.contain,
                                           ),
                                   )
@@ -2335,7 +2336,7 @@ class _ImageThumbnail extends StatelessWidget {
     }
 
     return Image.network(
-      reference.previewSource,
+      _resolvedReferenceSource(reference),
       fit: BoxFit.cover,
       width: double.infinity,
       height: double.infinity,
@@ -2396,6 +2397,12 @@ class _VideoThumbnail extends StatelessWidget {
       ),
     );
   }
+}
+
+String _resolvedReferenceSource(ServiceOrderDraftReference reference) {
+  final localPath = (reference.localPath ?? '').trim();
+  if (localPath.isNotEmpty) return localPath;
+  return resolveServiceMediaUrl(reference.previewSource);
 }
 
 class _VideoDurationBadge extends StatefulWidget {

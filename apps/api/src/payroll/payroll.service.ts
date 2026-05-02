@@ -11,6 +11,7 @@ import {
 import { EvolutionWhatsAppService } from '../notifications/evolution-whatsapp.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { MyPayrollHistoryQueryDto } from './dto/my-payroll-history-query.dto';
 import { AddPayrollEntryDto } from './dto/payroll-entry.dto';
 import { SchedulePayrollWhatsappDto, SendPayrollWhatsappDto } from './dto/send-payroll-whatsapp.dto';
 import { UpsertPayrollConfigDto } from './dto/upsert-payroll-config.dto';
@@ -985,16 +986,67 @@ export class PayrollService {
     return total;
   }
 
-  async listPayrollHistoryByEmployee(ownerId: string, employeeId: string) {
+  async listPayrollHistoryByEmployee(
+    ownerId: string,
+    employeeId: string,
+    query?: MyPayrollHistoryQueryDto,
+  ) {
     const periods = await this.listPeriods(ownerId);
     const employee = await this.getEmployeeById(ownerId, employeeId);
     const history: Array<Record<string, unknown>> = [];
+    const normalizedStatus = (query?.status ?? '').trim().toUpperCase();
+    const periodSearch = (query?.period ?? '').trim().toLowerCase();
+    const fromDate = query?.from ? new Date(query.from) : null;
+    const toDate = query?.to ? new Date(query.to) : null;
+
+    if (fromDate && Number.isNaN(fromDate.getTime())) {
+      throw new BadRequestException('El filtro "from" no es una fecha valida');
+    }
+    if (toDate && Number.isNaN(toDate.getTime())) {
+      throw new BadRequestException('El filtro "to" no es una fecha valida');
+    }
 
     for (const period of periods) {
+      if (query?.periodId && period.id !== query.periodId) {
+        continue;
+      }
+      if (periodSearch && !period.title.toLowerCase().includes(periodSearch)) {
+        continue;
+      }
+
       const [entries, config] = await Promise.all([
         this.listEntries(ownerId, period.id, employeeId),
         this.getEmployeeConfig(ownerId, period.id, employeeId),
       ]);
+
+      const paymentStatus = await this.prisma.payrollEmployeePeriodStatus.findUnique({
+        where: {
+          ownerId_periodId_employeeId: {
+            ownerId,
+            periodId: period.id,
+            employeeId,
+          },
+        },
+      });
+
+      const paymentStatusValue = paymentStatus?.status ?? PayrollPaymentStatus.DRAFT;
+      const paymentDate = paymentStatus?.paidAt ?? null;
+
+      if (normalizedStatus && paymentStatusValue !== normalizedStatus) {
+        continue;
+      }
+
+      const compareDate = paymentDate ?? period.endDate;
+      if (fromDate && compareDate < fromDate) {
+        continue;
+      }
+      if (toDate) {
+        const toEnd = new Date(toDate);
+        toEnd.setHours(23, 59, 59, 999);
+        if (compareDate > toEnd) {
+          continue;
+        }
+      }
 
       const automaticSales = await this.computeAutomaticSalesCommissionForEmployee({
         ownerId,
@@ -1008,10 +1060,17 @@ export class PayrollService {
         Boolean(config) ||
         entries.length > 0 ||
         automaticSales.salesAmount > 0 ||
-        automaticSales.commissionAmount > 0;
+        automaticSales.commissionAmount > 0 ||
+        paymentStatus != null;
       if (!hasData) continue;
 
-      const baseSalary = this.toNumber(config?.baseSalary);
+      const baseSalary = this.toNumber(
+        config?.baseSalary ??
+            (employee as
+                    | { salarioBaseQuincenal?: Prisma.Decimal | number | string | null }
+                    | null)
+                ?.salarioBaseQuincenal,
+      );
       const seguroLey = Math.max(
         0,
         this.toNumber(
@@ -1068,15 +1127,36 @@ export class PayrollService {
       const grossTotal = baseSalary + additions;
       const totalDeductions = deductionsAmount + seguroLey;
       const netTotal = grossTotal - totalDeductions;
+      const totalCommissions = commissionFromSales + manualServiceCommissions;
+      const createdAt = paymentStatus?.createdAt ?? period.createdAt;
+      const updatedAt = paymentStatus?.updatedAt ?? period.updatedAt;
+      const paymentId = paymentStatus?.id ?? `draft_${period.id}_${employeeId}`;
 
       history.push({
         entry_id: entries.length > 0 ? entries[0].id : `period_${period.id}`,
+        source_employee_id: employeeId,
+        payment_id: paymentId,
         employee_name: employee?.nombre ?? '',
         period_id: period.id,
         period_title: period.title,
         period_start: period.startDate.toISOString(),
         period_end: period.endDate.toISOString(),
         period_status: period.status,
+        payment_status: paymentStatusValue,
+        payment_date: paymentDate?.toISOString() ?? null,
+        salary_base: baseSalary,
+        commissions: totalCommissions,
+        bonuses: bonusesAmount,
+        discounts: totalDeductions,
+        overtime: overtimeAmount,
+        total_gross: grossTotal,
+        total_discounted: totalDeductions,
+        total_net_paid: netTotal,
+        payment_method: null,
+        reference: null,
+        notes: null,
+        created_at: createdAt.toISOString(),
+        updated_at: updatedAt.toISOString(),
         base_salary: baseSalary,
         commission_from_sales: commissionFromSales,
         overtime_amount: overtimeAmount,
@@ -1103,7 +1183,11 @@ export class PayrollService {
     return history;
   }
 
-  async listMyPayrollHistory(ownerId: string, userId: string) {
+  async listMyPayrollHistory(
+    ownerId: string,
+    userId: string,
+    query?: MyPayrollHistoryQueryDto,
+  ) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, nombreCompleto: true, telefono: true },
@@ -1136,13 +1220,17 @@ export class PayrollService {
 
     const allHistory: Array<Record<string, unknown>> = [];
     for (const employeeId of employeeIds) {
-      const rows = await this.listPayrollHistoryByEmployee(ownerId, employeeId);
+      const rows = await this.listPayrollHistoryByEmployee(ownerId, employeeId, query);
       allHistory.push(...rows);
     }
 
     const unique = new Map<string, Record<string, unknown>>();
     for (const row of allHistory) {
-      const key = (row['entry_id'] ?? '').toString();
+      const key = [
+        (row['source_employee_id'] ?? '').toString(),
+        (row['period_id'] ?? '').toString(),
+        (row['payment_id'] ?? '').toString(),
+      ].join(':');
       if (!key) continue;
       if (!unique.has(key)) unique.set(key, row);
     }

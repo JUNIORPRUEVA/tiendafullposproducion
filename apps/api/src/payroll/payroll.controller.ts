@@ -6,6 +6,7 @@ import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import { CreatePayrollPeriodDto } from './dto/create-payroll-period.dto';
 import { AddPayrollEntryDto, PayrollEntriesQueryDto } from './dto/payroll-entry.dto';
+import { MyPayrollHistoryQueryDto } from './dto/my-payroll-history-query.dto';
 import { MarkPayrollPaidDto, PayrollPaymentStatusQueryDto } from './dto/payroll-payment-status.dto';
 import { PayrollTotalsQueryDto } from './dto/payroll-query.dto';
 import { OverlapPeriodQueryDto } from './dto/overlap-period-query.dto';
@@ -232,10 +233,10 @@ export class PayrollController {
   }
 
   @Get('my-history')
-  async listMyPayrollHistory(@Req() req: Request) {
+  async listMyPayrollHistory(@Req() req: Request, @Query() query: MyPayrollHistoryQueryDto) {
     const ownerId = await this.ownerIdFrom(req);
     const user = req.user as JwtUser;
-    return this.payroll.listMyPayrollHistory(ownerId, user.id);
+    return this.payroll.listMyPayrollHistory(ownerId, user.id, query);
   }
 
   @Get('my-goal')

@@ -4471,7 +4471,7 @@ String? _extractServiceCity({String? address, String? locationUrl}) {
   return null;
 }
 
-class _MobileOrderActionsButton extends ConsumerWidget {
+class _MobileOrderActionsButton extends ConsumerStatefulWidget {
   const _MobileOrderActionsButton({
     required this.order,
     required this.statusBusy,
@@ -4503,42 +4503,78 @@ class _MobileOrderActionsButton extends ConsumerWidget {
   final VoidCallback? onDelete;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_MobileOrderActionsButton> createState() =>
+      _MobileOrderActionsButtonState();
+}
+
+class _MobileOrderActionsButtonState
+    extends ConsumerState<_MobileOrderActionsButton> {
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final buttonBg = scheme.primary;
+    final buttonFg = scheme.onPrimary;
+    final buttonBorder = Color.alphaBlend(
+      scheme.onPrimary.withValues(alpha: 0.16),
+      buttonBg,
+    );
     final buttonKey = GlobalKey();
-    return OutlinedButton(
-      key: buttonKey,
-      onPressed: () {
-        if (isTechnician) {
-          showServiceOrderQuickActionsModal(
-            context: context,
-            ref: ref,
-            orderId: order.id,
-            order: order,
-            actionConfig: technicianActionConfig,
-            onOrderUpdated: () {
-              ref.read(serviceOrdersListControllerProvider.notifier).refresh();
-            },
-          );
-          return;
-        }
-        _showActionsMenu(context, ref, buttonKey);
-      },
-      style: OutlinedButton.styleFrom(
-        minimumSize: const Size(92, 32),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        side: BorderSide(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.8),
-        ),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
-      ),
-      child: Text(
-        isTechnician ? 'Gestionar' : 'Acciones',
-        style: theme.textTheme.labelMedium?.copyWith(
-          fontSize: 11.6,
-          fontWeight: FontWeight.w800,
-          letterSpacing: 0.1,
+    return GestureDetector(
+      onTapDown: (_) => setState(() => _pressed = true),
+      onTapCancel: () => setState(() => _pressed = false),
+      onTapUp: (_) => setState(() => _pressed = false),
+      child: AnimatedScale(
+        duration: const Duration(milliseconds: 110),
+        curve: Curves.easeOutCubic,
+        scale: _pressed ? 0.97 : 1,
+        child: FilledButton.tonal(
+          key: buttonKey,
+          onPressed: () {
+            if (widget.isTechnician) {
+              showServiceOrderQuickActionsModal(
+                context: context,
+                ref: ref,
+                orderId: widget.order.id,
+                order: widget.order,
+                presentation:
+                    ServiceOrderQuickActionsPresentation.mobileRightPanel,
+                actionConfig: widget.technicianActionConfig,
+                onOrderUpdated: () {
+                  ref.read(serviceOrdersListControllerProvider.notifier).refresh();
+                },
+              );
+              return;
+            }
+            _showActionsMenu(context, ref, buttonKey);
+          },
+          style: FilledButton.styleFrom(
+            minimumSize: const Size(108, 40),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            elevation: 1.2,
+            shadowColor: scheme.shadow.withValues(alpha: 0.22),
+            backgroundColor: buttonBg,
+            foregroundColor: buttonFg,
+            overlayColor: buttonFg.withValues(alpha: 0.12),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(13),
+              side: BorderSide(
+                color: buttonBorder,
+                width: 1,
+              ),
+            ),
+          ),
+          child: Text(
+            widget.isTechnician ? 'Gestionar' : 'Acciones',
+            style: theme.textTheme.labelLarge?.copyWith(
+              fontSize: 12.6,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.08,
+            ),
+          ),
         ),
       ),
     );
@@ -4553,7 +4589,7 @@ class _MobileOrderActionsButton extends ConsumerWidget {
       context: context,
       position: _menuPositionFromButton(context, buttonKey),
       items: [
-        if (onChangeStatus != null)
+        if (widget.onChangeStatus != null)
           const PopupMenuItem<_OrderMenuAction>(
             value: _OrderMenuAction.changeStatus,
             child: _OrderMenuRow(
@@ -4562,21 +4598,21 @@ class _MobileOrderActionsButton extends ConsumerWidget {
               trailing: Icons.chevron_right_rounded,
             ),
           ),
-        if (onCreateNewOrder != null)
+        if (widget.onCreateNewOrder != null)
           PopupMenuItem<_OrderMenuAction>(
             value: _OrderMenuAction.newOrder,
-            enabled: !creatingNewOrder,
+            enabled: !widget.creatingNewOrder,
             child: _OrderMenuRow(
               icon: Icons.add_circle_outline_rounded,
-              label: creatingNewOrder ? 'Creando...' : 'Nueva orden',
+              label: widget.creatingNewOrder ? 'Creando...' : 'Nueva orden',
             ),
           ),
-        if (callUri != null)
+        if (widget.callUri != null)
           const PopupMenuItem<_OrderMenuAction>(
             value: _OrderMenuAction.call,
             child: _OrderMenuRow(icon: Icons.call_outlined, label: 'Llamar'),
           ),
-        if (whatsappUri != null)
+        if (widget.whatsappUri != null)
           const PopupMenuItem<_OrderMenuAction>(
             value: _OrderMenuAction.whatsapp,
             child: _OrderMenuRow(
@@ -4584,26 +4620,28 @@ class _MobileOrderActionsButton extends ConsumerWidget {
               label: 'WhatsApp cliente',
             ),
           ),
-        if (locationUri != null)
+        if (widget.locationUri != null)
           const PopupMenuItem<_OrderMenuAction>(
             value: _OrderMenuAction.location,
             child: _OrderMenuRow(
-              icon: Icons.location_on_outlined,
-              label: 'Ubicación',
+              icon: Icons.location_searching_rounded,
+              label: 'Abrir GPS',
             ),
           ),
-        if (onEdit != null)
+        if (widget.onEdit != null)
           const PopupMenuItem<_OrderMenuAction>(
             value: _OrderMenuAction.edit,
-            child: _OrderMenuRow(icon: Icons.edit_outlined, label: 'Editar'),
+            child: _OrderMenuRow(
+              icon: Icons.edit_outlined,
+              label: 'Editar orden',
+            ),
           ),
-        if (onDelete != null)
+        if (widget.onDelete != null)
           const PopupMenuItem<_OrderMenuAction>(
             value: _OrderMenuAction.delete,
             child: _OrderMenuRow(
               icon: Icons.delete_outline_rounded,
-              label: 'Eliminar',
-              destructive: true,
+              label: 'Eliminar orden',
             ),
           ),
       ],
@@ -4615,47 +4653,42 @@ class _MobileOrderActionsButton extends ConsumerWidget {
 
     switch (selected) {
       case _OrderMenuAction.changeStatus:
-        await _showStatusSubmenu(context, buttonKey);
+        if (widget.onChangeStatus == null) return;
+        final status = await _showStatusSubmenu(context, buttonKey);
+        if (status == null || !context.mounted) return;
+        widget.onChangeStatus!.call(status);
       case _OrderMenuAction.newOrder:
-        if (!creatingNewOrder) {
-          onCreateNewOrder?.call();
-        }
+        widget.onCreateNewOrder?.call();
       case _OrderMenuAction.call:
-        if (callUri != null) {
-          safeOpenUrl(context, callUri!);
-        }
+        if (widget.callUri == null) return;
+        await safeOpenUrl(context, widget.callUri!);
       case _OrderMenuAction.whatsapp:
-        if (whatsappUri != null) {
-          safeOpenWhatsApp(context, whatsappUri!);
-        }
+        if (widget.whatsappUri == null) return;
+        await safeOpenWhatsApp(context, widget.whatsappUri!);
       case _OrderMenuAction.location:
-        if (locationUri != null) {
-          safeOpenUrl(context, locationUri!);
-        }
+        if (widget.locationUri == null) return;
+        await safeOpenUrl(context, widget.locationUri!);
       case _OrderMenuAction.edit:
-        onEdit?.call();
+        widget.onEdit?.call();
       case _OrderMenuAction.delete:
-        onDelete?.call();
+        widget.onDelete?.call();
     }
   }
 
-  Future<void> _showStatusSubmenu(
+  Future<ServiceOrderStatus?> _showStatusSubmenu(
     BuildContext context,
     GlobalKey buttonKey,
-  ) async {
-    if (onChangeStatus == null) {
-      return;
-    }
-    final selected = await showMenu<ServiceOrderStatus>(
+  ) {
+    return showMenu<ServiceOrderStatus>(
       context: context,
       position: _menuPositionFromButton(context, buttonKey, dx: 128),
       items: ServiceOrderStatus.values
           .map(
             (status) => PopupMenuItem<ServiceOrderStatus>(
               value: status,
-              enabled: !statusBusy && status != order.status,
+              enabled: !widget.statusBusy && status != widget.order.status,
               child: _OrderMenuRow(
-                icon: status == order.status
+                icon: status == widget.order.status
                     ? Icons.radio_button_checked_rounded
                     : Icons.radio_button_unchecked_rounded,
                 label: status.label,
@@ -4664,10 +4697,6 @@ class _MobileOrderActionsButton extends ConsumerWidget {
           )
           .toList(growable: false),
     );
-
-    if (selected != null && selected != order.status && !statusBusy) {
-      onChangeStatus?.call(selected);
-    }
   }
 
   RelativeRect _menuPositionFromButton(
@@ -4705,19 +4734,17 @@ class _OrderMenuRow extends StatelessWidget {
   const _OrderMenuRow({
     required this.icon,
     required this.label,
-    this.destructive = false,
     this.trailing,
   });
 
   final IconData icon;
   final String label;
-  final bool destructive;
   final IconData? trailing;
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final foreground = destructive ? colorScheme.error : colorScheme.onSurface;
+    final foreground = colorScheme.onSurface;
     return Row(
       children: [
         Icon(icon, color: foreground, size: 18),

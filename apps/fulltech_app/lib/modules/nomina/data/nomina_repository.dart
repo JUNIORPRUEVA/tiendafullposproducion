@@ -362,10 +362,26 @@ class NominaRepository {
     return _num(map['total']);
   }
 
-  Future<List<PayrollHistoryItem>> listMyPayrollHistory() async {
+  Future<List<PayrollHistoryItem>> listMyPayrollHistory({
+    DateTime? from,
+    DateTime? to,
+    String? status,
+    String? periodId,
+    String? period,
+  }) async {
     if (_currentUserId.isEmpty) return const [];
     try {
-      final rows = await _getList(ApiRoutes.payrollMyHistory);
+      final normalizedStatus = (status ?? '').trim().toUpperCase();
+      final rows = await _getList(
+        ApiRoutes.payrollMyHistory,
+        query: {
+          if (from != null) 'from': from.toIso8601String(),
+          if (to != null) 'to': to.toIso8601String(),
+          if (normalizedStatus.isNotEmpty) 'status': normalizedStatus,
+          if ((periodId ?? '').trim().isNotEmpty) 'periodId': periodId!.trim(),
+          if ((period ?? '').trim().isNotEmpty) 'period': period!.trim(),
+        },
+      );
       return rows.map(PayrollHistoryItem.fromMap).toList();
     } on FormatException {
       throw ApiException(_invalidResponseMessage('consultar Mis Pagos'));

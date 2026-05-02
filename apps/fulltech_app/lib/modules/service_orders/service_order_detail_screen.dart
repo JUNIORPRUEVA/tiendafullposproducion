@@ -206,11 +206,16 @@ class _ServiceOrderDetailScreenState
         onRefresh: controller.refresh,
         onOpenTechnicianActions: role.isTechnician && order != null
             ? () {
+                final useMobilePanel =
+                    MediaQuery.sizeOf(context).width < 720;
                 showServiceOrderQuickActionsModal(
                   context: context,
                   ref: ref,
                   orderId: order.id,
                   order: order,
+                  presentation: useMobilePanel
+                      ? ServiceOrderQuickActionsPresentation.mobileRightPanel
+                      : ServiceOrderQuickActionsPresentation.bottomSheet,
                   actionConfig: technicianActionConfig,
                   onOrderUpdated: () {
                     controller.refresh();
@@ -741,6 +746,12 @@ class _DetailFloatingActionsButtonState
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final buttonBg = colorScheme.primary;
+    final buttonFg = colorScheme.onPrimary;
+    final buttonBorder = Color.alphaBlend(
+      colorScheme.onPrimary.withValues(alpha: 0.16),
+      buttonBg,
+    );
     if (widget.isTechnician) {
       return AnimatedBuilder(
         animation: _shakeRotation,
@@ -751,8 +762,33 @@ class _DetailFloatingActionsButtonState
           heroTag: 'detail-technician-actions-fab',
           onPressed: widget.onOpenTechnicianActions,
           tooltip: 'Gestionar',
-          icon: const Icon(Icons.tune_rounded),
-          label: const Text('Gestionar'),
+          backgroundColor: buttonBg,
+          foregroundColor: buttonFg,
+          elevation: 1.2,
+          hoverElevation: 1.6,
+          focusElevation: 1.6,
+          highlightElevation: 1.6,
+          splashColor: buttonFg.withValues(alpha: 0.12),
+          extendedPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 0,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(13),
+            side: BorderSide(
+              color: buttonBorder,
+              width: 1,
+            ),
+          ),
+          icon: const Icon(Icons.tune_rounded, size: 18),
+          label: const Text(
+            'Gestionar',
+            style: TextStyle(
+              fontSize: 12.6,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.08,
+            ),
+          ),
         ),
       );
     }
