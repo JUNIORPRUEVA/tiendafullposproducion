@@ -37,6 +37,11 @@ workflows:
     environment:
       flutter: stable
       xcode: latest
+      ios_signing:
+        provisioning_profiles:
+          - ios_distribution
+        certificates:
+          - ios_distribution
       vars:
         APP_DIR: apps/fulltech_app
         BUNDLE_ID: com.fulltech.app
@@ -50,12 +55,6 @@ workflows:
         script: |
           cd "$APP_DIR"
           flutter analyze || true
-      - name: Fetch iOS signing files
-        script: |
-          if [ -z "$APPLE_TEAM_ID" ]; then
-            echo "APPLE_TEAM_ID must be configured in Codemagic variables for automatic iOS signing."
-          fi
-          app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --create
       - name: Configure keychain
         script: |
           keychain initialize
