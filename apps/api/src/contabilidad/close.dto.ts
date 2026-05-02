@@ -19,6 +19,12 @@ export class CloseExpenseDetailDto {
   @IsNumber()
   @Min(0)
   amount!: number;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CloseTransferVoucherDto)
+  @IsOptional()
+  vouchers?: CloseTransferVoucherDto[];
 }
 
 export enum CloseType {

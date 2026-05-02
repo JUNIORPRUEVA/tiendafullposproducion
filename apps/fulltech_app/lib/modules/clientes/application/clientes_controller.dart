@@ -19,6 +19,7 @@ class ClientesState {
   final ClientesOrder order;
   final CorreoFilter correoFilter;
   final EstadoFilter estadoFilter;
+  final OwnerFilter ownerFilter;
 
   const ClientesState({
     this.items = const [],
@@ -31,6 +32,7 @@ class ClientesState {
     this.order = ClientesOrder.az,
     this.correoFilter = CorreoFilter.todos,
     this.estadoFilter = EstadoFilter.activos,
+    this.ownerFilter = OwnerFilter.todos,
   });
 
   ClientesState copyWith({
@@ -44,6 +46,7 @@ class ClientesState {
     ClientesOrder? order,
     CorreoFilter? correoFilter,
     EstadoFilter? estadoFilter,
+    OwnerFilter? ownerFilter,
     bool clearError = false,
     bool clearActionError = false,
   }) {
@@ -58,6 +61,7 @@ class ClientesState {
       order: order ?? this.order,
       correoFilter: correoFilter ?? this.correoFilter,
       estadoFilter: estadoFilter ?? this.estadoFilter,
+      ownerFilter: ownerFilter ?? this.ownerFilter,
     );
   }
 }
@@ -114,6 +118,7 @@ class ClientesController extends StateNotifier<ClientesState> {
       order: state.order,
       correoFilter: state.correoFilter,
       estadoFilter: state.estadoFilter,
+      ownerFilter: state.ownerFilter,
     );
 
     final hasCached = cached.isNotEmpty;
@@ -133,6 +138,7 @@ class ClientesController extends StateNotifier<ClientesState> {
         order: state.order,
         correoFilter: state.correoFilter,
         estadoFilter: state.estadoFilter,
+        ownerFilter: state.ownerFilter,
       );
       if (seq != _loadSeq) return;
       state = state.copyWith(items: items, loading: false, refreshing: false);
@@ -151,11 +157,13 @@ class ClientesController extends StateNotifier<ClientesState> {
     ClientesOrder? order,
     CorreoFilter? correoFilter,
     EstadoFilter? estadoFilter,
+    OwnerFilter? ownerFilter,
   }) async {
     state = state.copyWith(
       order: order ?? state.order,
       correoFilter: correoFilter ?? state.correoFilter,
       estadoFilter: estadoFilter ?? state.estadoFilter,
+      ownerFilter: ownerFilter ?? state.ownerFilter,
     );
     await load();
   }
@@ -181,6 +189,7 @@ class ClientesController extends StateNotifier<ClientesState> {
           order: state.order,
           correoFilter: state.correoFilter,
           estadoFilter: state.estadoFilter,
+          ownerFilter: state.ownerFilter,
           items: items,
         );
   }

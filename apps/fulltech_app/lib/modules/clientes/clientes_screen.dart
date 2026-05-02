@@ -64,6 +64,7 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
             order: state.order,
             correoFilter: state.correoFilter,
             estadoFilter: state.estadoFilter,
+            ownerFilter: state.ownerFilter,
           ),
         );
       },
@@ -77,6 +78,7 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
           order: next.order,
           correoFilter: next.correoFilter,
           estadoFilter: next.estadoFilter,
+          ownerFilter: next.ownerFilter,
         );
   }
 
@@ -156,6 +158,7 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
       state.order != ClientesOrder.az,
       state.correoFilter != CorreoFilter.todos,
       state.estadoFilter != EstadoFilter.activos,
+      state.ownerFilter != OwnerFilter.todos,
     ].where((active) => active).length;
 
     return Scaffold(
@@ -258,6 +261,7 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
                     order: ClientesOrder.az,
                     correoFilter: CorreoFilter.todos,
                     estadoFilter: EstadoFilter.activos,
+                    ownerFilter: OwnerFilter.todos,
                   );
                   break;
                 case _ClientesTopAction.purgeDebug:
@@ -1257,21 +1261,25 @@ class _ClientesFilterState {
     required this.order,
     required this.correoFilter,
     required this.estadoFilter,
+    required this.ownerFilter,
   });
 
   final ClientesOrder order;
   final CorreoFilter correoFilter;
   final EstadoFilter estadoFilter;
+  final OwnerFilter ownerFilter;
 
   _ClientesFilterState copyWith({
     ClientesOrder? order,
     CorreoFilter? correoFilter,
     EstadoFilter? estadoFilter,
+    OwnerFilter? ownerFilter,
   }) {
     return _ClientesFilterState(
       order: order ?? this.order,
       correoFilter: correoFilter ?? this.correoFilter,
       estadoFilter: estadoFilter ?? this.estadoFilter,
+      ownerFilter: ownerFilter ?? this.ownerFilter,
     );
   }
 }
@@ -1355,6 +1363,16 @@ class _ClientesFiltersSheetState extends State<_ClientesFiltersSheet> {
                 setState(() => _draft = _draft.copyWith(estadoFilter: value));
               },
             ),
+            const SizedBox(height: 16),
+            _FilterSection<OwnerFilter>(
+              title: 'Clientes',
+              value: _draft.ownerFilter,
+              options: const [OwnerFilter.todos, OwnerFilter.mine],
+              labelBuilder: _ownerFilterLabel,
+              onSelected: (value) {
+                setState(() => _draft = _draft.copyWith(ownerFilter: value));
+              },
+            ),
             const SizedBox(height: 24),
             Row(
               children: [
@@ -1365,6 +1383,7 @@ class _ClientesFiltersSheetState extends State<_ClientesFiltersSheet> {
                         order: ClientesOrder.az,
                         correoFilter: CorreoFilter.todos,
                         estadoFilter: EstadoFilter.activos,
+                        ownerFilter: OwnerFilter.todos,
                       ),
                     );
                   },
@@ -1502,5 +1521,14 @@ String _estadoFilterLabel(EstadoFilter filter) {
       return 'Eliminados';
     case EstadoFilter.todos:
       return 'Todos';
+  }
+}
+
+String _ownerFilterLabel(OwnerFilter filter) {
+  switch (filter) {
+    case OwnerFilter.todos:
+      return 'Todos los clientes';
+    case OwnerFilter.mine:
+      return 'Mis clientes';
   }
 }

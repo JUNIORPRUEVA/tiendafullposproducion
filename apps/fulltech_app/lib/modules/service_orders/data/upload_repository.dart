@@ -1,9 +1,13 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http_parser/http_parser.dart';
 
 import '../../../core/api/api_routes.dart';
 import '../../../core/auth/auth_repository.dart';
+import '../../../core/debug/trace_log.dart';
 import '../../../core/errors/api_exception.dart';
 
 typedef UploadProgressCallback = void Function(double progress);
@@ -92,44 +96,72 @@ class UploadRepository {
   }) async {
     final normalizedPath = (path ?? '').trim();
     final hasBytes = bytes != null && bytes.isNotEmpty;
-    if (normalizedPath.isEmpty && !hasBytes) {
-      throw ApiException('No se encontró el archivo para subir');
+    final shouldUseBytes = kIsWeb || normalizedPath.isEmpty;
+
+    if (shouldUseBytes && !hasBytes) {
+      throw ApiException('No se pudo leer el archivo seleccionado');
+    }
+    if (!shouldUseBytes && normalizedPath.isEmpty) {
+      throw ApiException('No se encontro el archivo para subir');
     }
 
     try {
-      final multipartFile = normalizedPath.isNotEmpty
-          ? await MultipartFile.fromFile(
-              normalizedPath,
+      final multipartFile = shouldUseBytes
+          ? MultipartFile.fromBytes(
+              bytes!,
               filename: fileName,
               contentType: defaultContentType,
             )
-          : MultipartFile.fromBytes(
-              bytes!,
+          : await MultipartFile.fromFile(
+              normalizedPath,
               filename: fileName,
               contentType: defaultContentType,
             );
 
+      TraceLog.log(
+        'UploadRepository',
+        'Uploading "$fileName" kind=$kind via ${shouldUseBytes ? 'bytes' : 'path'} contentType=${defaultContentType.mimeType}',
+      );
+
       final response = await _dio.post(
         ApiRoutes.upload,
         data: FormData.fromMap({'file': multipartFile, 'kind': kind}),
-        options: _backgroundOptions,
+        options: _backgroundOptions.copyWith(
+          contentType: Headers.multipartFormDataContentType,
+        ),
         onSendProgress: (sent, total) {
           if (total <= 0) return;
           onProgress?.call(sent / total);
         },
       );
+
       return UploadedMedia.fromJson(
         (response.data as Map).cast<String, dynamic>(),
       );
     } on DioException catch (error) {
+      TraceLog.log(
+        'UploadRepository',
+        'Upload failed for "$fileName" status=${error.response?.statusCode} response=${_compact(error.response?.data)}',
+        error: error,
+        stackTrace: error.stackTrace,
+      );
+
       final data = error.response?.data;
       String message = fallbackMessage;
       if (data is Map) {
         final value = data['message'];
         if (value is String && value.trim().isNotEmpty) {
-          message = value;
+          message = value.trim();
         } else if (value is List && value.isNotEmpty && value.first is String) {
           message = (value.first as String).trim();
+        }
+      } else if (data is String && data.trim().isNotEmpty) {
+        final parsed = _tryParseJsonMap(data);
+        final value = parsed?['message'];
+        if (value is String && value.trim().isNotEmpty) {
+          message = value.trim();
+        } else {
+          message = data.trim();
         }
       }
       throw ApiException(message, error.response?.statusCode);
@@ -149,5 +181,29 @@ class UploadRepository {
     if (lower.endsWith('.webm')) return MediaType('video', 'webm');
     if (lower.endsWith('.mkv')) return MediaType('video', 'x-matroska');
     return MediaType('video', 'mp4');
+  }
+
+  Map<String, dynamic>? _tryParseJsonMap(String raw) {
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic>) return decoded;
+      if (decoded is Map) return decoded.cast<String, dynamic>();
+    } catch (_) {
+      return null;
+    }
+    return null;
+  }
+
+  String _compact(dynamic value) {
+    if (value == null) return 'null';
+    if (value is String) {
+      return value.length <= 300 ? value : '${value.substring(0, 300)}...';
+    }
+    try {
+      final text = jsonEncode(value);
+      return text.length <= 300 ? text : '${text.substring(0, 300)}...';
+    } catch (_) {
+      return value.toString();
+    }
   }
 }

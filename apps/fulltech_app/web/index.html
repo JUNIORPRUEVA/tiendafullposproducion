@@ -433,6 +433,21 @@
         banner.classList.remove('is-visible');
       }
 
+      function clearRuntimeCaches() {
+        if (!('caches' in window)) {
+          return Promise.resolve();
+        }
+        return window.caches.keys()
+          .then(function (keys) {
+            return Promise.all(
+              keys.map(function (key) {
+                return window.caches.delete(key);
+              })
+            );
+          })
+          .catch(function () {});
+      }
+
       function applyUpdateNow(registration) {
         if (autoReloadingForUpdate) return;
         autoReloadingForUpdate = true;
@@ -448,11 +463,13 @@
 
         if (registration && registration.waiting) {
           registration.waiting.postMessage('skipWaiting');
-          window.setTimeout(reloadPage, 1500);
+          clearRuntimeCaches().finally(function () {
+            window.setTimeout(reloadPage, 1500);
+          });
           return;
         }
 
-        reloadPage();
+        clearRuntimeCaches().finally(reloadPage);
       }
 
       function showVariant(variant) {
@@ -505,8 +522,12 @@
 
       primaryButton.addEventListener('click', function () {
         if (activeVariant === 'update') {
-          hideBanner();
-          window.location.reload();
+          window.navigator.serviceWorker.getRegistration().then(function (registration) {
+            applyUpdateNow(registration);
+          }).catch(function () {
+            hideBanner();
+            window.location.reload();
+          });
           return;
         }
 

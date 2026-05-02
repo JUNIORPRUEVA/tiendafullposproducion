@@ -82,6 +82,25 @@ class ContabilidadRepository {
         return transfer;
       }).toList();
     }
+
+    final expenseDetailsRaw = json['expenseDetails'];
+    if (expenseDetailsRaw is List) {
+      normalized['expenseDetails'] = expenseDetailsRaw.map((row) {
+        if (row is! Map) return row;
+        final detail = Map<String, dynamic>.from(row.cast<String, dynamic>());
+        final vouchersRaw = detail['vouchers'];
+        if (vouchersRaw is List) {
+          detail['vouchers'] = vouchersRaw.map((v) {
+            if (v is! Map) return v;
+            final voucher = Map<String, dynamic>.from(v.cast<String, dynamic>());
+            voucher['fileUrl'] = _normalizeObjectUrl(voucher['fileUrl'] as String?);
+            return voucher;
+          }).toList();
+        }
+        return detail;
+      }).toList();
+    }
+
     return normalized;
   }
 

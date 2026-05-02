@@ -88,10 +88,10 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
             .nextStatusesForRole(canFinalizeDirectly: true)
             .contains(ServiceOrderStatus.enProceso);
     final canMarkPaused =
-      order.status != ServiceOrderStatus.enPausa &&
-      order.status
-        .nextStatusesForRole(canFinalizeDirectly: true)
-        .contains(ServiceOrderStatus.enPausa);
+        order.status != ServiceOrderStatus.enPausa &&
+        order.status
+            .nextStatusesForRole(canFinalizeDirectly: true)
+            .contains(ServiceOrderStatus.enPausa);
     final canMarkFinalized =
         order.status != ServiceOrderStatus.finalizado &&
         order.status
@@ -404,11 +404,8 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
     final isVideo = selectedType == _EvidencePickType.video;
     final result = await FilePicker.platform.pickFiles(
       allowMultiple: !isVideo,
-      type: FileType.custom,
-      allowedExtensions: isVideo
-          ? ['mp4', 'mov', 'webm', 'mkv']
-          : ['jpg', 'jpeg', 'png', 'webp'],
-      withData: kIsWeb,
+      type: isVideo ? FileType.video : FileType.image,
+      withData: true,
     );
 
     final selectedFiles = result?.files ?? const <PlatformFile>[];
@@ -558,11 +555,7 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
     required String copiedMessage,
   }) {
     if (isWhatsApp) {
-      return safeOpenWhatsApp(
-        sheetContext,
-        uri,
-        copiedMessage: copiedMessage,
-      );
+      return safeOpenWhatsApp(sheetContext, uri, copiedMessage: copiedMessage);
     }
     return safeOpenUrl(sheetContext, uri, copiedMessage: copiedMessage);
   }

@@ -473,7 +473,145 @@ class _PendingWarningsIconButton extends StatelessWidget {
   }
 }
 
-class DesktopSidebar extends ConsumerWidget {
+class _SidebarMenuGroup {
+  const _SidebarMenuGroup({
+    required this.key,
+    required this.title,
+    required this.icon,
+    required this.items,
+  });
+
+  final String key;
+  final String title;
+  final IconData icon;
+  final List<AppNavigationItem> items;
+}
+
+List<_SidebarMenuGroup> _buildDesktopSidebarGroups(
+  List<AppNavigationSection> sections,
+) {
+  final allItems = <AppNavigationItem>[
+    for (final section in sections) ...section.items,
+  ];
+  final routeToItem = {
+    for (final item in allItems) item.route: item,
+  };
+
+  List<AppNavigationItem> pick(List<String> routes) {
+    return [
+      for (final route in routes)
+        if (routeToItem.containsKey(route)) routeToItem[route]!,
+    ];
+  }
+
+  final groups = <_SidebarMenuGroup>[
+    _SidebarMenuGroup(
+      key: 'principal',
+      title: 'Principal',
+      icon: Icons.dashboard_outlined,
+      items: pick([
+        Routes.serviceOrders,
+        Routes.clientes,
+        Routes.cotizaciones,
+        Routes.catalogo,
+        Routes.ventas,
+      ]),
+    ),
+    _SidebarMenuGroup(
+      key: 'administracion',
+      title: 'Administración',
+      icon: Icons.admin_panel_settings_outlined,
+      items: pick([
+        Routes.ponche,
+        Routes.nomina,
+        Routes.serviceOrderCommissions,
+        Routes.misPagos,
+        Routes.users,
+        Routes.amonestaciones,
+        Routes.administracion,
+      ]),
+    ),
+    _SidebarMenuGroup(
+      key: 'contabilidad',
+      title: 'Contabilidad',
+      icon: Icons.account_balance_outlined,
+      items: pick([
+        Routes.contabilidad,
+        Routes.documentFlows,
+      ]),
+    ),
+    _SidebarMenuGroup(
+      key: 'comunicacion',
+      title: 'Comunicación',
+      icon: Icons.chat_bubble_outline_rounded,
+      items: pick([
+        Routes.whatsapp,
+        Routes.whatsappCrm,
+        Routes.mediaGallery,
+      ]),
+    ),
+    _SidebarMenuGroup(
+      key: 'sistema',
+      title: 'Sistema',
+      icon: Icons.settings_suggest_outlined,
+      items: pick([
+        Routes.ai,
+        Routes.manualInterno,
+        Routes.configuracion,
+      ]),
+    ),
+  ];
+
+  final knownRoutes = <String>{
+    for (final group in groups)
+      for (final item in group.items) item.route,
+  };
+  final extras = allItems
+      .where((item) => !knownRoutes.contains(item.route))
+      .toList(growable: false);
+  if (extras.isNotEmpty) {
+    final sistemaIndex = groups.indexWhere((group) => group.key == 'sistema');
+    if (sistemaIndex >= 0) {
+      final sistema = groups[sistemaIndex];
+      groups[sistemaIndex] = _SidebarMenuGroup(
+        key: sistema.key,
+        title: sistema.title,
+        icon: sistema.icon,
+        items: [...sistema.items, ...extras],
+      );
+    }
+  }
+
+  return groups.where((group) => group.items.isNotEmpty).toList(growable: false);
+}
+
+String? _resolveActiveGroupKey(
+  List<_SidebarMenuGroup> groups,
+  String currentLocation,
+) {
+  for (final group in groups) {
+    for (final item in group.items) {
+      if (isNavigationRouteActive(currentLocation, item.route)) {
+        return group.key;
+      }
+    }
+  }
+  return groups.isEmpty ? null : groups.first.key;
+}
+
+bool _groupContainsActiveRoute(
+  _SidebarMenuGroup group,
+  String currentLocation,
+) {
+  for (final item in group.items) {
+    if (isNavigationRouteActive(currentLocation, item.route)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+class DesktopSidebar extends ConsumerStatefulWidget {
   const DesktopSidebar({
     super.key,
     required this.collapsed,
@@ -492,20 +630,57 @@ class DesktopSidebar extends ConsumerWidget {
   final ValueChanged<String> onNavigate;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<DesktopSidebar> createState() => _DesktopSidebarState();
+}
+
+class _DesktopSidebarState extends ConsumerState<DesktopSidebar> {
+  String? _openGroupKey;
+
+  @override
+  void initState() {
+    super.initState();
+    final groups = _buildDesktopSidebarGroups(widget.sections);
+    _openGroupKey = _resolveActiveGroupKey(groups, widget.currentLocation);
+  }
+
+  @override
+  void didUpdateWidget(covariant DesktopSidebar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.currentLocation == widget.currentLocation &&
+        oldWidget.sections == widget.sections) {
+      return;
+    }
+    final groups = _buildDesktopSidebarGroups(widget.sections);
+    final next = _resolveActiveGroupKey(groups, widget.currentLocation);
+    if (next != null && next != _openGroupKey) {
+      setState(() => _openGroupKey = next);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final width = collapsed ? 80.0 : 256.0;
+    final width = widget.collapsed ? 80.0 : 256.0;
     final branding = resolveRoleBranding(
-      currentUser?.appRole ?? AppRole.unknown,
+      widget.currentUser?.appRole ?? AppRole.unknown,
     );
     const onBase = Colors.white;
+    const panelTop = Color(0xFF0F172A);
+    const panelBottom = Color(0xFF111C31);
+    const slate400 = Color(0xFF94A3B8);
+    const slate500 = Color(0xFF64748B);
+    final groups = _buildDesktopSidebarGroups(widget.sections);
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 220),
       curve: Curves.easeOutCubic,
       width: width,
       decoration: BoxDecoration(
-        gradient: branding.drawerGradient,
+        gradient: const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [panelTop, panelBottom],
+        ),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.22),
@@ -520,12 +695,14 @@ class DesktopSidebar extends ConsumerWidget {
           children: [
             // ── Brand / toggle header ────────────────────────────────
             GestureDetector(
-              onTap: onToggleSidebar,
+              onTap: widget.onToggleSidebar,
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
-                height: 64,
-                padding: EdgeInsets.symmetric(horizontal: collapsed ? 0 : 14),
-                child: collapsed
+                height: 62,
+                padding: EdgeInsets.symmetric(
+                  horizontal: widget.collapsed ? 0 : 14,
+                ),
+                child: widget.collapsed
                     ? Center(
                         child: Tooltip(
                           message: 'Expandir menú',
@@ -541,19 +718,19 @@ class DesktopSidebar extends ConsumerWidget {
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Container(
-                            width: 44,
-                            height: 44,
+                            width: 42,
+                            height: 42,
                             decoration: BoxDecoration(
-                              color: onBase.withValues(alpha: 0.10),
-                              borderRadius: BorderRadius.circular(14),
+                              color: onBase.withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(12),
                               border: Border.all(
-                                color: onBase.withValues(alpha: 0.14),
+                                color: onBase.withValues(alpha: 0.10),
                               ),
                             ),
                             child: const Icon(
                               Icons.business_rounded,
                               color: Colors.white,
-                              size: 20,
+                              size: 18,
                             ),
                           ),
                         ),
@@ -561,11 +738,11 @@ class DesktopSidebar extends ConsumerWidget {
                     : Row(
                         children: [
                           Container(
-                            width: 36,
-                            height: 36,
+                            width: 34,
+                            height: 34,
                             decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.14),
-                              borderRadius: BorderRadius.circular(11),
+                              color: Colors.white.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(10),
                             ),
                             child: const Icon(
                               Icons.business_rounded,
@@ -582,8 +759,9 @@ class DesktopSidebar extends ConsumerWidget {
                                 Text(
                                   'FULLTECH',
                                   style: theme.textTheme.labelLarge?.copyWith(
-                                    fontWeight: FontWeight.w900,
-                                    letterSpacing: 1.2,
+                                    fontFamily: 'Inter',
+                                    fontWeight: FontWeight.w600,
+                                    letterSpacing: 0,
                                     color: onBase,
                                   ),
                                 ),
@@ -592,8 +770,9 @@ class DesktopSidebar extends ConsumerWidget {
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: theme.textTheme.labelSmall?.copyWith(
-                                    color: onBase.withValues(alpha: 0.68),
-                                    fontWeight: FontWeight.w600,
+                                    color: slate400,
+                                    fontFamily: 'Inter',
+                                    fontWeight: FontWeight.w500,
                                   ),
                                 ),
                               ],
@@ -602,7 +781,7 @@ class DesktopSidebar extends ConsumerWidget {
                           Icon(
                             Icons.keyboard_double_arrow_left_rounded,
                             size: 16,
-                            color: onBase.withValues(alpha: 0.55),
+                            color: slate500,
                           ),
                         ],
                       ),
@@ -610,93 +789,125 @@ class DesktopSidebar extends ConsumerWidget {
             ),
 
             // ── Top separator ────────────────────────────────────────
-            Divider(height: 1, color: onBase.withValues(alpha: 0.08)),
+            Divider(height: 1, color: onBase.withValues(alpha: 0.07)),
 
             // ── Navigation items ─────────────────────────────────────
             Expanded(
               child: ListView(
                 physics: const ClampingScrollPhysics(),
-                padding: const EdgeInsets.only(top: 6, bottom: 6),
+                padding: const EdgeInsets.fromLTRB(10, 6, 10, 8),
                 children: [
-                  for (final section in sections) ...[
-                    // Section label (expanded only)
-                    if (!collapsed)
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 10, 16, 3),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                section.title.toUpperCase(),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.labelSmall?.copyWith(
-                                  color: onBase.withValues(alpha: 0.50),
-                                  fontWeight: FontWeight.w700,
-                                  letterSpacing: 0.9,
-                                  fontSize: 10,
-                                ),
-                              ),
+                  if (widget.collapsed)
+                    for (final group in groups)
+                      _DesktopSidebarCollapsedGroupButton(
+                        title: group.title,
+                        icon: group.icon,
+                        selected: _groupContainsActiveRoute(
+                          group,
+                          widget.currentLocation,
+                        ),
+                        showIndicator: group.items.any(
+                          (item) => item.showIndicator,
+                        ),
+                        onTap: () {
+                          final selectedInGroup = group.items.where(
+                            (item) => isNavigationRouteActive(
+                              widget.currentLocation,
+                              item.route,
                             ),
-                          ],
-                        ),
+                          );
+                          final target = selectedInGroup.isNotEmpty
+                              ? selectedInGroup.first.route
+                              : group.items.first.route;
+                          widget.onNavigate(target);
+                        },
                       )
-                    else
-                      Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 5,
+                  else
+                    for (final group in groups) ...[
+                      _DesktopSidebarGroupHeader(
+                        title: group.title,
+                        icon: group.icon,
+                        open: _openGroupKey == group.key,
+                        active: _groupContainsActiveRoute(
+                          group,
+                          widget.currentLocation,
                         ),
-                        child: Divider(
-                          height: 1,
-                          color: onBase.withValues(alpha: 0.08),
-                        ),
+                        onTap: () {
+                          final containsActive = _groupContainsActiveRoute(
+                            group,
+                            widget.currentLocation,
+                          );
+                          setState(() {
+                            if (_openGroupKey == group.key) {
+                              _openGroupKey = containsActive ? group.key : null;
+                            } else {
+                              _openGroupKey = group.key;
+                            }
+                          });
+                        },
                       ),
-
-                    // Items
-                    for (final item in section.items)
-                      _DesktopSidebarItem(
-                        collapsed: collapsed,
-                        item: item,
-                        selected: isNavigationRouteActive(
-                          currentLocation,
-                          item.route,
-                        ),
-                        onTap: () => onNavigate(item.route),
+                      AnimatedSize(
+                        duration: const Duration(milliseconds: 220),
+                        curve: Curves.easeOutCubic,
+                        child: _openGroupKey == group.key
+                            ? Padding(
+                                padding: const EdgeInsets.only(
+                                  left: 8,
+                                  right: 2,
+                                  top: 4,
+                                  bottom: 14,
+                                ),
+                                child: Column(
+                                  children: [
+                                    for (final item in group.items)
+                                      _DesktopSidebarItem(
+                                        collapsed: false,
+                                        isSubItem: true,
+                                        item: item,
+                                        selected: isNavigationRouteActive(
+                                          widget.currentLocation,
+                                          item.route,
+                                        ),
+                                        onTap: () => widget.onNavigate(item.route),
+                                      ),
+                                  ],
+                                ),
+                              )
+                            : const SizedBox.shrink(),
                       ),
-                  ],
+                    ],
                 ],
               ),
             ),
 
             // ── Bottom separator ────────────────────────────────────
-            Divider(height: 1, color: onBase.withValues(alpha: 0.08)),
+            Divider(height: 1, color: onBase.withValues(alpha: 0.07)),
 
             // ── User / logout footer ─────────────────────────────────
             Padding(
               padding: EdgeInsets.fromLTRB(
-                collapsed ? 8 : 10,
+                widget.collapsed ? 8 : 10,
                 8,
-                collapsed ? 8 : 10,
+                widget.collapsed ? 8 : 10,
                 12,
               ),
               child: Column(
                 children: [
                   // Profile
                   _SidebarFooterButton(
-                    collapsed: collapsed,
+                    collapsed: widget.collapsed,
                     tooltip: 'Mi perfil',
                     icon: Icons.person_outline_rounded,
-                    label: currentUser?.nombreCompleto ?? 'Perfil',
+                    label: widget.currentUser?.nombreCompleto ?? 'Perfil',
                     sublabel: branding.departmentName,
                     useAvatar: true,
-                    avatarInitials: userInitials(currentUser),
+                    avatarInitials: userInitials(widget.currentUser),
                     onTap: () => context.push(Routes.profile),
                   ),
                   const SizedBox(height: 4),
                   // Logout
                   _SidebarFooterButton(
-                    collapsed: collapsed,
+                    collapsed: widget.collapsed,
                     tooltip: 'Cerrar sesión',
                     icon: Icons.logout_rounded,
                     label: 'Cerrar sesión',
@@ -710,6 +921,175 @@ class DesktopSidebar extends ConsumerWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _DesktopSidebarGroupHeader extends StatelessWidget {
+  const _DesktopSidebarGroupHeader({
+    required this.title,
+    required this.icon,
+    required this.open,
+    required this.active,
+    required this.onTap,
+  });
+
+  final String title;
+  final IconData icon;
+  final bool open;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    const normal = Color(0xFF94A3B8);
+    const activeColor = Color(0xFFFFFFFF);
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 10, bottom: 4),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: onTap,
+          child: SizedBox(
+            height: 38,
+            child: Row(
+              children: [
+                Icon(icon, size: 20, color: active ? activeColor : normal),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: active ? activeColor : normal,
+                      fontFamily: 'Inter',
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                ),
+                AnimatedRotation(
+                  turns: open ? 0.0 : -0.25,
+                  duration: const Duration(milliseconds: 220),
+                  child: Icon(
+                    Icons.keyboard_arrow_down_rounded,
+                    size: 18,
+                    color: normal,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DesktopSidebarCollapsedGroupButton extends StatefulWidget {
+  const _DesktopSidebarCollapsedGroupButton({
+    required this.title,
+    required this.icon,
+    required this.selected,
+    required this.showIndicator,
+    required this.onTap,
+  });
+
+  final String title;
+  final IconData icon;
+  final bool selected;
+  final bool showIndicator;
+  final VoidCallback onTap;
+
+  @override
+  State<_DesktopSidebarCollapsedGroupButton> createState() =>
+      _DesktopSidebarCollapsedGroupButtonState();
+}
+
+class _DesktopSidebarCollapsedGroupButtonState
+    extends State<_DesktopSidebarCollapsedGroupButton> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    const normal = Color(0xFF94A3B8);
+    const activeColor = Color(0xFFFFFFFF);
+
+    final icon = SizedBox(
+      height: 48,
+      child: Center(
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 170),
+          curve: Curves.easeOut,
+          width: 42,
+          height: 42,
+          decoration: BoxDecoration(
+            color: widget.selected
+                ? Colors.white.withValues(alpha: 0.12)
+                : (_hovered
+                      ? Colors.white.withValues(alpha: 0.06)
+                      : Colors.transparent),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Stack(
+            clipBehavior: Clip.none,
+            alignment: Alignment.center,
+            children: [
+              Icon(
+                widget.icon,
+                size: 20,
+                color: widget.selected ? activeColor : normal,
+              ),
+              if (widget.showIndicator)
+                Positioned(
+                  right: 8,
+                  top: 8,
+                  child: Container(
+                    width: 7,
+                    height: 7,
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.error,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: activeColor, width: 1.1),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    return Tooltip(
+      message: widget.title,
+      preferBelow: false,
+      verticalOffset: 30,
+      textStyle: const TextStyle(
+        color: Colors.white,
+        fontWeight: FontWeight.w800,
+        fontSize: 12,
+      ),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F172A),
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.30),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: GestureDetector(onTap: widget.onTap, child: icon),
       ),
     );
   }
@@ -751,18 +1131,18 @@ class _SidebarFooterButtonState extends State<_SidebarFooterButton> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     const onBase = Colors.white;
+    const slate400 = Color(0xFF94A3B8);
     final bg = _hovered
-        ? Colors.white.withValues(alpha: widget.isDestructive ? 0.12 : 0.10)
-        : Colors.white.withValues(alpha: 0.06);
-    final fgColor = widget.isDestructive ? Colors.red.shade200 : onBase;
+      ? Colors.white.withValues(alpha: widget.isDestructive ? 0.08 : 0.07)
+      : Colors.transparent;
+    final fgColor = widget.isDestructive ? Colors.red.shade200 : slate400;
 
     Widget content = Container(
       height: 40,
       padding: EdgeInsets.symmetric(horizontal: widget.collapsed ? 0 : 10),
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.circular(11),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+        borderRadius: BorderRadius.circular(10),
       ),
       child: widget.collapsed
           ? Center(child: Icon(widget.icon, size: 18, color: fgColor))
@@ -776,7 +1156,8 @@ class _SidebarFooterButtonState extends State<_SidebarFooterButton> {
                           widget.avatarInitials,
                           style: TextStyle(
                             color: onBase,
-                            fontWeight: FontWeight.w800,
+                            fontFamily: 'Inter',
+                            fontWeight: FontWeight.w600,
                             fontSize: 10,
                           ),
                         ),
@@ -794,7 +1175,8 @@ class _SidebarFooterButtonState extends State<_SidebarFooterButton> {
                         overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.labelSmall?.copyWith(
                           color: fgColor,
-                          fontWeight: FontWeight.w700,
+                          fontFamily: 'Inter',
+                          fontWeight: FontWeight.w500,
                           fontSize: 12,
                         ),
                       ),
@@ -804,7 +1186,8 @@ class _SidebarFooterButtonState extends State<_SidebarFooterButton> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.labelSmall?.copyWith(
-                            color: onBase.withValues(alpha: 0.50),
+                            color: slate400,
+                            fontFamily: 'Inter',
                             fontSize: 10,
                           ),
                         ),
@@ -849,12 +1232,14 @@ class _SidebarFooterButtonState extends State<_SidebarFooterButton> {
 class _DesktopSidebarItem extends StatefulWidget {
   const _DesktopSidebarItem({
     required this.collapsed,
+    this.isSubItem = false,
     required this.item,
     required this.selected,
     required this.onTap,
   });
 
   final bool collapsed;
+  final bool isSubItem;
   final AppNavigationItem item;
   final bool selected;
   final VoidCallback onTap;
@@ -870,82 +1255,48 @@ class _DesktopSidebarItemState extends State<_DesktopSidebarItem> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     const onBase = Colors.white;
+    const normalText = Color(0xFF94A3B8);
     final selected = widget.selected;
     final collapsed = widget.collapsed;
 
     Widget content;
     if (collapsed) {
-      // ─────────────────────────────────────────────────────────────
-      // COLLAPSED: premium icon pill
-      // - Selected:  bright white icon, frosted bg, glow shadow
-      // - Hovered:   dim glow + slight scale
-      // - Default:   muted icon, transparent bg
-      // ─────────────────────────────────────────────────────────────
-      final iconOpacity = selected ? 1.0 : (_hovered ? 0.92 : 0.60);
-      final containerBg = selected
-          ? Colors.white.withValues(alpha: 0.18)
-          : _hovered
-          ? Colors.white.withValues(alpha: 0.10)
-          : Colors.transparent;
-
       content = SizedBox(
-        height: 50,
+        height: 46,
         child: Center(
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            curve: Curves.easeOutCubic,
-            width: 48,
-            height: 48,
+            duration: const Duration(milliseconds: 170),
+            curve: Curves.easeOut,
+            width: 42,
+            height: 42,
             decoration: BoxDecoration(
-              color: containerBg,
-              borderRadius: BorderRadius.circular(15),
-              border: selected
-                  ? Border.all(color: onBase.withValues(alpha: 0.28), width: 1)
-                  : _hovered
-                  ? Border.all(color: onBase.withValues(alpha: 0.10), width: 1)
-                  : null,
-              boxShadow: selected
-                  ? [
-                      BoxShadow(
-                        color: Colors.white.withValues(alpha: 0.10),
-                        blurRadius: 12,
-                        spreadRadius: 1,
-                      ),
-                    ]
-                  : null,
+              color: selected
+                  ? Colors.white.withValues(alpha: 0.12)
+                  : (_hovered
+                        ? Colors.white.withValues(alpha: 0.06)
+                        : Colors.transparent),
+              borderRadius: BorderRadius.circular(10),
             ),
             child: Stack(
               clipBehavior: Clip.none,
               alignment: Alignment.center,
               children: [
-                AnimatedScale(
-                  scale: selected ? 1.10 : (_hovered ? 1.05 : 1.0),
-                  duration: const Duration(milliseconds: 180),
-                  child: AnimatedOpacity(
-                    opacity: iconOpacity,
-                    duration: const Duration(milliseconds: 180),
-                    child: Icon(widget.item.icon, size: 22, color: onBase),
-                  ),
+                Icon(
+                  widget.item.icon,
+                  size: 18,
+                  color: selected ? onBase : normalText,
                 ),
                 if (widget.item.showIndicator)
                   Positioned(
-                    right: 7,
-                    top: 7,
+                    right: 8,
+                    top: 8,
                     child: Container(
-                      width: 8,
-                      height: 8,
+                      width: 7,
+                      height: 7,
                       decoration: BoxDecoration(
                         color: theme.colorScheme.error,
                         shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 1.5),
-                        boxShadow: [
-                          BoxShadow(
-                            color: theme.colorScheme.error.withValues(
-                              alpha: 0.50,
-                            ),
-                            blurRadius: 4,
-                          ),
-                        ],
+                        border: Border.all(color: onBase, width: 1.1),
                       ),
                     ),
                   ),
@@ -955,136 +1306,66 @@ class _DesktopSidebarItemState extends State<_DesktopSidebarItem> {
         ),
       );
     } else {
-      // ─────────────────────────────────────────────────────────────
-      // EXPANDED: icon pill + label, premium look
-      // ─────────────────────────────────────────────────────────────
-      final iconOpacityExpanded = selected ? 1.0 : (_hovered ? 0.92 : 0.68);
-      final labelColor = Colors.white;
-      final expandedBg = selected
-          ? Colors.white.withValues(alpha: 0.14)
-          : _hovered
-              ? Colors.white.withValues(alpha: 0.09)
-              : Colors.white.withValues(alpha: 0.04);
-      final iconBoxBg = selected
-          ? Colors.white.withValues(alpha: 0.22)
-          : _hovered
-              ? Colors.white.withValues(alpha: 0.13)
-              : Colors.white.withValues(alpha: 0.08);
+      final itemBg = selected
+          ? Colors.white.withValues(alpha: 0.12)
+          : (_hovered
+                ? Colors.white.withValues(alpha: 0.06)
+                : Colors.transparent);
 
       content = SizedBox(
-        height: 44,
+        height: widget.isSubItem ? 42 : 46,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          curve: Curves.easeOutCubic,
-          margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          duration: const Duration(milliseconds: 170),
+          curve: Curves.easeOut,
+          margin: const EdgeInsets.symmetric(vertical: 2),
+          padding: EdgeInsets.symmetric(
+            horizontal: widget.isSubItem ? 10 : 12,
+          ),
           decoration: BoxDecoration(
-            color: expandedBg,
-            borderRadius: BorderRadius.circular(12),
-            border: selected
-                ? Border.all(
-                    color: Colors.black.withValues(alpha: 0.13),
-                    width: 1,
-                  )
-                : null,
+            color: itemBg,
+            borderRadius: BorderRadius.circular(10),
           ),
           child: Row(
             children: [
-              // Left accent bar
               AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                curve: Curves.easeOutCubic,
-                width: selected ? 3.5 : 0,
-                height: 20,
-                margin: const EdgeInsets.only(left: 6),
+                duration: const Duration(milliseconds: 170),
+                width: 3,
+                height: 24,
                 decoration: BoxDecoration(
-                  color: Colors.black,
-                  borderRadius: BorderRadius.circular(99),
-                  boxShadow: selected
-                      ? [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.40),
-                            blurRadius: 6,
-                          ),
-                        ]
-                      : null,
+                  color: selected ? theme.colorScheme.primary : Colors.transparent,
+                  borderRadius: BorderRadius.circular(999),
                 ),
               ),
-              SizedBox(width: selected ? 8 : 11),
-              // Icon in pill container
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 160),
-                width: 34,
-                height: 34,
-                decoration: BoxDecoration(
-                  color: iconBoxBg,
-                  borderRadius: BorderRadius.circular(10),
-                  border: selected
-                      ? Border.all(
-                          color: Colors.black.withValues(alpha: 0.18),
-                          width: 1,
-                        )
-                      : null,
-                ),
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  alignment: Alignment.center,
-                  children: [
-                    AnimatedOpacity(
-                      opacity: iconOpacityExpanded,
-                      duration: const Duration(milliseconds: 160),
-                      child: Icon(
-                        widget.item.icon,
-                        size: 18,
-                        color: Colors.black,
-                      ),
-                    ),
-                    if (widget.item.showIndicator)
-                      Positioned(
-                        right: -2,
-                        top: -2,
-                        child: Container(
-                          width: 8,
-                          height: 8,
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.error,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: Colors.black, width: 1.5),
-                            boxShadow: [
-                              BoxShadow(
-                                color: theme.colorScheme.error.withValues(
-                                  alpha: 0.50,
-                                ),
-                                blurRadius: 4,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
+              SizedBox(width: selected ? 10 : 13),
+              Icon(
+                widget.item.icon,
+                size: widget.isSubItem ? 17 : 19,
+                color: selected ? onBase : normalText,
               ),
-              const SizedBox(width: 11),
-              // Label
+              SizedBox(width: widget.isSubItem ? 8 : 10),
               Expanded(
                 child: Text(
                   widget.item.title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontWeight: selected ? FontWeight.w900 : FontWeight.w700,
-                    color: labelColor,
-                    fontSize: 15.0,
-                    letterSpacing: selected ? 0.18 : 0.02,
-                    shadows: [
-                      Shadow(
-                        color: Colors.black.withValues(alpha: 0.18),
-                        blurRadius: 2.5,
-                        offset: const Offset(0, 1),
-                      ),
-                    ],
+                    fontFamily: 'Inter',
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                    color: selected ? onBase : normalText,
+                    fontSize: widget.isSubItem ? 13 : 14,
                   ),
                 ),
               ),
+              if (widget.item.showIndicator)
+                Container(
+                  width: 7,
+                  height: 7,
+                  margin: const EdgeInsets.only(left: 8),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.error,
+                    shape: BoxShape.circle,
+                  ),
+                ),
             ],
           ),
         ),

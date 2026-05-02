@@ -276,14 +276,38 @@ export class ContabilidadService {
     };
   }
 
-  private normalizeExpenseDetails(
-    details?: Array<{ concept: string; amount: number }> | null,
-  ) {
+  private normalizeExpenseDetails(details?: CloseExpenseDetailDto[] | null) {
     if (!details || details.length === 0) return null;
-    return details.map((row) => ({
-      concept: (row.concept ?? '').trim(),
-      amount: Math.round(Number(row.amount ?? 0) * 100) / 100,
-    }));
+    return details.map((row, index) => {
+      const concept = (row.concept ?? '').trim();
+      if (!concept) {
+        throw new BadRequestException(
+          `El gasto #${index + 1} requiere concepto.`,
+        );
+      }
+
+      const amount = Math.round(Number(row.amount ?? 0) * 100) / 100;
+      if (!Number.isFinite(amount) || amount <= 0) {
+        throw new BadRequestException(
+          `El gasto #${index + 1} requiere monto mayor a cero.`,
+        );
+      }
+
+      const vouchers = (row.vouchers ?? []).map((voucher, voucherIndex) => {
+        const storageKey = this.toNullableTrimmed(voucher.storageKey);
+        const fileUrl = this.toNullableTrimmed(voucher.fileUrl);
+        const fileName = this.toNullableTrimmed(voucher.fileName);
+        const mimeType = this.toNullableTrimmed(voucher.mimeType);
+        if (!storageKey || !fileUrl || !fileName || !mimeType) {
+          throw new BadRequestException(
+            `El comprobante #${voucherIndex + 1} del gasto #${index + 1} no tiene datos completos.`,
+          );
+        }
+        return { storageKey, fileUrl, fileName, mimeType };
+      });
+
+      return { concept, amount, vouchers };
+    });
   }
 
   private async findCloseOrThrow(id: string) {
@@ -563,6 +587,22 @@ export class ContabilidadService {
         if (voucher.storageKey) storageKeys.add(voucher.storageKey);
       }
     }
+    const expenseDetails = Array.isArray(close.expenseDetails)
+      ? close.expenseDetails
+      : [];
+    for (const row of expenseDetails) {
+      if (!row || typeof row !== 'object') continue;
+      const vouchers = Array.isArray((row as { vouchers?: unknown[] }).vouchers)
+        ? ((row as { vouchers: Array<{ storageKey?: unknown }> }).vouchers ?? [])
+        : [];
+      for (const voucher of vouchers) {
+        const storageKey =
+          typeof voucher.storageKey === 'string'
+            ? voucher.storageKey.trim()
+            : '';
+        if (storageKey) storageKeys.add(storageKey);
+      }
+    }
 
     for (const storageKey of storageKeys) {
       try {
@@ -835,7 +875,19 @@ export class ContabilidadService {
     for (const [label, value] of totalRows) line(label, value);
 
     // Expense details breakdown
-    const expenseDetails = close.expenseDetails as Array<{ concept: string; amount: number }> | null;
+    const expenseDetails =
+      (close.expenseDetails as
+        | Array<{
+            concept: string;
+            amount: number;
+            vouchers?: Array<{
+              storageKey: string;
+              fileUrl: string;
+              fileName: string;
+              mimeType: string;
+            }>;
+          }>
+        | null) ?? null;
     if (expenseDetails && expenseDetails.length > 0) {
       section('Detalle de gastos');
       const colX = [42, 370];
@@ -855,6 +907,28 @@ export class ContabilidadService {
         doc.font('Helvetica').text(row.concept, colX[0], rowY, { width: 310 });
         doc.font('Helvetica').text(this.money(row.amount), colX[1], rowY, { width: 160 });
         doc.moveDown(0.15);
+
+        if (Array.isArray(row.vouchers) && row.vouchers.length > 0) {
+          doc.moveDown(0.1);
+          for (const [voucherIndex, voucher] of row.vouchers.entries()) {
+            doc
+              .font('Helvetica')
+              .fillColor('#0f5b6b')
+              .text(
+                `Comprobante ${voucherIndex + 1}: ${voucher.fileName}`,
+                colX[0],
+                doc.y,
+                { width: 470 },
+              );
+            doc.fillColor('#0f172a');
+            await embedImage(
+              voucher.storageKey,
+              voucher.mimeType,
+              undefined,
+              voucher.fileName,
+            );
+          }
+        }
       }
       doc.moveDown(0.3);
       doc
@@ -1040,6 +1114,21 @@ export class ContabilidadService {
       ...close.transfers.flatMap((transfer) =>
         transfer.vouchers.map((voucher) => voucher.fileUrl),
       ),
+      ...(Array.isArray(close.expenseDetails)
+        ? close.expenseDetails.flatMap((row) => {
+            if (!row || typeof row !== 'object') return [] as string[];
+            const vouchers = Array.isArray((row as { vouchers?: unknown[] }).vouchers)
+              ? ((row as { vouchers: Array<{ fileUrl?: unknown }> }).vouchers ?? [])
+              : [];
+            return vouchers
+              .map((voucher) =>
+                typeof voucher.fileUrl === 'string'
+                  ? voucher.fileUrl.trim()
+                  : '',
+              )
+              .filter((url) => url.length > 0);
+          })
+        : []),
     ];
     const expectedDifference = Number(close.cash) - Number(close.cashDelivered);
     const normalizedDifference = Number(close.difference);

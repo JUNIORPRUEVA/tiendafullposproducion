@@ -36,6 +36,8 @@ const allowedMimeTypes = new Set([
 
 const imageExtensions = new Set(['.jpg', '.jpeg', '.png', '.webp']);
 const videoExtensions = new Set(['.mp4', '.mov', '.webm', '.mkv']);
+const maxImageSizeBytes = 12 * 1024 * 1024;
+const maxVideoSizeBytes = 60 * 1024 * 1024;
 
 function inferContentType(file: Express.Multer.File, safeExt: string): string {
   const mime = (file.mimetype ?? '').trim().toLowerCase();
@@ -141,6 +143,14 @@ export class StorageController {
       : ((file.mimetype ?? '').toLowerCase().startsWith('video/') ? '.mp4' : '.jpg');
     const contentType = inferContentType(file, safeExt);
     const mediaFolder = inferMediaFolder(contentType);
+    const maxAllowedSize = mediaFolder === 'videos' ? maxVideoSizeBytes : maxImageSizeBytes;
+    if (file.size > maxAllowedSize) {
+      throw new BadRequestException(
+        mediaFolder === 'videos'
+          ? 'El video excede el limite permitido de 60 MB'
+          : 'La imagen excede el limite permitido de 12 MB',
+      );
+    }
     const fileStem = original.replace(/\.[^/.]+$/, '');
     const now = new Date();
     const yyyy = String(now.getUTCFullYear());

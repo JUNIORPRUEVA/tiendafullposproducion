@@ -1009,7 +1009,7 @@ Future<void> _addImageEvidence(
   final result = await FilePicker.platform.pickFiles(
     allowMultiple: true,
     type: FileType.image,
-    withData: kIsWeb,
+    withData: true,
   );
   final files = result?.files ?? const <PlatformFile>[];
   if (files.isEmpty) {
@@ -1085,7 +1085,7 @@ Future<void> _addVideoEvidence(
   final result = await FilePicker.platform.pickFiles(
     allowMultiple: false,
     type: FileType.video,
-    withData: kIsWeb,
+    withData: true,
   );
   final file = result?.files.singleOrNull;
   if (file == null) {
@@ -1535,10 +1535,7 @@ class _DetailHeaderLine extends StatelessWidget {
 }
 
 class _DetailServiceScheduleCard extends StatelessWidget {
-  const _DetailServiceScheduleCard({
-    required this.label,
-    required this.bucket,
-  });
+  const _DetailServiceScheduleCard({required this.label, required this.bucket});
 
   final String label;
   final ServiceScheduleDayBucket bucket;

@@ -459,34 +459,81 @@ class _AppErrorOverlayState extends State<AppErrorOverlay> {
                           style: theme.textTheme.bodySmall,
                         ),
                         const SizedBox(height: 8),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            TextButton.icon(
-                              onPressed: () => _copyError(context, error),
-                              icon: const Icon(Icons.copy_all_rounded, size: 15),
-                              label: const Text('Copiar error'),
-                              style: TextButton.styleFrom(
-                                visualDensity: VisualDensity.compact,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 6,
+                        LayoutBuilder(
+                          builder: (context, constraints) {
+                            final isCompact = constraints.maxWidth < 290;
+
+                            if (isCompact) {
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  TextButton.icon(
+                                    onPressed: () => _copyError(context, error),
+                                    icon: const Icon(
+                                      Icons.copy_all_rounded,
+                                      size: 15,
+                                    ),
+                                    label: const Text('Copiar error'),
+                                    style: TextButton.styleFrom(
+                                      visualDensity: VisualDensity.compact,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 8,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  FilledButton.tonal(
+                                    onPressed: () =>
+                                        _showDetails(context, error),
+                                    style: FilledButton.styleFrom(
+                                      visualDensity: VisualDensity.compact,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 8,
+                                      ),
+                                    ),
+                                    child: const Text('Ver error'),
+                                  ),
+                                ],
+                              );
+                            }
+
+                            return Wrap(
+                              alignment: WrapAlignment.end,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              spacing: 6,
+                              runSpacing: 6,
+                              children: [
+                                TextButton.icon(
+                                  onPressed: () => _copyError(context, error),
+                                  icon: const Icon(
+                                    Icons.copy_all_rounded,
+                                    size: 15,
+                                  ),
+                                  label: const Text('Copiar error'),
+                                  style: TextButton.styleFrom(
+                                    visualDensity: VisualDensity.compact,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 6,
+                                    ),
+                                  ),
                                 ),
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            FilledButton.tonal(
-                              onPressed: () => _showDetails(context, error),
-                              style: FilledButton.styleFrom(
-                                visualDensity: VisualDensity.compact,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 6,
+                                FilledButton.tonal(
+                                  onPressed: () => _showDetails(context, error),
+                                  style: FilledButton.styleFrom(
+                                    visualDensity: VisualDensity.compact,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 6,
+                                    ),
+                                  ),
+                                  child: const Text('Ver error'),
                                 ),
-                              ),
-                              child: const Text('Ver error'),
-                            ),
-                          ],
+                              ],
+                            );
+                          },
                         ),
                       ],
                     ),

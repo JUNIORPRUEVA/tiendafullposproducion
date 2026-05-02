@@ -1756,7 +1756,7 @@ class _HDateButton extends StatelessWidget {
 // List card (shared by mobile and desktop list)
 // ═══════════════════════════════════════════════════════════════════════════
 
-class _HistorialListCard extends StatelessWidget {
+class _HistorialListCard extends StatefulWidget {
   const _HistorialListCard({
     required this.item,
     required this.dateFmt,
@@ -1790,79 +1790,148 @@ class _HistorialListCard extends StatelessWidget {
   final VoidCallback? onDelete;
 
   @override
+  State<_HistorialListCard> createState() => _HistorialListCardState();
+}
+
+class _HistorialListCardState extends State<_HistorialListCard> {
+  bool _active = false;
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final item = widget.item;
     final clientName = item.customerName.trim().isEmpty ? 'Cliente sin nombre' : item.customerName.trim();
-    final secondary = [dateFmt, '${item.items.length} líneas', quoteTag, if ((item.customerPhone ?? '').trim().isNotEmpty) item.customerPhone!.trim(), if (isOwnClient) 'Mi cliente'].join(' · ');
+    final secondary = [
+      widget.dateFmt,
+      '${item.items.length} líneas',
+      widget.quoteTag,
+      if ((item.customerPhone ?? '').trim().isNotEmpty) item.customerPhone!.trim(),
+      if (widget.isOwnClient) 'Mi cliente',
+    ].join(' · ');
+    final activeColor = theme.colorScheme.surfaceContainerHigh;
+    final activeBorder = theme.colorScheme.outlineVariant.withValues(alpha: 0.45);
+    final idleBorder = theme.colorScheme.outlineVariant.withValues(alpha: 0.45);
+    final iconBg = _active
+        ? theme.colorScheme.primary.withValues(alpha: 0.18)
+        : theme.colorScheme.primary.withValues(alpha: 0.10);
 
     return Material(
       color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: onTap,
-        child: Ink(
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _active = true),
+        onExit: (_) => setState(() => _active = false),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 140),
+          curve: Curves.easeOutCubic,
+          decoration: const BoxDecoration(),
+          child: InkWell(
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45)),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 6, 10),
-            child: Row(
-              children: [
-                Container(
-                  width: 36, height: 36,
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primary.withValues(alpha: 0.10),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Icon(Icons.description_outlined, size: 18, color: theme.colorScheme.primary),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
+            onTap: widget.onTap,
+            onFocusChange: (focused) => setState(() => _active = focused),
+            child: Ink(
+              decoration: BoxDecoration(
+                color: _active ? activeColor : theme.colorScheme.surface,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: _active ? activeBorder : idleBorder),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 6, 10),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: iconBg,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Icon(
+                        Icons.description_outlined,
+                        size: 18,
+                        color: theme.colorScheme.primary,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Expanded(child: Text(clientName, maxLines: 1, overflow: TextOverflow.ellipsis, style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800))),
-                          const SizedBox(width: 8),
-                          Text(money, maxLines: 1, style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w800, color: theme.colorScheme.primary)),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  clientName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.titleSmall?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                widget.money,
+                                maxLines: 1,
+                                style: theme.textTheme.labelLarge?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  color: theme.colorScheme.primary,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            secondary,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
                         ],
                       ),
-                      const SizedBox(height: 3),
-                      Text(secondary, maxLines: 1, overflow: TextOverflow.ellipsis, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-                    ],
-                  ),
-                ),
-                PopupMenuButton<String>(
-                  tooltip: 'Acciones',
-                  onSelected: (value) {
-                    if (value == 'view') onView();
-                    if (value == 'pdf') onPdf();
-                    if (value == 'service_order') onSendToServiceOrder();
-                    if (value == 'edit') onEdit?.call();
-                    if (value == 'duplicate') onDuplicate?.call();
-                    if (value == 'delete') onDelete?.call();
-                  },
-                  itemBuilder: (_) => [
-                    const PopupMenuItem(value: 'view', child: Text('Ver detalle')),
-                    const PopupMenuItem(value: 'pdf', child: Text('Ver PDF')),
-                    const PopupMenuItem(value: 'service_order', child: Text('Pasar a orden de servicio')),
-                    if (canEdit) const PopupMenuItem(value: 'edit', child: Text('Editar')),
-                    if (canDuplicate) const PopupMenuItem(value: 'duplicate', child: Text('Duplicar')),
-                    if (onDelete != null) const PopupMenuItem(value: 'delete', child: Text('Eliminar')),
-                  ],
-                  icon: Container(
-                    padding: const EdgeInsets.all(5),
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(8),
                     ),
-                    child: const Icon(Icons.more_horiz_rounded, size: 16),
-                  ),
+                    PopupMenuButton<String>(
+                      tooltip: 'Acciones',
+                      onSelected: (value) {
+                        if (value == 'view') widget.onView();
+                        if (value == 'pdf') widget.onPdf();
+                        if (value == 'service_order') {
+                          widget.onSendToServiceOrder();
+                        }
+                        if (value == 'edit') widget.onEdit?.call();
+                        if (value == 'duplicate') widget.onDuplicate?.call();
+                        if (value == 'delete') widget.onDelete?.call();
+                      },
+                      itemBuilder: (_) => [
+                        const PopupMenuItem(value: 'view', child: Text('Ver detalle')),
+                        const PopupMenuItem(value: 'pdf', child: Text('Ver PDF')),
+                        const PopupMenuItem(
+                          value: 'service_order',
+                          child: Text('Pasar a orden de servicio'),
+                        ),
+                        if (widget.canEdit)
+                          const PopupMenuItem(value: 'edit', child: Text('Editar')),
+                        if (widget.canDuplicate)
+                          const PopupMenuItem(
+                            value: 'duplicate',
+                            child: Text('Duplicar'),
+                          ),
+                        if (widget.onDelete != null)
+                          const PopupMenuItem(value: 'delete', child: Text('Eliminar')),
+                      ],
+                      icon: Container(
+                        padding: const EdgeInsets.all(5),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(Icons.more_horiz_rounded, size: 16),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         ),

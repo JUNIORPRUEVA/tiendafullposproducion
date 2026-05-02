@@ -16,6 +16,8 @@ enum CorreoFilter { todos, conCorreo, sinCorreo }
 
 enum EstadoFilter { activos, eliminados, todos }
 
+enum OwnerFilter { todos, mine }
+
 final clientesRepositoryProvider = Provider<ClientesRepository>((ref) {
   final repository = ClientesRepository(
     ref.watch(dioProvider),
@@ -67,6 +69,7 @@ class ClientesRepository {
     required ClientesOrder order,
     required CorreoFilter correoFilter,
     required EstadoFilter estadoFilter,
+    required OwnerFilter ownerFilter,
   }) {
     return [
       'clientes',
@@ -75,6 +78,7 @@ class ClientesRepository {
       order.name,
       correoFilter.name,
       estadoFilter.name,
+      ownerFilter.name,
     ].join('|');
   }
 
@@ -89,6 +93,7 @@ class ClientesRepository {
     ClientesOrder order = ClientesOrder.az,
     CorreoFilter correoFilter = CorreoFilter.todos,
     EstadoFilter estadoFilter = EstadoFilter.activos,
+    OwnerFilter ownerFilter = OwnerFilter.todos,
   }) async {
     final cache = await _cache.readMap(
       _cacheKey(
@@ -97,6 +102,7 @@ class ClientesRepository {
         order: order,
         correoFilter: correoFilter,
         estadoFilter: estadoFilter,
+        ownerFilter: ownerFilter,
       ),
       maxAge: _cacheTtl,
     );
@@ -114,6 +120,7 @@ class ClientesRepository {
     required ClientesOrder order,
     required CorreoFilter correoFilter,
     required EstadoFilter estadoFilter,
+    required OwnerFilter ownerFilter,
     required List<ClienteModel> items,
   }) async {
     await _cache.writeMap(
@@ -123,6 +130,7 @@ class ClientesRepository {
         order: order,
         correoFilter: correoFilter,
         estadoFilter: estadoFilter,
+        ownerFilter: ownerFilter,
       ),
       {'items': items.map((item) => item.toJson()).toList(growable: false)},
     );
@@ -134,6 +142,7 @@ class ClientesRepository {
     ClientesOrder order = ClientesOrder.az,
     CorreoFilter correoFilter = CorreoFilter.todos,
     EstadoFilter estadoFilter = EstadoFilter.activos,
+    OwnerFilter ownerFilter = OwnerFilter.todos,
     int page = 1,
     int pageSize = 100,
   }) async {
@@ -143,6 +152,7 @@ class ClientesRepository {
       order: order,
       correoFilter: correoFilter,
       estadoFilter: estadoFilter,
+      ownerFilter: ownerFilter,
       page: page,
       pageSize: pageSize,
     );
@@ -152,6 +162,7 @@ class ClientesRepository {
       order: order,
       correoFilter: correoFilter,
       estadoFilter: estadoFilter,
+      ownerFilter: ownerFilter,
       items: items,
     );
     return items;
@@ -216,6 +227,7 @@ class ClientesRepository {
     ClientesOrder order = ClientesOrder.az,
     CorreoFilter correoFilter = CorreoFilter.todos,
     EstadoFilter estadoFilter = EstadoFilter.activos,
+    OwnerFilter ownerFilter = OwnerFilter.todos,
     int page = 1,
     int pageSize = 100,
     bool skipLoader = false,
@@ -281,7 +293,16 @@ class ClientesRepository {
         }
       }).toList();
 
-      filteredByCorreo.sort((a, b) {
+      final filteredByOwner = filteredByCorreo.where((cliente) {
+        switch (ownerFilter) {
+          case OwnerFilter.todos:
+            return true;
+          case OwnerFilter.mine:
+            return cliente.ownerId.trim() == ownerId.trim();
+        }
+      }).toList();
+
+      filteredByOwner.sort((a, b) {
         final left = a.nombre.toLowerCase();
         final right = b.nombre.toLowerCase();
         return order == ClientesOrder.az
@@ -289,7 +310,7 @@ class ClientesRepository {
             : right.compareTo(left);
       });
 
-      return filteredByCorreo;
+      return filteredByOwner;
     } on DioException catch (e) {
       throw ApiException(
         _extractMessage(e.response?.data, 'No se pudieron cargar los clientes'),

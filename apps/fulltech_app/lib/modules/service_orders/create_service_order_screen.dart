@@ -312,9 +312,7 @@ class _CreateServiceOrderScreenState
                                 if (widget.compactDialog || state.isEditMode) {
                                   context.pop(true);
                                 } else {
-                                  context.go(
-                                    Routes.serviceOrderById(result.order.id),
-                                  );
+                                  context.go(Routes.serviceOrders);
                                 }
                               } catch (_) {
                                 if (!context.mounted) return;
@@ -518,6 +516,17 @@ class _CreateServiceOrderScreenState
                     onTap: _inlineFlowBusy
                         ? null
                         : () => _createClientInline(context, controller),
+                  ),
+                  const SizedBox(width: 6),
+                  _CompactActionIconButton(
+                    icon: Icons.edit_rounded,
+                    onTap: _inlineFlowBusy || state.selectedClient == null
+                        ? null
+                        : () => _editSelectedClientInline(
+                            context,
+                            state,
+                            controller,
+                          ),
                   ),
                 ],
               ],
@@ -1015,6 +1024,21 @@ class _CreateServiceOrderScreenState
     await _runInlineFlow(() => controller.applyCreatedClient(newClient));
   }
 
+  Future<void> _editSelectedClientInline(
+    BuildContext context,
+    CreateServiceOrderState state,
+    CreateServiceOrderController controller,
+  ) async {
+    final clientId = (state.selectedClient?.id ?? '').trim();
+    if (clientId.isEmpty) return;
+    final updatedClient = await openClienteFormAdaptive(
+      context,
+      clienteId: clientId,
+    );
+    if (updatedClient == null || !mounted) return;
+    await _runInlineFlow(() => controller.applyCreatedClient(updatedClient));
+  }
+
   Future<void> _createQuotationInline(
     BuildContext context,
     CreateServiceOrderState state,
@@ -1374,9 +1398,8 @@ class _CreateServiceOrderScreenState
     CreateServiceOrderController controller,
   ) async {
     final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: const ['mp4', 'mov', 'webm', 'mkv'],
-      withData: kIsWeb,
+      type: FileType.video,
+      withData: true,
     );
     final file = result?.files.single;
     if (file == null) return;
@@ -1384,7 +1407,7 @@ class _CreateServiceOrderScreenState
       await controller.addVideoReference(
         fileName: file.name,
         bytes: file.bytes,
-        path: file.path,
+        path: kIsWeb ? null : file.path,
         sizeBytes: file.size,
       );
     } catch (_) {
@@ -1413,7 +1436,7 @@ class _CreateServiceOrderScreenState
     try {
       await controller.addImageReference(
         bytes: bytes,
-        path: file.path,
+        path: kIsWeb ? null : file.path,
         fileName: file.name,
         sizeBytes: file.size,
       );

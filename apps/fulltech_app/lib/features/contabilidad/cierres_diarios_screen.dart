@@ -532,115 +532,52 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             )
-          else ...[
-            const SizedBox(height: 10),
-            Table(
-              columnWidths: const {
-                0: FlexColumnWidth(2),
-                1: FlexColumnWidth(1),
-                2: IntrinsicColumnWidth(),
-              },
-              border: TableBorder.symmetric(
-                inside: BorderSide(
-                  color: Theme.of(context).colorScheme.outlineVariant,
+          else
+            ..._expenseEntries.asMap().entries.map((entry) {
+              final index = entry.key;
+              final draft = entry.value;
+              return Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: _ExpenseEntryEditor(
+                  index: index,
+                  draft: draft,
+                  onChanged: () => setState(() {}),
+                  onRemove: () {
+                    setState(() {
+                      _expenseEntries.removeAt(index).dispose();
+                    });
+                  },
+                  onPickVoucher: () => _pickExpenseVoucher(draft),
+                  onOpenVoucher: (voucher) => _openVoucherPreview(voucher),
                 ),
-              ),
-              children: [
-                TableRow(
-                  decoration: BoxDecoration(
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.surfaceContainerHighest,
-                  ),
-                  children: const [
-                    Padding(
-                      padding: EdgeInsets.all(8),
-                      child: Text(
-                        'Concepto',
-                        style: TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                    ),
-                    Padding(
-                      padding: EdgeInsets.all(8),
-                      child: Text(
-                        'Monto',
-                        style: TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                    ),
-                    Padding(
-                      padding: EdgeInsets.all(8),
-                      child: Text(
-                        'Acciones',
-                        style: TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                    ),
-                  ],
-                ),
-                for (var index = 0; index < _expenseEntries.length; index++)
-                  TableRow(
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: TextFormField(
-                          controller: _expenseEntries[index].conceptCtrl,
-                          decoration: const InputDecoration(
-                            border: InputBorder.none,
-                            hintText: 'Nombre del gasto',
-                          ),
-                          onChanged: (_) => setState(() {}),
-                          validator: (value) {
-                            if ((value ?? '').trim().isEmpty) {
-                              return 'Concepto requerido';
-                            }
-                            return null;
-                          },
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: TextFormField(
-                          controller: _expenseEntries[index].amountCtrl,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          decoration: const InputDecoration(
-                            border: InputBorder.none,
-                            hintText: '0.00',
-                            prefixText: '\$ ',
-                          ),
-                          onChanged: (_) => setState(() {}),
-                          validator: (value) {
-                            final amount = _toMoney(value);
-                            if (amount <= 0) {
-                              return 'Mayor a 0';
-                            }
-                            return null;
-                          },
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: IconButton(
-                          icon: const Icon(Icons.delete_outline),
-                          tooltip: 'Eliminar gasto',
-                          onPressed: () {
-                            setState(() {
-                              _expenseEntries.removeAt(index).dispose();
-                            });
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-              ],
-            ),
-          ],
+              );
+            }),
         ],
       ),
     );
   }
 
   Future<void> _pickVoucher(_TransferDraft draft) async {
+    final result = await FilePicker.platform.pickFiles(
+      allowMultiple: true,
+      withData: true,
+      type: FileType.custom,
+      allowedExtensions: const ['jpg', 'jpeg', 'png', 'pdf'],
+    );
+    if (result == null || result.files.isEmpty) return;
+    setState(() => draft.uploading = true);
+    final repo = ref.read(contabilidadRepositoryProvider);
+    try {
+      for (final file in result.files) {
+        final uploaded = await repo.uploadCloseVoucher(file);
+        draft.vouchers.add(uploaded);
+      }
+    } finally {
+      if (mounted) setState(() => draft.uploading = false);
+    }
+  }
+
+  Future<void> _pickExpenseVoucher(_ExpenseDraft draft) async {
     final result = await FilePicker.platform.pickFiles(
       allowMultiple: true,
       withData: true,
@@ -714,6 +651,8 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
           (e) => {
             'concept': e.conceptCtrl.text.trim(),
             'amount': _toMoney(e.amountCtrl.text),
+            if (e.vouchers.isNotEmpty)
+              'vouchers': e.vouchers.map((item) => item.toJson()).toList(),
           },
         )
         .toList();
@@ -845,6 +784,10 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
               amount: ((e['amount'] as num?)?.toDouble() ?? 0).toStringAsFixed(
                 2,
               ),
+              vouchers: (((e['vouchers'] as List?) ?? const [])
+                  .whereType<Map>()
+                  .map((v) => CloseTransferVoucherModel.fromJson(v.cast<String, dynamic>()))
+                  .toList()),
             ),
           ),
         );
@@ -1904,16 +1847,72 @@ class _CloseDetailFullScreenPageState
             ...currentClose.expenseDetails.map((row) {
               final concept = (row['concept'] as String?)?.trim();
               final amount = (row['amount'] as num?)?.toDouble() ?? 0;
-              return ListTile(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                title: Text(
-                  concept?.isNotEmpty == true ? concept! : 'Sin concepto',
-                ),
-                trailing: Text(
-                  _money(amount),
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
+              final vouchers = ((row['vouchers'] as List?) ?? const [])
+                  .whereType<Map>()
+                  .map(
+                    (voucher) => CloseTransferVoucherModel.fromJson(
+                      voucher.cast<String, dynamic>(),
+                    ),
+                  )
+                  .map(
+                    (voucher) => CloseTransferVoucherModel(
+                      storageKey: voucher.storageKey,
+                      fileUrl: _normalizeAssetUrl(voucher.fileUrl),
+                      fileName: voucher.fileName,
+                      mimeType: voucher.mimeType,
+                    ),
+                  )
+                  .toList();
+
+              return Column(
+                children: [
+                  ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(
+                      concept?.isNotEmpty == true ? concept! : 'Sin concepto',
+                    ),
+                    subtitle: vouchers.isEmpty
+                        ? const Text('Sin comprobantes')
+                        : Text(
+                            vouchers.length == 1
+                                ? '1 comprobante adjunto'
+                                : '${vouchers.length} comprobantes adjuntos',
+                          ),
+                    trailing: Text(
+                      _money(amount),
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  if (vouchers.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: vouchers
+                              .map(
+                                (voucher) => InputChip(
+                                  avatar: Icon(
+                                    voucher.mimeType.startsWith('image/')
+                                        ? Icons.image_outlined
+                                        : Icons.picture_as_pdf_outlined,
+                                    size: 18,
+                                  ),
+                                  label: Text(voucher.fileName),
+                                  onPressed: () => _showVoucherPreviewDialog(
+                                    context,
+                                    voucher,
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                        ),
+                      ),
+                    ),
+                ],
               );
             }),
           ],
@@ -2414,10 +2413,17 @@ class _TransferDraft {
 class _ExpenseDraft {
   final conceptCtrl = TextEditingController();
   final amountCtrl = TextEditingController(text: '0');
+  final List<CloseTransferVoucherModel> vouchers = [];
+  bool uploading = false;
 
-  _ExpenseDraft({String concept = '', String amount = '0'}) {
+  _ExpenseDraft({
+    String concept = '',
+    String amount = '0',
+    List<CloseTransferVoucherModel> vouchers = const [],
+  }) {
     conceptCtrl.text = concept;
     amountCtrl.text = amount;
+    this.vouchers.addAll(vouchers);
   }
 
   void dispose() {
@@ -2549,6 +2555,139 @@ class _TransferEntryEditor extends StatelessWidget {
                         )
                       : const Icon(Icons.upload_file_outlined),
                   label: const Text('Voucher'),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: draft.vouchers
+                        .map(
+                          (voucher) => InputChip(
+                            label: Text(voucher.fileName),
+                            avatar: Icon(
+                              voucher.mimeType.startsWith('image/')
+                                  ? Icons.image_outlined
+                                  : Icons.picture_as_pdf_outlined,
+                              size: 18,
+                            ),
+                            onPressed: () => onOpenVoucher(voucher),
+                            onDeleted: () {
+                              draft.vouchers.remove(voucher);
+                              onChanged();
+                            },
+                          ),
+                        )
+                        .toList(),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ExpenseEntryEditor extends StatelessWidget {
+  final int index;
+  final _ExpenseDraft draft;
+  final VoidCallback onChanged;
+  final VoidCallback onRemove;
+  final Future<void> Function() onPickVoucher;
+  final void Function(CloseTransferVoucherModel voucher) onOpenVoucher;
+
+  const _ExpenseEntryEditor({
+    required this.index,
+    required this.draft,
+    required this.onChanged,
+    required this.onRemove,
+    required this.onPickVoucher,
+    required this.onOpenVoucher,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Gasto ${index + 1}',
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Eliminar gasto',
+                  onPressed: onRemove,
+                  icon: const Icon(Icons.delete_outline),
+                ),
+              ],
+            ),
+            Row(
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    controller: draft.conceptCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Concepto',
+                      hintText: 'Nombre del gasto',
+                    ),
+                    onChanged: (_) => onChanged(),
+                    validator: (value) {
+                      if ((value ?? '').trim().isEmpty) {
+                        return 'Concepto requerido';
+                      }
+                      return null;
+                    },
+                  ),
+                ),
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: 160,
+                  child: TextFormField(
+                    controller: draft.amountCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: const InputDecoration(
+                      labelText: 'Monto',
+                      prefixText: '\$ ',
+                    ),
+                    onChanged: (_) => onChanged(),
+                    validator: (value) {
+                      final amount = double.tryParse(
+                            (value ?? '').replaceAll(',', '.'),
+                          ) ??
+                          0;
+                      return amount <= 0 ? 'Mayor a 0' : null;
+                    },
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                OutlinedButton.icon(
+                  onPressed: draft.uploading ? null : onPickVoucher,
+                  icon: draft.uploading
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.add_photo_alternate_outlined),
+                  label: const Text('Comprobantes (opcional)'),
                 ),
                 const SizedBox(width: 8),
                 Expanded(

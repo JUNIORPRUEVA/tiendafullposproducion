@@ -32,6 +32,10 @@ class AppDrawer extends ConsumerWidget {
         ? currentUser!.nombreCompleto
         : branding.departmentName;
     const onBase = Colors.white;
+    const slate50 = Color(0xFFF8FAFC);
+    const slate400 = Color(0xFF94A3B8);
+    const panelTop = Color(0xFF0F172A);
+    const panelBottom = Color(0xFF111C31);
 
     final panelShadow = BoxShadow(
       color: branding.tertiary.withValues(alpha: 0.14),
@@ -42,7 +46,11 @@ class AppDrawer extends ConsumerWidget {
     return Drawer(
       child: DecoratedBox(
         decoration: BoxDecoration(
-          gradient: branding.drawerGradient,
+          gradient: const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [panelTop, panelBottom],
+          ),
           boxShadow: [panelShadow],
         ),
         child: SafeArea(
@@ -50,23 +58,23 @@ class AppDrawer extends ConsumerWidget {
             children: [
               Padding(
                 padding: EdgeInsets.fromLTRB(
-                  isCompactMobile ? 12 : 16,
-                  isCompactMobile ? 12 : 16,
-                  isCompactMobile ? 12 : 16,
-                  isCompactMobile ? 8 : 10,
+                  isCompactMobile ? 12 : 14,
+                  isCompactMobile ? 10 : 12,
+                  isCompactMobile ? 12 : 14,
+                  10,
                 ),
                 child: Container(
                   width: double.infinity,
                   padding: EdgeInsets.fromLTRB(
-                    isCompactMobile ? 12 : 14,
-                    isCompactMobile ? 11 : 13,
-                    isCompactMobile ? 12 : 14,
-                    isCompactMobile ? 11 : 13,
+                    isCompactMobile ? 10 : 12,
+                    isCompactMobile ? 10 : 11,
+                    isCompactMobile ? 10 : 12,
+                    isCompactMobile ? 10 : 11,
                   ),
                   decoration: BoxDecoration(
-                    color: onBase.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(22),
-                    border: Border.all(color: onBase.withValues(alpha: 0.10)),
+                    color: onBase.withValues(alpha: 0.04),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: onBase.withValues(alpha: 0.08)),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -80,19 +88,19 @@ class AppDrawer extends ConsumerWidget {
                             },
                             child: UserAvatar(
                               imageUrl: currentUser?.fotoPersonalUrl,
-                              radius: isCompactMobile ? 19 : 21,
-                              backgroundColor: onBase.withValues(alpha: 0.18),
+                              radius: isCompactMobile ? 17 : 18,
+                              backgroundColor: onBase.withValues(alpha: 0.16),
                               child: Text(
                                 userInitials(currentUser),
-                                style: theme.textTheme.titleSmall?.copyWith(
+                                style: theme.textTheme.labelLarge?.copyWith(
                                   color: onBase,
-                                  fontWeight: FontWeight.w900,
-                                  letterSpacing: 0.6,
+                                  fontFamily: 'Inter',
+                                  fontWeight: FontWeight.w700,
                                 ),
                               ),
                             ),
                           ),
-                          const SizedBox(width: 10),
+                          const SizedBox(width: 9),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -102,20 +110,21 @@ class AppDrawer extends ConsumerWidget {
                                   'FULLTECH',
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.titleMedium?.copyWith(
-                                    color: onBase,
-                                    fontWeight: FontWeight.w900,
-                                    letterSpacing: 0.9,
+                                  style: theme.textTheme.titleSmall?.copyWith(
+                                    color: slate50,
+                                    fontFamily: 'Inter',
+                                    fontWeight: FontWeight.w600,
                                   ),
                                 ),
-                                const SizedBox(height: 3),
+                                const SizedBox(height: 2),
                                 Text(
                                   branding.departmentName,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                    color: onBase.withValues(alpha: 0.88),
-                                    fontWeight: FontWeight.w600,
+                                  style: theme.textTheme.labelSmall?.copyWith(
+                                    color: slate400,
+                                    fontFamily: 'Inter',
+                                    fontWeight: FontWeight.w500,
                                   ),
                                 ),
                               ],
@@ -123,20 +132,20 @@ class AppDrawer extends ConsumerWidget {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 8),
                       Container(
                         constraints: BoxConstraints(
                           maxWidth: isCompactMobile ? 210 : 240,
                         ),
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 8,
+                          horizontal: 9,
+                          vertical: 6,
                         ),
                         decoration: BoxDecoration(
-                          color: onBase.withValues(alpha: 0.10),
+                          color: onBase.withValues(alpha: 0.06),
                           borderRadius: BorderRadius.circular(999),
                           border: Border.all(
-                            color: onBase.withValues(alpha: 0.10),
+                            color: onBase.withValues(alpha: 0.08),
                           ),
                         ),
                         child: Row(
@@ -144,8 +153,8 @@ class AppDrawer extends ConsumerWidget {
                           children: [
                             Icon(
                               Icons.person_outline_rounded,
-                              size: 15,
-                              color: onBase.withValues(alpha: 0.82),
+                              size: 14,
+                              color: slate400,
                             ),
                             const SizedBox(width: 6),
                             Flexible(
@@ -154,8 +163,9 @@ class AppDrawer extends ConsumerWidget {
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: theme.textTheme.labelMedium?.copyWith(
-                                  color: onBase,
-                                  fontWeight: FontWeight.w700,
+                                  color: slate50,
+                                  fontFamily: 'Inter',
+                                  fontWeight: FontWeight.w500,
                                 ),
                               ),
                             ),
@@ -168,7 +178,12 @@ class AppDrawer extends ConsumerWidget {
               ),
               Expanded(
                 child: ListView(
-                  padding: EdgeInsets.zero,
+                  padding: EdgeInsets.fromLTRB(
+                    isCompactMobile ? 8 : 10,
+                    4,
+                    isCompactMobile ? 8 : 10,
+                    8,
+                  ),
                   children: [
                     for (final section in sections) ...[
                       _DrawerSectionTitle(
@@ -190,44 +205,45 @@ class AppDrawer extends ConsumerWidget {
                             context.go(item.route);
                           },
                         ),
-                      SizedBox(height: isCompactMobile ? 2 : 4),
+                      SizedBox(height: isCompactMobile ? 12 : 16),
                     ],
                   ],
                 ),
               ),
-              Divider(height: 1, color: onBase.withValues(alpha: 0.12)),
+              Divider(height: 1, color: onBase.withValues(alpha: 0.08)),
               Padding(
                 padding: EdgeInsets.fromLTRB(
                   isCompactMobile ? 10 : 12,
-                  isCompactMobile ? 8 : 10,
+                  8,
                   isCompactMobile ? 10 : 12,
-                  isCompactMobile ? 12 : 14,
+                  12,
                 ),
                 child: Column(
                   children: [
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 10,
+                        horizontal: 10,
+                        vertical: 8,
                       ),
                       decoration: BoxDecoration(
-                        color: onBase.withValues(alpha: 0.07),
-                        borderRadius: BorderRadius.circular(18),
+                        color: onBase.withValues(alpha: 0.05),
+                        borderRadius: BorderRadius.circular(12),
                         border: Border.all(
-                          color: onBase.withValues(alpha: 0.10),
+                          color: onBase.withValues(alpha: 0.08),
                         ),
                       ),
                       child: Text(
                         branding.departmentName,
                         textAlign: TextAlign.center,
                         style: theme.textTheme.labelLarge?.copyWith(
-                          color: onBase.withValues(alpha: 0.92),
-                          fontWeight: FontWeight.w800,
+                          color: slate400,
+                          fontFamily: 'Inter',
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 8),
                     Row(
                       children: [
                         Expanded(
@@ -253,7 +269,7 @@ class AppDrawer extends ConsumerWidget {
                           },
                           icon: Icon(
                             Icons.logout_rounded,
-                            color: onBase.withValues(alpha: 0.92),
+                            color: slate400,
                           ),
                         ),
                       ],
@@ -283,7 +299,7 @@ Widget? buildAdaptiveDrawer(
   return AppDrawer(currentUser: currentUser);
 }
 
-class _DrawerMenuItem extends StatelessWidget {
+class _DrawerMenuItem extends StatefulWidget {
   final IconData icon;
   final String title;
   final bool compact;
@@ -301,81 +317,91 @@ class _DrawerMenuItem extends StatelessWidget {
   });
 
   @override
+  State<_DrawerMenuItem> createState() => _DrawerMenuItemState();
+}
+
+class _DrawerMenuItemState extends State<_DrawerMenuItem> {
+  bool _hovered = false;
+
+  @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final deepBlue = Color.alphaBlend(
-      colorScheme.primary.withValues(alpha: 0.86),
-      colorScheme.tertiary,
-    );
-    final base = Color.alphaBlend(
-      colorScheme.secondary.withValues(alpha: 0.08),
-      deepBlue,
-    );
-    final onBase = colorScheme.onPrimary;
+    const activeText = Color(0xFFFFFFFF);
+    const normalText = Color(0xFF94A3B8);
+    final selected = widget.selected;
     final tileBg = selected
-        ? Color.alphaBlend(colorScheme.primary.withValues(alpha: 0.26), base)
-        : Colors.transparent;
+        ? Colors.white.withValues(alpha: 0.12)
+        : (_hovered ? Colors.white.withValues(alpha: 0.06) : Colors.transparent);
 
     return Padding(
-      padding: EdgeInsets.fromLTRB(
-        compact ? 8 : 10,
-        compact ? 1 : 2,
-        compact ? 8 : 10,
-        compact ? 1 : 2,
-      ),
-      child: Container(
-        decoration: BoxDecoration(
-          color: tileBg,
-          borderRadius: BorderRadius.circular(compact ? 12 : 14),
-          border: Border.all(
-            color: selected
-                ? onBase.withValues(alpha: 0.16)
-                : onBase.withValues(alpha: 0.08),
-          ),
-        ),
-        child: ListTile(
-          dense: true,
-          visualDensity: compact
-              ? const VisualDensity(horizontal: -1, vertical: -2)
-              : VisualDensity.compact,
-          selected: selected,
-          leading: Icon(
-            icon,
-            size: compact ? 20 : 22,
-            color: selected ? onBase : onBase.withValues(alpha: 0.88),
-          ),
-          title: Text(
-            title,
-            style: TextStyle(
-              fontWeight: FontWeight.w600,
-              fontSize: compact ? 13.5 : 14.5,
-              color: selected ? onBase : onBase.withValues(alpha: 0.92),
-            ),
-          ),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (showIndicator)
-                Container(
-                  width: compact ? 8 : 9,
-                  height: compact ? 8 : 9,
-                  margin: const EdgeInsets.only(right: 10),
-                  decoration: BoxDecoration(
-                    color: colorScheme.error,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-              Icon(
-                Icons.chevron_right_rounded,
-                size: compact ? 18 : 19,
-                color: selected ? onBase : onBase.withValues(alpha: 0.70),
+      padding: EdgeInsets.symmetric(vertical: widget.compact ? 1 : 2),
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: widget.onTap,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 170),
+              curve: Curves.easeOut,
+              height: widget.compact ? 44 : 46,
+              padding: EdgeInsets.symmetric(
+                horizontal: widget.compact ? 12 : 14,
+                vertical: 8,
               ),
-            ],
-          ),
-          onTap: onTap,
-          contentPadding: EdgeInsets.symmetric(
-            horizontal: compact ? 12 : 14,
-            vertical: compact ? 2 : 4,
+              decoration: BoxDecoration(
+                color: tileBg,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                children: [
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 170),
+                    width: 3,
+                    height: 24,
+                    decoration: BoxDecoration(
+                      color: selected
+                          ? colorScheme.primary
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                  SizedBox(width: selected ? 10 : 13),
+                  Icon(
+                    widget.icon,
+                    size: widget.compact ? 18 : 19,
+                    color: selected ? activeText : normalText,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      widget.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                        fontSize: widget.compact ? 13.4 : 14,
+                        color: selected ? activeText : normalText,
+                      ),
+                    ),
+                  ),
+                  if (widget.showIndicator)
+                    Container(
+                      width: 7,
+                      height: 7,
+                      margin: const EdgeInsets.only(left: 8),
+                      decoration: BoxDecoration(
+                        color: colorScheme.error,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                ],
+              ),
+            ),
           ),
         ),
       ),
@@ -391,25 +417,25 @@ class _DrawerSectionTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final onBase = scheme.onPrimary;
+    const titleColor = Color(0xFF64748B);
     return Padding(
       padding: EdgeInsets.fromLTRB(
-        compact ? 12 : 14,
         compact ? 6 : 8,
-        compact ? 12 : 14,
-        compact ? 3 : 4,
+        compact ? 14 : 16,
+        compact ? 6 : 8,
+        compact ? 6 : 8,
       ),
       child: Row(
         children: [
           Expanded(
             child: Text(
-              text,
+              text.toUpperCase(),
               style: TextStyle(
-                fontSize: compact ? 10.5 : 11,
-                fontWeight: FontWeight.w700,
-                color: onBase.withValues(alpha: 0.68),
-                letterSpacing: 0.2,
+                fontFamily: 'Inter',
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: titleColor,
+                letterSpacing: 0.9,
               ),
             ),
           ),
