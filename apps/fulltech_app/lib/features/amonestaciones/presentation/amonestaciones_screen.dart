@@ -28,6 +28,43 @@ class _AmonestacionesScreenState
 
   @override
   Widget build(BuildContext context) {
+    final isAdmin = ref.watch(canAccessAmonestacionesProvider);
+    
+    // Si no es admin, mostrar acceso denegado
+    if (!isAdmin) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Amonestaciones'),
+          backgroundColor: const Color(0xFF1a1a2e),
+          foregroundColor: Colors.white,
+        ),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.lock_outline, size: 64, color: Colors.grey),
+              const SizedBox(height: 16),
+              const Text(
+                'Acceso no permitido',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Solo administradores pueden acceder a este módulo.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey),
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Volver'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     final state = ref.watch(warningsListControllerProvider);
     final ctrl = ref.read(warningsListControllerProvider.notifier);
 

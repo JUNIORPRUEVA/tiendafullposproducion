@@ -34,7 +34,8 @@ import {
 
 type RequestUser = { id?: string; role?: string };
 
-const ADMIN_ROLES: Role[] = [Role.ADMIN, Role.ASISTENTE];
+// Only ADMIN can manage warnings
+const ADMIN_ROLES: Role[] = [Role.ADMIN];
 
 // ────────────────────────────────────────────────────────────────────────────
 // Admin endpoints  →  /employee-warnings

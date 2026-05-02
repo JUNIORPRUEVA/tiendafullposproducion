@@ -4,8 +4,8 @@ import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:validators/validators.dart' as validators;
 
-import '../../../core/auth/auth_provider.dart';
 import '../../../core/auth/app_role.dart';
+import '../../../core/auth/auth_provider.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../../core/routing/route_access.dart';
 import '../../../core/utils/app_feedback.dart';
@@ -89,14 +89,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           title: 'Datos de acceso incorrectos',
           message: error.message,
           helpText:
-              'Revisa tu correo corporativo y tu contraseña antes de volver a intentar.',
+              'Revisa tu correo corporativo y tu contrasena antes de volver a intentar.',
         );
       case ApiErrorType.forbidden:
         return _LoginNoticeData.error(
           title: 'Acceso restringido',
           message: error.message,
           helpText:
-              'Si tu acceso debería estar activo, comunícate con administración.',
+              'Si tu acceso deberia estar activo, comunicate con administracion.',
         );
       case ApiErrorType.noInternet:
       case ApiErrorType.dns:
@@ -107,21 +107,21 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           title: 'No se pudo conectar',
           message: error.message,
           helpText:
-              'Verifica tu conexión a internet y vuelve a intentar en unos segundos.',
+              'Verifica tu conexion a internet y vuelve a intentar en unos segundos.',
         );
       case ApiErrorType.config:
         return _LoginNoticeData.error(
-          title: 'Configuración pendiente',
+          title: 'Configuracion pendiente',
           message: error.message,
           helpText:
-              'La aplicación necesita una configuración válida del backend para continuar.',
+              'La aplicacion necesita una configuracion valida del backend para continuar.',
         );
       case ApiErrorType.server:
         return _LoginNoticeData.error(
           title: 'Servidor no disponible',
           message: error.message,
           helpText:
-              'El sistema está respondiendo con un problema interno. Intenta nuevamente en un momento.',
+              'El sistema esta respondiendo con un problema interno. Intenta nuevamente en un momento.',
         );
       case ApiErrorType.badRequest:
       case ApiErrorType.notFound:
@@ -130,7 +130,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       case ApiErrorType.cancelled:
       case ApiErrorType.unknown:
         return _LoginNoticeData.error(
-          title: 'No se pudo iniciar sesión',
+          title: 'No se pudo iniciar sesion',
           message: error.message,
           helpText:
               'Corrige los datos ingresados o vuelve a intentarlo en unos segundos.',
@@ -158,27 +158,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         );
       });
       return;
-      setState(
-        () => _notice = const _LoginNoticeData.success(
-          title: 'Inicio de sesión correcto',
-          message: 'Tu acceso fue validado. Te estamos redirigiendo ahora.',
-          helpText: 'Espera un momento mientras cargamos tu panel de trabajo.',
-        ),
-      );
-      await AppFeedback.showInfo(
-        context,
-        'Inicio de sesión correcto. Cargando tu panel...',
-        scope: 'LoginScreen',
-      );
-      await Future<void>.delayed(const Duration(milliseconds: 700));
-      if (!mounted) return;
-      if (mounted) {
-        context.go(
-          RouteAccess.defaultHomeForRole(
-            ref.read(authStateProvider).user?.appRole ?? AppRole.unknown,
-          ),
-        );
-      }
     } on ApiException catch (e) {
       if (mounted) {
         final notice = _buildErrorNotice(e);
@@ -192,11 +171,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     } catch (e) {
       if (mounted) {
         const notice = _LoginNoticeData.error(
-          title: 'No se pudo iniciar sesión',
+          title: 'No se pudo iniciar sesion',
           message:
-              'Ocurrió un error inesperado al validar tu acceso. Intenta nuevamente.',
+              'Ocurrio un error inesperado al validar tu acceso. Intenta nuevamente.',
           helpText:
-              'Si el problema persiste, informa al área técnica para revisar el sistema.',
+              'Si el problema persiste, informa al area tecnica para revisar el sistema.',
         );
         setState(() => _notice = notice);
         await AppFeedback.showError(
@@ -243,118 +222,118 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               child: ConstrainedBox(
                 constraints: BoxConstraints(maxWidth: cardWidth),
                 child: Card(
-              color: Colors.white,
-              elevation: 10,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-                side: const BorderSide(color: Colors.black87, width: 1.2),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: SingleChildScrollView(
-                  child: Form(
-                    key: _formKey,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Bienvenido a FullTech',
-                              style: Theme.of(context).textTheme.headlineSmall
-                                  ?.copyWith(
-                                    color: Colors.black87,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                            ),
-                            const SizedBox(height: 6),
-                            const Text(
-                              'Inicia sesión para continuar.',
-                              style: TextStyle(color: Colors.black87),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 20),
-                        TextFormField(
-                          controller: _emailCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'Email corporativo',
-                            prefixIcon: Icon(Icons.alternate_email),
-                          ),
-                          keyboardType: TextInputType.emailAddress,
-                          validator: (v) {
-                            final value = v?.trim() ?? '';
-                            if (value.isEmpty) return 'Ingresa tu email';
-                            if (!validators.isEmail(value)) {
-                              return 'Email inválido';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          controller: _passwordCtrl,
-                          decoration: InputDecoration(
-                            labelText: 'Contraseña',
-                            prefixIcon: const Icon(Icons.lock_outline),
-                            suffixIcon: IconButton(
-                              tooltip: _obscurePassword
-                                  ? 'Mostrar contraseña'
-                                  : 'Ocultar contraseña',
-                              onPressed: () {
-                                setState(() {
-                                  _obscurePassword = !_obscurePassword;
-                                });
-                              },
-                              icon: Icon(
-                                _obscurePassword
-                                    ? Icons.visibility_outlined
-                                    : Icons.visibility_off_outlined,
+                  color: Colors.white,
+                  elevation: 10,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    side: const BorderSide(color: Colors.black87, width: 1.2),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Bienvenido a FullTech',
+                                style: Theme.of(context).textTheme.headlineSmall
+                                    ?.copyWith(
+                                      color: Colors.black87,
+                                      fontWeight: FontWeight.bold,
+                                    ),
                               ),
-                            ),
+                              const SizedBox(height: 6),
+                              const Text(
+                                'Inicia sesion para continuar.',
+                                style: TextStyle(color: Colors.black87),
+                              ),
+                            ],
                           ),
-                          obscureText: _obscurePassword,
-                          validator: (v) => (v == null || v.isEmpty)
-                              ? 'Ingresa tu contraseña'
-                              : null,
-                        ),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Switch(
-                              value: _rememberMe,
-                              onChanged: (value) {
-                                setState(() => _rememberMe = value);
-                              },
-                              activeThumbColor: Theme.of(
-                                context,
-                              ).colorScheme.primary,
+                          const SizedBox(height: 20),
+                          TextFormField(
+                            controller: _emailCtrl,
+                            decoration: const InputDecoration(
+                              labelText: 'Email corporativo',
+                              prefixIcon: Icon(Icons.alternate_email),
                             ),
-                            const SizedBox(width: 8),
-                            const Expanded(
-                              child: Text(
-                                'Recordar contraseña',
-                                style: TextStyle(
-                                  color: Colors.black87,
-                                  fontWeight: FontWeight.w600,
+                            keyboardType: TextInputType.emailAddress,
+                            validator: (v) {
+                              final value = v?.trim() ?? '';
+                              if (value.isEmpty) return 'Ingresa tu email';
+                              if (!validators.isEmail(value)) {
+                                return 'Email invalido';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                          TextFormField(
+                            controller: _passwordCtrl,
+                            decoration: InputDecoration(
+                              labelText: 'Contrasena',
+                              prefixIcon: const Icon(Icons.lock_outline),
+                              suffixIcon: IconButton(
+                                tooltip: _obscurePassword
+                                    ? 'Mostrar contrasena'
+                                    : 'Ocultar contrasena',
+                                onPressed: () {
+                                  setState(() {
+                                    _obscurePassword = !_obscurePassword;
+                                  });
+                                },
+                                icon: Icon(
+                                  _obscurePassword
+                                      ? Icons.visibility_outlined
+                                      : Icons.visibility_off_outlined,
                                 ),
                               ),
                             ),
-                          ],
-                        ),
-                        if (_notice != null) ...[
+                            obscureText: _obscurePassword,
+                            validator: (v) => (v == null || v.isEmpty)
+                                ? 'Ingresa tu contrasena'
+                                : null,
+                          ),
                           const SizedBox(height: 12),
-                          _LoginNoticeCard(data: _notice!),
+                          Row(
+                            children: [
+                              Switch(
+                                value: _rememberMe,
+                                onChanged: (value) {
+                                  setState(() => _rememberMe = value);
+                                },
+                                activeThumbColor: Theme.of(
+                                  context,
+                                ).colorScheme.primary,
+                              ),
+                              const SizedBox(width: 8),
+                              const Expanded(
+                                child: Text(
+                                  'Recordar contrasena',
+                                  style: TextStyle(
+                                    color: Colors.black87,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (_notice != null) ...[
+                            const SizedBox(height: 12),
+                            _LoginNoticeCard(data: _notice!),
+                          ],
+                          const SizedBox(height: 16),
+                          PrimaryButton(
+                            label: 'Iniciar sesion',
+                            loading: loading,
+                            onPressed: _submit,
+                          ),
                         ],
-                        const SizedBox(height: 16),
-                        PrimaryButton(
-                          label: 'Iniciar sesión',
-                          loading: loading,
-                          onPressed: _submit,
-                        ),
-                      ],
+                      ),
                     ),
                   ),
                 ),
@@ -380,12 +359,6 @@ class _LoginNoticeData {
     required this.message,
     required this.helpText,
   }) : isError = true;
-
-  const _LoginNoticeData.success({
-    required this.title,
-    required this.message,
-    required this.helpText,
-  }) : isError = false;
 
   final String title;
   final String message;

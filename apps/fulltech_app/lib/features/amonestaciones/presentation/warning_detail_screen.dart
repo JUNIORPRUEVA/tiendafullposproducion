@@ -26,6 +26,18 @@ class _WarningDetailScreenState extends ConsumerState<WarningDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isAdmin = ref.watch(canAccessAmonestacionesProvider);
+    
+    // Solo ADMIN puede ver detalles
+    if (!isAdmin) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Detalle')),
+        body: const Center(
+          child: Text('Acceso no permitido para este usuario'),
+        ),
+      );
+    }
+
     final async = ref.watch(warningDetailProvider(widget.warningId));
 
     return async.when(

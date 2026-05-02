@@ -92,6 +92,9 @@ class _AppErrorOverlayState extends State<AppErrorOverlay> {
       builder: (dialogContext) {
         final theme = Theme.of(dialogContext);
         final scheme = theme.colorScheme;
+        final mediaQuery = MediaQuery.of(dialogContext);
+        final maxDialogHeight =
+            mediaQuery.size.height - mediaQuery.viewInsets.bottom - 32;
         return StatefulBuilder(
           builder: (dialogContext, setDialogState) {
             return Dialog(
@@ -102,7 +105,10 @@ class _AppErrorOverlayState extends State<AppErrorOverlay> {
               backgroundColor: Colors.transparent,
               elevation: 0,
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 500),
+                constraints: BoxConstraints(
+                  maxWidth: 500,
+                  maxHeight: maxDialogHeight.clamp(280.0, 760.0),
+                ),
                 child: Container(
                   decoration: BoxDecoration(
                     color: scheme.surface.withValues(alpha: 0.985),
@@ -118,151 +124,176 @@ class _AppErrorOverlayState extends State<AppErrorOverlay> {
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(28),
                     child: Column(
-                      mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Container(
-                          padding: const EdgeInsets.fromLTRB(22, 20, 22, 18),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                severityColor.withValues(alpha: 0.14),
-                                scheme.surface,
-                              ],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-                          ),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Container(
-                                width: 54,
-                                height: 54,
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    colors: [
-                                      severityColor.withValues(alpha: 0.22),
-                                      severityColor.withValues(alpha: 0.08),
-                                    ],
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
+                        Flexible(
+                          child: SingleChildScrollView(
+                            padding: EdgeInsets.zero,
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    22,
+                                    20,
+                                    22,
+                                    18,
                                   ),
-                                  borderRadius: BorderRadius.circular(18),
-                                ),
-                                child: Icon(
-                                  severityIcon,
-                                  color: severityColor,
-                                  size: 28,
-                                ),
-                              ),
-                              const SizedBox(width: 14),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      error.title,
-                                      style: theme.textTheme.titleLarge
-                                          ?.copyWith(
-                                            fontWeight: FontWeight.w800,
-                                            letterSpacing: -0.2,
-                                          ),
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [
+                                        severityColor.withValues(alpha: 0.14),
+                                        scheme.surface,
+                                      ],
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
                                     ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      _subtitleFor(error),
-                                      style: theme.textTheme.bodyMedium
-                                          ?.copyWith(
-                                            color: scheme.onSurfaceVariant,
-                                          ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              IconButton(
-                                onPressed: () {
-                                  AppErrorReporter.instance.clear();
-                                  Navigator.of(
-                                    dialogContext,
-                                    rootNavigator: true,
-                                  ).pop();
-                                },
-                                tooltip: 'Cerrar',
-                                icon: const Icon(Icons.close_rounded),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(22, 18, 22, 10),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                error.userMessage,
-                                style: theme.textTheme.bodyLarge?.copyWith(
-                                  height: 1.45,
-                                  color: scheme.onSurface.withValues(
-                                    alpha: 0.92,
                                   ),
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              _Section(
-                                label: 'Error real para copiar',
-                                value: error.primaryTechnicalMessage,
-                                dense: true,
-                              ),
-                              const SizedBox(height: 8),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 14,
-                                  vertical: 12,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: scheme.surfaceContainerHighest
-                                      .withValues(alpha: 0.55),
-                                  borderRadius: BorderRadius.circular(18),
-                                ),
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      Icons.shield_outlined,
-                                      size: 18,
-                                      color: severityColor,
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: Text(
-                                        canRetry
-                                            ? 'Puedes intentar nuevamente sin salir de la pantalla.'
-                                            : 'Tu informacion sigue protegida y ya puedes copiar el error completo para revisarlo.',
-                                        style: theme.textTheme.bodyMedium
-                                            ?.copyWith(
-                                              color: scheme.onSurfaceVariant,
-                                              fontWeight: FontWeight.w600,
-                                            ),
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Container(
+                                        width: 54,
+                                        height: 54,
+                                        decoration: BoxDecoration(
+                                          gradient: LinearGradient(
+                                            colors: [
+                                              severityColor.withValues(
+                                                alpha: 0.22,
+                                              ),
+                                              severityColor.withValues(
+                                                alpha: 0.08,
+                                              ),
+                                            ],
+                                            begin: Alignment.topLeft,
+                                            end: Alignment.bottomRight,
+                                          ),
+                                          borderRadius: BorderRadius.circular(
+                                            18,
+                                          ),
+                                        ),
+                                        child: Icon(
+                                          severityIcon,
+                                          color: severityColor,
+                                          size: 28,
+                                        ),
                                       ),
-                                    ),
-                                  ],
+                                      const SizedBox(width: 14),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              error.title,
+                                              style: theme.textTheme.titleLarge
+                                                  ?.copyWith(
+                                                    fontWeight: FontWeight.w800,
+                                                    letterSpacing: -0.2,
+                                                  ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              _subtitleFor(error),
+                                              style: theme.textTheme.bodyMedium
+                                                  ?.copyWith(
+                                                    color:
+                                                        scheme.onSurfaceVariant,
+                                                  ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      IconButton(
+                                        onPressed: () {
+                                          AppErrorReporter.instance.clear();
+                                          Navigator.of(
+                                            dialogContext,
+                                            rootNavigator: true,
+                                          ).pop();
+                                        },
+                                        tooltip: 'Cerrar',
+                                        icon: const Icon(Icons.close_rounded),
+                                      ),
+                                    ],
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(height: 10),
-                              ConstrainedBox(
-                                constraints: const BoxConstraints(
-                                  maxHeight: 260,
-                                ),
-                                child: SingleChildScrollView(
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    22,
+                                    18,
+                                    22,
+                                    10,
+                                  ),
                                   child: Column(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
-                                    children: technicalSections,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        error.userMessage,
+                                        style: theme.textTheme.bodyLarge
+                                            ?.copyWith(
+                                              height: 1.45,
+                                              color: scheme.onSurface
+                                                  .withValues(alpha: 0.92),
+                                            ),
+                                      ),
+                                      const SizedBox(height: 16),
+                                      _Section(
+                                        label: 'Error real para copiar',
+                                        value: error.primaryTechnicalMessage,
+                                        dense: true,
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 14,
+                                          vertical: 12,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: scheme.surfaceContainerHighest
+                                              .withValues(alpha: 0.55),
+                                          borderRadius: BorderRadius.circular(
+                                            18,
+                                          ),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            Icon(
+                                              Icons.shield_outlined,
+                                              size: 18,
+                                              color: severityColor,
+                                            ),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: Text(
+                                                canRetry
+                                                    ? 'Puedes intentar nuevamente sin salir de la pantalla.'
+                                                    : 'Tu informacion sigue protegida y ya puedes copiar el error completo para revisarlo.',
+                                                style: theme
+                                                    .textTheme
+                                                    .bodyMedium
+                                                    ?.copyWith(
+                                                      color: scheme
+                                                          .onSurfaceVariant,
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                    ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(height: 10),
+                                      ...technicalSections,
+                                    ],
                                   ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
                         Padding(

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/employee_warning_model.dart';
 import '../data/employee_warnings_repository.dart';
+import '../application/warnings_controller.dart';
 import '../../user/data/users_repository.dart';
 import '../../../core/models/user_model.dart';
 import 'warning_labels.dart';
@@ -165,6 +166,21 @@ class _WarningCreateScreenState extends ConsumerState<WarningCreateScreen> {
   @override
   Widget build(BuildContext context) {
     final isEdit = widget.existing != null;
+    final isAdmin = ref.watch(canAccessAmonestacionesProvider);
+
+    // Solo ADMIN puede crear/editar amonestaciones
+    if (!isAdmin) {
+      return Scaffold(
+        appBar: AppBar(
+          title: Text(isEdit ? 'Editar' : 'Nueva amonestación'),
+          backgroundColor: const Color(0xFF1a1a2e),
+          foregroundColor: Colors.white,
+        ),
+        body: const Center(
+          child: Text('Acceso no permitido para este usuario'),
+        ),
+      );
+    }
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F6FA),

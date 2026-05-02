@@ -123,7 +123,8 @@ final warningsListControllerProvider =
   return WarningsListController(ref.watch(employeeWarningsRepositoryProvider));
 });
 
-// ── Warning detail ────────────────────────────────────────────────────────────
+// ── Warning detail (Admin only) ───────────────────────────────────────────────
+// Nota: Solo Admin puede acceder a detalles. Los empleados no tienen acceso.
 
 final warningDetailProvider =
     FutureProvider.family<EmployeeWarning, String>((ref, id) async {
@@ -131,6 +132,7 @@ final warningDetailProvider =
 });
 
 // ── Employee pending ──────────────────────────────────────────────────────────
+// Solo muestra amonestaciones pendientes de firma del empleado actual
 
 final myPendingWarningsProvider =
     FutureProvider<List<EmployeeWarning>>((ref) async {
@@ -146,4 +148,18 @@ final myPendingWarningsCountProvider = Provider<int>((ref) {
         data: (list) => list.length,
         orElse: () => 0,
       );
+});
+
+// ── Verificar si usuario es Admin ─────────────────────────────────────────────
+
+final isUserAdminProvider = Provider<bool>((ref) {
+  final authState = ref.watch(authStateProvider);
+  return authState.user?.role == 'ADMIN';
+});
+
+// ── Guard: Solo Admin puede ver el módulo de amonestaciones ──────────────────
+
+final canAccessAmonestacionesProvider = Provider<bool>((ref) {
+  final authState = ref.watch(authStateProvider);
+  return authState.user?.role == 'ADMIN';
 });
