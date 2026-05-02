@@ -33,8 +33,8 @@ workflows:
       - apps/fulltech_app/build/ios/iphoneos/*.app
       - apps/fulltech_app/build/ios/**/*.xcarchive
 
-  ios-testflight-placeholder:
-    name: iOS TestFlight Placeholder
+  ios-testflight:
+    name: iOS TestFlight
     max_build_duration: 60
     instance_type: mac_mini_m2
     environment:
@@ -50,12 +50,39 @@ workflows:
         APP_STORE_CONNECT_ISSUER_ID: $APP_STORE_CONNECT_ISSUER_ID
         APP_STORE_CONNECT_PRIVATE_KEY: $APP_STORE_CONNECT_PRIVATE_KEY
     scripts:
-      - name: Prepare dependencies
+      - name: Flutter pub get
         script: |
           cd "$APP_DIR"
           flutter pub get
-          flutter analyze
-      - name: TestFlight build placeholder
+      - name: Static analysis
         script: |
-          echo "Configure iOS signing certificates/profiles in Codemagic before enabling TestFlight publishing."
-          echo "Required vars: APPLE_TEAM_ID, BUNDLE_ID, APP_STORE_CONNECT_KEY_IDENTIFIER, APP_STORE_CONNECT_ISSUER_ID, APP_STORE_CONNECT_PRIVATE_KEY."
+          cd "$APP_DIR"
+          flutter analyze || true
+      - name: Fetch iOS signing files
+        script: |
+          if [ -z "$APPLE_TEAM_ID" ]; then
+            echo "APPLE_TEAM_ID must be configured in Codemagic variables for automatic iOS signing."
+          fi
+          app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --create
+      - name: Configure keychain
+        script: |
+          keychain initialize
+          keychain add-certificates
+      - name: Apply Xcode signing settings
+        script: |
+          cd "$APP_DIR"
+          xcode-project use-profiles
+      - name: Build signed IPA
+        script: |
+          cd "$APP_DIR"
+          flutter build ipa --release
+    artifacts:
+      - apps/fulltech_app/build/ios/ipa/*.ipa
+      - apps/fulltech_app/build/ios/archive/*.xcarchive
+      - apps/fulltech_app/flutter_drive.log
+    publishing:
+      app_store_connect:
+        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
+        key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
+        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+        submit_to_testflight: true
