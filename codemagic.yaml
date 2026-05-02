@@ -47,6 +47,29 @@ workflows:
         BUNDLE_ID: com.fulltech.app
         APPLE_TEAM_ID: M4WNZDXN2U
     scripts:
+      - name: Create CI env file
+        script: |
+          cd "$APP_DIR"
+          ENV_FILE=".env"
+          API_BASE_URL_VALUE="${API_BASE_URL:-https://fulltech-tienda-fulltechapppwa.gcdndd.easypanel.host}"
+          APP_BASE_URL_VALUE="${APP_BASE_URL:-$API_BASE_URL_VALUE}"
+          API_TIMEOUT_MS_VALUE="${API_TIMEOUT_MS:-15000}"
+
+          {
+            echo "APP_ENV=production"
+            echo "API_BASE_URL=$API_BASE_URL_VALUE"
+            echo "APP_BASE_URL=$APP_BASE_URL_VALUE"
+            echo "API_TIMEOUT_MS=$API_TIMEOUT_MS_VALUE"
+            if [ -n "${QUOTATION_APPROVAL_ADMIN_PHONE:-}" ]; then
+              echo "QUOTATION_APPROVAL_ADMIN_PHONE=$QUOTATION_APPROVAL_ADMIN_PHONE"
+            fi
+            if [ -n "${RELEASES_API_BASE_URL:-}" ]; then
+              echo "RELEASES_API_BASE_URL=$RELEASES_API_BASE_URL"
+            fi
+            if [ -n "${RELEASES_API_KEY:-}" ]; then
+              echo "RELEASES_API_KEY=$RELEASES_API_KEY"
+            fi
+          } > "$ENV_FILE"
       - name: Flutter pub get
         script: |
           cd "$APP_DIR"
