@@ -326,6 +326,13 @@ class _ServiceOrderDetailScreenState
                           ],
                           _InlineClientSection(state: state),
                           const SizedBox(height: 10),
+                          SectionCard(
+                            icon: Icons.timeline_rounded,
+                            title: 'Historial de estado',
+                            subtitle: 'Seguimiento real de cambios con fecha y hora.',
+                            child: _StatusHistorySection(order: order),
+                          ),
+                          const SizedBox(height: 10),
                           ExpandableSectionCard(
                             storageKey: 'quotation-section',
                             expanded: _expandedSection == 'quotation-section',
@@ -1403,7 +1410,12 @@ class _HeroHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final createdAt = _formatRelativeHeaderDateTime(order.createdAt);
-    final updatedAt = _formatRelativeHeaderDateTime(order.updatedAt);
+    final serviceAt = _formatRelativeHeaderDateTime(
+      order.scheduledFor ?? order.createdAt,
+    );
+    final lastStatusAt = _formatRelativeHeaderDateTime(
+      order.lastStatusChangedAt ?? order.updatedAt,
+    );
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
@@ -1454,7 +1466,16 @@ class _HeroHeader extends StatelessWidget {
               ),
             ),
           Text(
-            'Actualizada: $updatedAt',
+            'Servicio: $serviceAt',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              fontSize: 11,
+            ),
+          ),
+          Text(
+            'Último estado: $lastStatusAt',
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: theme.textTheme.bodySmall?.copyWith(
@@ -1825,6 +1846,87 @@ class _DetailWarmupShell extends StatelessWidget {
             ),
           ],
         ),
+      ],
+    );
+  }
+}
+
+class _StatusHistorySection extends StatelessWidget {
+  const _StatusHistorySection({required this.order});
+
+  final ServiceOrderModel order;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final entries = order.statusHistory;
+
+    if (entries.isEmpty) {
+      final fallbackAt = order.lastStatusChangedAt ?? order.updatedAt;
+      return Text(
+        'Último estado: ${order.status.label} · ${_formatDateTime(fallbackAt)}',
+        style: theme.textTheme.bodyMedium,
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final entry in entries)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  margin: const EdgeInsets.only(top: 6),
+                  decoration: BoxDecoration(
+                    color: entry.nextStatus.color,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        entry.previousStatus == null
+                            ? '${entry.nextStatus.label} (estado inicial)'
+                            : '${entry.previousStatus!.label} → ${entry.nextStatus.label}',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        _formatDateTime(entry.changedAt),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      if ((entry.changedByUserName ?? '').trim().isNotEmpty)
+                        Text(
+                          'Por: ${entry.changedByUserName!.trim()}',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      if ((entry.note ?? '').trim().isNotEmpty)
+                        Text(
+                          'Nota: ${entry.note!.trim()}',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
       ],
     );
   }

@@ -26,7 +26,13 @@ type MediaGalleryItem = {
   orderId: string;
   createdAt: Date;
   uploadedByRole: 'creator' | 'technician';
-  orderStatus: 'pendiente' | 'en_proceso' | 'pospuesta' | 'finalizado' | 'cancelado';
+  orderStatus:
+    | 'pendiente'
+    | 'en_proceso'
+    | 'en_pausa'
+    | 'pospuesta'
+    | 'finalizado'
+    | 'cancelado';
   isInstallationCompleted: boolean;
 };
 

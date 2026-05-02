@@ -20,6 +20,7 @@ enum ServiceOrderType { instalacion, mantenimiento, levantamiento, garantia }
 enum ServiceOrderStatus {
   pendiente,
   enProceso,
+  enPausa,
   pospuesta,
   finalizado,
   cancelado,
@@ -76,6 +77,8 @@ ServiceOrderStatus serviceOrderStatusFromApi(String value) {
       return ServiceOrderStatus.pendiente;
     case 'en_proceso':
       return ServiceOrderStatus.enProceso;
+    case 'en_pausa':
+      return ServiceOrderStatus.enPausa;
     case 'pospuesta':
       return ServiceOrderStatus.pospuesta;
     case 'finalizado':
@@ -188,6 +191,7 @@ extension ServiceOrderStatusX on ServiceOrderStatus {
       case ServiceOrderStatus.enProceso:
       case ServiceOrderStatus.finalizado:
         return true;
+      case ServiceOrderStatus.enPausa:
       case ServiceOrderStatus.pospuesta:
       case ServiceOrderStatus.pendiente:
       case ServiceOrderStatus.cancelado:
@@ -199,6 +203,8 @@ extension ServiceOrderStatusX on ServiceOrderStatus {
     switch (this) {
       case ServiceOrderStatus.enProceso:
         return 'en proceso';
+      case ServiceOrderStatus.enPausa:
+        return 'en pausa';
       case ServiceOrderStatus.pospuesta:
         return 'pospuesta';
       case ServiceOrderStatus.finalizado:
@@ -216,6 +222,8 @@ extension ServiceOrderStatusX on ServiceOrderStatus {
         return 'pendiente';
       case ServiceOrderStatus.enProceso:
         return 'en_proceso';
+      case ServiceOrderStatus.enPausa:
+        return 'en_pausa';
       case ServiceOrderStatus.pospuesta:
         return 'pospuesta';
       case ServiceOrderStatus.finalizado:
@@ -231,6 +239,8 @@ extension ServiceOrderStatusX on ServiceOrderStatus {
         return 'Pendiente';
       case ServiceOrderStatus.enProceso:
         return 'En proceso';
+      case ServiceOrderStatus.enPausa:
+        return 'En pausa';
       case ServiceOrderStatus.pospuesta:
         return 'Pospuesta';
       case ServiceOrderStatus.finalizado:
@@ -246,6 +256,8 @@ extension ServiceOrderStatusX on ServiceOrderStatus {
         return const Color(0xFFD98324);
       case ServiceOrderStatus.enProceso:
         return const Color(0xFF1D5D9B);
+      case ServiceOrderStatus.enPausa:
+        return const Color(0xFFB7791F);
       case ServiceOrderStatus.pospuesta:
         return const Color(0xFF8A6D3B);
       case ServiceOrderStatus.finalizado:
@@ -265,8 +277,15 @@ extension ServiceOrderStatusX on ServiceOrderStatus {
         ];
       case ServiceOrderStatus.enProceso:
         return const [
+          ServiceOrderStatus.enPausa,
           ServiceOrderStatus.pospuesta,
           ServiceOrderStatus.finalizado,
+          ServiceOrderStatus.cancelado,
+        ];
+      case ServiceOrderStatus.enPausa:
+        return const [
+          ServiceOrderStatus.enProceso,
+          ServiceOrderStatus.pospuesta,
           ServiceOrderStatus.cancelado,
         ];
       case ServiceOrderStatus.pospuesta:
@@ -538,6 +557,64 @@ class ServiceOrderReportModel {
   }
 }
 
+class ServiceOrderStatusHistoryEntry {
+  final String id;
+  final String serviceOrderId;
+  final ServiceOrderStatus? previousStatus;
+  final ServiceOrderStatus nextStatus;
+  final DateTime changedAt;
+  final String? changedByUserId;
+  final String? changedByUserName;
+  final String? note;
+
+  const ServiceOrderStatusHistoryEntry({
+    required this.id,
+    required this.serviceOrderId,
+    required this.previousStatus,
+    required this.nextStatus,
+    required this.changedAt,
+    required this.changedByUserId,
+    required this.changedByUserName,
+    required this.note,
+  });
+
+  factory ServiceOrderStatusHistoryEntry.fromJson(Map<String, dynamic> json) {
+    final changedBy = json['changedBy'] is Map
+        ? (json['changedBy'] as Map).cast<String, dynamic>()
+        : null;
+    return ServiceOrderStatusHistoryEntry(
+      id: (json['id'] ?? '').toString(),
+      serviceOrderId: (json['serviceOrderId'] ?? '').toString(),
+      previousStatus: json['previousStatus'] == null
+          ? null
+          : serviceOrderStatusFromApi(json['previousStatus'].toString()),
+      nextStatus: serviceOrderStatusFromApi((json['nextStatus'] ?? '').toString()),
+      changedAt:
+          DateTime.tryParse((json['changedAt'] ?? '').toString()) ?? DateTime.now(),
+      changedByUserId: json['changedByUserId']?.toString(),
+      changedByUserName: changedBy?['nombreCompleto']?.toString(),
+      note: json['note']?.toString(),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'serviceOrderId': serviceOrderId,
+      'previousStatus': previousStatus?.apiValue,
+      'nextStatus': nextStatus.apiValue,
+      'changedAt': changedAt.toIso8601String(),
+      'changedByUserId': changedByUserId,
+      'changedBy': changedByUserName == null
+          ? null
+          : {
+              'nombreCompleto': changedByUserName,
+            },
+      'note': note,
+    };
+  }
+}
+
 class ServiceOrderModel {
   final String id;
   final String clientId;
@@ -555,8 +632,11 @@ class ServiceOrderModel {
   final DateTime? finalizedAt;
   final DateTime? technicianConfirmedAt;
   final String? technicianConfirmedById;
+  final DateTime? lastStatusChangedAt;
+  final String? lastStatusChangedByUserId;
   final DateTime createdAt;
   final DateTime updatedAt;
+  final List<ServiceOrderStatusHistoryEntry> statusHistory;
   final List<ServiceOrderEvidenceModel> evidences;
   final List<ServiceOrderReportModel> reports;
 
@@ -577,8 +657,11 @@ class ServiceOrderModel {
     required this.finalizedAt,
     required this.technicianConfirmedAt,
     required this.technicianConfirmedById,
+    this.lastStatusChangedAt,
+    this.lastStatusChangedByUserId,
     required this.createdAt,
     required this.updatedAt,
+    this.statusHistory = const [],
     this.evidences = const [],
     this.reports = const [],
   });
@@ -613,8 +696,11 @@ class ServiceOrderModel {
     DateTime? finalizedAt,
     DateTime? technicianConfirmedAt,
     String? technicianConfirmedById,
+    DateTime? lastStatusChangedAt,
+    String? lastStatusChangedByUserId,
     DateTime? createdAt,
     DateTime? updatedAt,
+    List<ServiceOrderStatusHistoryEntry>? statusHistory,
     List<ServiceOrderEvidenceModel>? evidences,
     List<ServiceOrderReportModel>? reports,
     bool clearQuotationId = false,
@@ -651,8 +737,12 @@ class ServiceOrderModel {
           technicianConfirmedAt ?? this.technicianConfirmedAt,
       technicianConfirmedById:
           technicianConfirmedById ?? this.technicianConfirmedById,
+      lastStatusChangedAt: lastStatusChangedAt ?? this.lastStatusChangedAt,
+      lastStatusChangedByUserId:
+          lastStatusChangedByUserId ?? this.lastStatusChangedByUserId,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      statusHistory: statusHistory ?? this.statusHistory,
       evidences: evidences ?? this.evidences,
       reports: reports ?? this.reports,
     );
@@ -661,6 +751,7 @@ class ServiceOrderModel {
   factory ServiceOrderModel.fromJson(Map<String, dynamic> json) {
     final rawEvidences = (json['evidences'] as List?) ?? const [];
     final rawReports = (json['reports'] as List?) ?? const [];
+    final rawStatusHistory = (json['statusHistory'] as List?) ?? const [];
     return ServiceOrderModel(
       id: (json['id'] ?? '').toString(),
       clientId: (json['clientId'] ?? '').toString(),
@@ -692,12 +783,24 @@ class ServiceOrderModel {
           ? null
           : DateTime.tryParse(json['technicianConfirmedAt'].toString()),
       technicianConfirmedById: json['technicianConfirmedById']?.toString(),
+        lastStatusChangedAt: json['lastStatusChangedAt'] == null
+          ? null
+          : DateTime.tryParse(json['lastStatusChangedAt'].toString()),
+        lastStatusChangedByUserId: json['lastStatusChangedByUserId']?.toString(),
       createdAt:
           DateTime.tryParse((json['createdAt'] ?? '').toString()) ??
           DateTime.now(),
       updatedAt:
           DateTime.tryParse((json['updatedAt'] ?? '').toString()) ??
           DateTime.now(),
+        statusHistory: rawStatusHistory
+          .whereType<Map>()
+          .map(
+          (row) => ServiceOrderStatusHistoryEntry.fromJson(
+            row.cast<String, dynamic>(),
+          ),
+          )
+          .toList(growable: false),
       evidences: rawEvidences
           .whereType<Map>()
           .map(
@@ -733,8 +836,13 @@ class ServiceOrderModel {
       'finalizedAt': finalizedAt?.toIso8601String(),
       'technicianConfirmedAt': technicianConfirmedAt?.toIso8601String(),
       'technicianConfirmedById': technicianConfirmedById,
+        'lastStatusChangedAt': lastStatusChangedAt?.toIso8601String(),
+        'lastStatusChangedByUserId': lastStatusChangedByUserId,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
+        'statusHistory': statusHistory
+          .map((item) => item.toJson())
+          .toList(growable: false),
       'evidences': evidences
           .map((item) => item.toJson())
           .toList(growable: false),

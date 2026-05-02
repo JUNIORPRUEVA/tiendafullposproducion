@@ -1,4 +1,4 @@
-import { IsDateString, IsIn, IsOptional } from 'class-validator';
+import { IsDateString, IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 import { SERVICE_ORDER_STATUS_VALUES } from '../service-orders.constants';
 
 export class UpdateStatusDto {
@@ -20,4 +20,9 @@ export class UpdateStatusDto {
   @IsOptional()
   @IsDateString()
   scheduled_at?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(400)
+  note?: string | null;
 }

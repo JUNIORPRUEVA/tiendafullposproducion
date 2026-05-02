@@ -890,12 +890,12 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
                 ),
                 _ProductDetailLine(
                   label: 'Precio',
-                  value: formatRdMoney(product.precio),
+                  value: formatRdAccountingAmount(product.precio),
                 ),
                 if (showCost)
                   _ProductDetailLine(
                     label: 'Costo',
-                    value: formatRdMoney(product.costo),
+                    value: formatRdAccountingAmount(product.costo),
                   ),
                 _ProductDetailLine(
                   label: 'Fecha',
@@ -1067,7 +1067,7 @@ class _CatalogSearchDelegate extends SearchDelegate<_CatalogSearchResult?> {
             overflow: TextOverflow.ellipsis,
           ),
           trailing: Text(
-            formatRdMoney(product.precio),
+            formatRdAccountingAmount(product.precio),
             style: Theme.of(
               context,
             ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w800),
@@ -1243,7 +1243,7 @@ class _ProductCard extends StatelessWidget {
                     ),
                   ),
                   Text(
-                    'Precio ${formatRdMoney(product.precio)}',
+                    'Precio ${formatRdAccountingAmount(product.precio)}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
@@ -1264,7 +1264,7 @@ class _ProductCard extends StatelessWidget {
                   ),
                   if (showCost)
                     Text(
-                      'Costo ${formatRdMoney(product.costo)}',
+                      'Costo ${formatRdAccountingAmount(product.costo)}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -1820,7 +1820,7 @@ class _DesktopProductCard extends StatelessWidget {
                                           ),
                                     ),
                                     Text(
-                                      formatRdMoney(product.precio),
+                                      formatRdAccountingAmount(product.precio),
                                       style: theme.textTheme.labelMedium
                                           ?.copyWith(
                                             color: Colors.white,
@@ -1852,7 +1852,7 @@ class _DesktopProductCard extends StatelessWidget {
                                             ),
                                       ),
                                       Text(
-                                        '\$${product.costo.toStringAsFixed(0)}',
+                                        formatRdAccountingAmount(product.costo),
                                         style: theme.textTheme.labelMedium
                                             ?.copyWith(
                                               color: Colors.white,
@@ -2067,12 +2067,12 @@ class _DesktopProductDetailDialog extends StatelessWidget {
                     const SizedBox(height: 18),
                     _ProductDetailLine(
                       label: 'Precio',
-                      value: formatRdMoney(product.precio),
+                      value: formatRdAccountingAmount(product.precio),
                     ),
                     if (showCost)
                       _ProductDetailLine(
                         label: 'Costo',
-                        value: formatRdMoney(product.costo),
+                        value: formatRdAccountingAmount(product.costo),
                       ),
                     _ProductDetailLine(
                       label: 'Disponible',

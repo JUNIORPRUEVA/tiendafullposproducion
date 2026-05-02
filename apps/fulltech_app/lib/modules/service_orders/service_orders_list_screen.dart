@@ -355,6 +355,9 @@ class _ServiceOrdersListScreenState
     final inProgressCount = visibleOrders
         .where((order) => order.status == ServiceOrderStatus.enProceso)
         .length;
+    final pausedCount = visibleOrders
+      .where((order) => order.status == ServiceOrderStatus.enPausa)
+      .length;
 
     return Scaffold(
       drawer: isDesktop
@@ -477,6 +480,7 @@ class _ServiceOrdersListScreenState
                     availableTechnicians: availableTechnicians,
                     pendingCount: pendingCount,
                     inProgressCount: inProgressCount,
+                    pausedCount: pausedCount,
                     gpsReadyCount: gpsReadyCount,
                     scheduledCount: scheduledCount,
                   ),
@@ -522,6 +526,7 @@ class _ServiceOrdersListScreenState
               availableTechnicians: availableTechnicians,
               pendingCount: pendingCount,
               inProgressCount: inProgressCount,
+              pausedCount: pausedCount,
               gpsReadyCount: gpsReadyCount,
               scheduledCount: scheduledCount,
             ),
@@ -543,6 +548,7 @@ class _ServiceOrdersListScreenState
     required List<_FilterUserOption> availableTechnicians,
     required int pendingCount,
     required int inProgressCount,
+    required int pausedCount,
     required int gpsReadyCount,
     required int scheduledCount,
   }) {
@@ -558,6 +564,7 @@ class _ServiceOrdersListScreenState
                   activeCount: visibleOrders.length,
                   pendingCount: pendingCount,
                   inProgressCount: inProgressCount,
+                  pausedCount: pausedCount,
                   gpsReadyCount: gpsReadyCount,
                   scheduledCount: scheduledCount,
                   refreshing: state.refreshing,
@@ -1031,6 +1038,7 @@ class ServiceOrdersFilter {
       statuses = const <ServiceOrderStatus>{
         ServiceOrderStatus.pendiente,
         ServiceOrderStatus.enProceso,
+        ServiceOrderStatus.enPausa,
       },
       serviceTypes = const <ServiceOrderType>{},
       creatorIds = const <String>{},
@@ -1051,9 +1059,10 @@ class ServiceOrdersFilter {
         serviceTypes.isEmpty &&
         creatorIds.isEmpty &&
         technicianIds.isEmpty &&
-        statuses.length == 2 &&
+        statuses.length == 3 &&
         statuses.contains(ServiceOrderStatus.pendiente) &&
-        statuses.contains(ServiceOrderStatus.enProceso);
+        statuses.contains(ServiceOrderStatus.enProceso) &&
+        statuses.contains(ServiceOrderStatus.enPausa);
   }
 
   ServiceOrdersFilter copyWith({
@@ -1178,18 +1187,19 @@ class ServiceOrdersFilter {
 
     return source
         .where((order) {
-          final createdAt = order.createdAt.toLocal();
+          final activityAt =
+              (order.lastStatusChangedAt ?? order.createdAt).toLocal();
           final matchesDate = switch (datePreset) {
             ServiceOrdersDatePreset.all => true,
             ServiceOrdersDatePreset.today =>
-              !createdAt.isBefore(todayStart) && createdAt.isBefore(todayEnd),
+              !activityAt.isBefore(todayStart) && activityAt.isBefore(todayEnd),
             ServiceOrdersDatePreset.thisWeek =>
-              !createdAt.isBefore(weekStart) && createdAt.isBefore(weekEnd),
+              !activityAt.isBefore(weekStart) && activityAt.isBefore(weekEnd),
             ServiceOrdersDatePreset.custom =>
               customStart != null &&
                   customEnd != null &&
-                  !createdAt.isBefore(customStart) &&
-                  createdAt.isBefore(customEnd),
+                  !activityAt.isBefore(customStart) &&
+                  activityAt.isBefore(customEnd),
           };
 
           if (!matchesDate) {
@@ -3598,6 +3608,7 @@ class _DesktopOperationsOverviewPanel extends StatelessWidget {
     required this.activeCount,
     required this.pendingCount,
     required this.inProgressCount,
+    required this.pausedCount,
     required this.gpsReadyCount,
     required this.scheduledCount,
     required this.refreshing,
@@ -3607,6 +3618,7 @@ class _DesktopOperationsOverviewPanel extends StatelessWidget {
   final int activeCount;
   final int pendingCount;
   final int inProgressCount;
+  final int pausedCount;
   final int gpsReadyCount;
   final int scheduledCount;
   final bool refreshing;
@@ -3662,6 +3674,11 @@ class _DesktopOperationsOverviewPanel extends StatelessWidget {
               icon: Icons.construction_rounded,
               text: '$inProgressCount en proceso',
               accent: const Color(0xFF0F6CBD),
+            ),
+            _PanelMetaPill(
+              icon: Icons.pause_circle_outline_rounded,
+              text: '$pausedCount en pausa',
+              accent: const Color(0xFFB7791F),
             ),
             _PanelMetaPill(
               icon: Icons.location_on_outlined,
@@ -3732,11 +3749,13 @@ class _ServiceOrderListCard extends StatelessWidget {
     final locationUrl = client?.locationUrl;
     final locationPreview = parseClientLocationPreview(locationUrl);
     final locationUri = buildClientNavigationUri(locationPreview, locationUrl);
-    final createdAt = order.createdAt.toLocal();
-    final topLineText = DateFormat(
+    final serviceAt = (order.scheduledFor ?? order.createdAt).toLocal();
+    final lastStatusAt = (order.lastStatusChangedAt ?? order.updatedAt).toLocal();
+    final topLineText = 'Servicio: ${DateFormat(
       'dd/MM/yyyy · h:mm a',
       'es_DO',
-    ).format(createdAt);
+    ).format(serviceAt)}';
+    final lastStatusLineText = 'Último estado: ${_buildRelativeTopLine(lastStatusAt)}';
     final priorityStyle = _resolveServiceTypePriorityStyle(order.serviceType);
     final creatorDisplayName = creatorName.trim();
     final creatorFirstName = _extractFirstName(creatorDisplayName);
@@ -3841,7 +3860,7 @@ class _ServiceOrderListCard extends StatelessWidget {
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        _buildRelativeTopLine(createdAt),
+                        lastStatusLineText,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.labelSmall?.copyWith(

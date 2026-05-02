@@ -24,6 +24,7 @@ import { CloneServiceOrderDto } from './dto/clone-service-order.dto';
 import { CreateEvidenceDto } from './dto/create-evidence.dto';
 import { CreateReportDto } from './dto/create-report.dto';
 import { CreateServiceOrderDto } from './dto/create-service-order.dto';
+import { ListServiceOrdersQueryDto } from './dto/list-service-orders-query.dto';
 import { ListServiceOrderCommissionsQueryDto } from './dto/list-service-order-commissions-query.dto';
 import { UpdateServiceOrderDto } from './dto/update-service-order.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
@@ -51,6 +52,18 @@ type AuthUser = { id: string; role: Role };
 type ServiceOrderWithRelations = Prisma.ServiceOrderGetPayload<{
   include: {
     client: true;
+    statusHistory: {
+      orderBy: { changedAt: 'desc' };
+      include: {
+        changedBy: {
+          select: {
+            id: true;
+            nombreCompleto: true;
+            role: true;
+          };
+        };
+      };
+    };
     evidences: { orderBy: { createdAt: 'asc' } };
     reports: { orderBy: { createdAt: 'asc' } };
   };
@@ -59,6 +72,18 @@ type ServiceOrderWithRelations = Prisma.ServiceOrderGetPayload<{
 type ServiceOrderWithClient = Prisma.ServiceOrderGetPayload<{
   include: {
     client: true;
+    statusHistory: {
+      orderBy: { changedAt: 'desc' };
+      include: {
+        changedBy: {
+          select: {
+            id: true;
+            nombreCompleto: true;
+            role: true;
+          };
+        };
+      };
+    };
   };
 }>;
 
@@ -150,9 +175,55 @@ export class ServiceOrdersService {
     const payload = await this.buildCreatePayload(user, dto);
 
     try {
-      const created = await this.prisma.serviceOrder.create({
-        data: payload,
-        include: { client: true },
+      const created = await this.prisma.$transaction(async (tx) => {
+        const createdOrder = await tx.serviceOrder.create({
+          data: payload,
+          include: {
+            client: true,
+            statusHistory: {
+              orderBy: { changedAt: 'desc' },
+              include: {
+                changedBy: {
+                  select: {
+                    id: true,
+                    nombreCompleto: true,
+                    role: true,
+                  },
+                },
+              },
+            },
+          },
+        });
+
+        await tx.serviceOrderStatusHistory.create({
+          data: {
+            serviceOrderId: createdOrder.id,
+            previousStatus: null,
+            nextStatus: createdOrder.status,
+            changedAt: createdOrder.lastStatusChangedAt,
+            changedByUserId: createdOrder.lastStatusChangedByUserId,
+            note: 'Estado inicial',
+          },
+        });
+
+        return tx.serviceOrder.findUniqueOrThrow({
+          where: { id: createdOrder.id },
+          include: {
+            client: true,
+            statusHistory: {
+              orderBy: { changedAt: 'desc' },
+              include: {
+                changedBy: {
+                  select: {
+                    id: true,
+                    nombreCompleto: true,
+                    role: true,
+                  },
+                },
+              },
+            },
+          },
+        });
       });
       const mapped = this.mapOrder(created);
       await this.invalidateCachesForOrder(created.id);
@@ -166,16 +237,37 @@ export class ServiceOrdersService {
     }
   }
 
-  async list(user: AuthUser) {
-    const cacheKey = this.buildListCacheKey(user);
+  async list(user: AuthUser, query: ListServiceOrdersQueryDto = {}) {
+    const normalizedStatuses = this.parseRequestedStatuses(query.statuses);
+    const cacheKey = this.buildListCacheKey(user, {
+      statuses: normalizedStatuses ?? undefined,
+      from: query.from,
+      to: query.to,
+    });
     const cached = await this.redis.get<{ items: unknown[] }>(cacheKey);
     if (Array.isArray(cached?.items)) {
       return cached;
     }
 
+    const where = this.buildListWhere(query, normalizedStatuses);
     const items = await this.prisma.serviceOrder.findMany({
-      include: { client: true },
-      orderBy: [{ createdAt: 'desc' }],
+      where,
+      include: {
+        client: true,
+        statusHistory: {
+          orderBy: { changedAt: 'desc' },
+          include: {
+            changedBy: {
+              select: {
+                id: true,
+                nombreCompleto: true,
+                role: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: [{ lastStatusChangedAt: 'desc' }, { createdAt: 'desc' }],
     });
     const response = { items: items.map((item) => this.mapOrder(item)) };
     await this.redis.set(cacheKey, response, 30);
@@ -632,17 +724,67 @@ export class ServiceOrdersService {
       nextStatus === 'finalizado' && user.role === Role.TECNICO
         ? user.id
         : item.assignedToId;
+    const now = new Date();
+    const statusNote = this.cleanOptionalText(dto.note);
 
     try {
-      const updated = await this.prisma.serviceOrder.update({
-        where: { id },
-        include: { client: true },
-        data: {
-          status: SERVICE_ORDER_STATUS_TO_DB[nextStatus],
-          scheduledFor: nextStatus === 'pospuesta' ? nextScheduledFor : item.scheduledFor,
-          assignedToId: resolvedAssignedToId,
-          finalizedAt: nextStatus === 'finalizado' ? new Date() : item.finalizedAt,
-        },
+      const updated = await this.prisma.$transaction(async (tx) => {
+        const changedOrder = await tx.serviceOrder.update({
+          where: { id },
+          include: {
+            client: true,
+            statusHistory: {
+              orderBy: { changedAt: 'desc' },
+              include: {
+                changedBy: {
+                  select: {
+                    id: true,
+                    nombreCompleto: true,
+                    role: true,
+                  },
+                },
+              },
+            },
+          },
+          data: {
+            status: SERVICE_ORDER_STATUS_TO_DB[nextStatus],
+            scheduledFor: nextStatus === 'pospuesta' ? nextScheduledFor : item.scheduledFor,
+            assignedToId: resolvedAssignedToId,
+            finalizedAt: nextStatus === 'finalizado' ? now : item.finalizedAt,
+            lastStatusChangedAt: now,
+            lastStatusChangedByUserId: user.id,
+          },
+        });
+
+        await tx.serviceOrderStatusHistory.create({
+          data: {
+            serviceOrderId: changedOrder.id,
+            previousStatus: item.status,
+            nextStatus: changedOrder.status,
+            changedAt: now,
+            changedByUserId: user.id,
+            note: statusNote,
+          },
+        });
+
+        return tx.serviceOrder.findUniqueOrThrow({
+          where: { id: changedOrder.id },
+          include: {
+            client: true,
+            statusHistory: {
+              orderBy: { changedAt: 'desc' },
+              include: {
+                changedBy: {
+                  select: {
+                    id: true,
+                    nombreCompleto: true,
+                    role: true,
+                  },
+                },
+              },
+            },
+          },
+        });
       });
       if (nextStatus === 'finalizado') {
         await this.queueServiceCommissionForPayroll(updated.id, user.id);
@@ -681,12 +823,74 @@ export class ServiceOrdersService {
     let processed = 0;
     for (const dueOrder of dueOrders) {
       try {
-        const updated = await this.prisma.serviceOrder.update({
-          where: { id: dueOrder.id },
-          include: { client: true },
-          data: {
-            status: PrismaServiceOrderStatus.PENDIENTE,
-          },
+        const now = new Date();
+        const updated = await this.prisma.$transaction(async (tx) => {
+          const current = await tx.serviceOrder.findUnique({
+            where: { id: dueOrder.id },
+            select: {
+              id: true,
+              status: true,
+              createdById: true,
+            },
+          });
+
+          if (!current) {
+            throw new NotFoundException('Orden de servicio no encontrada');
+          }
+
+          const changedOrder = await tx.serviceOrder.update({
+            where: { id: dueOrder.id },
+            include: {
+              client: true,
+              statusHistory: {
+                orderBy: { changedAt: 'desc' },
+                include: {
+                  changedBy: {
+                    select: {
+                      id: true,
+                      nombreCompleto: true,
+                      role: true,
+                    },
+                  },
+                },
+              },
+            },
+            data: {
+              status: PrismaServiceOrderStatus.PENDIENTE,
+              lastStatusChangedAt: now,
+              lastStatusChangedByUserId: current.createdById,
+            },
+          });
+
+          await tx.serviceOrderStatusHistory.create({
+            data: {
+              serviceOrderId: changedOrder.id,
+              previousStatus: current.status,
+              nextStatus: PrismaServiceOrderStatus.PENDIENTE,
+              changedAt: now,
+              changedByUserId: current.createdById,
+              note: 'Restaurada automáticamente por vencimiento de fecha pospuesta',
+            },
+          });
+
+          return tx.serviceOrder.findUniqueOrThrow({
+            where: { id: changedOrder.id },
+            include: {
+              client: true,
+              statusHistory: {
+                orderBy: { changedAt: 'desc' },
+                include: {
+                  changedBy: {
+                    select: {
+                      id: true,
+                      nombreCompleto: true,
+                      role: true,
+                    },
+                  },
+                },
+              },
+            },
+          });
         });
         const mapped = this.mapOrder(updated);
         await this.invalidateCachesForOrder(updated.id);
@@ -814,20 +1018,68 @@ export class ServiceOrdersService {
     await this.assertClientHasNoOpenOrder(original.clientId);
 
     try {
-      const cloned = await this.prisma.serviceOrder.create({
-        include: { client: true },
-        data: {
-          clientId: original.clientId,
-          quotationId: original.quotationId,
-          category: original.category,
-          serviceType: SERVICE_ORDER_TYPE_TO_DB[serviceType as ApiServiceOrderType],
-          status: SERVICE_ORDER_STATUS_TO_DB.pendiente,
-          technicalNote,
-          extraRequirements,
-          parentOrderId: original.id,
-          createdById: user.id,
-          assignedToId,
-        },
+      const cloned = await this.prisma.$transaction(async (tx) => {
+        const created = await tx.serviceOrder.create({
+          include: {
+            client: true,
+            statusHistory: {
+              orderBy: { changedAt: 'desc' },
+              include: {
+                changedBy: {
+                  select: {
+                    id: true,
+                    nombreCompleto: true,
+                    role: true,
+                  },
+                },
+              },
+            },
+          },
+          data: {
+            clientId: original.clientId,
+            quotationId: original.quotationId,
+            category: original.category,
+            serviceType: SERVICE_ORDER_TYPE_TO_DB[serviceType as ApiServiceOrderType],
+            status: SERVICE_ORDER_STATUS_TO_DB.pendiente,
+            technicalNote,
+            extraRequirements,
+            parentOrderId: original.id,
+            createdById: user.id,
+            assignedToId,
+            lastStatusChangedAt: new Date(),
+            lastStatusChangedByUserId: user.id,
+          },
+        });
+
+        await tx.serviceOrderStatusHistory.create({
+          data: {
+            serviceOrderId: created.id,
+            previousStatus: null,
+            nextStatus: created.status,
+            changedAt: created.lastStatusChangedAt,
+            changedByUserId: created.lastStatusChangedByUserId,
+            note: 'Estado inicial',
+          },
+        });
+
+        return tx.serviceOrder.findUniqueOrThrow({
+          where: { id: created.id },
+          include: {
+            client: true,
+            statusHistory: {
+              orderBy: { changedAt: 'desc' },
+              include: {
+                changedBy: {
+                  select: {
+                    id: true,
+                    nombreCompleto: true,
+                    role: true,
+                  },
+                },
+              },
+            },
+          },
+        });
       });
       const mapped = this.mapOrder(cloned);
       await this.invalidateCachesForOrder(cloned.id);
@@ -896,8 +1148,59 @@ export class ServiceOrdersService {
     }
   }
 
-  private buildListCacheKey(user: AuthUser) {
-    return `service-orders:list:${user.role}:${user.id}`;
+  private buildListCacheKey(
+    user: AuthUser,
+    options?: {
+      statuses?: ApiServiceOrderStatus[];
+      from?: string;
+      to?: string;
+    },
+  ) {
+    const statuses = options?.statuses?.slice().sort().join(',') || 'default';
+    const from = options?.from?.trim() || 'none';
+    const to = options?.to?.trim() || 'none';
+    return `service-orders:list:${user.role}:${user.id}:statuses=${statuses}:from=${from}:to=${to}`;
+  }
+
+  private parseRequestedStatuses(statuses?: string[]) {
+    if (!Array.isArray(statuses) || statuses.length === 0) {
+      return null;
+    }
+
+    return statuses
+      .map((status) => this.cleanOptionalText(status))
+      .filter((status): status is ApiServiceOrderStatus => {
+        if (!status) return false;
+        return Object.prototype.hasOwnProperty.call(SERVICE_ORDER_STATUS_TO_DB, status);
+      });
+  }
+
+  private buildListWhere(
+    query: ListServiceOrdersQueryDto,
+    normalizedStatuses: ApiServiceOrderStatus[] | null,
+  ): Prisma.ServiceOrderWhereInput {
+    const requestedStatuses =
+      normalizedStatuses && normalizedStatuses.length > 0
+        ? normalizedStatuses
+        : (['pendiente', 'en_proceso', 'en_pausa'] as ApiServiceOrderStatus[]);
+
+    const from = this.parseOptionalDate(query.from, undefined, 'from');
+    const to = this.parseOptionalDate(query.to, undefined, 'to');
+
+    const where: Prisma.ServiceOrderWhereInput = {
+      status: {
+        in: requestedStatuses.map((status) => SERVICE_ORDER_STATUS_TO_DB[status]),
+      },
+    };
+
+    if (from || to) {
+      where.lastStatusChangedAt = {
+        ...(from ? { gte: from } : {}),
+        ...(to ? { lte: to } : {}),
+      };
+    }
+
+    return where;
   }
 
   private buildCommissionWhere(
@@ -1347,6 +1650,8 @@ export class ServiceOrdersService {
       technicalNote,
       extraRequirements,
       createdById: user.id,
+      lastStatusChangedAt: new Date(),
+      lastStatusChangedByUserId: user.id,
       assignedToId,
     };
   }
@@ -1563,6 +1868,18 @@ export class ServiceOrdersService {
       where: { id },
       include: {
         client: true,
+        statusHistory: {
+          orderBy: { changedAt: 'desc' },
+          include: {
+            changedBy: {
+              select: {
+                id: true,
+                nombreCompleto: true,
+                role: true,
+              },
+            },
+          },
+        },
         evidences: { orderBy: { createdAt: 'asc' } },
         reports: { orderBy: { createdAt: 'asc' } },
       },
@@ -2024,9 +2341,16 @@ export class ServiceOrdersService {
       parentOrderId: item.parentOrderId,
       createdById: item.createdById,
       assignedToId: item.assignedToId,
+      lastStatusChangedAt: item.lastStatusChangedAt,
+      lastStatusChangedByUserId: item.lastStatusChangedByUserId,
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
       ...('client' in item ? { client: this.mapClient(item.client) } : {}),
+      ...('statusHistory' in item
+        ? {
+            statusHistory: item.statusHistory.map((entry) => this.mapStatusHistory(entry)),
+          }
+        : {}),
     };
 
     if ('evidences' in item || 'reports' in item) {
@@ -2039,6 +2363,39 @@ export class ServiceOrdersService {
     }
 
     return base;
+  }
+
+  private mapStatusHistory(
+    entry: Prisma.ServiceOrderStatusHistoryGetPayload<{
+      include: {
+        changedBy: {
+          select: {
+            id: true;
+            nombreCompleto: true;
+            role: true;
+          };
+        };
+      };
+    }>,
+  ) {
+    return {
+      id: entry.id,
+      serviceOrderId: entry.serviceOrderId,
+      previousStatus: entry.previousStatus
+        ? SERVICE_ORDER_STATUS_FROM_DB[entry.previousStatus]
+        : null,
+      nextStatus: SERVICE_ORDER_STATUS_FROM_DB[entry.nextStatus],
+      changedAt: entry.changedAt,
+      changedByUserId: entry.changedByUserId,
+      note: entry.note,
+      changedBy: entry.changedBy
+        ? {
+            id: entry.changedBy.id,
+            nombreCompleto: entry.changedBy.nombreCompleto,
+            role: entry.changedBy.role,
+          }
+        : null,
+    };
   }
 
   private mapEvidence(item: Prisma.ServiceEvidenceGetPayload<object>) {

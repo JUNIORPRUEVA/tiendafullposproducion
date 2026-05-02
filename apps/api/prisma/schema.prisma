@@ -317,6 +317,7 @@ enum ServiceOrderType {
 enum ServiceOrderStatus {
   PENDIENTE  @map("pendiente")
   EN_PROCESO @map("en_proceso")
+  EN_PAUSA   @map("en_pausa")
   POSPUESTA  @map("pospuesta")
   FINALIZADO @map("finalizado")
   CANCELADO  @map("cancelado")
@@ -462,6 +463,8 @@ model User {
   uploadedServiceFiles ServiceFile[]
   createdServiceOrders ServiceOrder[] @relation("ServiceOrderCreatedBy")
   assignedServiceOrders ServiceOrder[] @relation("ServiceOrderAssignedTo")
+  statusChangedServiceOrders ServiceOrder[] @relation("ServiceOrderLastStatusChangedBy")
+  serviceOrderStatusChanges ServiceOrderStatusHistory[] @relation("ServiceOrderStatusHistoryChangedBy")
   createdServiceEvidences ServiceEvidence[] @relation("ServiceEvidenceCreatedBy")
   createdServiceReports ServiceReport[] @relation("ServiceReportCreatedBy")
   preparedOrderDocumentFlows OrderDocumentFlow[] @relation("OrderDocumentFlowPreparedBy")
@@ -1770,6 +1773,8 @@ model ServiceOrder {
   parentOrderId     String?              @db.Uuid @map("parent_order_id")
   createdById       String               @db.Uuid @map("created_by")
   assignedToId      String?              @db.Uuid @map("assigned_to")
+  lastStatusChangedAt DateTime           @default(now()) @map("last_status_changed_at")
+  lastStatusChangedByUserId String?      @db.Uuid @map("last_status_changed_by_user_id")
   createdAt         DateTime             @default(now()) @map("created_at")
   updatedAt         DateTime             @updatedAt @map("updated_at")
 
@@ -1779,9 +1784,11 @@ model ServiceOrder {
   childOrders ServiceOrder[]  @relation("ServiceOrderParent")
   createdBy   User            @relation("ServiceOrderCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   assignedTo  User?           @relation("ServiceOrderAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+  lastStatusChangedBy User?   @relation("ServiceOrderLastStatusChangedBy", fields: [lastStatusChangedByUserId], references: [id], onDelete: SetNull)
   technicianConfirmedBy User? @relation("ServiceOrderConfirmedBy", fields: [technicianConfirmedById], references: [id], onDelete: SetNull)
   evidences   ServiceEvidence[]
   reports     ServiceReport[]
+  statusHistory ServiceOrderStatusHistory[]
   documentFlow OrderDocumentFlow?
   payrollServiceCommissionRequests PayrollServiceCommissionRequest[]
   notificationJobs ServiceOrderNotificationJob[]
@@ -1795,11 +1802,32 @@ model ServiceOrder {
   @@index([finalizedAt])
   @@index([createdById])
   @@index([assignedToId])
+  @@index([lastStatusChangedAt])
+  @@index([lastStatusChangedByUserId])
   @@index([technicianConfirmedById])
   @@index([parentOrderId])
   @@index([status, assignedToId])
+  @@index([status, lastStatusChangedAt])
   @@index([clientId, createdAt])
   @@map("service_orders")
+}
+
+model ServiceOrderStatusHistory {
+  id             String             @id @default(uuid()) @db.Uuid
+  serviceOrderId String             @db.Uuid @map("service_order_id")
+  previousStatus ServiceOrderStatus? @map("previous_status")
+  nextStatus     ServiceOrderStatus @map("next_status")
+  changedAt      DateTime           @default(now()) @map("changed_at")
+  changedByUserId String?           @db.Uuid @map("changed_by_user_id")
+  note           String?            @db.Text
+
+  serviceOrder ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+  changedBy   User?         @relation("ServiceOrderStatusHistoryChangedBy", fields: [changedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([serviceOrderId])
+  @@index([serviceOrderId, changedAt])
+  @@index([changedByUserId])
+  @@map("service_order_status_history")
 }
 
 model ServiceEvidence {

@@ -8,6 +8,7 @@ import { CloneServiceOrderDto } from './dto/clone-service-order.dto';
 import { CreateEvidenceDto } from './dto/create-evidence.dto';
 import { CreateReportDto } from './dto/create-report.dto';
 import { CreateServiceOrderDto } from './dto/create-service-order.dto';
+import { ListServiceOrdersQueryDto } from './dto/list-service-orders-query.dto';
 import { ListServiceOrderCommissionsQueryDto } from './dto/list-service-order-commissions-query.dto';
 import { ServiceOrderSalesSummaryQueryDto } from './dto/service-order-sales-summary-query.dto';
 import { UpdateServiceOrderDto } from './dto/update-service-order.dto';
@@ -28,8 +29,8 @@ export class ServiceOrdersController {
   }
 
   @Get()
-  list(@Req() req: Request) {
-    return this.serviceOrders.list(req.user as JwtUser);
+  list(@Req() req: Request, @Query() query: ListServiceOrdersQueryDto) {
+    return this.serviceOrders.list(req.user as JwtUser, query);
   }
 
   @Get('sales-summary')

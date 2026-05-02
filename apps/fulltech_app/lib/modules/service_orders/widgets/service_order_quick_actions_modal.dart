@@ -94,6 +94,11 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
         order.status
             .nextStatusesForRole(canFinalizeDirectly: true)
             .contains(ServiceOrderStatus.enProceso);
+    final canMarkPaused =
+      order.status != ServiceOrderStatus.enPausa &&
+      order.status
+        .nextStatusesForRole(canFinalizeDirectly: true)
+        .contains(ServiceOrderStatus.enPausa);
     final canMarkFinalized =
         order.status != ServiceOrderStatus.finalizado &&
         order.status
@@ -111,7 +116,9 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
       if (canMarkInProgress)
         _ActionButton(
           icon: Icons.play_circle_outline_rounded,
-          label: 'En proceso',
+          label: order.status == ServiceOrderStatus.enPausa
+              ? 'Reanudar'
+              : 'En proceso',
           tone: _ActionTone.primary,
           isLoading: state.loading,
           onTap: state.loading
@@ -121,6 +128,21 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
                   ref,
                   ServiceOrderStatus.enProceso,
                   successMessage: 'Orden marcada en proceso',
+                ),
+        ),
+      if (canMarkPaused)
+        _ActionButton(
+          icon: Icons.pause_circle_outline_rounded,
+          label: 'En pausa',
+          tone: _ActionTone.secondary,
+          isLoading: state.loading,
+          onTap: state.loading
+              ? null
+              : () => _changeStatusDirect(
+                  context,
+                  ref,
+                  ServiceOrderStatus.enPausa,
+                  successMessage: 'Orden marcada en pausa',
                 ),
         ),
       if (canMarkFinalized)

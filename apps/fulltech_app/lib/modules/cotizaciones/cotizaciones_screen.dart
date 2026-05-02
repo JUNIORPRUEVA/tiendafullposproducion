@@ -597,6 +597,14 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     }).toList();
   }
 
+  void _submitSearchAndAddFirstVisibleProduct() {
+    final visible = _visibleProducts;
+    if (visible.isEmpty) {
+      return;
+    }
+    _addProduct(visible.first);
+  }
+
   double get _subtotal => _items.fold(0, (sum, item) => sum + item.total);
   double get _subtotalBeforeDiscount => _items.fold(
     0,
@@ -1330,12 +1338,21 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
+                  textInputAction: TextInputAction.done,
                   decoration: InputDecoration(
                     labelText: type == _DiscountType.percent
                         ? 'Porcentaje'
                         : 'Monto a descontar',
                     hintText: type == _DiscountType.percent ? '10' : '500',
                   ),
+                  onSubmitted: (_) {
+                    final amount = double.tryParse(amountCtrl.text.trim());
+                    if (amount == null || amount <= 0) return;
+                    Navigator.pop(
+                      dialogContext,
+                      _DiscountInput(type: type, amount: amount),
+                    );
+                  },
                 ),
               ],
             ),
@@ -1430,12 +1447,33 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                   controller: amountCtrl,
                   autofocus: true,
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  textInputAction: TextInputAction.done,
                   decoration: InputDecoration(
                     isDense: true,
                     labelText: type == _DiscountType.fixed ? 'Monto' : 'Porcentaje',
                     hintText: type == _DiscountType.fixed ? '500' : '10',
                     border: const OutlineInputBorder(),
                   ),
+                  onSubmitted: (_) {
+                    final raw = amountCtrl.text.trim().replaceAll(',', '.');
+                    final amount = double.tryParse(raw);
+                    if (amount == null || amount <= 0) {
+                      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+                        const SnackBar(content: Text('Ingresa un valor válido')),
+                      );
+                      return;
+                    }
+                    final nextDiscount = type == _DiscountType.percent
+                        ? _grossTotalBeforeGeneralDiscount * (amount / 100)
+                        : amount;
+                    final boundedDiscount = nextDiscount
+                        .clamp(0, _grossTotalBeforeGeneralDiscount)
+                        .toDouble();
+                    _commitEditorChange(() {
+                      _generalDiscountAmount = boundedDiscount;
+                    });
+                    Navigator.pop(dialogContext);
+                  },
                 ),
               ],
             ),
@@ -1627,6 +1665,8 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
             children: [
               TextField(
                 controller: nameCtrl,
+                textInputAction: TextInputAction.next,
+                onSubmitted: (_) => FocusScope.of(dialogContext).nextFocus(),
                 decoration: const InputDecoration(
                   labelText: 'Nombre producto o servicio',
                 ),
@@ -1637,6 +1677,8 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
+                textInputAction: TextInputAction.next,
+                onSubmitted: (_) => FocusScope.of(dialogContext).nextFocus(),
                 decoration: const InputDecoration(labelText: 'Cantidad'),
               ),
               const SizedBox(height: 8),
@@ -1645,6 +1687,8 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
+                textInputAction: TextInputAction.next,
+                onSubmitted: (_) => FocusScope.of(dialogContext).nextFocus(),
                 decoration: const InputDecoration(labelText: 'Costo unitario'),
               ),
               const SizedBox(height: 8),
@@ -1653,6 +1697,8 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => Navigator.pop(dialogContext, true),
                 decoration: const InputDecoration(labelText: 'Precio unitario'),
               ),
             ],
@@ -1895,9 +1941,11 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
           controller: controller,
           minLines: 2,
           maxLines: 4,
+          textInputAction: TextInputAction.done,
           decoration: const InputDecoration(
             hintText: 'Escribe una nota para esta cotización',
           ),
+          onSubmitted: (_) => Navigator.pop(context, controller.text.trim()),
         ),
         actions: [
           TextButton(
@@ -2180,6 +2228,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                       Expanded(
                         child: TextField(
                           controller: searchCtrl,
+                          textInputAction: TextInputAction.search,
                           decoration: InputDecoration(
                             hintText: 'Buscar cliente',
                             prefixIcon: const Icon(Icons.search),
@@ -2198,6 +2247,9 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                           onChanged: (_) {
                             setStateDialog(() {});
                             scheduleLoadClients();
+                          },
+                          onSubmitted: (_) {
+                            unawaited(loadClients());
                           },
                         ),
                       ),
@@ -3234,6 +3286,8 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
               child: TextField(
                 controller: _searchCtrl,
                 onChanged: (_) => _commitEditorChange(() {}),
+                textInputAction: TextInputAction.search,
+                onSubmitted: (_) => _submitSearchAndAddFirstVisibleProduct(),
                 decoration: InputDecoration(
                   hintText: 'Buscar',
                   prefixIcon: const Icon(Icons.search, size: 18),
@@ -3504,6 +3558,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                         error: _error,
                         money: _money,
                         onSearchChanged: () => _commitEditorChange(() {}),
+                        onSearchSubmitted: _submitSearchAndAddFirstVisibleProduct,
                         onPickCategory: _pickCategory,
                         onAddProduct: _addProduct,
                         onAddExternalItem: _openExternalItemDialog,
@@ -3813,6 +3868,7 @@ class _DesktopCatalogPane extends StatefulWidget {
     required this.error,
     required this.money,
     required this.onSearchChanged,
+    required this.onSearchSubmitted,
     required this.onPickCategory,
     required this.onAddProduct,
     required this.onAddExternalItem,
@@ -3825,6 +3881,7 @@ class _DesktopCatalogPane extends StatefulWidget {
   final String? error;
   final String Function(double) money;
   final VoidCallback onSearchChanged;
+  final VoidCallback onSearchSubmitted;
   final Future<void> Function() onPickCategory;
   final ValueChanged<ProductModel> onAddProduct;
   final Future<void> Function({int? editIndex}) onAddExternalItem;
@@ -3877,6 +3934,8 @@ class _DesktopCatalogPaneState extends State<_DesktopCatalogPane> {
                   child: TextField(
                     controller: widget.searchController,
                     onChanged: (_) => widget.onSearchChanged(),
+                    textInputAction: TextInputAction.search,
+                    onSubmitted: (_) => widget.onSearchSubmitted(),
                     decoration: InputDecoration(
                       hintText: 'Buscar producto',
                       prefixIcon: const Icon(Icons.search),
