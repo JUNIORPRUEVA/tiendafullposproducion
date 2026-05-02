@@ -2739,6 +2739,12 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     return compact ? 'A cliente' : 'Enviar al cliente';
   }
 
+  String _tinyCustomerPhoneHint(CotizacionModel cotizacion) {
+    final phone = cotizacion.customerPhone.trim();
+    if (phone.isEmpty) return '';
+    return 'Cliente: $phone';
+  }
+
   String _customerDeliverySuccessMessage() {
     return 'Cotización enviada al cliente correctamente.';
   }
@@ -2994,55 +3000,88 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                   children: [
                     Padding(
                       padding: const EdgeInsets.fromLTRB(12, 8, 8, 6),
-                      child: Row(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Icon(Icons.picture_as_pdf_outlined),
-                          const SizedBox(width: 8),
-                          const Expanded(
-                            child: Text(
-                              'PDF de cotización',
-                              style: TextStyle(fontWeight: FontWeight.w700),
-                            ),
+                          Row(
+                            children: [
+                              const Icon(Icons.picture_as_pdf_outlined),
+                              const SizedBox(width: 8),
+                              const Expanded(
+                                child: Text(
+                                  'PDF de cotización',
+                                  style: TextStyle(fontWeight: FontWeight.w700),
+                                ),
+                              ),
+                              TextButton.icon(
+                                onPressed: canSend ? sendWhatsApp : null,
+                                icon: sendingWhatsApp
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Icon(Icons.chat_outlined),
+                                label: Text(_customerDeliveryButtonLabel(compact)),
+                              ),
+                              const SizedBox(width: 6),
+                              TextButton.icon(
+                                onPressed: canSendAdmin ? sendAdminApproval : null,
+                                icon: sendingAdminApproval
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Icon(Icons.verified_user_outlined),
+                                label: Text(compact ? 'A admin' : 'Enviar a admin'),
+                              ),
+                              const SizedBox(width: 6),
+                              TextButton.icon(
+                                onPressed: () => shareCotizacionPdf(
+                                  bytes: bytes,
+                                  cotizacion: cotizacion,
+                                ),
+                                icon: const Icon(Icons.download_outlined),
+                                label: const Text('Descargar'),
+                              ),
+                              IconButton(
+                                onPressed: () => Navigator.pop(context),
+                                icon: const Icon(Icons.close),
+                              ),
+                            ],
                           ),
-                          TextButton.icon(
-                            onPressed: canSend ? sendWhatsApp : null,
-                            icon: sendingWhatsApp
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
+                          Builder(
+                            builder: (context) {
+                              final tinyPhoneHint = _tinyCustomerPhoneHint(cotizacion);
+                              if (tinyPhoneHint.isEmpty) {
+                                return const SizedBox.shrink();
+                              }
+                              return Padding(
+                                padding: const EdgeInsets.only(top: 1),
+                                child: Align(
+                                  alignment: Alignment.centerRight,
+                                  child: Text(
+                                    tinyPhoneHint,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 9,
+                                      height: 1,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurface
+                                          .withValues(alpha: 0.42),
                                     ),
-                                  )
-                                : const Icon(Icons.chat_outlined),
-                            label: Text(_customerDeliveryButtonLabel(compact)),
-                          ),
-                          const SizedBox(width: 6),
-                          TextButton.icon(
-                            onPressed: canSendAdmin ? sendAdminApproval : null,
-                            icon: sendingAdminApproval
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : const Icon(Icons.verified_user_outlined),
-                            label: Text(compact ? 'A admin' : 'Enviar a admin'),
-                          ),
-                          const SizedBox(width: 6),
-                          TextButton.icon(
-                            onPressed: () => shareCotizacionPdf(
-                              bytes: bytes,
-                              cotizacion: cotizacion,
-                            ),
-                            icon: const Icon(Icons.download_outlined),
-                            label: const Text('Descargar'),
-                          ),
-                          IconButton(
-                            onPressed: () => Navigator.pop(context),
-                            icon: const Icon(Icons.close),
+                                  ),
+                                ),
+                              );
+                            },
                           ),
                         ],
                       ),

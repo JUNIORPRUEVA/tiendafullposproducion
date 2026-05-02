@@ -3,6 +3,8 @@
 /* eslint-disable no-console */
 
 const crypto = require('node:crypto');
+const fs = require('node:fs');
+const path = require('node:path');
 const {
   PrismaClient,
   Role,
@@ -53,6 +55,332 @@ function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
   }
+}
+
+function assertBackendUsesLastStatusChangedAtFilter() {
+  const serviceFile = path.resolve(__dirname, '../src/service-orders/service-orders.service.ts');
+  const source = fs.readFileSync(serviceFile, 'utf8');
+
+  assert(
+    source.includes('where.lastStatusChangedAt = {'),
+    'buildListWhere no usa lastStatusChangedAt para filtrar por fecha',
+  );
+  assert(
+    !source.includes('where.createdAt = {'),
+    'buildListWhere parece filtrar por createdAt en lugar de lastStatusChangedAt',
+  );
+}
+
+function assertBackendTransitionsIncludePause() {
+  const constantsFile = path.resolve(__dirname, '../src/service-orders/service-orders.constants.ts');
+  const source = fs.readFileSync(constantsFile, 'utf8');
+
+  assert(
+    source.includes("en_proceso: ['en_pausa', 'finalizado', 'pospuesta', 'cancelado']"),
+    'No existe transición en_proceso -> en_pausa en constantes backend',
+  );
+  assert(
+    source.includes("en_pausa: ['en_proceso', 'pospuesta', 'cancelado']"),
+    'No existe transición en_pausa -> en_proceso en constantes backend',
+  );
+}
+
+function toIsoDate(value) {
+  return value.toISOString();
+}
+
+function statusToDbValue(status) {
+  if (status == null) return null;
+  const mapping = {
+    [ServiceOrderStatus.PENDIENTE]: 'pendiente',
+    [ServiceOrderStatus.EN_PROCESO]: 'en_proceso',
+    [ServiceOrderStatus.EN_PAUSA]: 'en_pausa',
+    [ServiceOrderStatus.POSPUESTA]: 'pospuesta',
+    [ServiceOrderStatus.FINALIZADO]: 'finalizado',
+    [ServiceOrderStatus.CANCELADO]: 'cancelado',
+  };
+  const value = mapping[status];
+  assert(value, `Estado no mapeado a DB: ${status}`);
+  return value;
+}
+
+async function listOrdersLikeOperationsFilter({ statuses, from, to }) {
+  const requestedStatuses = Array.isArray(statuses) && statuses.length > 0
+    ? statuses
+    : [ServiceOrderStatus.PENDIENTE, ServiceOrderStatus.EN_PROCESO, ServiceOrderStatus.EN_PAUSA];
+
+  const where = {
+    status: { in: requestedStatuses },
+    ...(from || to
+      ? {
+          lastStatusChangedAt: {
+            ...(from ? { gte: from } : {}),
+            ...(to ? { lte: to } : {}),
+          },
+        }
+      : {}),
+  };
+
+  return prisma.serviceOrder.findMany({
+    where,
+    orderBy: [{ lastStatusChangedAt: 'desc' }, { createdAt: 'desc' }],
+    select: {
+      id: true,
+      status: true,
+      createdAt: true,
+      lastStatusChangedAt: true,
+    },
+  });
+}
+
+async function getStatusHistoryOptionalColumns() {
+  const rows = await prisma.$queryRawUnsafe(`
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'service_order_status_history'
+      AND column_name IN ('changed_by_user_name', 'created_at')
+  `);
+
+  const names = new Set(rows.map((row) => String(row.column_name || '').trim()));
+  return {
+    hasChangedByUserName: names.has('changed_by_user_name'),
+    hasCreatedAt: names.has('created_at'),
+  };
+}
+
+async function insertStatusHistoryRow({
+  supports,
+  serviceOrderId,
+  previousStatus,
+  nextStatus,
+  changedAt,
+  changedByUserId,
+  changedByUserName,
+  note,
+}) {
+  const cols = [];
+  const placeholders = [];
+  const params = [];
+
+  function push(col, value, cast) {
+    params.push(value);
+    const index = params.length;
+    cols.push(`"${col}"`);
+    placeholders.push(cast ? `$${index}::${cast}` : `$${index}`);
+  }
+
+  push('service_order_id', serviceOrderId, 'uuid');
+  push('previous_status', statusToDbValue(previousStatus), 'service_order_status');
+  push('next_status', statusToDbValue(nextStatus), 'service_order_status');
+  push('changed_at', changedAt, 'timestamp');
+  push('changed_by_user_id', changedByUserId, 'uuid');
+  push('note', note, 'text');
+
+  if (supports.hasChangedByUserName) {
+    push('changed_by_user_name', changedByUserName, 'text');
+  }
+  if (supports.hasCreatedAt) {
+    push('created_at', changedAt, 'timestamp');
+  }
+
+  const sql = `
+    INSERT INTO service_order_status_history (${cols.join(', ')})
+    VALUES (${placeholders.join(', ')})
+  `;
+  await prisma.$executeRawUnsafe(sql, ...params);
+}
+
+async function applyStatusChangeWithHistory({
+  supports,
+  orderId,
+  previousStatus,
+  nextStatus,
+  changedAt,
+  changedByUserId,
+  changedByUserName,
+}) {
+  await prisma.serviceOrder.update({
+    where: { id: orderId },
+    data: {
+      status: nextStatus,
+      lastStatusChangedAt: changedAt,
+      lastStatusChangedByUserId: changedByUserId,
+      finalizedAt: nextStatus === ServiceOrderStatus.FINALIZADO ? changedAt : null,
+    },
+  });
+
+  await insertStatusHistoryRow({
+    supports,
+    serviceOrderId: orderId,
+    previousStatus,
+    nextStatus,
+    changedAt,
+    changedByUserId,
+    changedByUserName,
+    note: `QA transition ${previousStatus ?? 'null'} -> ${nextStatus}`,
+  });
+}
+
+async function runStatusDateFilterRegressionCase(fixture) {
+  const supports = await getStatusHistoryOptionalColumns();
+  assertBackendUsesLastStatusChangedAtFilter();
+  assertBackendTransitionsIncludePause();
+
+  const createdAtOld = new Date('2026-10-01T09:00:00.000Z');
+  const inProgressAt = new Date('2026-10-02T10:00:00.000Z');
+  const pausedAt = new Date('2026-10-05T11:30:00.000Z');
+  const resumedAt = new Date('2026-10-07T14:45:00.000Z');
+  const finalizedAt = new Date('2026-10-10T16:00:00.000Z');
+
+  const order = await prisma.serviceOrder.create({
+    data: {
+      clientId: fixture.client.id,
+      quotationId: fixture.quotation.id,
+      category: ServiceOrderCategory.CAMARA,
+      serviceType: ServiceOrderType.MANTENIMIENTO,
+      status: ServiceOrderStatus.PENDIENTE,
+      createdById: fixture.owner.id,
+      assignedToId: fixture.technician.id,
+      technicalNote: 'status-date-filter-uses-last-status-changed-at',
+      extraRequirements: qaTag,
+      lastStatusChangedAt: createdAtOld,
+      lastStatusChangedByUserId: fixture.owner.id,
+      createdAt: createdAtOld,
+    },
+  });
+  created.orderIds.push(order.id);
+
+  await insertStatusHistoryRow({
+    supports,
+    serviceOrderId: order.id,
+    previousStatus: null,
+    nextStatus: ServiceOrderStatus.PENDIENTE,
+    changedAt: createdAtOld,
+    changedByUserId: fixture.owner.id,
+    changedByUserName: fixture.owner.nombreCompleto,
+    note: 'Estado inicial QA',
+  });
+
+  await applyStatusChangeWithHistory({
+    supports,
+    orderId: order.id,
+    previousStatus: ServiceOrderStatus.PENDIENTE,
+    nextStatus: ServiceOrderStatus.EN_PROCESO,
+    changedAt: inProgressAt,
+    changedByUserId: fixture.technician.id,
+    changedByUserName: fixture.technician.nombreCompleto,
+  });
+
+  await applyStatusChangeWithHistory({
+    supports,
+    orderId: order.id,
+    previousStatus: ServiceOrderStatus.EN_PROCESO,
+    nextStatus: ServiceOrderStatus.EN_PAUSA,
+    changedAt: pausedAt,
+    changedByUserId: fixture.technician.id,
+    changedByUserName: fixture.technician.nombreCompleto,
+  });
+
+  await applyStatusChangeWithHistory({
+    supports,
+    orderId: order.id,
+    previousStatus: ServiceOrderStatus.EN_PAUSA,
+    nextStatus: ServiceOrderStatus.EN_PROCESO,
+    changedAt: resumedAt,
+    changedByUserId: fixture.technician.id,
+    changedByUserName: fixture.technician.nombreCompleto,
+  });
+
+  await applyStatusChangeWithHistory({
+    supports,
+    orderId: order.id,
+    previousStatus: ServiceOrderStatus.EN_PROCESO,
+    nextStatus: ServiceOrderStatus.FINALIZADO,
+    changedAt: finalizedAt,
+    changedByUserId: fixture.technician.id,
+    changedByUserName: fixture.technician.nombreCompleto,
+  });
+
+  const refreshedOrder = await prisma.serviceOrder.findUniqueOrThrow({
+    where: { id: order.id },
+    select: {
+      id: true,
+      status: true,
+      createdAt: true,
+      lastStatusChangedAt: true,
+    },
+  });
+
+  assert(
+    toIsoDate(refreshedOrder.lastStatusChangedAt) === toIsoDate(finalizedAt),
+    `lastStatusChangedAt esperado ${toIsoDate(finalizedAt)} pero se obtuvo ${toIsoDate(refreshedOrder.lastStatusChangedAt)}`,
+  );
+
+  const history = await prisma.serviceOrderStatusHistory.findMany({
+    where: { serviceOrderId: order.id },
+    orderBy: { changedAt: 'asc' },
+    select: {
+      previousStatus: true,
+      nextStatus: true,
+      changedAt: true,
+      changedByUserId: true,
+    },
+  });
+
+  assert(history.length >= 5, `Historial insuficiente. Esperado >= 5, actual ${history.length}`);
+  assert(
+    history.every((item) => item.nextStatus && item.changedAt && item.changedByUserId),
+    'Historial incompleto: falta nextStatus, changedAt o changedByUserId',
+  );
+  assert(
+    history.some((item) => item.previousStatus === ServiceOrderStatus.EN_PROCESO && item.nextStatus === ServiceOrderStatus.EN_PAUSA),
+    'No existe transición EN_PROCESO -> EN_PAUSA en historial',
+  );
+  assert(
+    history.some((item) => item.previousStatus === ServiceOrderStatus.EN_PAUSA && item.nextStatus === ServiceOrderStatus.EN_PROCESO),
+    'No existe transición EN_PAUSA -> EN_PROCESO en historial',
+  );
+
+  const finalDayStart = new Date('2026-10-10T00:00:00.000Z');
+  const finalDayEnd = new Date('2026-10-10T23:59:59.999Z');
+  const createdDayStart = new Date('2026-10-01T00:00:00.000Z');
+  const createdDayEnd = new Date('2026-10-01T23:59:59.999Z');
+
+  const defaultFinalDay = await listOrdersLikeOperationsFilter({
+    from: finalDayStart,
+    to: finalDayEnd,
+  });
+  assert(
+    !defaultFinalDay.some((item) => item.id === order.id),
+    'Orden finalizada apareció en filtro por defecto (debe excluir FINALIZADO)',
+  );
+
+  const explicitFinalizedFinalDay = await listOrdersLikeOperationsFilter({
+    statuses: [ServiceOrderStatus.FINALIZADO],
+    from: finalDayStart,
+    to: finalDayEnd,
+  });
+  assert(
+    explicitFinalizedFinalDay.some((item) => item.id === order.id),
+    'Orden finalizada no apareció al filtrar explícitamente FINALIZADO por fecha de último estado',
+  );
+
+  const explicitFinalizedCreatedDay = await listOrdersLikeOperationsFilter({
+    statuses: [ServiceOrderStatus.FINALIZADO],
+    from: createdDayStart,
+    to: createdDayEnd,
+  });
+  assert(
+    !explicitFinalizedCreatedDay.some((item) => item.id === order.id),
+    'Orden apareció por fecha de creación aunque su último estado es de otra fecha',
+  );
+
+  test(
+    'status-date-filter-uses-last-status-changed-at',
+    `order=${order.id} createdAt=${toIsoDate(refreshedOrder.createdAt)} lastStatusChangedAt=${toIsoDate(refreshedOrder.lastStatusChangedAt)}`,
+  );
+  console.log('✅ status-date-filter-uses-last-status-changed-at OK');
 }
 
 async function expectReject(name, fn, validator) {
@@ -140,6 +468,8 @@ async function cleanup() {
 
 async function main() {
   const fixture = await createFixtureData();
+
+  await runStatusDateFilterRegressionCase(fixture);
 
   const createdOrder = await prisma.serviceOrder.create({
     data: {
