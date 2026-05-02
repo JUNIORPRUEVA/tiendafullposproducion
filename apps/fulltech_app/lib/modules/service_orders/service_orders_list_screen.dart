@@ -3782,193 +3782,208 @@ class _ServiceOrderListCard extends StatelessWidget {
     );
 
     if (isDesktop) {
-      return _DesktopServiceOrderLine(
-        order: order,
-        clientDisplayName: clientDisplayName,
-        clientPhone: clientPhone,
-        creatorFirstName: creatorFirstName,
-        hasCreatorName: hasCreatorName,
-        technicianName: technicianName,
-        serviceLabel: topLineText,
-        lastStatusLabel: lastStatusLineText,
-        serviceBucket: serviceBucket,
-        locationUri: locationUri,
-        callUri: callUri,
-        whatsappUri: whatsappUri,
-        priorityStyle: priorityStyle,
-        technicianActionConfig: technicianActionConfig,
-        statusBusy: statusBusy,
-        creatingNewOrder: creatingNewOrder,
-        isTechnician: isTechnician,
-        canPromoteStatus: canPromoteStatus,
-        onTap: onTap,
-        onChangeStatus: onChangeStatus,
-        onCreateNewOrder: onCreateNewOrder,
-        onEdit: onEdit,
-        onDelete: onDelete,
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _ThinServiceScheduleLine(
+            label: topLineText,
+            bucket: serviceBucket,
+            compact: false,
+          ),
+          _DesktopServiceOrderLine(
+            order: order,
+            clientDisplayName: clientDisplayName,
+            clientPhone: clientPhone,
+            creatorFirstName: creatorFirstName,
+            hasCreatorName: hasCreatorName,
+            technicianName: technicianName,
+            lastStatusLabel: lastStatusLineText,
+            locationUri: locationUri,
+            callUri: callUri,
+            whatsappUri: whatsappUri,
+            priorityStyle: priorityStyle,
+            technicianActionConfig: technicianActionConfig,
+            statusBusy: statusBusy,
+            creatingNewOrder: creatingNewOrder,
+            isTechnician: isTechnician,
+            canPromoteStatus: canPromoteStatus,
+            onTap: onTap,
+            onChangeStatus: onChangeStatus,
+            onCreateNewOrder: onCreateNewOrder,
+            onEdit: onEdit,
+            onDelete: onDelete,
+          ),
+        ],
       );
     }
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: onTap,
-        child: Ink(
-          decoration: BoxDecoration(
-            color: Color.alphaBlend(
-              priorityStyle.backgroundTint.withValues(alpha: 0.36),
-              theme.colorScheme.surface,
-            ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _ThinServiceScheduleLine(
+          label: topLineText,
+          bucket: serviceBucket,
+          compact: true,
+        ),
+        Material(
+          color: Colors.transparent,
+          child: InkWell(
             borderRadius: BorderRadius.circular(14),
-            boxShadow: [
-              BoxShadow(
-                color: theme.colorScheme.shadow.withValues(alpha: 0.022),
-                blurRadius: 8,
-                offset: const Offset(0, 2),
-              ),
-            ],
-            border: Border.all(
-              color: priorityStyle.borderColor.withValues(alpha: 0.48),
-            ),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _ServiceScheduleChip(
-                  label: topLineText,
-                  bucket: serviceBucket,
+            onTap: onTap,
+            child: Ink(
+              decoration: BoxDecoration(
+                color: Color.alphaBlend(
+                  priorityStyle.backgroundTint.withValues(alpha: 0.36),
+                  theme.colorScheme.surface,
                 ),
-                const SizedBox(height: 7),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Container(
-                      width: 3,
-                      height: 26,
-                      margin: const EdgeInsets.only(right: 8),
-                      decoration: BoxDecoration(
-                        color: priorityStyle.edgeColor.withValues(alpha: 0.9),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                    ),
-                    Expanded(
-                      child: Text(
-                        'Técnico: ${technicianName.trim().isEmpty ? 'Sin asignar' : technicianName.trim()}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          fontSize: 11,
-                          color: theme.colorScheme.onSurfaceVariant,
-                          fontWeight: FontWeight.w700,
-                          height: 1,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    _StatusBadge(status: order.status, compact: true),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Último estado: $lastStatusLineText',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    fontSize: 10,
-                    color: theme.colorScheme.onSurfaceVariant,
-                    fontWeight: FontWeight.w600,
-                    height: 1,
+                borderRadius: BorderRadius.circular(14),
+                boxShadow: [
+                  BoxShadow(
+                    color: theme.colorScheme.shadow.withValues(alpha: 0.022),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
                   ),
+                ],
+                border: Border.all(
+                  color: priorityStyle.borderColor.withValues(alpha: 0.48),
                 ),
-                const SizedBox(height: 7),
-                Row(
+              ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Transform.translate(
-                            offset: const Offset(0, -1),
-                            child: Text(
-                              clientDisplayName.isEmpty
-                                  ? 'Cliente sin nombre'
-                                  : clientDisplayName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: -0.1,
-                                height: 1.0,
-                              ),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Container(
+                          width: 3,
+                          height: 26,
+                          margin: const EdgeInsets.only(right: 8),
+                          decoration: BoxDecoration(
+                            color: priorityStyle.edgeColor.withValues(alpha: 0.9),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                        ),
+                        Expanded(
+                          child: Text(
+                            'Técnico: ${technicianName.trim().isEmpty ? 'Sin asignar' : technicianName.trim()}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              fontSize: 11,
+                              color: theme.colorScheme.onSurfaceVariant,
+                              fontWeight: FontWeight.w700,
+                              height: 1,
                             ),
                           ),
-                          const SizedBox(height: 3),
-                          Row(
+                        ),
+                        const SizedBox(width: 6),
+                        _StatusBadge(status: order.status, compact: true),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Último estado: $lastStatusLineText',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        fontSize: 10,
+                        color: theme.colorScheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w600,
+                        height: 1,
+                      ),
+                    ),
+                    const SizedBox(height: 7),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              Expanded(
+                              Transform.translate(
+                                offset: const Offset(0, -1),
                                 child: Text(
-                                  '${order.serviceType.label} - ${order.category.label}',
+                                  clientDisplayName.isEmpty
+                                      ? 'Cliente sin nombre'
+                                      : clientDisplayName,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.labelSmall?.copyWith(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w600,
-                                    color: theme.colorScheme.onSurfaceVariant,
-                                    letterSpacing: 0.12,
-                                    height: 1,
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: -0.1,
+                                    height: 1.0,
                                   ),
                                 ),
                               ),
-                              if (serviceCityLabel != null) ...[
-                                const SizedBox(width: 8),
-                                Text(
-                                  serviceCityLabel,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  textAlign: TextAlign.end,
-                                  style: theme.textTheme.labelSmall?.copyWith(
-                                    fontSize: 8,
-                                    fontWeight: FontWeight.w700,
-                                    color: theme.colorScheme.onSurfaceVariant,
-                                    letterSpacing: 0.28,
-                                    height: 1,
+                              const SizedBox(height: 3),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      '${order.serviceType.label} - ${order.category.label}',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: theme.textTheme.labelSmall?.copyWith(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                        color: theme.colorScheme.onSurfaceVariant,
+                                        letterSpacing: 0.12,
+                                        height: 1,
+                                      ),
+                                    ),
                                   ),
-                                ),
-                              ],
+                                  if (serviceCityLabel != null) ...[
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      serviceCityLabel,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      textAlign: TextAlign.end,
+                                      style: theme.textTheme.labelSmall?.copyWith(
+                                        fontSize: 8,
+                                        fontWeight: FontWeight.w700,
+                                        color: theme.colorScheme.onSurfaceVariant,
+                                        letterSpacing: 0.28,
+                                        height: 1,
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
                             ],
                           ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    _MobileOrderActionsButton(
-                      order: order,
-                      statusBusy: statusBusy,
-                      creatingNewOrder: creatingNewOrder,
-                      canPromoteStatus: canPromoteStatus,
-                      isTechnician: isTechnician,
-                      callUri: callUri,
-                      whatsappUri: whatsappUri,
-                      locationUri: locationUri,
-                      technicianActionConfig: technicianActionConfig,
-                      onCreateNewOrder: onCreateNewOrder,
-                      onChangeStatus: onChangeStatus,
-                      onEdit: onEdit,
-                      onDelete: onDelete,
+                        ),
+                        const SizedBox(width: 8),
+                        _MobileOrderActionsButton(
+                          order: order,
+                          statusBusy: statusBusy,
+                          creatingNewOrder: creatingNewOrder,
+                          canPromoteStatus: canPromoteStatus,
+                          isTechnician: isTechnician,
+                          callUri: callUri,
+                          whatsappUri: whatsappUri,
+                          locationUri: locationUri,
+                          technicianActionConfig: technicianActionConfig,
+                          onCreateNewOrder: onCreateNewOrder,
+                          onChangeStatus: onChangeStatus,
+                          onEdit: onEdit,
+                          onDelete: onDelete,
+                        ),
+                      ],
                     ),
                   ],
                 ),
-              ],
+              ),
             ),
           ),
         ),
-      ),
+      ],
     );
   }
 }
@@ -3981,9 +3996,7 @@ class _DesktopServiceOrderLine extends ConsumerWidget {
     required this.creatorFirstName,
     required this.hasCreatorName,
     required this.technicianName,
-    required this.serviceLabel,
     required this.lastStatusLabel,
-    required this.serviceBucket,
     required this.locationUri,
     required this.callUri,
     required this.whatsappUri,
@@ -4006,9 +4019,7 @@ class _DesktopServiceOrderLine extends ConsumerWidget {
   final String creatorFirstName;
   final bool hasCreatorName;
   final String technicianName;
-  final String serviceLabel;
   final String lastStatusLabel;
-  final ServiceScheduleDayBucket serviceBucket;
   final Uri? locationUri;
   final Uri? callUri;
   final Uri? whatsappUri;
@@ -4117,21 +4128,16 @@ class _DesktopServiceOrderLine extends ConsumerWidget {
               Expanded(
                 flex: 3,
                 child: _DesktopLineTextBlock(
-                  title: serviceLabel,
-                  subtitle: 'Servicio programado',
-                  icon: serviceBucket == ServiceScheduleDayBucket.overdue
-                      ? Icons.warning_amber_rounded
-                      : Icons.schedule_rounded,
-                  emphasizeTitle: true,
-                  highlighted: true,
-                  bucket: serviceBucket,
+                  title: '${order.serviceType.label} · ${order.category.label}',
+                  subtitle: detailSummary ?? clientPhone,
+                  icon: Icons.construction_rounded,
                 ),
               ),
               const SizedBox(width: 14),
               Expanded(
                 flex: 3,
                 child: _DesktopLineTextBlock(
-                  title: assignedLabel,
+                  title: 'Técnico: $assignedLabel',
                   subtitle: hasCreatorName ? 'Vendedor: $creatorFirstName' : 'Sin vendedor',
                   icon: Icons.engineering_rounded,
                 ),
@@ -4220,41 +4226,29 @@ class _DesktopLineTextBlock extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.icon,
-    this.emphasizeTitle = false,
-    this.highlighted = false,
-    this.bucket,
   });
 
   final String title;
   final String subtitle;
   final IconData icon;
-  final bool emphasizeTitle;
-  final bool highlighted;
-  final ServiceScheduleDayBucket? bucket;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final scheduleVisual = highlighted
-        ? _serviceScheduleVisualStyle(bucket ?? ServiceScheduleDayBucket.future)
-        : null;
     return Row(
       children: [
         Container(
           width: 30,
           height: 30,
           decoration: BoxDecoration(
-            color: scheduleVisual?.background ?? colorScheme.primary.withValues(alpha: 0.08),
+            color: colorScheme.primary.withValues(alpha: 0.08),
             borderRadius: BorderRadius.circular(10),
-            border: scheduleVisual != null
-                ? Border.all(color: scheduleVisual.border)
-                : null,
           ),
           child: Icon(
             icon,
             size: 15,
-            color: scheduleVisual?.foreground ?? colorScheme.primary,
+            color: colorScheme.primary,
           ),
         ),
         const SizedBox(width: 9),
@@ -4268,9 +4262,8 @@ class _DesktopLineTextBlock extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.bodyMedium?.copyWith(
-                  fontWeight: emphasizeTitle ? FontWeight.w900 : FontWeight.w800,
+                  fontWeight: FontWeight.w800,
                   letterSpacing: -0.08,
-                  color: scheduleVisual?.foreground,
                 ),
               ),
               const SizedBox(height: 3),
@@ -4279,8 +4272,7 @@ class _DesktopLineTextBlock extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.labelSmall?.copyWith(
-                  color: scheduleVisual?.foreground.withValues(alpha: 0.84) ??
-                      colorScheme.onSurfaceVariant,
+                  color: colorScheme.onSurfaceVariant,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -4355,50 +4347,42 @@ _ServiceScheduleVisualStyle _serviceScheduleVisualStyle(
   }
 }
 
-class _ServiceScheduleChip extends StatelessWidget {
-  const _ServiceScheduleChip({required this.label, required this.bucket});
+class _ThinServiceScheduleLine extends StatelessWidget {
+  const _ThinServiceScheduleLine({
+    required this.label,
+    required this.bucket,
+    required this.compact,
+  });
 
   final String label;
   final ServiceScheduleDayBucket bucket;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     final style = _serviceScheduleVisualStyle(bucket);
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
-      decoration: BoxDecoration(
-        color: style.background,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: style.border),
-      ),
+    return Padding(
+      padding: EdgeInsets.fromLTRB(compact ? 2 : 6, 0, compact ? 2 : 6, 2),
       child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            bucket == ServiceScheduleDayBucket.overdue
-                ? Icons.warning_amber_rounded
-                : Icons.schedule_rounded,
-            size: 14,
-            color: style.foreground,
+            Icons.schedule_rounded,
+            size: compact ? 10 : 11,
+            color: style.foreground.withValues(alpha: 0.72),
           ),
-          const SizedBox(width: 6),
-          Text(
-            'Servicio: ',
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              fontWeight: FontWeight.w700,
-              color: style.foreground.withValues(alpha: 0.9),
-              fontSize: 10.2,
-            ),
-          ),
-          Expanded(
+          const SizedBox(width: 4),
+          Flexible(
             child: Text(
-              label,
+              'Servicio: $label',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                fontWeight: FontWeight.w900,
-                color: style.foreground,
-                letterSpacing: 0.1,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                fontSize: compact ? 8.7 : 9.2,
+                height: 1,
+                fontWeight: FontWeight.w500,
+                letterSpacing: 0.05,
+                color: style.foreground.withValues(alpha: 0.72),
               ),
             ),
           ),

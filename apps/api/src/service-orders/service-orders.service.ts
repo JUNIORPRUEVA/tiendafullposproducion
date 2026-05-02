@@ -731,7 +731,7 @@ export class ServiceOrdersService {
       resolvedAssignedToId = item.assignedToId ?? user.id;
     }
     if (nextStatus === 'finalizado' && user.role === Role.TECNICO) {
-      resolvedAssignedToId = user.id;
+      resolvedAssignedToId = item.assignedToId ?? user.id;
     }
     const now = new Date();
     const statusNote = this.cleanOptionalText(dto.note);
