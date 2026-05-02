@@ -51,9 +51,16 @@ class ServiceOrdersApi {
 
   Future<List<ServiceOrderModel>> listOrders() async {
     const path = ApiRoutes.serviceOrders;
+    final allStatuses = ServiceOrderStatus.values
+        .map((status) => status.apiValue)
+        .toList(growable: false);
     _logRequest('GET', path);
     try {
-      final res = await _dio.get(path, options: _backgroundOptions);
+      final res = await _dio.get(
+        path,
+        queryParameters: {'statuses': allStatuses.join(',')},
+        options: _backgroundOptions,
+      );
       _logResponse('GET', path, res.statusCode);
       final raw = res.data;
       final rows = raw is List
@@ -175,11 +182,9 @@ class ServiceOrdersApi {
 
   Future<ServiceOrderModel> updateStatus(
     String id,
-    ServiceOrderStatus status,
-    {
-      DateTime? scheduledAt,
-    }
-  ) async {
+    ServiceOrderStatus status, {
+    DateTime? scheduledAt,
+  }) async {
     try {
       final res = await _dio.patch(
         ApiRoutes.serviceOrderStatus(id),

@@ -249,7 +249,7 @@ async function main() {
   const textEvidence = await prisma.serviceEvidence.create({
     data: {
       serviceOrderId: createdOrder.id,
-      type: ServiceEvidenceType.TEXTO,
+      type: ServiceEvidenceType.REFERENCIA_TEXTO,
       content: 'Texto de evidencia QA',
       createdById: fixture.owner.id,
     },
@@ -259,7 +259,7 @@ async function main() {
   const imageEvidence = await prisma.serviceEvidence.create({
     data: {
       serviceOrderId: createdOrder.id,
-      type: ServiceEvidenceType.IMAGEN,
+      type: ServiceEvidenceType.REFERENCIA_IMAGEN,
       content: 'https://example.com/mock-image.jpg',
       createdById: fixture.owner.id,
     },
@@ -269,7 +269,7 @@ async function main() {
   const videoEvidence = await prisma.serviceEvidence.create({
     data: {
       serviceOrderId: createdOrder.id,
-      type: ServiceEvidenceType.VIDEO,
+      type: ServiceEvidenceType.EVIDENCIA_VIDEO,
       content: 'https://example.com/mock-video.mp4',
       createdById: fixture.owner.id,
     },
@@ -420,7 +420,7 @@ async function main() {
       await prisma.serviceEvidence.create({
         data: {
           serviceOrderId: randomUuid(),
-          type: ServiceEvidenceType.TEXTO,
+          type: ServiceEvidenceType.REFERENCIA_TEXTO,
           content: 'invalid evidence',
           createdById: fixture.owner.id,
         },

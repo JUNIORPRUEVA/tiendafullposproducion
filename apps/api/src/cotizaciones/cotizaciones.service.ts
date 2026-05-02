@@ -287,18 +287,51 @@ export class CotizacionesService {
     );
   }
 
-  private resolveClientDestination(quotation: {
+  private isLikelyWhatsAppDestination(number: string) {
+    return number.length >= 11 && number.length <= 15;
+  }
+
+  private async resolveClientDestination(quotation: {
+    id: string;
+    customerId: string | null;
     customerPhone: string;
   }) {
-    const normalizedPhone = this.evolutionWhatsApp.normalizeWhatsAppNumber(
+    const quotePhoneNormalized = this.evolutionWhatsApp.normalizeWhatsAppNumber(
       quotation.customerPhone,
     );
-    if (!normalizedPhone) {
-      throw new BadRequestException(
-        'El cliente no tiene teléfono válido para enviar la cotización.',
-      );
+
+    if (this.isLikelyWhatsAppDestination(quotePhoneNormalized)) {
+      return quotePhoneNormalized;
     }
-    return normalizedPhone;
+
+    if (quotation.customerId) {
+      const customer = await this.prisma.client.findUnique({
+        where: { id: quotation.customerId },
+        select: { telefono: true, phoneNormalized: true },
+      });
+
+      const clientPhoneRaw = (customer?.telefono ?? '').trim();
+      const clientPhoneNormalized =
+        this.evolutionWhatsApp.normalizeWhatsAppNumber(clientPhoneRaw) ||
+        this.evolutionWhatsApp.normalizeWhatsAppNumber(
+          (customer?.phoneNormalized ?? '').trim(),
+        );
+
+      if (this.isLikelyWhatsAppDestination(clientPhoneNormalized)) {
+        await this.prisma.cotizacion.update({
+          where: { id: quotation.id },
+          data: {
+            customerPhone: clientPhoneRaw || clientPhoneNormalized,
+            customerPhoneNormalized: normalizePhone(clientPhoneRaw),
+          },
+        });
+        return clientPhoneNormalized;
+      }
+    }
+
+    throw new BadRequestException(
+      'El cliente no tiene teléfono válido para enviar la cotización. Abre el cliente, corrige el teléfono (con código de país) y vuelve a intentar.',
+    );
   }
 
   private buildQuotesListCacheKey(
@@ -699,7 +732,7 @@ export class CotizacionesService {
     const destinationPhones =
       destinationType === 'admin'
         ? await this.resolveAdminDestinationPhones()
-        : [this.resolveClientDestination(quotation)];
+        : [await this.resolveClientDestination(quotation)];
 
     const bytes = this.parsePdfBase64(dto.pdfBase64);
     const fileName = (dto.fileName ?? '').trim() || 'cotizacion.pdf';
