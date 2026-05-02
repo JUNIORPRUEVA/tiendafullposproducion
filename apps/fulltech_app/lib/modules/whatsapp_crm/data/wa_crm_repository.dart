@@ -121,6 +121,11 @@ class WaCrmRepository {
     final res = await _dio.post<Map<String, dynamic>>(
       '/whatsapp-inbox/daily-summary',
       data: {'userId': userId, 'date': day},
+      options: Options(
+        receiveTimeout: const Duration(seconds: 45),
+        sendTimeout: const Duration(seconds: 15),
+        extra: const {'skipLoader': true},
+      ),
     );
     return res.data ?? const {};
   }

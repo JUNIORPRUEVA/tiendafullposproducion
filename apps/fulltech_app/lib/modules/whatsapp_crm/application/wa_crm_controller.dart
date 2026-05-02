@@ -69,7 +69,8 @@ class WaCrmAiAlert {
     required this.description,
   });
 
-  final String type; // fraud | misconduct | no_response | angry_customer | spelling | unanswered
+  final String
+  type; // fraud | misconduct | no_response | angry_customer | spelling | unanswered
   final String severity; // high | medium | low
   final String contact;
   final String description;
@@ -95,7 +96,8 @@ class WaCrmConversationAnalysis {
 
   final String contact;
   final int messageCount;
-  final String status; // interested | not_interested | angry | no_response | closed | pending
+  final String
+  status; // interested | not_interested | angry | no_response | closed | pending
   final List<String> issues;
   final String summary;
 
@@ -104,7 +106,8 @@ class WaCrmConversationAnalysis {
       contact: sanitizeWaText(json['contact']) ?? '',
       messageCount: (json['messageCount'] as num?)?.toInt() ?? 0,
       status: sanitizeWaText(json['status']) ?? 'pending',
-      issues: (json['issues'] as List<dynamic>?)
+      issues:
+          (json['issues'] as List<dynamic>?)
               ?.map((e) => sanitizeWaText(e) ?? '')
               .where((s) => s.isNotEmpty)
               .toList() ??
@@ -134,7 +137,8 @@ class WaCrmDailyAiSummary {
       source: sanitizeWaText(json['source']) ?? 'rules-only',
       summary: sanitizeWaText(json['summary']) ?? '',
       stats: (json['stats'] as Map?)?.cast<String, dynamic>() ?? const {},
-      alerts: (json['alerts'] as List<dynamic>?)
+      alerts:
+          (json['alerts'] as List<dynamic>?)
               ?.whereType<Map<String, dynamic>>()
               .map(WaCrmAiAlert.fromJson)
               .toList() ??
@@ -427,11 +431,87 @@ class WaCrmController extends StateNotifier<WaCrmState> {
       );
     } catch (e, st) {
       debugPrint('[WaCrm] generateDailyAiSummary error: $e\n$st');
+      final fallback = _buildLocalDailyAiSummary(
+        user: user,
+        date: normalizedDate,
+        reason: e,
+      );
       state = state.copyWith(
         loadingAiSummary: false,
-        aiSummaryError: () => 'No se pudo generar el resumen: $e',
+        aiSummary: () => fallback,
+        aiSummaryError: () => null,
       );
     }
+  }
+
+  WaCrmDailyAiSummary _buildLocalDailyAiSummary({
+    required WaCrmUser user,
+    required DateTime date,
+    required Object reason,
+  }) {
+    final day =
+        '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    final contacts = state.conversations.length;
+    final loadedMessages = state.messages.length;
+    final unread = state.conversations.fold<int>(
+      0,
+      (sum, conv) => sum + conv.unreadCount,
+    );
+    final recentContacts = state.conversations
+        .take(5)
+        .map((conv) => conv.displayName)
+        .where((name) => name.trim().isNotEmpty)
+        .join(', ');
+    final reasonText = _friendlySummaryFailure(reason);
+    final summary = [
+      'Resumen parcial del $day para ${user.name}.',
+      'No se pudo completar el analisis de IA en este intento ($reasonText), pero el reporte no se detuvo.',
+      'Datos disponibles en pantalla: $contacts conversaciones cargadas, $loadedMessages mensajes de la conversacion abierta y $unread mensajes sin leer.',
+      if (recentContacts.isNotEmpty) 'Contactos recientes: $recentContacts.',
+      'Recomendacion: revisar primero conversaciones sin leer, clientes con mensajes recientes y cualquier chat que quedo sin respuesta.',
+    ].join('\n\n');
+
+    return WaCrmDailyAiSummary(
+      source: 'local-fallback',
+      summary: summary,
+      stats: {
+        'date': day,
+        'userName': user.name,
+        'totalMessages': loadedMessages,
+        'incomingMessages': state.messages.where((m) => m.isIncoming).length,
+        'outgoingMessages': state.messages.where((m) => m.isOutgoing).length,
+        'contacts': contacts,
+        'mediaMessages': state.messages
+            .where((m) => m.messageType != WaMessageType.text)
+            .length,
+      },
+      alerts: const [],
+      conversationAnalysis: state.conversations
+          .take(8)
+          .map(
+            (conv) => WaCrmConversationAnalysis(
+              contact: conv.displayName,
+              messageCount: conv.lastMessage == null ? 0 : 1,
+              status: 'pending',
+              issues: conv.unreadCount > 0
+                  ? ['Tiene ${conv.unreadCount} mensaje(s) sin leer']
+                  : const [],
+              summary: conv.lastMessage?.previewText ?? 'Sin vista previa.',
+            ),
+          )
+          .toList(),
+    );
+  }
+
+  String _friendlySummaryFailure(Object error) {
+    final text = error.toString();
+    if (text.contains('receiveTimeout') || text.contains('timeout')) {
+      return 'la API tardo mas de lo esperado';
+    }
+    if (text.contains('SocketException') || text.contains('connection')) {
+      return 'hubo un problema de conexion';
+    }
+    return 'servicio no disponible temporalmente';
   }
 
   // ─── Load conversations ───────────────────────────────────────────────
@@ -658,10 +738,10 @@ class WaCrmController extends StateNotifier<WaCrmState> {
             ? newest.remoteName
             : oldest.remoteName,
         remoteAvatarUrl:
-          (newest.remoteAvatarUrl != null &&
-            newest.remoteAvatarUrl!.trim().isNotEmpty)
-          ? newest.remoteAvatarUrl
-          : oldest.remoteAvatarUrl,
+            (newest.remoteAvatarUrl != null &&
+                newest.remoteAvatarUrl!.trim().isNotEmpty)
+            ? newest.remoteAvatarUrl
+            : oldest.remoteAvatarUrl,
         lastMessageAt: newest.lastMessageAt ?? oldest.lastMessageAt,
         unreadCount: newest.unreadCount + oldest.unreadCount,
         lastMessage: newest.lastMessage ?? oldest.lastMessage,

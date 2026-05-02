@@ -73,6 +73,15 @@ function isOutgoingEventName(value: string | null): boolean {
   return value.includes('SEND_MESSAGE') || value.includes('MESSAGES_UPDATE');
 }
 
+const configuredDailySummaryAiTimeoutMs = Number(
+  process.env.WHATSAPP_DAILY_SUMMARY_AI_TIMEOUT_MS ?? 10000,
+);
+const DAILY_SUMMARY_AI_TIMEOUT_MS = Number.isFinite(
+  configuredDailySummaryAiTimeoutMs,
+)
+  ? Math.max(3000, Math.min(configuredDailySummaryAiTimeoutMs, 14000))
+  : 10000;
+
 function parseTimestamp(value: unknown): Date | null {
   if (value === null || value === undefined) return null;
   if (value instanceof Date) return value;
@@ -1727,19 +1736,23 @@ export class WhatsappInboxService {
     }
 
     try {
-      const ai = await this.requestDailySummaryFromOpenAi(runtime, {
-        stats,
-        transcript,
-        images: imageEntries,
-        audioTranscriptions,
-        conversationIds: Array.from(convMap.entries()).map(([, v]) => ({
-          contact: v.contact,
-          messageCount: v.msgs.length,
-          hasIncoming: v.msgs.some((x) => x.direction === 'cliente'),
-          hasOutgoing: v.msgs.some((x) => x.direction === 'usuario'),
-          hasMedia: v.msgs.some((x) => x.type !== WhatsappMessageType.TEXT),
-        })),
-      });
+      const ai = await this.withTimeout(
+        this.requestDailySummaryFromOpenAi(runtime, {
+          stats,
+          transcript,
+          images: imageEntries,
+          audioTranscriptions,
+          conversationIds: Array.from(convMap.entries()).map(([, v]) => ({
+            contact: v.contact,
+            messageCount: v.msgs.length,
+            hasIncoming: v.msgs.some((x) => x.direction === 'cliente'),
+            hasOutgoing: v.msgs.some((x) => x.direction === 'usuario'),
+            hasMedia: v.msgs.some((x) => x.type !== WhatsappMessageType.TEXT),
+          })),
+        }),
+        DAILY_SUMMARY_AI_TIMEOUT_MS,
+        'OpenAI daily summary timed out',
+      );
       return {
         source: 'openai',
         stats,
@@ -1748,7 +1761,12 @@ export class WhatsappInboxService {
         alerts: ai.alerts ?? [],
         conversationAnalysis: ai.conversationAnalysis ?? [],
       };
-    } catch {
+    } catch (error) {
+      console.warn(
+        `[WhatsappInbox] Daily AI summary fallback for user=${userId} date=${date}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
       return {
         source: 'rules-only',
         stats,
@@ -1757,6 +1775,26 @@ export class WhatsappInboxService {
         conversationAnalysis: [],
       };
     }
+  }
+
+  private withTimeout<T>(
+    promise: Promise<T>,
+    timeoutMs: number,
+    message: string,
+  ): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+      promise.then(
+        (value) => {
+          clearTimeout(timeout);
+          resolve(value);
+        },
+        (error) => {
+          clearTimeout(timeout);
+          reject(error);
+        },
+      );
+    });
   }
 
   private async transcribeAudioBase64(
@@ -1782,14 +1820,17 @@ export class WhatsappInboxService {
       );
       form.append('model', 'whisper-1');
       form.append('language', 'es');
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
       const response = await fetch(
         'https://api.openai.com/v1/audio/transcriptions',
         {
           method: 'POST',
+          signal: controller.signal,
           headers: { Authorization: `Bearer ${apiKey}` },
           body: form,
         },
-      );
+      ).finally(() => clearTimeout(timeout));
       if (!response.ok) return null;
       const data = (await response.json()) as { text?: string };
       return (data.text ?? '').trim() || null;
@@ -1965,10 +2006,16 @@ export class WhatsappInboxService {
             ? userContent
             : userContent.filter((c) => c.type === 'text').map((c) => c.text).join('\n');
 
+        const controller = new AbortController();
+        const timeout = setTimeout(
+          () => controller.abort(),
+          DAILY_SUMMARY_AI_TIMEOUT_MS,
+        );
         const response = await fetch(
           'https://api.openai.com/v1/chat/completions',
           {
             method: 'POST',
+            signal: controller.signal,
             headers: {
               Authorization: `Bearer ${runtime.apiKey}`,
               'Content-Type': 'application/json',
@@ -1986,7 +2033,7 @@ export class WhatsappInboxService {
               ],
             }),
           },
-        );
+        ).finally(() => clearTimeout(timeout));
         if (!response.ok) continue;
         const data = (await response.json()) as {
           choices?: Array<{ message?: { content?: string } }>;
