@@ -87,7 +87,7 @@ workflows:
       - name: Build IPA
         script: |
           cd "$APP_DIR"
-          flutter build ipa --release
+          flutter build ipa --release --export-options-plist=ios/ExportOptions.plist
           mkdir -p "$CM_BUILD_DIR/build/ios/ipa"
           cp build/ios/ipa/*.ipa "$CM_BUILD_DIR/build/ios/ipa/"
     artifacts:
