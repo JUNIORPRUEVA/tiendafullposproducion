@@ -103,7 +103,9 @@ Future<void> _showChatAvatarPreview(
                             loadingBuilder: (context, child, loadingProgress) {
                               if (loadingProgress == null) return child;
                               return const Center(
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
                               );
                             },
                             errorBuilder: (context, _, __) => Center(
@@ -132,61 +134,59 @@ Future<void> _showChatAvatarPreview(
                     ),
                   ),
                 ),
-              Positioned(
-                top: 10,
-                right: 10,
-                child: Material(
-                  color: Colors.black45,
-                  shape: const CircleBorder(),
-                  child: InkWell(
-                    customBorder: const CircleBorder(),
-                    onTap: () => Navigator.of(dialogContext).pop(),
-                    child: const Padding(
-                      padding: EdgeInsets.all(8),
-                      child: Icon(Icons.close, color: Colors.white),
+                Positioned(
+                  top: 10,
+                  right: 10,
+                  child: Material(
+                    color: Colors.black45,
+                    shape: const CircleBorder(),
+                    child: InkWell(
+                      customBorder: const CircleBorder(),
+                      onTap: () => Navigator.of(dialogContext).pop(),
+                      child: const Padding(
+                        padding: EdgeInsets.all(8),
+                        child: Icon(Icons.close, color: Colors.white),
+                      ),
                     ),
                   ),
                 ),
-              ),
-              Positioned(
-                left: 12,
-                right: 12,
-                bottom: 12,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.black54,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          _waText(conv.displayName),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(dialogContext)
-                              .textTheme
-                              .bodyMedium
-                              ?.copyWith(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w600,
-                              ),
+                Positioned(
+                  left: 12,
+                  right: 12,
+                  bottom: 12,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black54,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            _waText(conv.displayName),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(dialogContext).textTheme.bodyMedium
+                                ?.copyWith(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 10),
-                      Text(
-                        'Doble toque o desliza abajo para cerrar',
-                        style: Theme.of(dialogContext).textTheme.bodySmall
-                            ?.copyWith(color: Colors.white70),
-                      ),
-                    ],
+                        const SizedBox(width: 10),
+                        Text(
+                          'Doble toque o desliza abajo para cerrar',
+                          style: Theme.of(dialogContext).textTheme.bodySmall
+                              ?.copyWith(color: Colors.white70),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
               ],
             ),
           ),
@@ -206,6 +206,7 @@ class WhatsappCrmScreen extends ConsumerStatefulWidget {
 class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
   final _msgController = TextEditingController();
   final _scrollController = ScrollController();
+  ProviderSubscription<WaCrmState>? _waCrmSubscription;
   StreamSubscription<Map<String, dynamic>>? _whatsappSub;
   Timer? _autoRefreshTimer;
   bool _showActionPanel = true;
@@ -214,6 +215,14 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
   @override
   void initState() {
     super.initState();
+    _waCrmSubscription = ref.listenManual<WaCrmState>(waCrmControllerProvider, (
+      prev,
+      next,
+    ) {
+      if ((prev?.messages.length ?? 0) < next.messages.length) {
+        _scrollToBottom();
+      }
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final user = ref.read(authStateProvider).user;
@@ -250,6 +259,7 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
   void dispose() {
     _autoRefreshTimer?.cancel();
     _whatsappSub?.cancel();
+    _waCrmSubscription?.close();
     _msgController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -277,12 +287,6 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
     final isTablet = size.width >= _kMobileBreak && size.width < _kTabletBreak;
 
     // ── Listen for new messages to scroll ──────────────────────────────────
-    ref.listen<WaCrmState>(waCrmControllerProvider, (prev, next) {
-      if ((prev?.messages.length ?? 0) < next.messages.length) {
-        _scrollToBottom();
-      }
-    });
-
     Widget body;
     if (isMobile) {
       body = _buildMobileLayout(context, state, theme);
@@ -2894,8 +2898,12 @@ class _DailyAiPanel extends StatelessWidget {
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
                               color: highAlerts.isNotEmpty
-                                  ? scheme.errorContainer.withValues(alpha: 0.55)
-                                  : Colors.orange.shade50.withValues(alpha: 0.5),
+                                  ? scheme.errorContainer.withValues(
+                                      alpha: 0.55,
+                                    )
+                                  : Colors.orange.shade50.withValues(
+                                      alpha: 0.5,
+                                    ),
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
                                 color: highAlerts.isNotEmpty
@@ -2920,12 +2928,13 @@ class _DailyAiPanel extends StatelessWidget {
                                     const SizedBox(width: 6),
                                     Text(
                                       'Alertas detectadas (${alerts.length})',
-                                      style: theme.textTheme.labelMedium?.copyWith(
-                                        fontWeight: FontWeight.w800,
-                                        color: highAlerts.isNotEmpty
-                                            ? scheme.error
-                                            : Colors.orange.shade700,
-                                      ),
+                                      style: theme.textTheme.labelMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w800,
+                                            color: highAlerts.isNotEmpty
+                                                ? scheme.error
+                                                : Colors.orange.shade700,
+                                          ),
                                     ),
                                   ],
                                 ),
@@ -2955,20 +2964,21 @@ class _DailyAiPanel extends StatelessWidget {
                                                 Text(
                                                   alert.contact,
                                                   style: theme
-                                                      .textTheme.labelSmall
+                                                      .textTheme
+                                                      .labelSmall
                                                       ?.copyWith(
-                                                    fontWeight: FontWeight.w700,
-                                                    color: scheme.onSurface,
-                                                  ),
+                                                        fontWeight:
+                                                            FontWeight.w700,
+                                                        color: scheme.onSurface,
+                                                      ),
                                                 ),
                                               Text(
                                                 _waText(alert.description),
-                                                style: theme
-                                                    .textTheme.bodySmall
+                                                style: theme.textTheme.bodySmall
                                                     ?.copyWith(
-                                                  height: 1.35,
-                                                  color: scheme.onSurface,
-                                                ),
+                                                      height: 1.35,
+                                                      color: scheme.onSurface,
+                                                    ),
                                               ),
                                             ],
                                           ),
@@ -2987,8 +2997,9 @@ class _DailyAiPanel extends StatelessWidget {
                                               context,
                                               alert.severity,
                                             ).withValues(alpha: 0.12),
-                                            borderRadius:
-                                                BorderRadius.circular(6),
+                                            borderRadius: BorderRadius.circular(
+                                              6,
+                                            ),
                                             border: Border.all(
                                               color: _severityColor(
                                                 context,
@@ -3000,13 +3011,13 @@ class _DailyAiPanel extends StatelessWidget {
                                             alert.severity.toUpperCase(),
                                             style: theme.textTheme.labelSmall
                                                 ?.copyWith(
-                                              fontSize: 9,
-                                              fontWeight: FontWeight.w800,
-                                              color: _severityColor(
-                                                context,
-                                                alert.severity,
-                                              ),
-                                            ),
+                                                  fontSize: 9,
+                                                  fontWeight: FontWeight.w800,
+                                                  color: _severityColor(
+                                                    context,
+                                                    alert.severity,
+                                                  ),
+                                                ),
                                           ),
                                         ),
                                       ],
@@ -3068,8 +3079,8 @@ class _DailyAiPanel extends StatelessWidget {
                                           _waText(conv.contact),
                                           style: theme.textTheme.labelMedium
                                               ?.copyWith(
-                                            fontWeight: FontWeight.w700,
-                                          ),
+                                                fontWeight: FontWeight.w700,
+                                              ),
                                           overflow: TextOverflow.ellipsis,
                                         ),
                                       ),
@@ -3084,8 +3095,9 @@ class _DailyAiPanel extends StatelessWidget {
                                             context,
                                             conv.status,
                                           ).withValues(alpha: 0.1),
-                                          borderRadius:
-                                              BorderRadius.circular(8),
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
                                           border: Border.all(
                                             color: _statusColor(
                                               context,
@@ -3097,13 +3109,13 @@ class _DailyAiPanel extends StatelessWidget {
                                           _statusLabel(conv.status),
                                           style: theme.textTheme.labelSmall
                                               ?.copyWith(
-                                            fontWeight: FontWeight.w700,
-                                            fontSize: 10,
-                                            color: _statusColor(
-                                              context,
-                                              conv.status,
-                                            ),
-                                          ),
+                                                fontWeight: FontWeight.w700,
+                                                fontSize: 10,
+                                                color: _statusColor(
+                                                  context,
+                                                  conv.status,
+                                                ),
+                                              ),
                                         ),
                                       ),
                                     ],
@@ -3114,9 +3126,9 @@ class _DailyAiPanel extends StatelessWidget {
                                       _waText(conv.summary),
                                       style: theme.textTheme.bodySmall
                                           ?.copyWith(
-                                        height: 1.35,
-                                        color: scheme.onSurface,
-                                      ),
+                                            height: 1.35,
+                                            color: scheme.onSurface,
+                                          ),
                                     ),
                                   ],
                                   if (conv.issues.isNotEmpty) ...[
@@ -3129,9 +3141,9 @@ class _DailyAiPanel extends StatelessWidget {
                                             (issue) => Container(
                                               padding:
                                                   const EdgeInsets.symmetric(
-                                                horizontal: 7,
-                                                vertical: 3,
-                                              ),
+                                                    horizontal: 7,
+                                                    vertical: 3,
+                                                  ),
                                               decoration: BoxDecoration(
                                                 color: scheme.errorContainer
                                                     .withValues(alpha: 0.35),
@@ -3141,12 +3153,13 @@ class _DailyAiPanel extends StatelessWidget {
                                               child: Text(
                                                 _waText(issue),
                                                 style: theme
-                                                    .textTheme.labelSmall
+                                                    .textTheme
+                                                    .labelSmall
                                                     ?.copyWith(
-                                                  fontSize: 10,
-                                                  color:
-                                                      scheme.onErrorContainer,
-                                                ),
+                                                      fontSize: 10,
+                                                      color: scheme
+                                                          .onErrorContainer,
+                                                    ),
                                               ),
                                             ),
                                           )

@@ -66,12 +66,30 @@ class _ServiceOrdersListScreenState
   final Set<String> _busyOrderIds = <String>{};
   final Set<String> _creatingFromOrderIds = <String>{};
   bool _purgingAllDebug = false;
+  ProviderSubscription<AuthState>? _authStateSubscription;
   StreamSubscription<OperationsRealtimeMessage>?
   _operationsRealtimeSubscription;
 
   @override
   void initState() {
     super.initState();
+    _authStateSubscription = ref.listenManual<AuthState>(authStateProvider, (
+      previous,
+      next,
+    ) {
+      if (previous?.user?.id == next.user?.id) {
+        return;
+      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _collapsedQuickSearchCtrl.clear();
+        setState(() {
+          _filter = const ServiceOrdersFilter.mainDefault();
+          _busyOrderIds.clear();
+          _creatingFromOrderIds.clear();
+        });
+      });
+    });
     _operationsRealtimeSubscription = ref
         .read(operationsRealtimeServiceProvider)
         .stream
@@ -84,6 +102,7 @@ class _ServiceOrdersListScreenState
 
   @override
   void dispose() {
+    _authStateSubscription?.close();
     _operationsRealtimeSubscription?.cancel();
     _collapsedQuickSearchCtrl.dispose();
     super.dispose();
@@ -526,10 +545,62 @@ class _ServiceOrdersListScreenState
     required int gpsReadyCount,
     required int scheduledCount,
   }) {
+    final header = Center(
+      key: const ValueKey('operations-header'),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: contentMaxWidth),
+        child: Padding(
+          padding: EdgeInsets.only(bottom: desktopLayout ? 10 : 8),
+          child: desktopLayout
+              ? _DesktopOperationsOverviewPanel(
+                  filter: _filter,
+                  activeCount: visibleOrders.length,
+                  pendingCount: pendingCount,
+                  inProgressCount: inProgressCount,
+                  gpsReadyCount: gpsReadyCount,
+                  scheduledCount: scheduledCount,
+                  refreshing: state.refreshing,
+                )
+              : Align(
+                  alignment: Alignment.centerRight,
+                  child: _CollapsedOperationsPanelToggle(
+                    activeCount: visibleOrders.length,
+                    hasActiveFilters: _filter.hasActiveFilters,
+                    searchController: _collapsedQuickSearchCtrl,
+                    onSearchChanged: (_) {
+                      setState(() {});
+                    },
+                    onClearSearch: () {
+                      _collapsedQuickSearchCtrl.clear();
+                      setState(() {});
+                    },
+                    onOpenFilters: () {
+                      _openFiltersSheet(
+                        availableCreators: availableCreators,
+                        availableTechnicians: availableTechnicians,
+                      );
+                    },
+                    onTap: () {
+                      _openControlPanelDialog(
+                        activeCount: visibleOrders.length,
+                        refreshing: state.refreshing,
+                        availableCreators: availableCreators,
+                        availableTechnicians: availableTechnicians,
+                      );
+                    },
+                  ),
+                ),
+        ),
+      ),
+    );
+
     return RefreshIndicator(
       onRefresh: controller.refresh,
       child: state.error != null && state.items.isEmpty && !state.refreshing
           ? ListView(
+              addAutomaticKeepAlives: false,
+              addRepaintBoundaries: true,
+              addSemanticIndexes: false,
               children: [
                 const SizedBox(height: 120),
                 Center(
@@ -557,142 +628,125 @@ class _ServiceOrdersListScreenState
                 ),
               ],
             )
-          : ListView.builder(
+          : visibleOrders.isEmpty
+          ? ListView(
+              addAutomaticKeepAlives: false,
+              addRepaintBoundaries: true,
+              addSemanticIndexes: false,
               padding: EdgeInsets.fromLTRB(
                 desktopLayout ? 18 : 12,
                 desktopLayout ? 12 : 8,
                 desktopLayout ? 14 : 12,
                 88,
               ),
-              itemCount: visibleOrders.isEmpty ? 2 : visibleOrders.length + 1,
-              itemBuilder: (context, index) {
-                if (index == 0) {
-                  return Center(
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(maxWidth: contentMaxWidth),
-                      child: Padding(
-                        padding: EdgeInsets.only(
-                          bottom: desktopLayout ? 10 : 8,
-                        ),
-                        child: desktopLayout
-                            ? _DesktopOperationsOverviewPanel(
-                                filter: _filter,
-                                activeCount: visibleOrders.length,
-                                pendingCount: pendingCount,
-                                inProgressCount: inProgressCount,
-                                gpsReadyCount: gpsReadyCount,
-                                scheduledCount: scheduledCount,
-                                refreshing: state.refreshing,
-                              )
-                            : Align(
-                                alignment: Alignment.centerRight,
-                                child: _CollapsedOperationsPanelToggle(
-                                  activeCount: visibleOrders.length,
-                                  hasActiveFilters: _filter.hasActiveFilters,
-                                  searchController: _collapsedQuickSearchCtrl,
-                                  onSearchChanged: (_) {
-                                    setState(() {});
-                                  },
-                                  onClearSearch: () {
-                                    _collapsedQuickSearchCtrl.clear();
-                                    setState(() {});
-                                  },
-                                  onOpenFilters: () {
-                                    _openFiltersSheet(
-                                      availableCreators: availableCreators,
-                                      availableTechnicians:
-                                          availableTechnicians,
-                                    );
-                                  },
-                                  onTap: () {
-                                    _openControlPanelDialog(
-                                      activeCount: visibleOrders.length,
-                                      refreshing: state.refreshing,
-                                      availableCreators: availableCreators,
-                                      availableTechnicians:
-                                          availableTechnicians,
-                                    );
-                                  },
-                                ),
-                              ),
-                      ),
-                    ),
-                  );
-                }
-
-                if (visibleOrders.isEmpty) {
-                  return Center(
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(maxWidth: contentMaxWidth),
-                      child: const Padding(
-                        padding: EdgeInsets.only(top: 28),
-                        child: _EmptyOrdersState(),
-                      ),
-                    ),
-                  );
-                }
-
-                final order = visibleOrders[index - 1];
-                final canChangeOrderStatus =
-                    canManageStatusAsRole || currentUserId == order.createdById;
-                final client =
-                    order.client ?? state.clientsById[order.clientId];
-                final assignedToId = (order.assignedToId ?? '').trim();
-                final technicianName = assignedToId.isEmpty
-                    ? ''
-                    : (state.usersById[assignedToId]?.nombreCompleto ??
-                          assignedToId);
-                final sellerConversationUri = _buildWhatsAppUri(
-                  state.usersById[order.createdById]?.telefono ?? '',
-                );
-                return Center(
+              children: [
+                header,
+                Center(
+                  key: const ValueKey('operations-empty-state'),
                   child: ConstrainedBox(
                     constraints: BoxConstraints(maxWidth: contentMaxWidth),
-                    child: Padding(
-                      padding: EdgeInsets.only(bottom: desktopLayout ? 2 : 8),
-                      child: _ServiceOrderListCard(
-                        order: order,
-                        client: client,
-                        clientName:
-                            client?.nombre ?? 'Cliente ${order.clientId}',
-                        creatorName:
-                            state
-                                .usersById[order.createdById]
-                                ?.nombreCompleto ??
-                            order.createdById,
-                        technicianName: technicianName,
-                        sellerConversationUri: sellerConversationUri,
-                        supportConversationUri: supportConversationUri,
-                        statusBusy: _busyOrderIds.contains(order.id),
-                        isTechnician:
-                            currentUser?.appRole.isTechnician ?? false,
-                        canPromoteStatus: canManageStatusAsRole,
-                        onChangeStatus: canChangeOrderStatus
-                            ? (status) => _changeOrderStatus(order, status)
-                            : null,
-                        creatingNewOrder: _creatingFromOrderIds.contains(
-                          order.id,
-                        ),
-                        onCreateNewOrder: order.isCloneSourceAllowed
-                            ? () => _createOrderFromSource(order)
-                            : null,
-                        onEdit: (isAdmin || currentUserId == order.createdById)
-                            ? () => _editOrder(order)
-                            : null,
-                        onDelete: isAdmin ? () => _deleteOrder(order) : null,
-                        onTap: () async {
-                          final updated = await context.push<bool>(
-                            Routes.serviceOrderById(order.id),
-                          );
-                          if (updated == true) {
-                            await controller.refresh();
-                          }
-                        },
-                      ),
+                    child: const Padding(
+                      padding: EdgeInsets.only(top: 28),
+                      child: _EmptyOrdersState(),
                     ),
                   ),
-                );
-              },
+                ),
+              ],
+            )
+          : Padding(
+              padding: EdgeInsets.fromLTRB(
+                desktopLayout ? 18 : 12,
+                desktopLayout ? 12 : 8,
+                desktopLayout ? 14 : 12,
+                0,
+              ),
+              child: Column(
+                children: [
+                  header,
+                  Expanded(
+                    child: ListView.builder(
+                      addAutomaticKeepAlives: false,
+                      addRepaintBoundaries: true,
+                      addSemanticIndexes: false,
+                      padding: const EdgeInsets.only(bottom: 88),
+                      itemCount: visibleOrders.length,
+                      itemBuilder: (context, index) {
+                        final order = visibleOrders[index];
+                        final canChangeOrderStatus =
+                            canManageStatusAsRole ||
+                            currentUserId == order.createdById;
+                        final client =
+                            order.client ?? state.clientsById[order.clientId];
+                        final assignedToId = (order.assignedToId ?? '').trim();
+                        final technicianName = assignedToId.isEmpty
+                            ? ''
+                            : (state.usersById[assignedToId]?.nombreCompleto ??
+                                  assignedToId);
+                        final sellerConversationUri = _buildWhatsAppUri(
+                          state.usersById[order.createdById]?.telefono ?? '',
+                        );
+                        return Center(
+                          key: ValueKey('service-order-${order.id}'),
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(
+                              maxWidth: contentMaxWidth,
+                            ),
+                            child: Padding(
+                              padding: EdgeInsets.only(
+                                bottom: desktopLayout ? 2 : 8,
+                              ),
+                              child: _ServiceOrderListCard(
+                                order: order,
+                                client: client,
+                                clientName:
+                                    client?.nombre ??
+                                    'Cliente ${order.clientId}',
+                                creatorName:
+                                    state
+                                        .usersById[order.createdById]
+                                        ?.nombreCompleto ??
+                                    order.createdById,
+                                technicianName: technicianName,
+                                sellerConversationUri: sellerConversationUri,
+                                supportConversationUri: supportConversationUri,
+                                statusBusy: _busyOrderIds.contains(order.id),
+                                isTechnician:
+                                    currentUser?.appRole.isTechnician ?? false,
+                                canPromoteStatus: canManageStatusAsRole,
+                                onChangeStatus: canChangeOrderStatus
+                                    ? (status) =>
+                                          _changeOrderStatus(order, status)
+                                    : null,
+                                creatingNewOrder: _creatingFromOrderIds
+                                    .contains(order.id),
+                                onCreateNewOrder: order.isCloneSourceAllowed
+                                    ? () => _createOrderFromSource(order)
+                                    : null,
+                                onEdit:
+                                    (isAdmin ||
+                                        currentUserId == order.createdById)
+                                    ? () => _editOrder(order)
+                                    : null,
+                                onDelete: isAdmin
+                                    ? () => _deleteOrder(order)
+                                    : null,
+                                onTap: () async {
+                                  final updated = await context.push<bool>(
+                                    Routes.serviceOrderById(order.id),
+                                  );
+                                  if (updated == true) {
+                                    await controller.refresh();
+                                  }
+                                },
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
             ),
     );
   }
@@ -2723,161 +2777,162 @@ class _DesktopOperationsFilterSidebarState
                   thumbVisibility: true,
                   child: SingleChildScrollView(
                     primary: true,
-                  padding: const EdgeInsets.fromLTRB(14, 2, 14, 16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _SidebarFilterSection(
-                        title: 'Cierre',
-                        child: Wrap(
-                          spacing: 7,
-                          runSpacing: 7,
-                          children: ServiceOrdersCompletionFilter.values
-                              .map(
-                                (value) => _ChoiceFilterTile(
-                                  label: value.label,
-                                  icon: value.icon,
-                                  selected: filter.completionFilter == value,
-                                  compact: true,
-                                  onTap: () => onFilterChanged(
-                                    filter.copyWith(completionFilter: value),
+                    padding: const EdgeInsets.fromLTRB(14, 2, 14, 16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _SidebarFilterSection(
+                          title: 'Cierre',
+                          child: Wrap(
+                            spacing: 7,
+                            runSpacing: 7,
+                            children: ServiceOrdersCompletionFilter.values
+                                .map(
+                                  (value) => _ChoiceFilterTile(
+                                    label: value.label,
+                                    icon: value.icon,
+                                    selected: filter.completionFilter == value,
+                                    compact: true,
+                                    onTap: () => onFilterChanged(
+                                      filter.copyWith(completionFilter: value),
+                                    ),
                                   ),
-                                ),
-                              )
-                              .toList(growable: false),
+                                )
+                                .toList(growable: false),
+                          ),
                         ),
-                      ),
-                      _SidebarFilterSection(
-                        title: 'Estado',
-                        child: Wrap(
-                          spacing: 7,
-                          runSpacing: 7,
-                          children: ServiceOrderStatus.values
-                              .map(
-                                (status) => _CompactFilterChip(
-                                  label: status.label,
-                                  selected: filter.statuses.contains(status),
-                                  accent: status.color,
-                                  onTap: () => _toggleStatus(status),
-                                ),
-                              )
-                              .toList(growable: false),
-                        ),
-                      ),
-                      _SidebarFilterSection(
-                        title: 'Servicio',
-                        child: Wrap(
-                          spacing: 7,
-                          runSpacing: 7,
-                          children: ServiceOrderType.values
-                              .map(
-                                (serviceType) => _CompactFilterChip(
-                                  label: serviceType.label,
-                                  selected: filter.serviceTypes.contains(
-                                    serviceType,
+                        _SidebarFilterSection(
+                          title: 'Estado',
+                          child: Wrap(
+                            spacing: 7,
+                            runSpacing: 7,
+                            children: ServiceOrderStatus.values
+                                .map(
+                                  (status) => _CompactFilterChip(
+                                    label: status.label,
+                                    selected: filter.statuses.contains(status),
+                                    accent: status.color,
+                                    onTap: () => _toggleStatus(status),
                                   ),
-                                  onTap: () => _toggleServiceType(serviceType),
-                                ),
-                              )
-                              .toList(growable: false),
+                                )
+                                .toList(growable: false),
+                          ),
                         ),
-                      ),
-                      _SidebarFilterSection(
-                        title: 'Fecha',
-                        child: Wrap(
-                          spacing: 7,
-                          runSpacing: 7,
-                          children: [
-                            _ChoiceFilterTile(
-                              label: 'Todas',
-                              icon: Icons.all_inbox_rounded,
-                              selected:
-                                  filter.datePreset ==
+                        _SidebarFilterSection(
+                          title: 'Servicio',
+                          child: Wrap(
+                            spacing: 7,
+                            runSpacing: 7,
+                            children: ServiceOrderType.values
+                                .map(
+                                  (serviceType) => _CompactFilterChip(
+                                    label: serviceType.label,
+                                    selected: filter.serviceTypes.contains(
+                                      serviceType,
+                                    ),
+                                    onTap: () =>
+                                        _toggleServiceType(serviceType),
+                                  ),
+                                )
+                                .toList(growable: false),
+                          ),
+                        ),
+                        _SidebarFilterSection(
+                          title: 'Fecha',
+                          child: Wrap(
+                            spacing: 7,
+                            runSpacing: 7,
+                            children: [
+                              _ChoiceFilterTile(
+                                label: 'Todas',
+                                icon: Icons.all_inbox_rounded,
+                                selected:
+                                    filter.datePreset ==
+                                    ServiceOrdersDatePreset.all,
+                                compact: true,
+                                onTap: () => _selectDatePreset(
                                   ServiceOrdersDatePreset.all,
-                              compact: true,
-                              onTap: () => _selectDatePreset(
-                                ServiceOrdersDatePreset.all,
+                                ),
                               ),
-                            ),
-                            _ChoiceFilterTile(
-                              label: 'Hoy',
-                              icon: Icons.today_rounded,
-                              selected:
-                                  filter.datePreset ==
+                              _ChoiceFilterTile(
+                                label: 'Hoy',
+                                icon: Icons.today_rounded,
+                                selected:
+                                    filter.datePreset ==
+                                    ServiceOrdersDatePreset.today,
+                                compact: true,
+                                onTap: () => _selectDatePreset(
                                   ServiceOrdersDatePreset.today,
-                              compact: true,
-                              onTap: () => _selectDatePreset(
-                                ServiceOrdersDatePreset.today,
+                                ),
                               ),
-                            ),
-                            _ChoiceFilterTile(
-                              label: 'Semana',
-                              icon: Icons.date_range_rounded,
-                              selected:
-                                  filter.datePreset ==
+                              _ChoiceFilterTile(
+                                label: 'Semana',
+                                icon: Icons.date_range_rounded,
+                                selected:
+                                    filter.datePreset ==
+                                    ServiceOrdersDatePreset.thisWeek,
+                                compact: true,
+                                onTap: () => _selectDatePreset(
                                   ServiceOrdersDatePreset.thisWeek,
-                              compact: true,
-                              onTap: () => _selectDatePreset(
-                                ServiceOrdersDatePreset.thisWeek,
+                                ),
                               ),
-                            ),
-                            _ChoiceFilterTile(
-                              label: 'Rango',
-                              icon: Icons.edit_calendar_rounded,
-                              selected:
-                                  filter.datePreset ==
+                              _ChoiceFilterTile(
+                                label: 'Rango',
+                                icon: Icons.edit_calendar_rounded,
+                                selected:
+                                    filter.datePreset ==
+                                    ServiceOrdersDatePreset.custom,
+                                compact: true,
+                                onTap: () => _selectDatePreset(
                                   ServiceOrdersDatePreset.custom,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (filter.datePreset == ServiceOrdersDatePreset.custom)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: _CustomDateRangeBanner(
+                              range: filter.customRange,
                               compact: true,
                               onTap: () => _selectDatePreset(
                                 ServiceOrdersDatePreset.custom,
                               ),
                             ),
-                          ],
-                        ),
-                      ),
-                      if (filter.datePreset == ServiceOrdersDatePreset.custom)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: _CustomDateRangeBanner(
-                            range: filter.customRange,
-                            compact: true,
-                            onTap: () => _selectDatePreset(
-                              ServiceOrdersDatePreset.custom,
-                            ),
                           ),
+                        _SidebarFilterSection(
+                          title: 'Usuarios / vendedores',
+                          badge: '${availableCreators.length}',
+                          child: availableCreators.isEmpty
+                              ? const _SidebarEmptyFilterText(
+                                  text: 'No hay usuarios disponibles',
+                                )
+                              : _SidebarIdentityGrid(
+                                  options: availableCreators,
+                                  selectedIds: filter.creatorIds,
+                                  accent: colorScheme.primary,
+                                  onTap: _toggleCreator,
+                                ),
                         ),
-                      _SidebarFilterSection(
-                        title: 'Usuarios / vendedores',
-                        badge: '${availableCreators.length}',
-                        child: availableCreators.isEmpty
-                            ? const _SidebarEmptyFilterText(
-                                text: 'No hay usuarios disponibles',
-                              )
-                            : _SidebarIdentityGrid(
-                                options: availableCreators,
-                                selectedIds: filter.creatorIds,
-                                accent: colorScheme.primary,
-                                onTap: _toggleCreator,
-                              ),
-                      ),
-                      _SidebarFilterSection(
-                        title: 'Técnicos',
-                        badge: '${availableTechnicians.length}',
-                        child: availableTechnicians.isEmpty
-                            ? const _SidebarEmptyFilterText(
-                                text: 'No hay técnicos asignados',
-                              )
-                            : _SidebarIdentityGrid(
-                                options: availableTechnicians,
-                                selectedIds: filter.technicianIds,
-                                accent: const Color(0xFF0F766E),
-                                onTap: _toggleTechnician,
-                              ),
-                      ),
-                    ],
+                        _SidebarFilterSection(
+                          title: 'Técnicos',
+                          badge: '${availableTechnicians.length}',
+                          child: availableTechnicians.isEmpty
+                              ? const _SidebarEmptyFilterText(
+                                  text: 'No hay técnicos asignados',
+                                )
+                              : _SidebarIdentityGrid(
+                                  options: availableTechnicians,
+                                  selectedIds: filter.technicianIds,
+                                  accent: const Color(0xFF0F766E),
+                                  onTap: _toggleTechnician,
+                                ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
               ),
             ),
             Padding(
@@ -2936,8 +2991,9 @@ class _SidebarFilterSection extends StatelessWidget {
                     vertical: 3,
                   ),
                   decoration: BoxDecoration(
-                    color: theme.colorScheme.surfaceContainerHighest
-                        .withValues(alpha: 0.55),
+                    color: theme.colorScheme.surfaceContainerHighest.withValues(
+                      alpha: 0.55,
+                    ),
                     borderRadius: BorderRadius.circular(999),
                   ),
                   child: Text(

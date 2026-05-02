@@ -7,6 +7,7 @@ import '../../../core/errors/api_exception.dart';
 import '../../../core/models/user_model.dart';
 import '../../../core/realtime/operations_realtime_service.dart';
 import '../../../core/utils/local_media_cache.dart';
+import '../../../core/auth/auth_provider.dart';
 import '../../clientes/cliente_model.dart';
 import '../../clientes/data/clientes_repository.dart';
 import '../../cotizaciones/cotizacion_models.dart';
@@ -99,6 +100,7 @@ class ServiceOrderDetailController
   final Ref ref;
   final String orderId;
   Future<void> _uploadQueue = Future<void>.value();
+  String get _viewerUserId => ref.read(authStateProvider).user?.id ?? '';
 
   String _friendlyOrderMessage(
     Object error, {
@@ -118,6 +120,7 @@ class ServiceOrderDetailController
     if (!mounted) return;
     final listState = ref.read(serviceOrdersListControllerProvider);
     final localRepository = ref.read(serviceOrdersLocalRepositoryProvider);
+    await localRepository.prepareForViewer(_viewerUserId);
     final api = ref.read(serviceOrdersApiProvider);
     final usersRepository = ref.read(usersRepositoryProvider);
     final quotationsRepository = ref.read(cotizacionesRepositoryProvider);
@@ -286,6 +289,7 @@ class ServiceOrderDetailController
       serviceOrdersListControllerProvider.notifier,
     );
     final localRepository = ref.read(serviceOrdersLocalRepositoryProvider);
+    await localRepository.prepareForViewer(_viewerUserId);
 
     state = state.copyWith(working: true, clearActionError: true);
     try {
@@ -334,6 +338,7 @@ class ServiceOrderDetailController
       serviceOrdersListControllerProvider.notifier,
     );
     final localRepository = ref.read(serviceOrdersLocalRepositoryProvider);
+    await localRepository.prepareForViewer(_viewerUserId);
 
     state = state.copyWith(working: true, clearActionError: true);
     final previousOrder = currentOrder;
@@ -386,6 +391,7 @@ class ServiceOrderDetailController
     if (currentOrder == null) return;
     final api = ref.read(serviceOrdersApiProvider);
     final localRepository = ref.read(serviceOrdersLocalRepositoryProvider);
+    await localRepository.prepareForViewer(_viewerUserId);
     final listController = ref.read(
       serviceOrdersListControllerProvider.notifier,
     );

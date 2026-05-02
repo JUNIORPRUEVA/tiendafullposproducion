@@ -95,7 +95,10 @@ class _AppErrorOverlayState extends State<AppErrorOverlay> {
         return StatefulBuilder(
           builder: (dialogContext, setDialogState) {
             return Dialog(
-              insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+              insetPadding: const EdgeInsets.symmetric(
+                horizontal: 24,
+                vertical: 24,
+              ),
               backgroundColor: Colors.transparent,
               elevation: 0,
               child: ConstrainedBox(
@@ -147,7 +150,11 @@ class _AppErrorOverlayState extends State<AppErrorOverlay> {
                                   ),
                                   borderRadius: BorderRadius.circular(18),
                                 ),
-                                child: Icon(severityIcon, color: severityColor, size: 28),
+                                child: Icon(
+                                  severityIcon,
+                                  color: severityColor,
+                                  size: 28,
+                                ),
                               ),
                               const SizedBox(width: 14),
                               Expanded(
@@ -156,17 +163,19 @@ class _AppErrorOverlayState extends State<AppErrorOverlay> {
                                   children: [
                                     Text(
                                       error.title,
-                                      style: theme.textTheme.titleLarge?.copyWith(
-                                        fontWeight: FontWeight.w800,
-                                        letterSpacing: -0.2,
-                                      ),
+                                      style: theme.textTheme.titleLarge
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w800,
+                                            letterSpacing: -0.2,
+                                          ),
                                     ),
                                     const SizedBox(height: 4),
                                     Text(
                                       _subtitleFor(error),
-                                      style: theme.textTheme.bodyMedium?.copyWith(
-                                        color: scheme.onSurfaceVariant,
-                                      ),
+                                      style: theme.textTheme.bodyMedium
+                                          ?.copyWith(
+                                            color: scheme.onSurfaceVariant,
+                                          ),
                                     ),
                                   ],
                                 ),
@@ -174,7 +183,10 @@ class _AppErrorOverlayState extends State<AppErrorOverlay> {
                               IconButton(
                                 onPressed: () {
                                   AppErrorReporter.instance.clear();
-                                  Navigator.of(dialogContext, rootNavigator: true).pop();
+                                  Navigator.of(
+                                    dialogContext,
+                                    rootNavigator: true,
+                                  ).pop();
                                 },
                                 tooltip: 'Cerrar',
                                 icon: const Icon(Icons.close_rounded),
@@ -192,7 +204,9 @@ class _AppErrorOverlayState extends State<AppErrorOverlay> {
                                 error.userMessage,
                                 style: theme.textTheme.bodyLarge?.copyWith(
                                   height: 1.45,
-                                  color: scheme.onSurface.withValues(alpha: 0.92),
+                                  color: scheme.onSurface.withValues(
+                                    alpha: 0.92,
+                                  ),
                                 ),
                               ),
                               const SizedBox(height: 16),
@@ -203,24 +217,33 @@ class _AppErrorOverlayState extends State<AppErrorOverlay> {
                               ),
                               const SizedBox(height: 8),
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 12,
+                                ),
                                 decoration: BoxDecoration(
-                                  color: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
+                                  color: scheme.surfaceContainerHighest
+                                      .withValues(alpha: 0.55),
                                   borderRadius: BorderRadius.circular(18),
                                 ),
                                 child: Row(
                                   children: [
-                                    Icon(Icons.shield_outlined, size: 18, color: severityColor),
+                                    Icon(
+                                      Icons.shield_outlined,
+                                      size: 18,
+                                      color: severityColor,
+                                    ),
                                     const SizedBox(width: 10),
                                     Expanded(
                                       child: Text(
                                         canRetry
                                             ? 'Puedes intentar nuevamente sin salir de la pantalla.'
-                                            : 'Tu informacion sigue protegida y ya puedes copiar el error completo para revisarlo.' ,
-                                        style: theme.textTheme.bodyMedium?.copyWith(
-                                          color: scheme.onSurfaceVariant,
-                                          fontWeight: FontWeight.w600,
-                                        ),
+                                            : 'Tu informacion sigue protegida y ya puedes copiar el error completo para revisarlo.',
+                                        style: theme.textTheme.bodyMedium
+                                            ?.copyWith(
+                                              color: scheme.onSurfaceVariant,
+                                              fontWeight: FontWeight.w600,
+                                            ),
                                       ),
                                     ),
                                   ],
@@ -228,10 +251,13 @@ class _AppErrorOverlayState extends State<AppErrorOverlay> {
                               ),
                               const SizedBox(height: 10),
                               ConstrainedBox(
-                                constraints: const BoxConstraints(maxHeight: 260),
+                                constraints: const BoxConstraints(
+                                  maxHeight: 260,
+                                ),
                                 child: SingleChildScrollView(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: technicalSections,
                                   ),
                                 ),
@@ -248,11 +274,17 @@ class _AppErrorOverlayState extends State<AppErrorOverlay> {
                             children: [
                               TextButton.icon(
                                 onPressed: () async {
-                                  await Clipboard.setData(ClipboardData(text: full));
+                                  await Clipboard.setData(
+                                    ClipboardData(text: full),
+                                  );
                                   if (!dialogContext.mounted) return;
-                                  ScaffoldMessenger.maybeOf(dialogContext)?.showSnackBar(
+                                  ScaffoldMessenger.maybeOf(
+                                    dialogContext,
+                                  )?.showSnackBar(
                                     const SnackBar(
-                                      content: Text('Reporte copiado al portapapeles'),
+                                      content: Text(
+                                        'Reporte copiado al portapapeles',
+                                      ),
                                     ),
                                   );
                                 },
@@ -264,12 +296,17 @@ class _AppErrorOverlayState extends State<AppErrorOverlay> {
                                   onPressed: _retrying
                                       ? null
                                       : () async {
-                                          setDialogState(() => _retrying = true);
+                                          setDialogState(
+                                            () => _retrying = true,
+                                          );
                                           try {
                                             await error.onRetry!.call();
                                             AppErrorReporter.instance.clear();
                                             if (!dialogContext.mounted) return;
-                                            Navigator.of(dialogContext, rootNavigator: true).pop();
+                                            Navigator.of(
+                                              dialogContext,
+                                              rootNavigator: true,
+                                            ).pop();
                                           } catch (retryError, retryStack) {
                                             AppErrorReporter.instance.record(
                                               retryError,
@@ -277,15 +314,19 @@ class _AppErrorOverlayState extends State<AppErrorOverlay> {
                                               context: error.context,
                                               title: error.title,
                                               userMessage: error.userMessage,
-                                              technicalDetails: error.technicalDetails,
+                                              technicalDetails:
+                                                  error.technicalDetails,
                                               severity: error.severity,
-                                              dedupeKey: 'retry-${error.eventId}',
+                                              dedupeKey:
+                                                  'retry-${error.eventId}',
                                               retryLabel: error.retryLabel,
                                               onRetry: error.onRetry,
                                             );
                                           } finally {
                                             if (dialogContext.mounted) {
-                                              setDialogState(() => _retrying = false);
+                                              setDialogState(
+                                                () => _retrying = false,
+                                              );
                                             } else {
                                               _retrying = false;
                                             }
@@ -295,7 +336,9 @@ class _AppErrorOverlayState extends State<AppErrorOverlay> {
                                       ? const SizedBox(
                                           width: 16,
                                           height: 16,
-                                          child: CircularProgressIndicator(strokeWidth: 2),
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
                                         )
                                       : const Icon(Icons.refresh_rounded),
                                   label: Text(error.retryLabel ?? 'Reintentar'),
@@ -303,10 +346,15 @@ class _AppErrorOverlayState extends State<AppErrorOverlay> {
                               FilledButton.icon(
                                 onPressed: () {
                                   AppErrorReporter.instance.clear();
-                                  Navigator.of(dialogContext, rootNavigator: true).pop();
+                                  Navigator.of(
+                                    dialogContext,
+                                    rootNavigator: true,
+                                  ).pop();
                                 },
                                 icon: const Icon(Icons.check_rounded),
-                                label: Text(canRetry ? 'Ahora no' : 'Entendido'),
+                                label: Text(
+                                  canRetry ? 'Ahora no' : 'Entendido',
+                                ),
                               ),
                             ],
                           ),
@@ -402,7 +450,11 @@ class _Section extends StatelessWidget {
               ),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: SelectableText(value),
+            child: Text(
+              value,
+              softWrap: true,
+              style: theme.textTheme.bodyMedium,
+            ),
           ),
         ],
       ),

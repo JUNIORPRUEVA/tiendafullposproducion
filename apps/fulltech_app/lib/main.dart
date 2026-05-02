@@ -172,11 +172,40 @@ class MyApp extends ConsumerStatefulWidget {
 
 class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
   bool _backgroundStartupStarted = false;
+  ProviderSubscription<AuthState>? _authStateSubscription;
+
+  String _sessionScopeKey(AuthState authState) {
+    final userId = (authState.user?.id ?? '').trim();
+    if (authState.isAuthenticated && userId.isNotEmpty) {
+      return 'session:$userId';
+    }
+    return authState.isAuthenticated
+        ? 'session:authenticated'
+        : 'session:guest';
+  }
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _authStateSubscription = ref.listenManual<AuthState>(authStateProvider, (
+      previous,
+      next,
+    ) {
+      if (!widget.enableBackgroundStartup || !_backgroundStartupStarted) {
+        return;
+      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (next.isAuthenticated) {
+          unawaited(ref.read(catalogRealtimeServiceProvider).connect(next));
+          unawaited(ref.read(operationsRealtimeServiceProvider).connect(next));
+        } else if (previous?.isAuthenticated == true && !next.isAuthenticated) {
+          ref.read(catalogRealtimeServiceProvider).disconnect();
+          ref.read(operationsRealtimeServiceProvider).disconnect();
+        }
+      });
+    });
     if (!widget.enableBackgroundStartup) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -207,6 +236,7 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _authStateSubscription?.close();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -231,22 +261,6 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
     final router = ref.watch(routerProvider);
     final authState = ref.watch(authStateProvider);
     final role = authState.user?.appRole ?? AppRole.unknown;
-
-    ref.listen<AuthState>(authStateProvider, (previous, next) {
-      if (!widget.enableBackgroundStartup || !_backgroundStartupStarted) {
-        return;
-      }
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        if (next.isAuthenticated) {
-          unawaited(ref.read(catalogRealtimeServiceProvider).connect(next));
-          unawaited(ref.read(operationsRealtimeServiceProvider).connect(next));
-        } else if (previous?.isAuthenticated == true && !next.isAuthenticated) {
-          ref.read(catalogRealtimeServiceProvider).disconnect();
-          ref.read(operationsRealtimeServiceProvider).disconnect();
-        }
-      });
-    });
 
     return MaterialApp.router(
       title: 'FullTech',
@@ -273,7 +287,11 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
               enableBlurEffects:
                   widget.enableBackgroundStartup && _backgroundStartupStarted,
             ),
-            if (effectiveChild != null) effectiveChild,
+            if (effectiveChild != null)
+              ProviderScope(
+                key: ValueKey(_sessionScopeKey(authState)),
+                child: effectiveChild,
+              ),
             const AppLoadingOverlay(),
             const AppErrorOverlay(),
             const UpdateGuardOverlay(),

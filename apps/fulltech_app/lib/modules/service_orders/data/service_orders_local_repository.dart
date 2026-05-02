@@ -36,9 +36,11 @@ class ServiceOrdersLocalRepository {
   static const _usersTable = 'operations_users';
   static const _metaTable = 'operations_meta';
   static const _lastSyncedAtKey = 'last_synced_at';
+  static const _viewerUserIdKey = 'viewer_user_id';
 
   Database? _database;
   ServiceOrdersLocalSnapshot? _memorySnapshot;
+  String _activeViewerUserId = '';
 
   Future<Database> get _db async {
     if (_database != null) return _database!;
@@ -135,6 +137,38 @@ class ServiceOrdersLocalRepository {
     return snapshot;
   }
 
+  Future<void> prepareForViewer(String viewerUserId) async {
+    final normalizedViewerUserId = viewerUserId.trim();
+    if (_activeViewerUserId == normalizedViewerUserId) {
+      return;
+    }
+
+    _activeViewerUserId = normalizedViewerUserId;
+    _memorySnapshot = null;
+
+    if (kIsWeb) {
+      return;
+    }
+
+    final db = await _db;
+    final rows = await db.query(
+      _metaTable,
+      where: 'key = ?',
+      whereArgs: [_viewerUserIdKey],
+      limit: 1,
+    );
+    final storedViewerUserId = rows.isEmpty
+        ? ''
+        : (rows.first['value'] ?? '').toString().trim();
+
+    if (storedViewerUserId.isEmpty ||
+        storedViewerUserId == normalizedViewerUserId) {
+      return;
+    }
+
+    await clearSnapshot();
+  }
+
   Future<ServiceOrderModel?> readOrder(String id) async {
     if (kIsWeb) {
       final snapshot = await readSnapshot();
@@ -205,6 +239,10 @@ class ServiceOrdersLocalRepository {
         'key': _lastSyncedAtKey,
         'value': DateTime.now().toIso8601String(),
       }, conflictAlgorithm: ConflictAlgorithm.replace);
+      await txn.insert(_metaTable, {
+        'key': _viewerUserIdKey,
+        'value': _activeViewerUserId,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
     });
   }
 
@@ -261,6 +299,11 @@ class ServiceOrdersLocalRepository {
           'payload': jsonEncode(entry.value.toJson()),
         }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
+
+      await txn.insert(_metaTable, {
+        'key': _viewerUserIdKey,
+        'value': _activeViewerUserId,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
     });
   }
 
@@ -268,7 +311,9 @@ class ServiceOrdersLocalRepository {
     if (kIsWeb) {
       final snapshot = await readSnapshot();
       _memorySnapshot = ServiceOrdersLocalSnapshot(
-        orders: snapshot.orders.where((item) => item.id != id).toList(growable: false),
+        orders: snapshot.orders
+            .where((item) => item.id != id)
+            .toList(growable: false),
         clientsById: snapshot.clientsById,
         usersById: snapshot.usersById,
         lastSyncedAt: snapshot.lastSyncedAt,
@@ -300,6 +345,11 @@ class ServiceOrdersLocalRepository {
         _metaTable,
         where: 'key = ?',
         whereArgs: [_lastSyncedAtKey],
+      );
+      await txn.delete(
+        _metaTable,
+        where: 'key = ?',
+        whereArgs: [_viewerUserIdKey],
       );
     });
   }

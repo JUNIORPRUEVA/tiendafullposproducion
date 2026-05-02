@@ -50,9 +50,13 @@ class ServiceOrdersListState {
 }
 
 final serviceOrdersListControllerProvider =
-    StateNotifierProvider<ServiceOrdersListController, ServiceOrdersListState>((
-      ref,
-    ) {
+    StateNotifierProvider.autoDispose<
+      ServiceOrdersListController,
+      ServiceOrdersListState
+    >((ref) {
+      // Recreate the operations list when the authenticated user changes so
+      // we never keep list state from a previous session.
+      ref.watch(authStateProvider);
       return ServiceOrdersListController(ref);
     });
 
@@ -100,6 +104,7 @@ class ServiceOrdersListController
   }
 
   String get _ownerId => ref.read(authStateProvider).user?.id ?? '';
+  String get _viewerUserId => ref.read(authStateProvider).user?.id ?? '';
 
   Future<void> load({bool refresh = false}) async {
     if (_inFlightLoad != null) {
@@ -107,9 +112,9 @@ class ServiceOrdersListController
     }
 
     if (!refresh && state.items.isEmpty) {
-      final snapshot = await ref
-          .read(serviceOrdersLocalRepositoryProvider)
-          .readSnapshot();
+      final localRepository = ref.read(serviceOrdersLocalRepositoryProvider);
+      await localRepository.prepareForViewer(_viewerUserId);
+      final snapshot = await localRepository.readSnapshot();
       if (snapshot.orders.isNotEmpty ||
           snapshot.clientsById.isNotEmpty ||
           snapshot.usersById.isNotEmpty) {
@@ -136,6 +141,8 @@ class ServiceOrdersListController
     );
     _inFlightLoad = () async {
       try {
+        final localRepository = ref.read(serviceOrdersLocalRepositoryProvider);
+        await localRepository.prepareForViewer(_viewerUserId);
         final orders = await ref.read(serviceOrdersApiProvider).listOrders();
         final clients = await ref
             .read(clientesRepositoryProvider)
@@ -202,12 +209,16 @@ class ServiceOrdersListController
       clientsById: state.clientsById,
       usersById: state.usersById,
     );
-    await ref.read(serviceOrdersLocalRepositoryProvider).deleteOrder(id);
+    final localRepository = ref.read(serviceOrdersLocalRepositoryProvider);
+    await localRepository.prepareForViewer(_viewerUserId);
+    await localRepository.deleteOrder(id);
   }
 
   Future<int> purgeAllDebug() async {
     final result = await ref.read(serviceOrdersApiProvider).purgeAllDebug();
-    await ref.read(serviceOrdersLocalRepositoryProvider).clearSnapshot();
+    final localRepository = ref.read(serviceOrdersLocalRepositoryProvider);
+    await localRepository.prepareForViewer(_viewerUserId);
+    await localRepository.clearSnapshot();
     state = state.copyWith(
       items: const [],
       clientsById: const {},
@@ -239,13 +250,15 @@ class ServiceOrdersListController
       ),
     );
     unawaited(
-      ref
-          .read(serviceOrdersLocalRepositoryProvider)
-          .saveOrder(
-            order: order,
-            client: order.client,
-            usersById: state.usersById,
-          ),
+      Future<void>(() async {
+        final localRepository = ref.read(serviceOrdersLocalRepositoryProvider);
+        await localRepository.prepareForViewer(_viewerUserId);
+        await localRepository.saveOrder(
+          order: order,
+          client: order.client,
+          usersById: state.usersById,
+        );
+      }),
     );
   }
 

@@ -149,6 +149,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           .login(_emailCtrl.text, _passwordCtrl.text);
       await _persistRememberedCredentials();
       if (!mounted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        context.go(
+          RouteAccess.defaultHomeForRole(
+            ref.read(authStateProvider).user?.appRole ?? AppRole.unknown,
+          ),
+        );
+      });
+      return;
       setState(
         () => _notice = const _LoginNoticeData.success(
           title: 'Inicio de sesión correcto',
@@ -202,10 +211,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     final loading = ref.watch(authStateProvider).loading;
-    final size = MediaQuery.of(context).size;
-    final cardWidth = (size.width * 0.3).clamp(320.0, 520.0).toDouble();
+    final mediaQuery = MediaQuery.of(context);
+    final size = mediaQuery.size;
+    final viewInsets = mediaQuery.viewInsets;
+    final horizontalPadding = size.width < 420 ? 16.0 : 24.0;
+    final cardWidth = size.width >= 900
+        ? 420.0
+        : (size.width - (horizontalPadding * 2)).clamp(288.0, 520.0);
 
     return Scaffold(
+      resizeToAvoidBottomInset: true,
       body: Container(
         width: double.infinity,
         height: double.infinity,
@@ -216,10 +231,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             end: Alignment.bottomRight,
           ),
         ),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: cardWidth),
-            child: Card(
+        child: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(
+                horizontalPadding,
+                24,
+                horizontalPadding,
+                24 + viewInsets.bottom,
+              ),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: cardWidth),
+                child: Card(
               color: Colors.white,
               elevation: 10,
               shape: RoundedRectangleBorder(

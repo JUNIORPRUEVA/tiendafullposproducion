@@ -71,9 +71,29 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
   final List<_ExpenseDraft> _expenseEntries = [];
   CloseTransferVoucherModel? _posVoucher;
   bool _uploadingPosVoucher = false;
+  ProviderSubscription<CierresDiariosState>? _cierresStateSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _cierresStateSubscription = ref.listenManual<CierresDiariosState>(
+      cierresDiariosControllerProvider,
+      (previous, next) {
+        final prevId = previous?.editingClose?.id;
+        final nextEdit = next.editingClose;
+        if (nextEdit != null && nextEdit.id != prevId) {
+          _applyEdit(nextEdit);
+        }
+        if (prevId != null && nextEdit == null) {
+          _resetForm();
+        }
+      },
+    );
+  }
 
   @override
   void dispose() {
+    _cierresStateSubscription?.close();
     _cashCtrl.dispose();
     for (final entry in _transferEntries) {
       entry.dispose();
@@ -104,20 +124,6 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
         setState(() => _type = selectedType);
       });
     }
-
-    ref.listen<CierresDiariosState>(cierresDiariosControllerProvider, (
-      previous,
-      next,
-    ) {
-      final prevId = previous?.editingClose?.id;
-      final nextEdit = next.editingClose;
-      if (nextEdit != null && nextEdit.id != prevId) {
-        _applyEdit(nextEdit);
-      }
-      if (prevId != null && nextEdit == null) {
-        _resetForm();
-      }
-    });
 
     return Scaffold(
       appBar: const CustomAppBar(
@@ -218,8 +224,11 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                     selected: _type == CloseType.tienda,
                     onPressed: editing
                         ? null
-                        : () =>
-                            _trySelectType(CloseType.tienda, state, controller),
+                        : () => _trySelectType(
+                            CloseType.tienda,
+                            state,
+                            controller,
+                          ),
                   ),
                   _UnitChipButton(
                     label: 'PhytoEmagry',
@@ -539,22 +548,31 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
               children: [
                 TableRow(
                   decoration: BoxDecoration(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .surfaceContainerHighest,
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.surfaceContainerHighest,
                   ),
                   children: const [
                     Padding(
                       padding: EdgeInsets.all(8),
-                      child: Text('Concepto', style: TextStyle(fontWeight: FontWeight.w700)),
+                      child: Text(
+                        'Concepto',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
                     ),
                     Padding(
                       padding: EdgeInsets.all(8),
-                      child: Text('Monto', style: TextStyle(fontWeight: FontWeight.w700)),
+                      child: Text(
+                        'Monto',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
                     ),
                     Padding(
                       padding: EdgeInsets.all(8),
-                      child: Text('Acciones', style: TextStyle(fontWeight: FontWeight.w700)),
+                      child: Text(
+                        'Acciones',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
                     ),
                   ],
                 ),
@@ -582,7 +600,9 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                         padding: const EdgeInsets.all(8),
                         child: TextFormField(
                           controller: _expenseEntries[index].amountCtrl,
-                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
                           decoration: const InputDecoration(
                             border: InputBorder.none,
                             hintText: '0.00',
@@ -711,7 +731,11 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
             leading: voucher.mimeType.startsWith('image/')
                 ? const Icon(Icons.image_outlined, size: 32)
                 : const Icon(Icons.picture_as_pdf_outlined, size: 32),
-            title: Text(voucher.fileName, maxLines: 1, overflow: TextOverflow.ellipsis),
+            title: Text(
+              voucher.fileName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
             subtitle: const Text('Toca para previsualizar'),
             trailing: IconButton(
               icon: const Icon(Icons.close),
@@ -779,7 +803,9 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
       _expensesCtrl.text = close.expenses.toStringAsFixed(2);
       _expenseEntries.clear();
       if (close.expenses > 0) {
-        _expenseEntries.add(_ExpenseDraft(amount: close.expenses.toStringAsFixed(2)));
+        _expenseEntries.add(
+          _ExpenseDraft(amount: close.expenses.toStringAsFixed(2)),
+        );
       }
       _cashDeliveredCtrl.text = close.cashDelivered.toStringAsFixed(2);
       _notesCtrl.text = close.notes ?? '';
@@ -816,12 +842,16 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
           close.expenseDetails.map(
             (e) => _ExpenseDraft(
               concept: (e['concept'] as String?) ?? '',
-              amount: ((e['amount'] as num?)?.toDouble() ?? 0).toStringAsFixed(2),
+              amount: ((e['amount'] as num?)?.toDouble() ?? 0).toStringAsFixed(
+                2,
+              ),
             ),
           ),
         );
       } else if (close.expenses > 0) {
-        _expenseEntries.add(_ExpenseDraft(amount: close.expenses.toStringAsFixed(2)));
+        _expenseEntries.add(
+          _ExpenseDraft(amount: close.expenses.toStringAsFixed(2)),
+        );
       }
       _cashDeliveredCtrl.text = close.cashDelivered.toStringAsFixed(2);
       _notesCtrl.text = [
@@ -900,8 +930,7 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
     CierresDiariosState state,
     CierresDiariosController controller,
   ) {
-    if (
-        _hasActiveCloseFor(_date, type, state, excludingId: _editingId)) {
+    if (_hasActiveCloseFor(_date, type, state, excludingId: _editingId)) {
       _showDuplicateDateMessage();
       return;
     }
@@ -1040,18 +1069,20 @@ class _HistoryFullScreenPageState
 
     setState(() => _deletingSelection = true);
     try {
-      await ref.read(cierresDiariosControllerProvider.notifier).deleteClosesBulk(
-        ids: _selectedCloseIds.toList(),
-        adminPassword: password,
-      );
+      await ref
+          .read(cierresDiariosControllerProvider.notifier)
+          .deleteClosesBulk(
+            ids: _selectedCloseIds.toList(),
+            adminPassword: password,
+          );
       if (!mounted) return;
       setState(() {
         _selectedCloseIds.clear();
         _selectionMode = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Se eliminaron $total cierres.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Se eliminaron $total cierres.')));
     } finally {
       if (mounted) {
         setState(() => _deletingSelection = false);
@@ -1196,11 +1227,10 @@ class _HistoryFullScreenPageState
                     const SizedBox(width: 8),
                     if (_fromDate != null || _toDate != null)
                       TextButton(
-                        onPressed: () =>
-                            setState(() {
-                              _fromDate = null;
-                              _toDate = null;
-                            }),
+                        onPressed: () => setState(() {
+                          _fromDate = null;
+                          _toDate = null;
+                        }),
                         child: const Text('Limpiar'),
                       ),
                   ],
@@ -1218,9 +1248,8 @@ class _HistoryFullScreenPageState
                     FilterChip(
                       label: const Text('PhytoEmagry'),
                       selected: _selectedType == CloseType.phytoemagry,
-                      onSelected: (_) => setState(
-                        () => _selectedType = CloseType.phytoemagry,
-                      ),
+                      onSelected: (_) =>
+                          setState(() => _selectedType = CloseType.phytoemagry),
                     ),
                     const Spacer(),
                     DropdownButtonHideUnderline(
@@ -1266,9 +1295,7 @@ class _HistoryFullScreenPageState
           Expanded(
             child: filtered.isEmpty
                 ? const Center(
-                    child: Text(
-                      'No hay cierres para el filtro seleccionado.',
-                    ),
+                    child: Text('No hay cierres para el filtro seleccionado.'),
                   )
                 : ListView.separated(
                     padding: const EdgeInsets.fromLTRB(16, 4, 16, 18),
@@ -1297,14 +1324,14 @@ class _HistoryFullScreenPageState
                               return;
                             }
 
-                            final duplicate = await Navigator.of(context).push<
-                                CloseModel>(
-                              MaterialPageRoute(
-                                builder: (_) => _CloseDetailFullScreenPage(
-                                  closeId: close.id,
-                                ),
-                              ),
-                            );
+                            final duplicate = await Navigator.of(context)
+                                .push<CloseModel>(
+                                  MaterialPageRoute(
+                                    builder: (_) => _CloseDetailFullScreenPage(
+                                      closeId: close.id,
+                                    ),
+                                  ),
+                                );
                             if (duplicate != null && context.mounted) {
                               Navigator.of(context).pop(duplicate);
                             }
@@ -1314,9 +1341,9 @@ class _HistoryFullScreenPageState
                             decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(14),
                               border: Border.all(
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .outlineVariant,
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.outlineVariant,
                               ),
                             ),
                             child: Row(
@@ -1326,7 +1353,9 @@ class _HistoryFullScreenPageState
                                     value: _selectedCloseIds.contains(close.id),
                                     onChanged: (_) {
                                       setState(() {
-                                        if (_selectedCloseIds.contains(close.id)) {
+                                        if (_selectedCloseIds.contains(
+                                          close.id,
+                                        )) {
                                           _selectedCloseIds.remove(close.id);
                                         } else {
                                           _selectedCloseIds.add(close.id);
@@ -1349,8 +1378,9 @@ class _HistoryFullScreenPageState
                                       const SizedBox(height: 4),
                                       Text(
                                         'Creado por ${close.createdByName ?? close.createdById ?? 'N/D'}',
-                                        style:
-                                            Theme.of(context).textTheme.bodySmall,
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.bodySmall,
                                       ),
                                     ],
                                   ),
@@ -1362,9 +1392,9 @@ class _HistoryFullScreenPageState
                                   ),
                                   decoration: BoxDecoration(
                                     borderRadius: BorderRadius.circular(999),
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .surfaceContainerHighest,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.surfaceContainerHighest,
                                   ),
                                   child: Text(
                                     statusLabel,
@@ -1454,7 +1484,8 @@ class _CloseDetailFullScreenPageState
     _autoAiRequested = true;
     final summary = (close.aiReportSummary ?? '').trim();
     final missing = summary.isEmpty || close.aiGeneratedAt == null;
-    final stale = close.aiGeneratedAt != null &&
+    final stale =
+        close.aiGeneratedAt != null &&
         close.aiGeneratedAt!.isBefore(close.updatedAt);
     if (!missing && !stale) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1540,7 +1571,9 @@ class _CloseDetailFullScreenPageState
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Este cierre aun no tiene PDF disponible para exportar.'),
+          content: Text(
+            'Este cierre aun no tiene PDF disponible para exportar.',
+          ),
         ),
       );
       return;
@@ -1567,9 +1600,9 @@ class _CloseDetailFullScreenPageState
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No se pudo exportar el PDF: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('No se pudo exportar el PDF: $e')));
     } finally {
       if (mounted) setState(() => _exportingPdf = false);
     }
@@ -1698,7 +1731,9 @@ class _CloseDetailFullScreenPageState
           if (canDelete)
             IconButton(
               tooltip: 'Eliminar cierre',
-              onPressed: _deletingClose ? null : () => _deleteCurrentClose(currentClose),
+              onPressed: _deletingClose
+                  ? null
+                  : () => _deleteCurrentClose(currentClose),
               icon: _deletingClose
                   ? const SizedBox(
                       width: 18,
@@ -1721,18 +1756,24 @@ class _CloseDetailFullScreenPageState
               _InfoPill(
                 label: 'Creado por',
                 value:
-                    currentClose.createdByName ?? currentClose.createdById ?? 'N/D',
+                    currentClose.createdByName ??
+                    currentClose.createdById ??
+                    'N/D',
               ),
               _InfoPill(
                 label: 'Creado en',
-                value: DateFormat('dd/MM/yyyy h:mm a', 'es_DO')
-                    .format(currentClose.createdAt),
+                value: DateFormat(
+                  'dd/MM/yyyy h:mm a',
+                  'es_DO',
+                ).format(currentClose.createdAt),
               ),
               if (currentClose.reviewedAt != null)
                 _InfoPill(
                   label: 'Revisado en',
-                  value: DateFormat('dd/MM/yyyy h:mm a', 'es_DO')
-                      .format(currentClose.reviewedAt!),
+                  value: DateFormat(
+                    'dd/MM/yyyy h:mm a',
+                    'es_DO',
+                  ).format(currentClose.reviewedAt!),
                 ),
             ],
           ),
@@ -1741,13 +1782,28 @@ class _CloseDetailFullScreenPageState
             spacing: 10,
             runSpacing: 10,
             children: [
-              _MoneyPill(label: 'Total ingresos', value: _money(currentClose.incomeTotal)),
-              _MoneyPill(label: 'Total neto', value: _money(currentClose.netTotal)),
-              _MoneyPill(label: 'Diferencia', value: _money(currentClose.difference)),
+              _MoneyPill(
+                label: 'Total ingresos',
+                value: _money(currentClose.incomeTotal),
+              ),
+              _MoneyPill(
+                label: 'Total neto',
+                value: _money(currentClose.netTotal),
+              ),
+              _MoneyPill(
+                label: 'Diferencia',
+                value: _money(currentClose.difference),
+              ),
               _MoneyPill(label: 'Efectivo', value: _money(currentClose.cash)),
-              _MoneyPill(label: 'Transferencia', value: _money(currentClose.transfer)),
+              _MoneyPill(
+                label: 'Transferencia',
+                value: _money(currentClose.transfer),
+              ),
               _MoneyPill(label: 'Tarjeta', value: _money(currentClose.card)),
-              _MoneyPill(label: 'Otros ingresos', value: _money(currentClose.otherIncome)),
+              _MoneyPill(
+                label: 'Otros ingresos',
+                value: _money(currentClose.otherIncome),
+              ),
               _MoneyPill(label: 'Gastos', value: _money(currentClose.expenses)),
               _MoneyPill(
                 label: 'Efectivo entregado',
@@ -1758,10 +1814,9 @@ class _CloseDetailFullScreenPageState
           const SizedBox(height: 14),
           Text(
             'Movimientos del registro',
-            style: Theme.of(context)
-                .textTheme
-                .titleMedium
-                ?.copyWith(fontWeight: FontWeight.w800),
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 8),
           ListTile(
@@ -1778,8 +1833,10 @@ class _CloseDetailFullScreenPageState
               leading: const Icon(Icons.auto_awesome_outlined),
               title: const Text('Informe IA generado'),
               subtitle: Text(
-                DateFormat('dd/MM/yyyy h:mm a', 'es_DO')
-                    .format(currentClose.aiGeneratedAt!),
+                DateFormat(
+                  'dd/MM/yyyy h:mm a',
+                  'es_DO',
+                ).format(currentClose.aiGeneratedAt!),
               ),
             ),
           if (currentClose.reviewedAt != null)
@@ -1803,10 +1860,9 @@ class _CloseDetailFullScreenPageState
           const SizedBox(height: 12),
           Text(
             'PDF del cierre enviado a administración',
-            style: Theme.of(context)
-                .textTheme
-                .titleMedium
-                ?.copyWith(fontWeight: FontWeight.w800),
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 8),
           ListTile(
@@ -1840,35 +1896,33 @@ class _CloseDetailFullScreenPageState
             const SizedBox(height: 18),
             Text(
               'Detalle de gastos',
-              style: Theme.of(context)
-                  .textTheme
-                  .titleMedium
-                  ?.copyWith(fontWeight: FontWeight.w800),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 8),
-            ...currentClose.expenseDetails.map(
-              (row) {
-                final concept = (row['concept'] as String?)?.trim();
-                final amount = (row['amount'] as num?)?.toDouble() ?? 0;
-                return ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(concept?.isNotEmpty == true ? concept! : 'Sin concepto'),
-                  trailing: Text(
-                    _money(amount),
-                    style: const TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                );
-              },
-            ),
+            ...currentClose.expenseDetails.map((row) {
+              final concept = (row['concept'] as String?)?.trim();
+              final amount = (row['amount'] as num?)?.toDouble() ?? 0;
+              return ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: Text(
+                  concept?.isNotEmpty == true ? concept! : 'Sin concepto',
+                ),
+                trailing: Text(
+                  _money(amount),
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              );
+            }),
           ],
           const SizedBox(height: 18),
           Text(
             'Transferencias y vouchers',
-            style: Theme.of(context)
-                .textTheme
-                .titleMedium
-                ?.copyWith(fontWeight: FontWeight.w800),
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 8),
           if (currentClose.transfers.isEmpty)
@@ -1891,15 +1945,14 @@ class _CloseDetailFullScreenPageState
                   ].join(' · '),
                 ),
                 children: [
-                  ...transfer.vouchers.map(
-                    (voucher) {
-                      final normalizedVoucher = CloseTransferVoucherModel(
-                        storageKey: voucher.storageKey,
-                        fileUrl: _normalizeAssetUrl(voucher.fileUrl),
-                        fileName: voucher.fileName,
-                        mimeType: voucher.mimeType,
-                      );
-                      return ListTile(
+                  ...transfer.vouchers.map((voucher) {
+                    final normalizedVoucher = CloseTransferVoucherModel(
+                      storageKey: voucher.storageKey,
+                      fileUrl: _normalizeAssetUrl(voucher.fileUrl),
+                      fileName: voucher.fileName,
+                      mimeType: voucher.mimeType,
+                    );
+                    return ListTile(
                       contentPadding: const EdgeInsets.only(left: 4, right: 4),
                       leading: Icon(
                         normalizedVoucher.mimeType.startsWith('image/')
@@ -1913,13 +1966,14 @@ class _CloseDetailFullScreenPageState
                       ),
                       subtitle: Text(normalizedVoucher.mimeType),
                       trailing: OutlinedButton(
-                        onPressed: () =>
-                            _showVoucherPreviewDialog(context, normalizedVoucher),
+                        onPressed: () => _showVoucherPreviewDialog(
+                          context,
+                          normalizedVoucher,
+                        ),
                         child: const Text('Expandir'),
                       ),
-                      );
-                    },
-                  ),
+                    );
+                  }),
                   if (transfer.vouchers.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.fromLTRB(0, 0, 0, 10),
@@ -1941,11 +1995,10 @@ class _CloseDetailFullScreenPageState
                                     child: Image.network(
                                       _normalizeAssetUrl(voucher.fileUrl),
                                       fit: BoxFit.cover,
-                                      errorBuilder: (_, __, ___) =>
-                                          Container(
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .surfaceContainerHighest,
+                                      errorBuilder: (_, __, ___) => Container(
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.surfaceContainerHighest,
                                         alignment: Alignment.center,
                                         child: const Icon(
                                           Icons.broken_image_outlined,
@@ -1970,15 +2023,14 @@ class _CloseDetailFullScreenPageState
                 ],
               );
             }),
-            if (currentClose.evidenceUrl != null &&
+          if (currentClose.evidenceUrl != null &&
               currentClose.evidenceFileName != null) ...[
             const SizedBox(height: 18),
             Text(
               'Voucher de cierre POS',
-              style: Theme.of(context)
-                  .textTheme
-                  .titleMedium
-                  ?.copyWith(fontWeight: FontWeight.w800),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
@@ -1990,10 +2042,7 @@ class _CloseDetailFullScreenPageState
               title: Text(currentClose.evidenceFileName!),
               subtitle: Text(currentClose.evidenceMimeType ?? 'archivo'),
               trailing: OutlinedButton(
-                onPressed: () => _showVoucherPreviewDialog(
-                  context,
-                  posVoucher,
-                ),
+                onPressed: () => _showVoucherPreviewDialog(context, posVoucher),
                 child: const Text('Expandir'),
               ),
             ),
@@ -2012,9 +2061,9 @@ class _CloseDetailFullScreenPageState
                         _normalizeAssetUrl(currentClose.evidenceUrl!),
                         fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) => Container(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .surfaceContainerHighest,
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.surfaceContainerHighest,
                           alignment: Alignment.center,
                           child: const Icon(Icons.broken_image_outlined),
                         ),
@@ -2028,10 +2077,9 @@ class _CloseDetailFullScreenPageState
             const SizedBox(height: 18),
             Text(
               'Notas',
-              style: Theme.of(context)
-                  .textTheme
-                  .titleMedium
-                  ?.copyWith(fontWeight: FontWeight.w800),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 8),
             Text(currentClose.notes!.trim()),
@@ -2041,7 +2089,9 @@ class _CloseDetailFullScreenPageState
             children: [
               Expanded(
                 child: FilledButton.icon(
-                  onPressed: _runningAi ? null : () => _runAiReport(currentClose),
+                  onPressed: _runningAi
+                      ? null
+                      : () => _runAiReport(currentClose),
                   icon: const Icon(Icons.auto_awesome_outlined),
                   label: const Text('Regenerar reporte IA'),
                 ),
@@ -2052,26 +2102,25 @@ class _CloseDetailFullScreenPageState
             const SizedBox(height: 10),
             LinearProgressIndicator(
               color: AppTheme.primaryColor,
-              backgroundColor:
-                  Theme.of(context).colorScheme.surfaceContainerHighest,
+              backgroundColor: Theme.of(
+                context,
+              ).colorScheme.surfaceContainerHighest,
             ),
             const SizedBox(height: 8),
             Text(
               _aiStep,
-              style: Theme.of(context)
-                  .textTheme
-                  .bodySmall
-                  ?.copyWith(fontWeight: FontWeight.w600),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
             ),
           ],
           if ((currentClose.aiReportSummary ?? '').trim().isNotEmpty) ...[
             const SizedBox(height: 16),
             Text(
               'Resultado IA',
-              style: Theme.of(context)
-                  .textTheme
-                  .titleMedium
-                  ?.copyWith(fontWeight: FontWeight.w800),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 8),
             _InfoPill(
@@ -2105,12 +2154,12 @@ class _CloseDetailFullScreenPageState
                       report['financialBreakdown'] as Map<String, dynamic>?;
 
                   Widget sectionTitle(String title) => Padding(
-                        padding: const EdgeInsets.only(top: 8, bottom: 6),
-                        child: Text(
-                          title,
-                          style: const TextStyle(fontWeight: FontWeight.w800),
-                        ),
-                      );
+                    padding: const EdgeInsets.only(top: 8, bottom: 6),
+                    child: Text(
+                      title,
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                  );
 
                   Widget bulletList(List<String> rows, {String empty = 'N/D'}) {
                     if (rows.isEmpty) return Text(empty);
@@ -2153,15 +2202,30 @@ class _CloseDetailFullScreenPageState
                             'Diferencia actual: ${currentClose.difference} · Gastos declarados: ${currentClose.expenses}',
                           ),
                         sectionTitle('Problemas detectados'),
-                        bulletList(detectedIssues, empty: 'Sin alertas críticas.'),
+                        bulletList(
+                          detectedIssues,
+                          empty: 'Sin alertas críticas.',
+                        ),
                         sectionTitle('Posibles señales de fraude'),
-                        bulletList(fraudSignals, empty: 'No se detectaron señales claras.'),
+                        bulletList(
+                          fraudSignals,
+                          empty: 'No se detectaron señales claras.',
+                        ),
                         sectionTitle('Acciones sugeridas'),
-                        bulletList(suggestedActions, empty: 'Sin acciones sugeridas.'),
+                        bulletList(
+                          suggestedActions,
+                          empty: 'Sin acciones sugeridas.',
+                        ),
                         sectionTitle('Notas del auditor IA'),
-                        bulletList(auditorNotes, empty: 'Sin notas adicionales.'),
+                        bulletList(
+                          auditorNotes,
+                          empty: 'Sin notas adicionales.',
+                        ),
                         sectionTitle('Evidencias revisadas'),
-                        bulletList(evidenceReviewed, empty: 'No se registraron evidencias en el análisis.'),
+                        bulletList(
+                          evidenceReviewed,
+                          empty: 'No se registraron evidencias en el análisis.',
+                        ),
                       ],
                     ),
                   );
@@ -2173,10 +2237,12 @@ class _CloseDetailFullScreenPageState
                 title: const Text('Ver JSON técnico completo'),
                 children: [
                   SelectableText(
-                    const JsonEncoder.withIndent('  ').convert(currentClose.aiReportJson),
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      fontFamily: 'monospace',
-                    ),
+                    const JsonEncoder.withIndent(
+                      '  ',
+                    ).convert(currentClose.aiReportJson),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),
                   ),
                 ],
               ),
