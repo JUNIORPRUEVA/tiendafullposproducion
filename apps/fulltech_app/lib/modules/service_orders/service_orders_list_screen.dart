@@ -3754,8 +3754,8 @@ class _ServiceOrderListCard extends StatelessWidget {
     final lastStatusAt = (order.lastStatusChangedAt ?? order.updatedAt)
         .toLocal();
     final topLineText = serviceAt == null
-      ? 'Sin fecha programada'
-      : formatServiceScheduledDateTime(serviceAt);
+        ? 'Sin fecha programada'
+        : formatServiceScheduledDateTime(serviceAt);
     final lastStatusLineText = formatLastStatusMoment(
       statusLabel: order.status.label,
       changedAt: lastStatusAt,
@@ -3864,7 +3864,9 @@ class _ServiceOrderListCard extends StatelessWidget {
                           height: 26,
                           margin: const EdgeInsets.only(right: 8),
                           decoration: BoxDecoration(
-                            color: priorityStyle.edgeColor.withValues(alpha: 0.9),
+                            color: priorityStyle.edgeColor.withValues(
+                              alpha: 0.9,
+                            ),
                             borderRadius: BorderRadius.circular(999),
                           ),
                         ),
@@ -3929,13 +3931,16 @@ class _ServiceOrderListCard extends StatelessWidget {
                                       '${order.serviceType.label} - ${order.category.label}',
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
-                                      style: theme.textTheme.labelSmall?.copyWith(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w600,
-                                        color: theme.colorScheme.onSurfaceVariant,
-                                        letterSpacing: 0.12,
-                                        height: 1,
-                                      ),
+                                      style: theme.textTheme.labelSmall
+                                          ?.copyWith(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w600,
+                                            color: theme
+                                                .colorScheme
+                                                .onSurfaceVariant,
+                                            letterSpacing: 0.12,
+                                            height: 1,
+                                          ),
                                     ),
                                   ),
                                   if (serviceCityLabel != null) ...[
@@ -3945,13 +3950,16 @@ class _ServiceOrderListCard extends StatelessWidget {
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       textAlign: TextAlign.end,
-                                      style: theme.textTheme.labelSmall?.copyWith(
-                                        fontSize: 8,
-                                        fontWeight: FontWeight.w700,
-                                        color: theme.colorScheme.onSurfaceVariant,
-                                        letterSpacing: 0.28,
-                                        height: 1,
-                                      ),
+                                      style: theme.textTheme.labelSmall
+                                          ?.copyWith(
+                                            fontSize: 8,
+                                            fontWeight: FontWeight.w700,
+                                            color: theme
+                                                .colorScheme
+                                                .onSurfaceVariant,
+                                            letterSpacing: 0.28,
+                                            height: 1,
+                                          ),
                                     ),
                                   ],
                                 ],
@@ -4040,7 +4048,7 @@ class _DesktopServiceOrderLine extends ConsumerWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final assignedLabel = technicianName.trim().isEmpty
-      ? 'Sin asignar'
+        ? 'Sin asignar'
         : technicianName.trim();
     final detailSummary = _firstMeaningfulText(
       order.extraRequirements,
@@ -4138,7 +4146,9 @@ class _DesktopServiceOrderLine extends ConsumerWidget {
                 flex: 3,
                 child: _DesktopLineTextBlock(
                   title: 'Técnico: $assignedLabel',
-                  subtitle: hasCreatorName ? 'Vendedor: $creatorFirstName' : 'Sin vendedor',
+                  subtitle: hasCreatorName
+                      ? 'Vendedor: $creatorFirstName'
+                      : 'Sin vendedor',
                   icon: Icons.engineering_rounded,
                 ),
               ),
@@ -4178,6 +4188,7 @@ class _DesktopServiceOrderLine extends ConsumerWidget {
                 _InlineStatusButton(
                   order: order,
                   busy: statusBusy,
+                  isTechnician: isTechnician,
                   canPromoteStatus: canPromoteStatus,
                   onSelected: onChangeStatus!,
                 ),
@@ -4245,11 +4256,7 @@ class _DesktopLineTextBlock extends StatelessWidget {
             color: colorScheme.primary.withValues(alpha: 0.08),
             borderRadius: BorderRadius.circular(10),
           ),
-          child: Icon(
-            icon,
-            size: 15,
-            color: colorScheme.primary,
-          ),
+          child: Icon(icon, size: 15, color: colorScheme.primary),
         ),
         const SizedBox(width: 9),
         Expanded(
@@ -4543,7 +4550,9 @@ class _MobileOrderActionsButtonState
                     ServiceOrderQuickActionsPresentation.mobileRightPanel,
                 actionConfig: widget.technicianActionConfig,
                 onOrderUpdated: () {
-                  ref.read(serviceOrdersListControllerProvider.notifier).refresh();
+                  ref
+                      .read(serviceOrdersListControllerProvider.notifier)
+                      .refresh();
                 },
               );
               return;
@@ -4561,10 +4570,7 @@ class _MobileOrderActionsButtonState
             overlayColor: buttonFg.withValues(alpha: 0.12),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(13),
-              side: BorderSide(
-                color: buttonBorder,
-                width: 1,
-              ),
+              side: BorderSide(color: buttonBorder, width: 1),
             ),
           ),
           child: Text(
@@ -4731,11 +4737,7 @@ enum _OrderMenuAction {
 }
 
 class _OrderMenuRow extends StatelessWidget {
-  const _OrderMenuRow({
-    required this.icon,
-    required this.label,
-    this.trailing,
-  });
+  const _OrderMenuRow({required this.icon, required this.label, this.trailing});
 
   final IconData icon;
   final String label;
@@ -4904,12 +4906,14 @@ class _InlineStatusButton extends StatelessWidget {
   const _InlineStatusButton({
     required this.order,
     required this.busy,
+    required this.isTechnician,
     required this.canPromoteStatus,
     required this.onSelected,
   });
 
   final ServiceOrderModel order;
   final bool busy;
+  final bool isTechnician;
   final bool canPromoteStatus;
   final ValueChanged<ServiceOrderStatus> onSelected;
 
@@ -4925,55 +4929,61 @@ class _InlineStatusButton extends StatelessWidget {
           if (!acc.contains(item)) acc.add(item);
           return acc;
         });
+    final buttonKey = GlobalKey();
+    final useDesktopStatusDropdown =
+        !isTechnician && defaultTargetPlatform == TargetPlatform.windows;
 
     return InkWell(
+      key: buttonKey,
       borderRadius: BorderRadius.circular(999),
       onTap: busy
           ? null
           : () async {
-              final selected = await showModalBottomSheet<ServiceOrderStatus>(
-                context: context,
-                showDragHandle: true,
-                builder: (sheetContext) {
-                  final theme = Theme.of(sheetContext);
-                  return SafeArea(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Cambiar estado',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w800,
+              final selected = useDesktopStatusDropdown
+                  ? await _showDesktopStatusMenu(context, buttonKey, statuses)
+                  : await showModalBottomSheet<ServiceOrderStatus>(
+                      context: context,
+                      showDragHandle: true,
+                      builder: (sheetContext) {
+                        final theme = Theme.of(sheetContext);
+                        return SafeArea(
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Cambiar estado',
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  'Selecciona el estado actual de la orden.',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                                const SizedBox(height: 14),
+                                ...statuses.map(
+                                  (status) => Padding(
+                                    padding: const EdgeInsets.only(bottom: 10),
+                                    child: _InlineStatusSheetOption(
+                                      status: status,
+                                      isCurrent: status == order.status,
+                                      onTap: () =>
+                                          Navigator.pop(sheetContext, status),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'Selecciona el estado actual de la orden.',
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                          const SizedBox(height: 14),
-                          ...statuses.map(
-                            (status) => Padding(
-                              padding: const EdgeInsets.only(bottom: 10),
-                              child: _InlineStatusSheetOption(
-                                status: status,
-                                isCurrent: status == order.status,
-                                onTap: () =>
-                                    Navigator.pop(sheetContext, status),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              );
+                        );
+                      },
+                    );
 
               if (selected == null || selected == order.status) {
                 return;
@@ -5017,6 +5027,79 @@ class _InlineStatusButton extends StatelessWidget {
               ),
             ),
     );
+  }
+
+  Future<ServiceOrderStatus?> _showDesktopStatusMenu(
+    BuildContext context,
+    GlobalKey buttonKey,
+    List<ServiceOrderStatus> statuses,
+  ) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return showMenu<ServiceOrderStatus>(
+      context: context,
+      position: _desktopStatusMenuPosition(context, buttonKey),
+      elevation: 6,
+      color: colorScheme.surface,
+      constraints: const BoxConstraints(minWidth: 220, maxWidth: 236),
+      items: statuses
+          .map(
+            (status) => PopupMenuItem<ServiceOrderStatus>(
+              value: status,
+              enabled: status != order.status,
+              child: Row(
+                children: [
+                  Container(
+                    width: 9,
+                    height: 9,
+                    decoration: BoxDecoration(
+                      color: status.color,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 9),
+                  Expanded(
+                    child: Text(
+                      status.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  if (status == order.status)
+                    Icon(
+                      Icons.check_rounded,
+                      size: 16,
+                      color: colorScheme.primary,
+                    ),
+                ],
+              ),
+            ),
+          )
+          .toList(growable: false),
+    );
+  }
+
+  RelativeRect _desktopStatusMenuPosition(BuildContext context, GlobalKey key) {
+    final overlayBox =
+        Overlay.of(context).context.findRenderObject() as RenderBox;
+    final buttonBox = key.currentContext?.findRenderObject() as RenderBox?;
+    if (buttonBox == null) {
+      return const RelativeRect.fromLTRB(0, 0, 0, 0);
+    }
+
+    final buttonOffset = buttonBox.localToGlobal(
+      Offset.zero,
+      ancestor: overlayBox,
+    );
+    final left = buttonOffset.dx;
+    final top = buttonOffset.dy + buttonBox.size.height + 4;
+    final right =
+        overlayBox.size.width - (buttonOffset.dx + buttonBox.size.width);
+    final bottom = overlayBox.size.height - top;
+    return RelativeRect.fromLTRB(left, top, right, bottom);
   }
 }
 
