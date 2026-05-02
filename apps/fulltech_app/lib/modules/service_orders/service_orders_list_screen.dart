@@ -356,8 +356,8 @@ class _ServiceOrdersListScreenState
         .where((order) => order.status == ServiceOrderStatus.enProceso)
         .length;
     final pausedCount = visibleOrders
-      .where((order) => order.status == ServiceOrderStatus.enPausa)
-      .length;
+        .where((order) => order.status == ServiceOrderStatus.enPausa)
+        .length;
 
     return Scaffold(
       drawer: isDesktop
@@ -1187,8 +1187,8 @@ class ServiceOrdersFilter {
 
     return source
         .where((order) {
-          final activityAt =
-              (order.lastStatusChangedAt ?? order.createdAt).toLocal();
+          final activityAt = (order.lastStatusChangedAt ?? order.createdAt)
+              .toLocal();
           final matchesDate = switch (datePreset) {
             ServiceOrdersDatePreset.all => true,
             ServiceOrdersDatePreset.today =>
@@ -3750,12 +3750,12 @@ class _ServiceOrderListCard extends StatelessWidget {
     final locationPreview = parseClientLocationPreview(locationUrl);
     final locationUri = buildClientNavigationUri(locationPreview, locationUrl);
     final serviceAt = (order.scheduledFor ?? order.createdAt).toLocal();
-    final lastStatusAt = (order.lastStatusChangedAt ?? order.updatedAt).toLocal();
-    final topLineText = 'Servicio: ${DateFormat(
-      'dd/MM/yyyy · h:mm a',
-      'es_DO',
-    ).format(serviceAt)}';
-    final lastStatusLineText = 'Último estado: ${_buildRelativeTopLine(lastStatusAt)}';
+    final lastStatusAt = (order.lastStatusChangedAt ?? order.updatedAt)
+        .toLocal();
+    final topLineText =
+        'Servicio: ${DateFormat('dd/MM/yyyy · h:mm a', 'es_DO').format(serviceAt)}';
+    final lastStatusLineText =
+        'Último estado: ${order.status.label} · ${DateFormat('dd/MM/yyyy · h:mm a', 'es_DO').format(lastStatusAt)}';
     final priorityStyle = _resolveServiceTypePriorityStyle(order.serviceType);
     final creatorDisplayName = creatorName.trim();
     final creatorFirstName = _extractFirstName(creatorDisplayName);
@@ -3785,7 +3785,8 @@ class _ServiceOrderListCard extends StatelessWidget {
         creatorFirstName: creatorFirstName,
         hasCreatorName: hasCreatorName,
         technicianName: technicianName,
-        createdAtLabel: topLineText,
+        serviceLabel: topLineText,
+        lastStatusLabel: lastStatusLineText,
         locationUri: locationUri,
         callUri: callUri,
         whatsappUri: whatsappUri,
@@ -3972,7 +3973,8 @@ class _DesktopServiceOrderLine extends ConsumerWidget {
     required this.creatorFirstName,
     required this.hasCreatorName,
     required this.technicianName,
-    required this.createdAtLabel,
+    required this.serviceLabel,
+    required this.lastStatusLabel,
     required this.locationUri,
     required this.callUri,
     required this.whatsappUri,
@@ -3995,7 +3997,8 @@ class _DesktopServiceOrderLine extends ConsumerWidget {
   final String creatorFirstName;
   final bool hasCreatorName;
   final String technicianName;
-  final String createdAtLabel;
+  final String serviceLabel;
+  final String lastStatusLabel;
   final Uri? locationUri;
   final Uri? callUri;
   final Uri? whatsappUri;
@@ -4035,7 +4038,7 @@ class _DesktopServiceOrderLine extends ConsumerWidget {
         onTap: onTap,
         hoverColor: priorityStyle.backgroundTint.withValues(alpha: 0.26),
         child: Ink(
-          height: 64,
+          height: 72,
           decoration: BoxDecoration(
             color: Color.alphaBlend(
               priorityStyle.backgroundTint.withValues(alpha: 0.16),
@@ -4069,12 +4072,22 @@ class _DesktopServiceOrderLine extends ConsumerWidget {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      createdAtLabel,
+                      serviceLabel,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.labelSmall?.copyWith(
                         color: colorScheme.onSurfaceVariant,
-                        fontSize: 10.4,
+                        fontSize: 9.6,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      lastStatusLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                        fontSize: 9.4,
                       ),
                     ),
                   ],
@@ -4349,28 +4362,6 @@ String _compactCreatorLabel(String value) {
     return '---';
   }
   return firstName.length <= 5 ? firstName : firstName.substring(0, 5);
-}
-
-String _buildRelativeTopLine(DateTime createdAt) {
-  final localDate = createdAt.toLocal();
-  final now = DateTime.now();
-  final startOfToday = DateTime(now.year, now.month, now.day);
-  final startOfCreated = DateTime(
-    localDate.year,
-    localDate.month,
-    localDate.day,
-  );
-  final dayDiff = startOfToday.difference(startOfCreated).inDays;
-  final timeLabel = DateFormat('h:mm a', 'es_DO').format(localDate);
-
-  if (dayDiff == 0) {
-    return 'Hoy · $timeLabel';
-  }
-  if (dayDiff == 1) {
-    return 'Ayer · $timeLabel';
-  }
-  final dateLabel = DateFormat('dd/MM/yy', 'es_DO').format(localDate);
-  return '$dateLabel · $timeLabel';
 }
 
 class _MobileOrderActionsButton extends ConsumerWidget {

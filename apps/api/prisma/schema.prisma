@@ -1819,7 +1819,9 @@ model ServiceOrderStatusHistory {
   nextStatus     ServiceOrderStatus @map("next_status")
   changedAt      DateTime           @default(now()) @map("changed_at")
   changedByUserId String?           @db.Uuid @map("changed_by_user_id")
+  changedByUserName String?         @db.Text @map("changed_by_user_name")
   note           String?            @db.Text
+  createdAt      DateTime           @default(now()) @map("created_at")
 
   serviceOrder ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
   changedBy   User?         @relation("ServiceOrderStatusHistoryChangedBy", fields: [changedByUserId], references: [id], onDelete: SetNull)

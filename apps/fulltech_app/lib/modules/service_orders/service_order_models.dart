@@ -563,6 +563,7 @@ class ServiceOrderStatusHistoryEntry {
   final ServiceOrderStatus? previousStatus;
   final ServiceOrderStatus nextStatus;
   final DateTime changedAt;
+  final DateTime createdAt;
   final String? changedByUserId;
   final String? changedByUserName;
   final String? note;
@@ -573,6 +574,7 @@ class ServiceOrderStatusHistoryEntry {
     required this.previousStatus,
     required this.nextStatus,
     required this.changedAt,
+    required this.createdAt,
     required this.changedByUserId,
     required this.changedByUserName,
     required this.note,
@@ -588,11 +590,20 @@ class ServiceOrderStatusHistoryEntry {
       previousStatus: json['previousStatus'] == null
           ? null
           : serviceOrderStatusFromApi(json['previousStatus'].toString()),
-      nextStatus: serviceOrderStatusFromApi((json['nextStatus'] ?? '').toString()),
+      nextStatus: serviceOrderStatusFromApi(
+        (json['nextStatus'] ?? '').toString(),
+      ),
       changedAt:
-          DateTime.tryParse((json['changedAt'] ?? '').toString()) ?? DateTime.now(),
+          DateTime.tryParse((json['changedAt'] ?? '').toString()) ??
+          DateTime.now(),
+      createdAt:
+          DateTime.tryParse((json['createdAt'] ?? '').toString()) ??
+          DateTime.tryParse((json['changedAt'] ?? '').toString()) ??
+          DateTime.now(),
       changedByUserId: json['changedByUserId']?.toString(),
-      changedByUserName: changedBy?['nombreCompleto']?.toString(),
+      changedByUserName:
+          json['changedByUserName']?.toString() ??
+          changedBy?['nombreCompleto']?.toString(),
       note: json['note']?.toString(),
     );
   }
@@ -604,12 +615,12 @@ class ServiceOrderStatusHistoryEntry {
       'previousStatus': previousStatus?.apiValue,
       'nextStatus': nextStatus.apiValue,
       'changedAt': changedAt.toIso8601String(),
+      'createdAt': createdAt.toIso8601String(),
       'changedByUserId': changedByUserId,
+      'changedByUserName': changedByUserName,
       'changedBy': changedByUserName == null
           ? null
-          : {
-              'nombreCompleto': changedByUserName,
-            },
+          : {'nombreCompleto': changedByUserName},
       'note': note,
     };
   }
@@ -783,22 +794,22 @@ class ServiceOrderModel {
           ? null
           : DateTime.tryParse(json['technicianConfirmedAt'].toString()),
       technicianConfirmedById: json['technicianConfirmedById']?.toString(),
-        lastStatusChangedAt: json['lastStatusChangedAt'] == null
+      lastStatusChangedAt: json['lastStatusChangedAt'] == null
           ? null
           : DateTime.tryParse(json['lastStatusChangedAt'].toString()),
-        lastStatusChangedByUserId: json['lastStatusChangedByUserId']?.toString(),
+      lastStatusChangedByUserId: json['lastStatusChangedByUserId']?.toString(),
       createdAt:
           DateTime.tryParse((json['createdAt'] ?? '').toString()) ??
           DateTime.now(),
       updatedAt:
           DateTime.tryParse((json['updatedAt'] ?? '').toString()) ??
           DateTime.now(),
-        statusHistory: rawStatusHistory
+      statusHistory: rawStatusHistory
           .whereType<Map>()
           .map(
-          (row) => ServiceOrderStatusHistoryEntry.fromJson(
-            row.cast<String, dynamic>(),
-          ),
+            (row) => ServiceOrderStatusHistoryEntry.fromJson(
+              row.cast<String, dynamic>(),
+            ),
           )
           .toList(growable: false),
       evidences: rawEvidences
@@ -836,11 +847,11 @@ class ServiceOrderModel {
       'finalizedAt': finalizedAt?.toIso8601String(),
       'technicianConfirmedAt': technicianConfirmedAt?.toIso8601String(),
       'technicianConfirmedById': technicianConfirmedById,
-        'lastStatusChangedAt': lastStatusChangedAt?.toIso8601String(),
-        'lastStatusChangedByUserId': lastStatusChangedByUserId,
+      'lastStatusChangedAt': lastStatusChangedAt?.toIso8601String(),
+      'lastStatusChangedByUserId': lastStatusChangedByUserId,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
-        'statusHistory': statusHistory
+      'statusHistory': statusHistory
           .map((item) => item.toJson())
           .toList(growable: false),
       'evidences': evidences

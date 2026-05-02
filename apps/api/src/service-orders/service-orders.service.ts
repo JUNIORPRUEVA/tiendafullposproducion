@@ -195,6 +195,8 @@ export class ServiceOrdersService {
           },
         });
 
+        const actorName = await this.resolveStatusActorName(tx, createdOrder.lastStatusChangedByUserId);
+
         await tx.serviceOrderStatusHistory.create({
           data: {
             serviceOrderId: createdOrder.id,
@@ -202,6 +204,7 @@ export class ServiceOrdersService {
             nextStatus: createdOrder.status,
             changedAt: createdOrder.lastStatusChangedAt,
             changedByUserId: createdOrder.lastStatusChangedByUserId,
+            changedByUserName: actorName,
             note: 'Estado inicial',
           },
         });
@@ -729,6 +732,7 @@ export class ServiceOrdersService {
 
     try {
       const updated = await this.prisma.$transaction(async (tx) => {
+        const actorName = await this.resolveStatusActorName(tx, user.id);
         const changedOrder = await tx.serviceOrder.update({
           where: { id },
           include: {
@@ -763,6 +767,7 @@ export class ServiceOrdersService {
             nextStatus: changedOrder.status,
             changedAt: now,
             changedByUserId: user.id,
+            changedByUserName: actorName,
             note: statusNote,
           },
         });
@@ -838,6 +843,8 @@ export class ServiceOrdersService {
             throw new NotFoundException('Orden de servicio no encontrada');
           }
 
+          const actorName = await this.resolveStatusActorName(tx, current.createdById);
+
           const changedOrder = await tx.serviceOrder.update({
             where: { id: dueOrder.id },
             include: {
@@ -869,6 +876,7 @@ export class ServiceOrdersService {
               nextStatus: PrismaServiceOrderStatus.PENDIENTE,
               changedAt: now,
               changedByUserId: current.createdById,
+              changedByUserName: actorName,
               note: 'Restaurada automáticamente por vencimiento de fecha pospuesta',
             },
           });
@@ -1051,6 +1059,8 @@ export class ServiceOrdersService {
           },
         });
 
+        const actorName = await this.resolveStatusActorName(tx, created.lastStatusChangedByUserId);
+
         await tx.serviceOrderStatusHistory.create({
           data: {
             serviceOrderId: created.id,
@@ -1058,6 +1068,7 @@ export class ServiceOrdersService {
             nextStatus: created.status,
             changedAt: created.lastStatusChangedAt,
             changedByUserId: created.lastStatusChangedByUserId,
+            changedByUserName: actorName,
             note: 'Estado inicial',
           },
         });
@@ -2270,6 +2281,25 @@ export class ServiceOrdersService {
     return SERVICE_ORDER_STATUS_FROM_DB[status];
   }
 
+  private async resolveStatusActorName(
+    tx: Prisma.TransactionClient,
+    userId: string | null | undefined,
+  ) {
+    const normalizedUserId = userId?.trim();
+    if (!normalizedUserId) {
+      return null;
+    }
+
+    const user = await tx.user.findUnique({
+      where: { id: normalizedUserId },
+      select: {
+        nombreCompleto: true,
+      },
+    });
+
+    return this.cleanOptionalText(user?.nombreCompleto);
+  }
+
   private toNumber(
     value: Prisma.Decimal | number | string | null | undefined,
   ): number {
@@ -2386,7 +2416,11 @@ export class ServiceOrdersService {
         : null,
       nextStatus: SERVICE_ORDER_STATUS_FROM_DB[entry.nextStatus],
       changedAt: entry.changedAt,
+      createdAt: entry.createdAt,
       changedByUserId: entry.changedByUserId,
+      changedByUserName:
+        this.cleanOptionalText(entry.changedByUserName) ??
+        this.cleanOptionalText(entry.changedBy?.nombreCompleto),
       note: entry.note,
       changedBy: entry.changedBy
         ? {

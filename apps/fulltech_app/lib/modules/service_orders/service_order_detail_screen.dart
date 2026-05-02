@@ -329,7 +329,8 @@ class _ServiceOrderDetailScreenState
                           SectionCard(
                             icon: Icons.timeline_rounded,
                             title: 'Historial de estado',
-                            subtitle: 'Seguimiento real de cambios con fecha y hora.',
+                            subtitle:
+                                'Seguimiento real de cambios con fecha y hora.',
                             child: _StatusHistorySection(order: order),
                           ),
                           const SizedBox(height: 10),
@@ -1475,7 +1476,7 @@ class _HeroHeader extends StatelessWidget {
             ),
           ),
           Text(
-            'Último estado: $lastStatusAt',
+            'Último estado: ${order.status.label} · $lastStatusAt',
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: theme.textTheme.bodySmall?.copyWith(

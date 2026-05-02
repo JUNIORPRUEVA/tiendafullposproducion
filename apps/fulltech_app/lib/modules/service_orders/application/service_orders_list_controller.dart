@@ -79,6 +79,10 @@ class ServiceOrdersListController
     };
   }
 
+  DateTime _orderActivityAt(ServiceOrderModel order) {
+    return order.lastStatusChangedAt ?? order.createdAt;
+  }
+
   Future<void> _persistSnapshot({
     required List<ServiceOrderModel> items,
     required Map<String, ClienteModel> clientsById,
@@ -119,7 +123,7 @@ class ServiceOrdersListController
           snapshot.clientsById.isNotEmpty ||
           snapshot.usersById.isNotEmpty) {
         final cachedOrders = [...snapshot.orders]
-          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+          ..sort((a, b) => _orderActivityAt(b).compareTo(_orderActivityAt(a)));
         state = state.copyWith(
           loading: false,
           refreshing: true,
@@ -166,7 +170,9 @@ class ServiceOrdersListController
           }
         }
 
-        orders.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        orders.sort(
+          (a, b) => _orderActivityAt(b).compareTo(_orderActivityAt(a)),
+        );
         await _persistSnapshot(
           items: orders,
           clientsById: clientMap,
@@ -240,7 +246,7 @@ class ServiceOrdersListController
     } else {
       items.add(order);
     }
-    items.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    items.sort((a, b) => _orderActivityAt(b).compareTo(_orderActivityAt(a)));
     state = state.copyWith(items: items, clientsById: nextClientMap);
     unawaited(
       _persistSnapshot(

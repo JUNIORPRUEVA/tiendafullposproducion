@@ -134,6 +134,12 @@ export class CotizacionesService {
       const normalized = message.toLowerCase();
       const status = this.extractEvolutionHttpStatus(message);
 
+      if (normalized.includes('ephemeralmessage')) {
+        return new BadGatewayException(
+          'El proveedor Evolution (v2.3.1) tiene un fallo interno al procesar documentos PDF (ephemeralMessage). Debes actualizar Evolution a una versión estable más reciente o aplicar su parche de media para que el envío funcione.',
+        );
+      }
+
       if (normalized.includes('timeout')) {
         return new ServiceUnavailableException(
           'No se pudo enviar por WhatsApp porque el servicio tardó demasiado en responder. Revisa conexión e intenta nuevamente.',

@@ -23,6 +23,7 @@ type EvolutionAttemptResult = {
   ok: boolean;
   status: number;
   bodyPreview: string;
+  knownMediaBug?: boolean;
 };
 
 @Injectable()
@@ -206,14 +207,16 @@ export class EvolutionWhatsAppService {
   ): Promise<EvolutionAttemptResult> {
     const res = await this.fetchWithTimeout(endpoint, init, this.requestTimeoutMs);
     const bodyPreview = res.ok ? '' : await this.readResponseBodySafe(res);
+    const knownMediaBug = /ephemeralMessage/i.test(bodyPreview);
     if (res.ok) {
-      return { ok: true, status: res.status, bodyPreview };
+      return { ok: true, status: res.status, bodyPreview, knownMediaBug };
     }
 
     return {
       ok: false,
       status: res.status,
       bodyPreview: label ? `${label}${bodyPreview ? ` · ${bodyPreview}` : ''}` : bodyPreview,
+      knownMediaBug,
     };
   }
 
@@ -318,22 +321,25 @@ export class EvolutionWhatsAppService {
     };
 
     const attempts: Array<{ label: string; init: RequestInit }> = [
+      // Prefer multipart first for better compatibility with Evolution media parsing.
+      // Keep attempts short to avoid flooding provider logs on known server bugs.
       {
-        label: 'nested:mediaMessage',
+        label: 'multipart:full',
         init: {
           method: 'POST',
-          headers: jsonHeaders,
-          body: JSON.stringify({
-            number,
-            ...(caption ? { caption } : {}),
-            mediaMessage: {
-              mediatype: 'document',
-              mimetype: 'application/pdf',
-              ...(caption ? { caption } : {}),
-              media: mediaBase64,
-              fileName,
-            },
-          }),
+          headers: { apikey: config.apiKey },
+          body: (() => {
+            const fullMultipart = new FormData();
+            fullMultipart.set('number', number);
+            if (caption) {
+              fullMultipart.set('caption', caption);
+            }
+            fullMultipart.set('mediatype', 'document');
+            fullMultipart.set('mimetype', 'application/pdf');
+            fullMultipart.set('fileName', fileName);
+            fullMultipart.set('media', new Blob([multipartBytes], { type: 'application/pdf' }), fileName);
+            return fullMultipart;
+          })(),
         },
       },
       {
@@ -353,42 +359,6 @@ export class EvolutionWhatsAppService {
       },
     ];
 
-    for (const fieldName of ['media', 'file', 'document']) {
-      const form = new FormData();
-      form.set('number', number);
-      if (caption) {
-        form.set('caption', caption);
-      }
-      form.set(fieldName, new Blob([multipartBytes], { type: 'application/pdf' }), fileName);
-
-      attempts.push({
-        label: `multipart:min:${fieldName}`,
-        init: {
-          method: 'POST',
-          headers: { apikey: config.apiKey },
-          body: form,
-        },
-      });
-    }
-
-    const fullMultipart = new FormData();
-    fullMultipart.set('number', number);
-    if (caption) {
-      fullMultipart.set('caption', caption);
-    }
-    fullMultipart.set('mediatype', 'document');
-    fullMultipart.set('mimetype', 'application/pdf');
-    fullMultipart.set('fileName', fileName);
-    fullMultipart.set('media', new Blob([multipartBytes], { type: 'application/pdf' }), fileName);
-    attempts.push({
-      label: 'multipart:full',
-      init: {
-        method: 'POST',
-        headers: { apikey: config.apiKey },
-        body: fullMultipart,
-      },
-    });
-
     let lastFailure: EvolutionAttemptResult | null = null;
     let serverErrors = 0;
     let attemptsTried = 0;
@@ -405,6 +375,10 @@ export class EvolutionWhatsAppService {
       }
 
       lastFailure = result;
+      if (result.knownMediaBug) {
+        break;
+      }
+
       if (result.status >= 500) {
         serverErrors += 1;
         if (serverErrors >= 2) {
