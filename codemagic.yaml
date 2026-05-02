@@ -38,10 +38,8 @@ workflows:
       flutter: stable
       xcode: latest
       ios_signing:
-        provisioning_profiles:
-          - ios_distribution
-        certificates:
-          - ios_distribution
+        distribution_type: app_store
+        bundle_identifier: com.fulltech.app
       vars:
         APP_DIR: apps/fulltech_app
         BUNDLE_ID: com.fulltech.app
@@ -86,15 +84,14 @@ workflows:
         script: |
           cd "$APP_DIR"
           xcode-project use-profiles
-      - name: Build signed IPA
+      - name: Build IPA
         script: |
           cd "$APP_DIR"
           flutter build ipa --release
+          mkdir -p "$CM_BUILD_DIR/build/ios/ipa"
+          cp build/ios/ipa/*.ipa "$CM_BUILD_DIR/build/ios/ipa/"
     artifacts:
       - build/ios/ipa/*.ipa
-      - apps/fulltech_app/build/ios/ipa/*.ipa
-      - apps/fulltech_app/build/ios/archive/*.xcarchive
-      - apps/fulltech_app/flutter_drive.log
     publishing:
       app_store_connect:
         auth: integration
