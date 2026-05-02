@@ -21,6 +21,7 @@ import '../../core/utils/safe_url_launcher.dart';
 import '../clientes/cliente_model.dart';
 import '../clientes/client_location_utils.dart';
 import 'application/service_orders_list_controller.dart';
+import 'create_service_order_screen.dart';
 import 'data/service_orders_api.dart';
 import 'service_order_models.dart';
 import 'widgets/client_location_card.dart';
@@ -763,9 +764,9 @@ class _ServiceOrdersListScreenState
   }
 
   Future<void> _editOrder(ServiceOrderModel order) async {
-    final updated = await context.push<bool>(
-      Routes.serviceOrderCreate,
-      extra: ServiceOrderCreateArgs(editSource: order),
+    final updated = await openCreateServiceOrderAdaptive(
+      context,
+      args: ServiceOrderCreateArgs(editSource: order),
     );
     if (updated == true) {
       await ref.read(serviceOrdersListControllerProvider.notifier).refresh();
@@ -784,9 +785,9 @@ class _ServiceOrdersListScreenState
     });
 
     try {
-      final created = await context.push<bool>(
-        Routes.serviceOrderCreate,
-        extra: ServiceOrderCreateArgs(cloneSource: order),
+      final created = await openCreateServiceOrderAdaptive(
+        context,
+        args: ServiceOrderCreateArgs(cloneSource: order),
       );
       if (created == true) {
         await ref.read(serviceOrdersListControllerProvider.notifier).refresh();
@@ -803,7 +804,7 @@ class _ServiceOrdersListScreenState
   }
 
   Future<void> _createOrder() async {
-    final created = await context.push<bool>(Routes.serviceOrderCreate);
+    final created = await openCreateServiceOrderAdaptive(context);
     if (created == true) {
       await ref.read(serviceOrdersListControllerProvider.notifier).refresh();
       if (!mounted) return;

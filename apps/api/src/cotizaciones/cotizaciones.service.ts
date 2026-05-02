@@ -134,7 +134,23 @@ export class CotizacionesService {
     return instance;
   }
 
-  private async resolveAdminDestinationPhone() {
+  private async resolveAdminDestinationPhones() {
+    const adminUsers = await this.prisma.user.findMany({
+      where: {
+        role: Role.ADMIN,
+        blocked: false,
+      },
+      select: {
+        id: true,
+        telefono: true,
+        whatsappInstance: {
+          select: {
+            phoneNumber: true,
+          },
+        },
+      },
+    });
+
     const appConfig = await this.prisma.appConfig.findUnique({
       where: { id: 'global' },
       select: {
@@ -143,35 +159,38 @@ export class CotizacionesService {
       },
     });
 
-    const candidates = [
-      appConfig?.phonePreferential,
-      appConfig?.phone,
-      this.config.get<string>('QUOTATION_APPROVAL_ADMIN_PHONE'),
-      process.env.QUOTATION_APPROVAL_ADMIN_PHONE,
-    ];
+    const candidates: string[] = [];
+    for (const admin of adminUsers) {
+      candidates.push(admin.whatsappInstance?.phoneNumber ?? '');
+      candidates.push(admin.telefono ?? '');
+    }
+    candidates.push(appConfig?.phonePreferential ?? '');
+    candidates.push(appConfig?.phone ?? '');
+    candidates.push(this.config.get<string>('QUOTATION_APPROVAL_ADMIN_PHONE') ?? '');
+    candidates.push(process.env.QUOTATION_APPROVAL_ADMIN_PHONE ?? '');
 
-    for (const finalPhone of candidates) {
-      const normalized = this.evolutionWhatsApp.normalizeWhatsAppNumber(
-        (finalPhone ?? '').trim(),
-      );
-      if (normalized) {
-        return normalized;
-      }
+    const destinations = Array.from(
+      new Set(
+        candidates
+          .map((value) =>
+            this.evolutionWhatsApp.normalizeWhatsAppNumber((value ?? '').trim()),
+          )
+          .filter((value): value is string => !!value),
+      ),
+    );
+
+    if (destinations.length > 0) {
+      return destinations;
     }
 
     throw new BadRequestException(
-      'No hay número admin configurado para recibir cotizaciones por WhatsApp.',
+      'No hay teléfonos admin válidos para recibir cotizaciones por WhatsApp.',
     );
   }
 
   private resolveClientDestination(quotation: {
-    customerId: string | null;
     customerPhone: string;
   }) {
-    if (!quotation.customerId) {
-      throw new BadRequestException('La cotización no tiene cliente asociado.');
-    }
-
     const normalizedPhone = this.evolutionWhatsApp.normalizeWhatsAppNumber(
       quotation.customerPhone,
     );
@@ -578,10 +597,10 @@ export class CotizacionesService {
 
     const senderInstance = await this.ensureConnectedUserInstance(user.id);
 
-    const destinationPhone =
+    const destinationPhones =
       destinationType === 'admin'
-        ? await this.resolveAdminDestinationPhone()
-        : this.resolveClientDestination(quotation);
+        ? await this.resolveAdminDestinationPhones()
+        : [this.resolveClientDestination(quotation)];
 
     const bytes = this.parsePdfBase64(dto.pdfBase64);
     const fileName = (dto.fileName ?? '').trim() || 'cotizacion.pdf';
@@ -591,26 +610,28 @@ export class CotizacionesService {
         : await this.buildQuoteWhatsAppCaption(quotation.customerName);
 
     try {
-      if (customMessage) {
-        await this.evolutionWhatsApp.sendTextMessage({
+      for (const destinationPhone of destinationPhones) {
+        if (customMessage) {
+          await this.evolutionWhatsApp.sendTextMessage({
+            toNumber: destinationPhone,
+            message: customMessage,
+            senderUserId: user.id,
+            requirePersonalInstance: true,
+          });
+        }
+
+        await this.evolutionWhatsApp.sendPdfDocument({
           toNumber: destinationPhone,
-          message: customMessage,
+          bytes,
+          fileName,
+          caption,
           senderUserId: user.id,
           requirePersonalInstance: true,
         });
       }
-
-      await this.evolutionWhatsApp.sendPdfDocument({
-        toNumber: destinationPhone,
-        bytes,
-        fileName,
-        caption,
-        senderUserId: user.id,
-        requirePersonalInstance: true,
-      });
     } catch (error) {
       this.logger.error(
-        `Quote PDF WhatsApp send failed quotationId=${quotationId} userId=${user.id} destinationType=${destinationType} destinationPhone=${destinationPhone} instanceId=${senderInstance.id} instanceName=${senderInstance.instanceName} error=${
+        `Quote PDF WhatsApp send failed quotationId=${quotationId} userId=${user.id} destinationType=${destinationType} destinationPhones=${destinationPhones.join(',')} instanceId=${senderInstance.id} instanceName=${senderInstance.instanceName} error=${
           error instanceof Error ? error.message : String(error)
         }`,
       );
@@ -618,13 +639,14 @@ export class CotizacionesService {
     }
 
     this.logger.log(
-      `Quote PDF WhatsApp sent quotationId=${quotationId} userId=${user.id} destinationType=${destinationType} destinationPhone=${destinationPhone} instanceId=${senderInstance.id} instanceName=${senderInstance.instanceName} success=true`,
+      `Quote PDF WhatsApp sent quotationId=${quotationId} userId=${user.id} destinationType=${destinationType} destinationPhones=${destinationPhones.join(',')} instanceId=${senderInstance.id} instanceName=${senderInstance.instanceName} success=true`,
     );
 
     return {
       ok: true,
       destinationType,
-      destinationPhone,
+      destinationPhones,
+      totalDestinations: destinationPhones.length,
       sentAt: new Date().toISOString(),
     };
   }

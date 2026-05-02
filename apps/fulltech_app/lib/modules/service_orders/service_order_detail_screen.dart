@@ -13,6 +13,7 @@ import '../../core/auth/auth_provider.dart';
 import '../../core/models/user_model.dart';
 import '../../core/routing/routes.dart';
 import '../../core/utils/app_feedback.dart';
+import '../../core/utils/money_formatters.dart';
 import '../../core/utils/safe_url_launcher.dart';
 import '../clientes/cliente_model.dart';
 import '../clientes/client_location_utils.dart';
@@ -2298,7 +2299,7 @@ class _QuotationSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final dateFmt = DateFormat('dd/MM/yyyy h:mm a', 'es_DO');
     final qtyFmt = NumberFormat('#,##0.##', 'es_DO');
-    final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
+    final money = rdAccountingNumberFormat();
     final theme = Theme.of(context);
 
     return Column(
@@ -2490,7 +2491,7 @@ class _QuotationDialogBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
+    final money = rdAccountingNumberFormat();
 
     return Column(
       children: [
@@ -2576,7 +2577,7 @@ class _CompactQuotationDetails extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
+    final money = rdAccountingNumberFormat();
     final theme = Theme.of(context);
     final dateText = DateFormat(
       'dd/MM/yyyy',
@@ -2801,7 +2802,7 @@ String _buildQuotationSummary(CotizacionModel? quotation) {
     return 'Sin cotización vinculada.';
   }
 
-  final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
+  final money = rdAccountingNumberFormat();
   return 'Total ${money.format(quotation.total)}';
 }
 
@@ -2981,7 +2982,7 @@ String _buildQuotationWhatsappSection(CotizacionModel? quotation) {
     return lines.join('\n');
   }
 
-  final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
+  final money = rdAccountingNumberFormat();
   final qtyFmt = NumberFormat('#,##0.##', 'es_DO');
   lines.add('No. cotización: ${_shortQuotationId(quotation.id)}');
   lines.add('Fecha: ${_formatDateTime(quotation.createdAt)}');

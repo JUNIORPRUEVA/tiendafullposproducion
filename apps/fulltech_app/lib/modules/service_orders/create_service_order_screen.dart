@@ -10,6 +10,7 @@ import '../../core/auth/auth_provider.dart';
 import '../../core/routing/app_navigator.dart';
 import '../../core/routing/routes.dart';
 import '../../core/utils/app_feedback.dart';
+import '../../core/utils/money_formatters.dart';
 import '../../core/utils/video_preview_controller.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/app_navigation.dart';
@@ -21,10 +22,74 @@ import 'application/create_service_order_controller.dart';
 import 'service_order_models.dart';
 import 'widgets/evidence_item_widget.dart';
 
+Future<bool?> openCreateServiceOrderAdaptive(
+  BuildContext context, {
+  ServiceOrderCreateArgs? args,
+}) {
+  final width = MediaQuery.sizeOf(context).width;
+  final isDesktop = width >= kDesktopShellBreakpoint;
+
+  if (!isDesktop) {
+    return context.push<bool>(Routes.serviceOrderCreate, extra: args);
+  }
+
+  return showGeneralDialog<bool>(
+    context: context,
+    barrierDismissible: true,
+    barrierLabel: 'Formulario de operaciones',
+    barrierColor: Colors.black.withValues(alpha: 0.22),
+    transitionDuration: const Duration(milliseconds: 260),
+    pageBuilder: (dialogContext, animation, secondaryAnimation) {
+      final size = MediaQuery.sizeOf(dialogContext);
+      final panelWidth = size.width >= 1700
+          ? 700.0
+          : size.width >= 1440
+          ? 640.0
+          : size.width >= 1200
+          ? 580.0
+          : (size.width * 0.5).clamp(500.0, 620.0);
+
+      return Material(
+        color: Colors.transparent,
+        child: Align(
+          alignment: Alignment.centerRight,
+          child: SizedBox(
+            width: panelWidth,
+            height: size.height,
+            child: CreateServiceOrderScreen(args: args, compactDialog: true),
+          ),
+        ),
+      );
+    },
+    transitionBuilder: (context, animation, secondaryAnimation, child) {
+      final curved = CurvedAnimation(
+        parent: animation,
+        curve: Curves.easeOutCubic,
+        reverseCurve: Curves.easeInCubic,
+      );
+      return FadeTransition(
+        opacity: Tween<double>(begin: 0, end: 1).animate(curved),
+        child: SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0.08, 0),
+            end: Offset.zero,
+          ).animate(curved),
+          child: child,
+        ),
+      );
+    },
+  );
+}
+
 class CreateServiceOrderScreen extends ConsumerStatefulWidget {
-  const CreateServiceOrderScreen({super.key, this.args});
+  const CreateServiceOrderScreen({
+    super.key,
+    this.args,
+    this.compactDialog = false,
+  });
 
   final ServiceOrderCreateArgs? args;
+  final bool compactDialog;
 
   @override
   ConsumerState<CreateServiceOrderScreen> createState() =>
@@ -100,13 +165,12 @@ class _CreateServiceOrderScreenState
         : widget.args?.isCloneMode == true
         ? Routes.serviceOrderById(widget.args!.cloneSource!.id)
         : Routes.serviceOrders;
-    final backButton = AppNavigator.maybeBackButton(
-      context,
-      fallbackRoute: shellFallback,
-    );
+    final backButton = widget.compactDialog
+        ? null
+        : AppNavigator.maybeBackButton(context, fallbackRoute: shellFallback);
 
-    return Scaffold(
-      drawer: isDesktop
+    final scaffold = Scaffold(
+      drawer: isDesktop || widget.compactDialog
           ? null
           : buildAdaptiveDrawer(context, currentUser: user),
       backgroundColor: const Color(0xFFF9FFFC),
@@ -245,7 +309,7 @@ class _CreateServiceOrderScreenState
                                           : 'Orden creada correctamente'),
                                 );
                                 if (!context.mounted) return;
-                                if (state.isEditMode) {
+                                if (widget.compactDialog || state.isEditMode) {
                                   context.pop(true);
                                 } else {
                                   context.go(
@@ -283,6 +347,93 @@ class _CreateServiceOrderScreenState
               ],
             );
           },
+        ),
+      ),
+    );
+
+    if (!widget.compactDialog) {
+      return scaffold;
+    }
+
+    final theme = Theme.of(context);
+    final title = state.isEditMode
+        ? 'Editar orden'
+        : state.isCloneMode
+        ? 'Clonar orden'
+        : 'Nueva orden';
+
+    return Material(
+      color: theme.colorScheme.surface,
+      child: Container(
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surface,
+          borderRadius: const BorderRadius.horizontal(
+            left: Radius.circular(28),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.18),
+              blurRadius: 28,
+              offset: const Offset(0, 18),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.fromLTRB(22, 18, 14, 18),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    theme.colorScheme.primary,
+                    theme.colorScheme.primary.withValues(alpha: 0.84),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
+              child: SafeArea(
+                bottom: false,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            style: theme.textTheme.titleLarge?.copyWith(
+                              color: theme.colorScheme.onPrimary,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Completa la orden sin salir de operaciones.',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.colorScheme.onPrimary.withValues(
+                                alpha: 0.84,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton.filledTonal(
+                      tooltip: 'Cerrar',
+                      onPressed: () => Navigator.of(context).pop(),
+                      style: IconButton.styleFrom(
+                        backgroundColor: Colors.white.withValues(alpha: 0.18),
+                        foregroundColor: theme.colorScheme.onPrimary,
+                      ),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            Expanded(child: ClipRRect(child: scaffold)),
+          ],
         ),
       ),
     );
@@ -697,7 +848,7 @@ class _CreateServiceOrderScreenState
     final queryController = TextEditingController();
     final isDesktop =
         MediaQuery.sizeOf(context).width >= kDesktopShellBreakpoint;
-    final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$');
+    final money = rdAccountingNumberFormat();
 
     Future<_QuotationPickerOutcome?> showPicker(
       Widget Function(StateSetter setState) builder,
@@ -859,12 +1010,7 @@ class _CreateServiceOrderScreenState
     BuildContext context,
     CreateServiceOrderController controller,
   ) async {
-    final newClient = await Navigator.of(context).push<ClienteModel>(
-      MaterialPageRoute(
-        fullscreenDialog: true,
-        builder: (_) => const ClienteFormScreen(returnSavedClient: true),
-      ),
-    );
+    final newClient = await openClienteFormAdaptive(context);
     if (newClient == null || !mounted) return;
     await _runInlineFlow(() => controller.applyCreatedClient(newClient));
   }

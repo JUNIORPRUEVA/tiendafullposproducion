@@ -12,6 +12,7 @@ import '../../core/routing/routes.dart';
 import '../../core/widgets/app_navigation.dart';
 import '../../core/widgets/sync_status_banner.dart';
 import 'application/clientes_controller.dart';
+import 'cliente_form_screen.dart';
 import 'cliente_model.dart';
 import 'data/clientes_repository.dart';
 import '../service_orders/service_order_models.dart';
@@ -133,6 +134,15 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
     }
   }
 
+  Future<void> _openCreateClientFlow() async {
+    final created = await openClienteFormAdaptive(context);
+    if (created == null || !mounted) return;
+    setState(() {
+      _selectedClientId = created.id;
+    });
+    await ref.read(clientesControllerProvider.notifier).refresh();
+  }
+
   @override
   Widget build(BuildContext context) {
     final currentUser = ref.watch(authStateProvider).user;
@@ -185,7 +195,7 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
                                 initialClientId: selectedClient.id,
                               ),
                             ),
-                      onNewClient: () => context.push(Routes.clienteNuevo),
+                      onNewClient: _openCreateClientFlow,
                       onOpenMap: () => context.push(Routes.clientesMapa),
                     ),
                   ),
@@ -236,7 +246,7 @@ class _ClientesScreenState extends ConsumerState<ClientesScreen> {
             onMenuActionSelected: (action) async {
               switch (action) {
                 case _ClientesTopAction.newClient:
-                  context.push(Routes.clienteNuevo);
+                  await _openCreateClientFlow();
                   break;
                 case _ClientesTopAction.refresh:
                   if (!state.refreshing) {

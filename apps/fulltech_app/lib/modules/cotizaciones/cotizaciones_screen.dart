@@ -21,6 +21,7 @@ import '../../core/realtime/catalog_realtime_service.dart';
 import '../../core/routing/app_route_observer.dart';
 import '../../core/routing/route_access.dart';
 import '../../core/routing/routes.dart';
+import '../../core/utils/money_formatters.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/product_network_image.dart';
 import '../clientes/cliente_model.dart';
@@ -73,6 +74,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
   bool _loadingProducts = false;
   String? _error;
   String? _selectedCategory;
+  bool _dismissAiBanner = false;
 
   String? _selectedClientId;
   String _selectedClientName = 'Sin cliente';
@@ -621,8 +623,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     double get _utilityAmount =>
       _subtotal - _totalCost - _effectiveGeneralDiscountAmount;
 
-  String _money(double value) =>
-      NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$').format(value);
+  String _money(double value) => formatRdAccountingAmount(value);
 
   String _newId() => DateTime.now().microsecondsSinceEpoch.toString();
 
@@ -718,6 +719,21 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     _schedulePersistEditorDraft();
     _persistCatalogUiState();
     unawaited(_syncQuotationAi());
+  }
+
+  bool _hasAiBannerContent(QuotationAiState aiState) {
+    return aiState.visibleWarnings.isNotEmpty ||
+        aiState.analyzing ||
+        aiState.loadingRules;
+  }
+
+  bool _shouldShowAiBanner(QuotationAiState aiState) {
+    return _hasAiBannerContent(aiState) && !_dismissAiBanner;
+  }
+
+  void _closeAiBanner() {
+    if (!mounted) return;
+    setState(() => _dismissAiBanner = true);
   }
 
   String _nextDesktopTicketTitle() => 'Ticket ${_desktopTickets.length + 1}';
@@ -1351,22 +1367,120 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
 
   Future<void> _applyGeneralDiscount() async {
     if (_items.isEmpty || _grossTotalBeforeGeneralDiscount <= 0) return;
-    final input = await _openDiscountDialog(
-      title: 'Descuento general',
-      subtitle: 'Se aplicará directamente al total de la cotización.',
+    var type = _DiscountType.fixed;
+    final amountCtrl = TextEditingController(
+      text: _effectiveGeneralDiscountAmount > 0
+          ? _effectiveGeneralDiscountAmount.toStringAsFixed(2)
+          : '',
     );
-    if (input == null || !mounted) return;
 
-    final nextDiscount = input.type == _DiscountType.percent
-        ? _grossTotalBeforeGeneralDiscount * (input.amount / 100)
-        : input.amount;
-    final boundedDiscount = nextDiscount
-        .clamp(0, _grossTotalBeforeGeneralDiscount)
-        .toDouble();
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          contentPadding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+          titlePadding: const EdgeInsets.fromLTRB(14, 14, 14, 0),
+          title: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Descuento general',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Cerrar',
+                onPressed: () => Navigator.pop(dialogContext),
+                icon: const Icon(Icons.close_rounded, size: 18),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: 320,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<_DiscountType>(
+                  initialValue: type,
+                  isDense: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Tipo',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem(
+                      value: _DiscountType.fixed,
+                      child: Text('Monto (RD\$)'),
+                    ),
+                    DropdownMenuItem(
+                      value: _DiscountType.percent,
+                      child: Text('Porcentaje (%)'),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setDialogState(() => type = value);
+                  },
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: amountCtrl,
+                  autofocus: true,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    labelText: type == _DiscountType.fixed ? 'Monto' : 'Porcentaje',
+                    hintText: type == _DiscountType.fixed ? '500' : '10',
+                    border: const OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            if (_effectiveGeneralDiscountAmount > 0)
+              TextButton.icon(
+                onPressed: () {
+                  _commitEditorChange(() {
+                    _generalDiscountAmount = 0;
+                  });
+                  Navigator.pop(dialogContext);
+                },
+                icon: const Icon(Icons.undo_rounded, size: 16),
+                label: const Text('Quitar'),
+              ),
+            FilledButton(
+              onPressed: () {
+                final raw = amountCtrl.text.trim().replaceAll(',', '.');
+                final amount = double.tryParse(raw);
+                if (amount == null || amount <= 0) {
+                  ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+                    const SnackBar(content: Text('Ingresa un valor válido')),
+                  );
+                  return;
+                }
+                final nextDiscount = type == _DiscountType.percent
+                    ? _grossTotalBeforeGeneralDiscount * (amount / 100)
+                    : amount;
+                final boundedDiscount = nextDiscount
+                    .clamp(0, _grossTotalBeforeGeneralDiscount)
+                    .toDouble();
+                _commitEditorChange(() {
+                  _generalDiscountAmount = boundedDiscount;
+                });
+                Navigator.pop(dialogContext);
+              },
+              child: const Text('Aplicar'),
+            ),
+          ],
+        ),
+      ),
+    );
 
-    _commitEditorChange(() {
-      _generalDiscountAmount = boundedDiscount;
-    });
+    amountCtrl.dispose();
   }
 
   Future<void> _openItemDiscountMenu(int index, Offset globalPosition) async {
@@ -2100,15 +2214,9 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                       const SizedBox(width: 8),
                       IconButton.filledTonal(
                         onPressed: () async {
-                          final created = await Navigator.of(
+                          final created = await openClienteFormAdaptive(
                             context,
-                            rootNavigator: true,
-                          ).push<ClienteModel>(
-                            MaterialPageRoute(
-                              fullscreenDialog: true,
-                              builder: (_) =>
-                                  const ClienteFormScreen(returnSavedClient: true),
-                            ),
+                            useRootNavigator: true,
                           );
                           if (!mounted || !dialogOpen || !context.mounted || created == null) {
                             return;
@@ -2207,19 +2315,11 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                   onPressed: () async {
                     final clientId = (_selectedClientId ?? '').trim();
                     if (clientId.isEmpty) return;
-                    final updated =
-                        await Navigator.of(
-                          context,
-                          rootNavigator: true,
-                        ).push<ClienteModel>(
-                          MaterialPageRoute(
-                            fullscreenDialog: true,
-                            builder: (_) => ClienteFormScreen(
-                              clienteId: clientId,
-                              returnSavedClient: true,
-                            ),
-                          ),
-                        );
+                    final updated = await openClienteFormAdaptive(
+                      context,
+                      clienteId: clientId,
+                      useRootNavigator: true,
+                    );
                     if (!mounted || !dialogOpen || !context.mounted || updated == null) {
                       return;
                     }
@@ -2305,11 +2405,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
         ? 'Hola'
         : 'Hola ${cotizacion.customerName.trim()}';
     final quoteCode = _buildQuotationCode(cotizacion.id);
-    final total = NumberFormat.currency(
-      locale: 'es_DO',
-      symbol: 'RD\$',
-      decimalDigits: 2,
-    ).format(cotizacion.total);
+    final total = formatRdAccountingAmount(cotizacion.total);
 
     return [
       '$safeRecipient, te compartimos tu cotización en PDF.',
@@ -2738,11 +2834,18 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     }
   }
 
-  AppBar _buildDesktopAppBar() {
+  AppBar _buildDesktopAppBar(QuotationAiState aiState) {
     final currentUser = ref.read(authStateProvider).user;
+    final showAiBanner = _shouldShowAiBanner(aiState);
     return AppBar(
       title: const Text('Cotizaciones'),
       actions: [
+        if (showAiBanner)
+          IconButton(
+            tooltip: 'Cerrar comentario IA',
+            onPressed: _closeAiBanner,
+            icon: const Icon(Icons.close_rounded),
+          ),
         DebugAdminActionButton(
           user: currentUser,
           busy: _purgingAllDebug,
@@ -2890,7 +2993,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                 ),
                 const SizedBox(height: 3),
                   GestureDetector(
-                    onDoubleTap: _applyGeneralDiscount,
+                    onTap: _applyGeneralDiscount,
                     behavior: HitTestBehavior.opaque,
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 2),
@@ -2973,7 +3076,9 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                           Align(
                             alignment: Alignment.centerRight,
                             child: Text(
-                              'Doble toque para rebaja general',
+                              _effectiveGeneralDiscountAmount > 0
+                                  ? 'Toque para editar o quitar rebaja general'
+                                  : 'Toque para rebaja general',
                               textAlign: TextAlign.right,
                               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                                 fontSize: 9.5,
@@ -3046,7 +3151,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     );
   }
 
-  Widget _buildMobileTopBar(UserModel? currentUser) {
+  Widget _buildMobileTopBar(UserModel? currentUser, {required bool showAiBanner}) {
     final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
@@ -3103,6 +3208,21 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
             ),
           ),
           const SizedBox(width: 8),
+          if (showAiBanner) ...[
+            Material(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              child: InkWell(
+                onTap: _closeAiBanner,
+                borderRadius: BorderRadius.circular(14),
+                child: const Padding(
+                  padding: EdgeInsets.all(10),
+                  child: Icon(Icons.close_rounded, size: 20),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+          ],
           PopupMenuButton<_MobileQuickAction>(
             tooltip: 'Más opciones',
             color: theme.colorScheme.surface,
@@ -3264,11 +3384,12 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
   }
 
   Widget _buildMobileBody(QuotationAiState aiState, UserModel? currentUser) {
+    final showAiBanner = _shouldShowAiBanner(aiState);
     return Column(
       children: [
-        _buildMobileTopBar(currentUser),
+        _buildMobileTopBar(currentUser, showAiBanner: showAiBanner),
         _buildMobileTicketInfoBar(),
-        if (aiState.visibleWarnings.isNotEmpty || aiState.analyzing || aiState.loadingRules)
+        if (showAiBanner)
           Padding(
             padding: const EdgeInsets.fromLTRB(10, 0, 10, 6),
             child: AiWarningBanner(
@@ -3289,20 +3410,22 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
   }
 
   Widget _buildDesktopBody(QuotationAiState aiState) {
+    final showAiBanner = _shouldShowAiBanner(aiState);
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
       child: Column(
         children: [
-          AiWarningBanner(
-            warnings: aiState.visibleWarnings,
-            analyzing: aiState.analyzing || aiState.loadingRules,
-            onOpenRule: (warning) => _openAiRelatedRule(
-              warning.relatedRuleId,
-              warning.relatedRuleTitle,
+          if (showAiBanner)
+            AiWarningBanner(
+              warnings: aiState.visibleWarnings,
+              analyzing: aiState.analyzing || aiState.loadingRules,
+              onOpenRule: (warning) => _openAiRelatedRule(
+                warning.relatedRuleId,
+                warning.relatedRuleTitle,
+              ),
+              onAskAi: _askAiAboutWarning,
             ),
-            onAskAi: _askAiAboutWarning,
-          ),
-          const SizedBox(height: 10),
+          if (showAiBanner) const SizedBox(height: 10),
           Expanded(
             child: LayoutBuilder(
               builder: (context, constraints) {
@@ -3341,6 +3464,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                         includeItbis: _includeItbis,
                         subtotalBeforeDiscount: _subtotalBeforeDiscount,
                         discountAmount: _discountAmount,
+                        generalDiscountAmount: _effectiveGeneralDiscountAmount,
                         subtotal: _subtotal,
                         itbisAmount: _itbisAmount,
                         total: _total,
@@ -3389,7 +3513,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     final isDesktop = MediaQuery.sizeOf(context).width >= _desktopBreakpoint;
 
     return Scaffold(
-      appBar: isDesktop ? _buildDesktopAppBar() : null,
+      appBar: isDesktop ? _buildDesktopAppBar(aiState) : null,
       drawer: buildAdaptiveDrawer(context, currentUser: user),
       body: SafeArea(
         child: isDesktop
@@ -3828,6 +3952,7 @@ class _DesktopQuotePanel extends StatelessWidget {
     required this.includeItbis,
     required this.subtotalBeforeDiscount,
     required this.discountAmount,
+    required this.generalDiscountAmount,
     required this.subtotal,
     required this.itbisAmount,
     required this.total,
@@ -3859,6 +3984,7 @@ class _DesktopQuotePanel extends StatelessWidget {
   final bool includeItbis;
   final double subtotalBeforeDiscount;
   final double discountAmount;
+  final double generalDiscountAmount;
   final double subtotal;
   final double itbisAmount;
   final double total;
@@ -4108,6 +4234,14 @@ class _DesktopQuotePanel extends StatelessWidget {
                       valueColor: Colors.red.shade700,
                     ),
                   ],
+                  if (generalDiscountAmount > 0) ...[
+                    const SizedBox(height: 10),
+                    _DesktopTotalRow(
+                      label: 'Rebaja general',
+                      value: '-${money(generalDiscountAmount)}',
+                      valueColor: theme.colorScheme.primary,
+                    ),
+                  ],
                   const SizedBox(height: 10),
                   Row(
                     children: [
@@ -4143,8 +4277,10 @@ class _DesktopQuotePanel extends StatelessWidget {
                     label: 'Total',
                     value: money(total),
                     emphasize: true,
-                    hint: 'Doble clic para descuento general',
-                    onDoubleTap: onGeneralDiscount,
+                    hint: generalDiscountAmount > 0
+                        ? 'Clic para editar o quitar descuento general'
+                        : 'Clic para descuento general',
+                    onTap: onGeneralDiscount,
                   ),
                   const SizedBox(height: 14),
                   Row(
@@ -4326,7 +4462,7 @@ class _DesktopTotalRow extends StatelessWidget {
     required this.value,
     this.emphasize = false,
     this.hint,
-    this.onDoubleTap,
+    this.onTap,
     this.valueColor,
   });
 
@@ -4334,7 +4470,7 @@ class _DesktopTotalRow extends StatelessWidget {
   final String value;
   final bool emphasize;
   final String? hint;
-  final VoidCallback? onDoubleTap;
+  final VoidCallback? onTap;
   final Color? valueColor;
 
   @override
@@ -4348,7 +4484,7 @@ class _DesktopTotalRow extends StatelessWidget {
           ).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w700);
 
     return GestureDetector(
-      onDoubleTap: onDoubleTap,
+      onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: Row(
         children: [
