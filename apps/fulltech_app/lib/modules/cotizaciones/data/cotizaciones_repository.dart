@@ -80,7 +80,31 @@ class CotizacionesRepository {
       final error = data['error'];
       if (error is String && error.trim().isNotEmpty) return error;
     }
-    if (data is String && data.trim().isNotEmpty) return data;
+    if (data is String && data.trim().isNotEmpty) {
+      final text = data.trim();
+      try {
+        final decoded = jsonDecode(text);
+        if (decoded is Map) {
+          final message = decoded['message'];
+          if (message is String && message.trim().isNotEmpty) {
+            return message;
+          }
+          if (message is List && message.isNotEmpty) {
+            final first = message.first;
+            if (first is String && first.trim().isNotEmpty) {
+              return first;
+            }
+          }
+          final error = decoded['error'];
+          if (error is String && error.trim().isNotEmpty) {
+            return error;
+          }
+        }
+      } catch (_) {
+        // Fallback to original raw string when it's not JSON.
+      }
+      return text;
+    }
     return fallback;
   }
 

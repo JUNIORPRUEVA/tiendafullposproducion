@@ -13,6 +13,7 @@ import '../../core/models/product_model.dart';
 import '../../core/realtime/catalog_realtime_service.dart';
 import '../../core/routing/app_route_observer.dart';
 import '../../core/routing/routes.dart';
+import '../../core/utils/money_formatters.dart';
 import '../../core/utils/string_utils.dart';
 import '../../core/widgets/user_avatar.dart';
 import '../../core/widgets/app_drawer.dart';
@@ -889,12 +890,12 @@ class _CatalogoScreenState extends ConsumerState<CatalogoScreen>
                 ),
                 _ProductDetailLine(
                   label: 'Precio',
-                  value: '\$${product.precio.toStringAsFixed(2)}',
+                  value: formatRdMoney(product.precio),
                 ),
                 if (showCost)
                   _ProductDetailLine(
                     label: 'Costo',
-                    value: '\$${product.costo.toStringAsFixed(2)}',
+                    value: formatRdMoney(product.costo),
                   ),
                 _ProductDetailLine(
                   label: 'Fecha',
@@ -1066,7 +1067,7 @@ class _CatalogSearchDelegate extends SearchDelegate<_CatalogSearchResult?> {
             overflow: TextOverflow.ellipsis,
           ),
           trailing: Text(
-            '\$${product.precio.toStringAsFixed(2)}',
+            formatRdMoney(product.precio),
             style: Theme.of(
               context,
             ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w800),
@@ -1242,7 +1243,7 @@ class _ProductCard extends StatelessWidget {
                     ),
                   ),
                   Text(
-                    'Precio \$${product.precio.toStringAsFixed(2)}',
+                    'Precio ${formatRdMoney(product.precio)}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
@@ -1263,7 +1264,7 @@ class _ProductCard extends StatelessWidget {
                   ),
                   if (showCost)
                     Text(
-                      'Costo \$${product.costo.toStringAsFixed(2)}',
+                      'Costo ${formatRdMoney(product.costo)}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -1819,7 +1820,7 @@ class _DesktopProductCard extends StatelessWidget {
                                           ),
                                     ),
                                     Text(
-                                      '\$${product.precio.toStringAsFixed(0)}',
+                                      formatRdMoney(product.precio),
                                       style: theme.textTheme.labelMedium
                                           ?.copyWith(
                                             color: Colors.white,
@@ -2066,12 +2067,12 @@ class _DesktopProductDetailDialog extends StatelessWidget {
                     const SizedBox(height: 18),
                     _ProductDetailLine(
                       label: 'Precio',
-                      value: '\$${product.precio.toStringAsFixed(2)}',
+                      value: formatRdMoney(product.precio),
                     ),
                     if (showCost)
                       _ProductDetailLine(
                         label: 'Costo',
-                        value: '\$${product.costo.toStringAsFixed(2)}',
+                        value: formatRdMoney(product.costo),
                       ),
                     _ProductDetailLine(
                       label: 'Disponible',

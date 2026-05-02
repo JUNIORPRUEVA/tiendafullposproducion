@@ -175,7 +175,10 @@ export class CotizacionesService {
           .map((value) =>
             this.evolutionWhatsApp.normalizeWhatsAppNumber((value ?? '').trim()),
           )
-          .filter((value): value is string => !!value),
+          .filter(
+            (value): value is string =>
+                !!value && value.length >= 11 && value.length <= 15,
+          ),
       ),
     );
 

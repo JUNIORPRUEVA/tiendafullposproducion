@@ -2368,11 +2368,6 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     required CotizacionModel cotizacion,
     required Uint8List pdfBytes,
   }) async {
-    final customerId = (cotizacion.customerId ?? '').trim();
-    if (customerId.isEmpty) {
-      throw ApiException('La cotización no tiene cliente asociado.', null);
-    }
-
     final customerPhone = (cotizacion.customerPhone ?? '').trim();
     if (customerPhone.isEmpty) {
       throw ApiException(
@@ -2484,6 +2479,38 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     return 'COT-$token';
   }
 
+  bool _isUuid(String? value) {
+    final v = (value ?? '').trim();
+    if (v.isEmpty) return false;
+    return RegExp(
+      r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$',
+    ).hasMatch(v);
+  }
+
+  Future<CotizacionModel> _ensurePersistedQuotationForSend(
+    CotizacionModel draft,
+  ) async {
+    if (_isUuid(draft.id)) return draft;
+
+    final repository = ref.read(cotizacionesRepositoryProvider);
+    final saved = _isUuid(_editingId)
+        ? await repository.update(_editingId!, draft)
+        : await repository.create(draft);
+
+    if (mounted) {
+      _commitEditorChange(() {
+        _editingId = saved.id;
+        _editingCreatedAt = saved.createdAt;
+        _selectedClientId = saved.customerId;
+        _selectedClientName = saved.customerName;
+        _selectedClientPhone = saved.customerPhone;
+      });
+      _schedulePersistEditorDraft(immediate: true);
+    }
+
+    return saved;
+  }
+
   Future<void> _openPdfPreview() async {
     if (_items.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -2491,8 +2518,6 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
       );
       return;
     }
-
-    final scaffoldContext = context;
 
     final cotizacion = _buildDraftCotizacion();
     final company = await _getCompanySettingsForPdf();
@@ -2508,6 +2533,8 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
       builder: (context) {
         var sendingWhatsApp = false;
         var sendingAdminApproval = false;
+        String? dialogNotification;
+        bool dialogNotificationIsError = false;
         final media = MediaQuery.sizeOf(context);
         final compact = media.width < 560;
         return StatefulBuilder(
@@ -2515,31 +2542,39 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
             final canSend = !sendingWhatsApp;
             final canSendAdmin = !sendingAdminApproval;
 
+            void showDialogNotification(String message, {bool isError = false}) {
+              if (!context.mounted) return;
+              setDialogState(() {
+                dialogNotification = message;
+                dialogNotificationIsError = isError;
+              });
+            }
+
             Future<void> sendWhatsApp() async {
               setDialogState(() => sendingWhatsApp = true);
               try {
+                showDialogNotification('Enviando cotización al cliente...');
+                final persisted = await _ensurePersistedQuotationForSend(
+                  cotizacion,
+                );
                 await enviarPdfCotizacionACliente(
-                  cotizacion: cotizacion,
+                  cotizacion: persisted,
                   pdfBytes: bytes,
                 ).timeout(const Duration(seconds: 25));
-                if (!scaffoldContext.mounted) return;
-                ScaffoldMessenger.maybeOf(scaffoldContext)?.showSnackBar(
-                  SnackBar(content: Text(_customerDeliverySuccessMessage())),
+                showDialogNotification(
+                  _customerDeliverySuccessMessage(),
                 );
               } on TimeoutException {
-                if (!scaffoldContext.mounted) return;
-                ScaffoldMessenger.maybeOf(scaffoldContext)?.showSnackBar(
-                  SnackBar(content: Text(_customerDeliveryTimeoutMessage())),
+                showDialogNotification(
+                  _customerDeliveryTimeoutMessage(),
+                  isError: true,
                 );
               } on ApiException catch (e) {
-                if (!scaffoldContext.mounted) return;
-                ScaffoldMessenger.maybeOf(
-                  scaffoldContext,
-                )?.showSnackBar(SnackBar(content: Text(e.message)));
+                showDialogNotification(e.message, isError: true);
               } catch (e) {
-                if (!scaffoldContext.mounted) return;
-                ScaffoldMessenger.maybeOf(scaffoldContext)?.showSnackBar(
-                  SnackBar(content: Text('${_customerDeliveryErrorPrefix()}: $e')),
+                showDialogNotification(
+                  '${_customerDeliveryErrorPrefix()}: $e',
+                  isError: true,
                 );
               } finally {
                 if (context.mounted) {
@@ -2551,34 +2586,28 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
             Future<void> sendAdminApproval() async {
               setDialogState(() => sendingAdminApproval = true);
               try {
+                showDialogNotification('Enviando cotización a administradores...');
+                final persisted = await _ensurePersistedQuotationForSend(
+                  cotizacion,
+                );
                 await enviarPdfCotizacionAAdmin(
-                  cotizacion: cotizacion,
+                  cotizacion: persisted,
                   pdfBytes: bytes,
                 ).timeout(const Duration(seconds: 25));
-                if (!scaffoldContext.mounted) return;
-                ScaffoldMessenger.maybeOf(scaffoldContext)?.showSnackBar(
-                  const SnackBar(
-                    content: Text('Cotización enviada al admin correctamente.'),
-                  ),
+                showDialogNotification(
+                  'Cotización enviada a administradores correctamente.',
                 );
               } on TimeoutException {
-                if (!scaffoldContext.mounted) return;
-                ScaffoldMessenger.maybeOf(scaffoldContext)?.showSnackBar(
-                  const SnackBar(
-                    content: Text(
-                      'Tiempo de espera agotado enviando al administrador.',
-                    ),
-                  ),
+                showDialogNotification(
+                  'Tiempo de espera agotado enviando a administradores.',
+                  isError: true,
                 );
               } on ApiException catch (e) {
-                if (!scaffoldContext.mounted) return;
-                ScaffoldMessenger.maybeOf(
-                  scaffoldContext,
-                )?.showSnackBar(SnackBar(content: Text(e.message)));
+                showDialogNotification(e.message, isError: true);
               } catch (e) {
-                if (!scaffoldContext.mounted) return;
-                ScaffoldMessenger.maybeOf(scaffoldContext)?.showSnackBar(
-                  SnackBar(content: Text('No se pudo enviar al admin: $e')),
+                showDialogNotification(
+                  'No se pudo enviar a administradores: $e',
+                  isError: true,
                 );
               } finally {
                 if (context.mounted) {
@@ -2656,6 +2685,35 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                       ),
                     ),
                     const Divider(height: 1),
+                    if (dialogNotification != null)
+                      Container(
+                        width: double.infinity,
+                        margin: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: dialogNotificationIsError
+                              ? const Color(0xFFFFEBEE)
+                              : const Color(0xFFE8F5E9),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: dialogNotificationIsError
+                                ? const Color(0xFFE57373)
+                                : const Color(0xFF81C784),
+                          ),
+                        ),
+                        child: Text(
+                          dialogNotification!,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: dialogNotificationIsError
+                                ? const Color(0xFFB71C1C)
+                                : const Color(0xFF1B5E20),
+                          ),
+                        ),
+                      ),
                     Expanded(
                       child: ColoredBox(
                         color: Colors.white,
