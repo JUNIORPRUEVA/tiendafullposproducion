@@ -60,12 +60,6 @@ export class ServiceOrdersController {
     return this.serviceOrders.updateStatus(req.user as JwtUser, id, dto);
   }
 
-  @Post(':id/confirm')
-  @Roles(Role.TECNICO)
-  confirm(@Req() req: Request, @Param('id') id: string) {
-    return this.serviceOrders.confirm(req.user as JwtUser, id);
-  }
-
   @Post(':id/evidences')
   @Roles(Role.ADMIN, Role.ASISTENTE, Role.VENDEDOR, Role.TECNICO, Role.MARKETING)
   addEvidence(@Req() req: Request, @Param('id') id: string, @Body() dto: CreateEvidenceDto) {

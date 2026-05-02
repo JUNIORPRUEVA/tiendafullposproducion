@@ -66,22 +66,6 @@ class ServiceOrderCardActionsController
     }
   }
 
-  Future<ServiceOrderModel> confirmOrder() async {
-    state = state.copyWith(loading: true, clearError: true);
-    try {
-      final api = ref.read(serviceOrdersApiProvider);
-      final updated = await api.confirmOrder(orderId);
-      state = state.copyWith(loading: false);
-      return updated;
-    } catch (error) {
-      final message = error is ApiException
-          ? error.message
-          : 'No se pudo confirmar la orden';
-      state = state.copyWith(loading: false, error: message);
-      rethrow;
-    }
-  }
-
   /// Add text evidence to the order.
   Future<ServiceOrderEvidenceModel> addTextEvidence(String text) async {
     state = state.copyWith(loading: true, clearError: true);

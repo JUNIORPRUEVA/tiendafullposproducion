@@ -24,6 +24,7 @@ import 'application/service_orders_list_controller.dart';
 import 'create_service_order_screen.dart';
 import 'data/service_orders_api.dart';
 import 'service_order_models.dart';
+import 'service_order_schedule_formatter.dart';
 import 'widgets/client_location_card.dart';
 import 'widgets/service_order_quick_actions_modal.dart';
 import 'widgets/service_order_status_confirmation_dialog.dart';
@@ -3749,17 +3750,20 @@ class _ServiceOrderListCard extends StatelessWidget {
     final locationUrl = client?.locationUrl;
     final locationPreview = parseClientLocationPreview(locationUrl);
     final locationUri = buildClientNavigationUri(locationPreview, locationUrl);
-    final serviceAt = (order.scheduledFor ?? order.createdAt).toLocal();
+    final serviceAt = order.scheduledFor?.toLocal();
     final lastStatusAt = (order.lastStatusChangedAt ?? order.updatedAt)
         .toLocal();
-    final topLineText =
-        'Servicio: ${DateFormat('dd/MM/yyyy · h:mm a', 'es_DO').format(serviceAt)}';
-    final lastStatusLineText =
-        'Último estado: ${order.status.label} · ${DateFormat('dd/MM/yyyy · h:mm a', 'es_DO').format(lastStatusAt)}';
+    final topLineText = serviceAt == null
+      ? 'Sin fecha programada'
+      : formatServiceScheduledDateTime(serviceAt);
+    final lastStatusLineText = formatLastStatusMoment(
+      statusLabel: order.status.label,
+      changedAt: lastStatusAt,
+    );
+    final serviceBucket = resolveServiceScheduleDayBucket(serviceAt);
     final priorityStyle = _resolveServiceTypePriorityStyle(order.serviceType);
     final creatorDisplayName = creatorName.trim();
     final creatorFirstName = _extractFirstName(creatorDisplayName);
-    final creatorCompactLabel = _compactCreatorLabel(creatorDisplayName);
     final hasCreatorName = creatorDisplayName.isNotEmpty;
     final clientDisplayName = clientName.trim();
     final clientPhone = (client?.telefono ?? '').trim();
@@ -3787,6 +3791,7 @@ class _ServiceOrderListCard extends StatelessWidget {
         technicianName: technicianName,
         serviceLabel: topLineText,
         lastStatusLabel: lastStatusLineText,
+        serviceBucket: serviceBucket,
         locationUri: locationUri,
         callUri: callUri,
         whatsappUri: whatsappUri,
@@ -3833,41 +3838,32 @@ class _ServiceOrderListCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
+                _ServiceScheduleChip(
+                  label: topLineText,
+                  bucket: serviceBucket,
+                ),
+                const SizedBox(height: 7),
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     Container(
                       width: 3,
-                      height: 34,
-                      margin: const EdgeInsets.only(right: 8, top: 1),
+                      height: 26,
+                      margin: const EdgeInsets.only(right: 8),
                       decoration: BoxDecoration(
                         color: priorityStyle.edgeColor.withValues(alpha: 0.9),
                         borderRadius: BorderRadius.circular(999),
                       ),
                     ),
-                    Flexible(
-                      child: Text(
-                        hasCreatorName ? creatorCompactLabel : '---',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          fontSize: 10.2,
-                          color: theme.colorScheme.onSurfaceVariant,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0.12,
-                          height: 1,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        lastStatusLineText,
+                        'Técnico: ${technicianName.trim().isEmpty ? 'Sin asignar' : technicianName.trim()}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.labelSmall?.copyWith(
-                          fontSize: 10,
+                          fontSize: 11,
                           color: theme.colorScheme.onSurfaceVariant,
-                          fontWeight: FontWeight.w600,
+                          fontWeight: FontWeight.w700,
                           height: 1,
                         ),
                       ),
@@ -3875,6 +3871,18 @@ class _ServiceOrderListCard extends StatelessWidget {
                     const SizedBox(width: 6),
                     _StatusBadge(status: order.status, compact: true),
                   ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Último estado: $lastStatusLineText',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    fontSize: 10,
+                    color: theme.colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
+                    height: 1,
+                  ),
                 ),
                 const SizedBox(height: 7),
                 Row(
@@ -3975,6 +3983,7 @@ class _DesktopServiceOrderLine extends ConsumerWidget {
     required this.technicianName,
     required this.serviceLabel,
     required this.lastStatusLabel,
+    required this.serviceBucket,
     required this.locationUri,
     required this.callUri,
     required this.whatsappUri,
@@ -3999,6 +4008,7 @@ class _DesktopServiceOrderLine extends ConsumerWidget {
   final String technicianName;
   final String serviceLabel;
   final String lastStatusLabel;
+  final ServiceScheduleDayBucket serviceBucket;
   final Uri? locationUri;
   final Uri? callUri;
   final Uri? whatsappUri;
@@ -4019,14 +4029,8 @@ class _DesktopServiceOrderLine extends ConsumerWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final assignedLabel = technicianName.trim().isEmpty
-        ? 'Sin técnico'
+      ? 'Sin asignar'
         : technicianName.trim();
-    final scheduledLabel = order.scheduledFor == null
-        ? 'Sin agenda'
-        : DateFormat(
-            'dd/MM · h:mm a',
-            'es_DO',
-          ).format(order.scheduledFor!.toLocal());
     final detailSummary = _firstMeaningfulText(
       order.extraRequirements,
       order.technicalNote,
@@ -4038,7 +4042,7 @@ class _DesktopServiceOrderLine extends ConsumerWidget {
         onTap: onTap,
         hoverColor: priorityStyle.backgroundTint.withValues(alpha: 0.26),
         child: Ink(
-          height: 72,
+          height: 84,
           decoration: BoxDecoration(
             color: Color.alphaBlend(
               priorityStyle.backgroundTint.withValues(alpha: 0.16),
@@ -4072,17 +4076,17 @@ class _DesktopServiceOrderLine extends ConsumerWidget {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      serviceLabel,
+                      'Estado: ${order.status.label}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.labelSmall?.copyWith(
                         color: colorScheme.onSurfaceVariant,
-                        fontSize: 9.6,
+                        fontSize: 9.8,
                       ),
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      lastStatusLabel,
+                      'Último: $lastStatusLabel',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.labelSmall?.copyWith(
@@ -4113,9 +4117,14 @@ class _DesktopServiceOrderLine extends ConsumerWidget {
               Expanded(
                 flex: 3,
                 child: _DesktopLineTextBlock(
-                  title: '${order.serviceType.label} · ${order.category.label}',
-                  subtitle: scheduledLabel,
-                  icon: Icons.construction_rounded,
+                  title: serviceLabel,
+                  subtitle: 'Servicio programado',
+                  icon: serviceBucket == ServiceScheduleDayBucket.overdue
+                      ? Icons.warning_amber_rounded
+                      : Icons.schedule_rounded,
+                  emphasizeTitle: true,
+                  highlighted: true,
+                  bucket: serviceBucket,
                 ),
               ),
               const SizedBox(width: 14),
@@ -4123,7 +4132,7 @@ class _DesktopServiceOrderLine extends ConsumerWidget {
                 flex: 3,
                 child: _DesktopLineTextBlock(
                   title: assignedLabel,
-                  subtitle: hasCreatorName ? 'Vendedor: $creatorFirstName' : '',
+                  subtitle: hasCreatorName ? 'Vendedor: $creatorFirstName' : 'Sin vendedor',
                   icon: Icons.engineering_rounded,
                 ),
               ),
@@ -4211,26 +4220,42 @@ class _DesktopLineTextBlock extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.icon,
+    this.emphasizeTitle = false,
+    this.highlighted = false,
+    this.bucket,
   });
 
   final String title;
   final String subtitle;
   final IconData icon;
+  final bool emphasizeTitle;
+  final bool highlighted;
+  final ServiceScheduleDayBucket? bucket;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final scheduleVisual = highlighted
+        ? _serviceScheduleVisualStyle(bucket ?? ServiceScheduleDayBucket.future)
+        : null;
     return Row(
       children: [
         Container(
           width: 30,
           height: 30,
           decoration: BoxDecoration(
-            color: colorScheme.primary.withValues(alpha: 0.08),
+            color: scheduleVisual?.background ?? colorScheme.primary.withValues(alpha: 0.08),
             borderRadius: BorderRadius.circular(10),
+            border: scheduleVisual != null
+                ? Border.all(color: scheduleVisual.border)
+                : null,
           ),
-          child: Icon(icon, size: 15, color: colorScheme.primary),
+          child: Icon(
+            icon,
+            size: 15,
+            color: scheduleVisual?.foreground ?? colorScheme.primary,
+          ),
         ),
         const SizedBox(width: 9),
         Expanded(
@@ -4243,8 +4268,9 @@ class _DesktopLineTextBlock extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.bodyMedium?.copyWith(
-                  fontWeight: FontWeight.w900,
+                  fontWeight: emphasizeTitle ? FontWeight.w900 : FontWeight.w800,
                   letterSpacing: -0.08,
+                  color: scheduleVisual?.foreground,
                 ),
               ),
               const SizedBox(height: 3),
@@ -4253,7 +4279,8 @@ class _DesktopLineTextBlock extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.labelSmall?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
+                  color: scheduleVisual?.foreground.withValues(alpha: 0.84) ??
+                      colorScheme.onSurfaceVariant,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -4275,6 +4302,110 @@ class _ServiceTypePriorityStyle {
   final Color edgeColor;
   final Color borderColor;
   final Color backgroundTint;
+}
+
+class _ServiceScheduleVisualStyle {
+  const _ServiceScheduleVisualStyle({
+    required this.background,
+    required this.border,
+    required this.foreground,
+  });
+
+  final Color background;
+  final Color border;
+  final Color foreground;
+}
+
+_ServiceScheduleVisualStyle _serviceScheduleVisualStyle(
+  ServiceScheduleDayBucket bucket,
+) {
+  switch (bucket) {
+    case ServiceScheduleDayBucket.unscheduled:
+      return const _ServiceScheduleVisualStyle(
+        background: Color(0xFFF4F6F8),
+        border: Color(0xFFD5DCE3),
+        foreground: Color(0xFF4C6072),
+      );
+    case ServiceScheduleDayBucket.today:
+      return const _ServiceScheduleVisualStyle(
+        background: Color(0xFFE8F3FF),
+        border: Color(0xFF8CB9E8),
+        foreground: Color(0xFF0F4E8A),
+      );
+    case ServiceScheduleDayBucket.overdue:
+      return const _ServiceScheduleVisualStyle(
+        background: Color(0xFFFFF1F0),
+        border: Color(0xFFF2B8B5),
+        foreground: Color(0xFF9F2D2A),
+      );
+    case ServiceScheduleDayBucket.tomorrow:
+    case ServiceScheduleDayBucket.future:
+      return const _ServiceScheduleVisualStyle(
+        background: Color(0xFFEFF6FF),
+        border: Color(0xFFB2C8E7),
+        foreground: Color(0xFF1E4F87),
+      );
+    case ServiceScheduleDayBucket.yesterday:
+    case ServiceScheduleDayBucket.past:
+      return const _ServiceScheduleVisualStyle(
+        background: Color(0xFFFFF8E6),
+        border: Color(0xFFE8CF91),
+        foreground: Color(0xFF8A5B00),
+      );
+  }
+}
+
+class _ServiceScheduleChip extends StatelessWidget {
+  const _ServiceScheduleChip({required this.label, required this.bucket});
+
+  final String label;
+  final ServiceScheduleDayBucket bucket;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = _serviceScheduleVisualStyle(bucket);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+      decoration: BoxDecoration(
+        color: style.background,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: style.border),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            bucket == ServiceScheduleDayBucket.overdue
+                ? Icons.warning_amber_rounded
+                : Icons.schedule_rounded,
+            size: 14,
+            color: style.foreground,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            'Servicio: ',
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: style.foreground.withValues(alpha: 0.9),
+              fontSize: 10.2,
+            ),
+          ),
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                fontWeight: FontWeight.w900,
+                color: style.foreground,
+                letterSpacing: 0.1,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 _ServiceTypePriorityStyle _resolveServiceTypePriorityStyle(
@@ -4354,14 +4485,6 @@ String? _extractServiceCity({String? address, String? locationUrl}) {
   }
 
   return null;
-}
-
-String _compactCreatorLabel(String value) {
-  final firstName = _extractFirstName(value).trim();
-  if (firstName.isEmpty) {
-    return '---';
-  }
-  return firstName.length <= 5 ? firstName : firstName.substring(0, 5);
 }
 
 class _MobileOrderActionsButton extends ConsumerWidget {

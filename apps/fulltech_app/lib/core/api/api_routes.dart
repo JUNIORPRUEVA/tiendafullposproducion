@@ -184,7 +184,6 @@ class ApiRoutes {
   static String serviceOrderUpdate(String id) => '/service-orders/$id';
   static String serviceOrderDelete(String id) => '/service-orders/$id';
   static String serviceOrderStatus(String id) => '/service-orders/$id/status';
-  static String serviceOrderConfirm(String id) => '/service-orders/$id/confirm';
   static String serviceOrderEvidences(String id) =>
       '/service-orders/$id/evidences';
   static String serviceOrderReport(String id) => '/service-orders/$id/report';

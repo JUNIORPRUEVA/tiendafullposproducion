@@ -20,6 +20,7 @@ import '../clientes/client_location_utils.dart';
 import '../cotizaciones/cotizacion_models.dart';
 import 'application/service_order_detail_controller.dart';
 import 'service_order_models.dart';
+import 'service_order_schedule_formatter.dart';
 import 'widgets/client_location_card.dart';
 import 'widgets/evidence_item_widget.dart';
 import 'widgets/service_order_quick_actions_modal.dart';
@@ -1410,13 +1411,18 @@ class _HeroHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final createdAt = _formatRelativeHeaderDateTime(order.createdAt);
-    final serviceAt = _formatRelativeHeaderDateTime(
-      order.scheduledFor ?? order.createdAt,
-    );
-    final lastStatusAt = _formatRelativeHeaderDateTime(
+    final createdAt = _formatDateTime(order.createdAt);
+    final scheduledAt = order.scheduledFor?.toLocal();
+    final serviceAt = scheduledAt == null
+        ? 'Sin fecha programada'
+        : formatServiceScheduledDateTime(scheduledAt);
+    final serviceBucket = resolveServiceScheduleDayBucket(scheduledAt);
+    final lastStatusAt = formatServiceScheduledDateTime(
       order.lastStatusChangedAt ?? order.updatedAt,
     );
+    final assignedTechnician = _hasContent(technicianName)
+        ? technicianName!.trim()
+        : 'Sin asignar';
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
@@ -1445,7 +1451,7 @@ class _HeroHeader extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 8),
           Text(
             'No. ${_shortOrderId(order.id)} · ${order.serviceType.label} · ${order.category.label}',
             maxLines: 1,
@@ -1455,38 +1461,188 @@ class _HeroHeader extends StatelessWidget {
               fontWeight: FontWeight.w700,
             ),
           ),
-          const SizedBox(height: 4),
-          if (_hasContent(technicianName))
-            Text(
-              'Técnico: ${technicianName!.trim()}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-                fontSize: 11,
-              ),
-            ),
-          Text(
-            'Servicio: $serviceAt',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-              fontSize: 11,
-            ),
+          const SizedBox(height: 10),
+          _DetailServiceScheduleCard(label: serviceAt, bucket: serviceBucket),
+          const SizedBox(height: 8),
+          _DetailHeaderLine(
+            icon: Icons.engineering_outlined,
+            title: 'Técnico asignado',
+            value: assignedTechnician,
           ),
-          Text(
-            'Último estado: ${order.status.label} · $lastStatusAt',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-              fontSize: 11,
+          const SizedBox(height: 6),
+          _DetailHeaderLine(
+            icon: Icons.flag_outlined,
+            title: 'Estado actual',
+            value: order.status.label,
+          ),
+          const SizedBox(height: 6),
+          _DetailHeaderLine(
+            icon: Icons.update_rounded,
+            title: 'Último cambio de estado',
+            value: lastStatusAt,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DetailHeaderLine extends StatelessWidget {
+  const _DetailHeaderLine({
+    required this.icon,
+    required this.title,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String title;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 15, color: theme.colorScheme.primary),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 1),
+              Text(
+                value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DetailServiceScheduleCard extends StatelessWidget {
+  const _DetailServiceScheduleCard({
+    required this.label,
+    required this.bucket,
+  });
+
+  final String label;
+  final ServiceScheduleDayBucket bucket;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final style = _detailServiceScheduleStyle(bucket);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+      decoration: BoxDecoration(
+        color: style.background,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: style.border),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            bucket == ServiceScheduleDayBucket.overdue
+                ? Icons.warning_amber_rounded
+                : Icons.calendar_today_outlined,
+            size: 16,
+            color: style.foreground,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Servicio programado',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: style.foreground.withValues(alpha: 0.9),
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 1),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: style.foreground,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
       ),
     );
+  }
+}
+
+class _DetailServiceScheduleStyle {
+  const _DetailServiceScheduleStyle({
+    required this.background,
+    required this.border,
+    required this.foreground,
+  });
+
+  final Color background;
+  final Color border;
+  final Color foreground;
+}
+
+_DetailServiceScheduleStyle _detailServiceScheduleStyle(
+  ServiceScheduleDayBucket bucket,
+) {
+  switch (bucket) {
+    case ServiceScheduleDayBucket.unscheduled:
+      return const _DetailServiceScheduleStyle(
+        background: Color(0xFFF4F6F8),
+        border: Color(0xFFD5DCE3),
+        foreground: Color(0xFF4C6072),
+      );
+    case ServiceScheduleDayBucket.today:
+      return const _DetailServiceScheduleStyle(
+        background: Color(0xFFE8F3FF),
+        border: Color(0xFF8CB9E8),
+        foreground: Color(0xFF0F4E8A),
+      );
+    case ServiceScheduleDayBucket.overdue:
+      return const _DetailServiceScheduleStyle(
+        background: Color(0xFFFFF1F0),
+        border: Color(0xFFF2B8B5),
+        foreground: Color(0xFF9F2D2A),
+      );
+    case ServiceScheduleDayBucket.tomorrow:
+    case ServiceScheduleDayBucket.future:
+      return const _DetailServiceScheduleStyle(
+        background: Color(0xFFEFF6FF),
+        border: Color(0xFFB2C8E7),
+        foreground: Color(0xFF1E4F87),
+      );
+    case ServiceScheduleDayBucket.yesterday:
+    case ServiceScheduleDayBucket.past:
+      return const _DetailServiceScheduleStyle(
+        background: Color(0xFFFFF8E6),
+        border: Color(0xFFE8CF91),
+        foreground: Color(0xFF8A5B00),
+      );
   }
 }
 
@@ -3005,11 +3161,6 @@ String _buildOrderWhatsappSection(
   if (order.finalizedAt != null) {
     lines.add('Fecha de finalización: ${_formatDateTime(order.finalizedAt!)}');
   }
-  if (order.technicianConfirmedAt != null) {
-    lines.add(
-      'Confirmación técnica: ${_formatDateTime(order.technicianConfirmedAt!)}',
-    );
-  }
   if (_hasContent(order.technicalNote)) {
     lines.add('Nota técnica: ${order.technicalNote!.trim()}');
   }
@@ -3129,23 +3280,6 @@ String _buildEvidenceShareLink(ServiceOrderEvidenceModel item) {
 
 String _formatDateTime(DateTime value) {
   return DateFormat('dd/MM/yyyy h:mm a', 'es_DO').format(value.toLocal());
-}
-
-String _formatRelativeHeaderDateTime(DateTime value) {
-  final local = value.toLocal();
-  final now = DateTime.now();
-  final today = DateTime(now.year, now.month, now.day);
-  final targetDay = DateTime(local.year, local.month, local.day);
-  final dayDiff = today.difference(targetDay).inDays;
-  final time = DateFormat('h:mm a', 'es_DO').format(local);
-
-  if (dayDiff == 0) {
-    return 'Hoy $time';
-  }
-  if (dayDiff == 1) {
-    return 'Ayer $time';
-  }
-  return DateFormat('dd/MM/yyyy h:mm a', 'es_DO').format(local);
 }
 
 String _valueOrFallback(String? value, {String fallback = 'No disponible'}) {

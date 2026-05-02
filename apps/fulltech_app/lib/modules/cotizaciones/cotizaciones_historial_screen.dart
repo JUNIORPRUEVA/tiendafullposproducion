@@ -13,6 +13,7 @@ import '../../core/widgets/custom_app_bar.dart';
 import '../../features/catalogo/data/catalog_local_repository.dart';
 import '../clientes/cliente_model.dart';
 import '../clientes/data/clientes_repository.dart';
+import '../service_orders/service_order_models.dart';
 import 'cotizacion_models.dart';
 import 'data/cotizaciones_repository.dart';
 import 'utils/cotizacion_pdf_service.dart';
@@ -112,6 +113,36 @@ class _CotizacionesHistorialScreenState
 
     final quotationId = Uri.encodeQueryComponent(item.id);
     await context.push('${Routes.cotizaciones}?quotationId=$quotationId');
+  }
+
+  Future<void> _sendToServiceOrder(CotizacionModel item) async {
+    final customerId = (item.customerId ?? '').trim();
+    if (customerId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('La cotización no tiene cliente asociado.')),
+      );
+      return;
+    }
+
+    if (item.items.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('La cotización no tiene productos para crear la orden.')),
+      );
+      return;
+    }
+
+    final opened = await context.push<bool>(
+      Routes.serviceOrderCreate,
+      extra: ServiceOrderCreateArgs(
+        initialQuotation: item,
+        initialClientId: customerId,
+      ),
+    );
+
+    if (!mounted || opened != true) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Orden de servicio creada desde la cotización.')),
+    );
   }
 
   @override
@@ -1213,6 +1244,7 @@ class _CotizacionesHistorialScreenState
             onTap: () => _viewDetail(item),
             onView: () => _viewDetail(item),
             onPdf: () => _openPdfPreview(item),
+            onSendToServiceOrder: () => _sendToServiceOrder(item),
             onEdit: canEditOrDelete ? () => _editQuotation(item) : null,
             onDuplicate: canDuplicate
                 ? () => Navigator.pop(context, CotizacionEditorPayload(source: item, duplicate: true))
@@ -1425,6 +1457,7 @@ class _CotizacionesHistorialScreenState
                             onTap: () => _viewDetail(item),
                             onView: () => _viewDetail(item),
                             onPdf: () => _openPdfPreview(item),
+                            onSendToServiceOrder: () => _sendToServiceOrder(item),
                             onEdit: canEdit ? () => _editQuotation(item) : null,
                             onDuplicate: canDuplicate
                                 ? () => Navigator.pop(context, CotizacionEditorPayload(source: item, duplicate: true))
@@ -1735,6 +1768,7 @@ class _HistorialListCard extends StatelessWidget {
     required this.onTap,
     required this.onView,
     required this.onPdf,
+    required this.onSendToServiceOrder,
     this.onEdit,
     this.onDuplicate,
     this.onDelete,
@@ -1750,6 +1784,7 @@ class _HistorialListCard extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onView;
   final VoidCallback onPdf;
+  final VoidCallback onSendToServiceOrder;
   final VoidCallback? onEdit;
   final VoidCallback? onDuplicate;
   final VoidCallback? onDelete;
@@ -1805,6 +1840,7 @@ class _HistorialListCard extends StatelessWidget {
                   onSelected: (value) {
                     if (value == 'view') onView();
                     if (value == 'pdf') onPdf();
+                    if (value == 'service_order') onSendToServiceOrder();
                     if (value == 'edit') onEdit?.call();
                     if (value == 'duplicate') onDuplicate?.call();
                     if (value == 'delete') onDelete?.call();
@@ -1812,6 +1848,7 @@ class _HistorialListCard extends StatelessWidget {
                   itemBuilder: (_) => [
                     const PopupMenuItem(value: 'view', child: Text('Ver detalle')),
                     const PopupMenuItem(value: 'pdf', child: Text('Ver PDF')),
+                    const PopupMenuItem(value: 'service_order', child: Text('Pasar a orden de servicio')),
                     if (canEdit) const PopupMenuItem(value: 'edit', child: Text('Editar')),
                     if (canDuplicate) const PopupMenuItem(value: 'duplicate', child: Text('Duplicar')),
                     if (onDelete != null) const PopupMenuItem(value: 'delete', child: Text('Eliminar')),

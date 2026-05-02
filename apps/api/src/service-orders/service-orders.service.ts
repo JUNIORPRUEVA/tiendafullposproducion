@@ -723,10 +723,16 @@ export class ServiceOrdersService {
     if (!this.canFinalizePendingDirectly(user, previousStatus, nextStatus)) {
       this.assertValidStatusTransition(previousStatus, nextStatus);
     }
-    const resolvedAssignedToId =
-      nextStatus === 'finalizado' && user.role === Role.TECNICO
-        ? user.id
-        : item.assignedToId;
+    let resolvedAssignedToId = item.assignedToId;
+    if (nextStatus === 'en_proceso' && user.role === Role.TECNICO) {
+      if (item.assignedToId && item.assignedToId !== user.id) {
+        throw new BadRequestException('Esta orden ya tiene un técnico asignado.');
+      }
+      resolvedAssignedToId = item.assignedToId ?? user.id;
+    }
+    if (nextStatus === 'finalizado' && user.role === Role.TECNICO) {
+      resolvedAssignedToId = user.id;
+    }
     const now = new Date();
     const statusNote = this.cleanOptionalText(dto.note);
 
@@ -915,52 +921,6 @@ export class ServiceOrdersService {
     }
 
     return { processed };
-  }
-
-  async confirm(user: AuthUser, id: string) {
-    const item = await this.findOrderOrThrow(user, id);
-
-    if (user.role !== Role.TECNICO) {
-      throw new ForbiddenException('Solo un técnico puede confirmar esta orden');
-    }
-
-    if (item.status !== PrismaServiceOrderStatus.PENDIENTE) {
-      throw new BadRequestException('Solo se pueden confirmar órdenes pendientes');
-    }
-
-    if (item.technicianConfirmedById === user.id) {
-      const snapshot = await this.findOrderWithRelationsOrThrow(user, id);
-      return this.mapOrder(snapshot);
-    }
-
-    if (item.technicianConfirmedById && item.technicianConfirmedById !== user.id) {
-      throw new BadRequestException('La orden ya fue confirmada por otro técnico');
-    }
-
-    if (item.assignedToId && item.assignedToId !== user.id) {
-      throw new ForbiddenException('La orden está asignada a otro técnico');
-    }
-
-    try {
-      const updated = await this.prisma.serviceOrder.update({
-        where: { id },
-        include: { client: true },
-        data: {
-          assignedToId: item.assignedToId ?? user.id,
-          technicianConfirmedAt: item.technicianConfirmedAt ?? new Date(),
-          technicianConfirmedById: item.technicianConfirmedById ?? user.id,
-        },
-      });
-      const mapped = this.mapOrder(updated);
-      await this.invalidateCachesForOrder(updated.id);
-      this.emitOrderEvent('service.confirmed', updated.id, mapped);
-      await this.runNotificationHook(`service.confirmed:${updated.id}:${user.id}`, () =>
-        this.orderNotifications.handleOrderConfirmed(updated.id, user.id),
-      );
-      return mapped;
-    } catch (error) {
-      this.rethrowWriteError(error);
-    }
   }
 
   async addEvidence(user: AuthUser, id: string, dto: CreateEvidenceDto) {

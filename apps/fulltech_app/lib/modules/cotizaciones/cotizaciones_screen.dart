@@ -2740,7 +2740,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
   }
 
   String _tinyCustomerPhoneHint(CotizacionModel cotizacion) {
-    final phone = cotizacion.customerPhone.trim();
+    final phone = (cotizacion.customerPhone ?? '').trim();
     if (phone.isEmpty) return '';
     return 'Cliente: $phone';
   }
@@ -3938,6 +3938,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                         onPickClient: _openClientDialog,
                         onEditNote: _openNoteDialog,
                         onOpenPdf: _openPdfPreview,
+                        onSendToServiceOrder: _sendQuotationToServiceOrder,
                         onOpenHistory: _openHistory,
                         onCreateTicket: _createNewDesktopTicket,
                         onSwitchTicket: _switchDesktopTicket,
@@ -4432,6 +4433,7 @@ class _DesktopQuotePanel extends StatelessWidget {
     required this.onPickClient,
     required this.onEditNote,
     required this.onOpenPdf,
+    required this.onSendToServiceOrder,
     required this.onOpenHistory,
     required this.onCreateTicket,
     required this.onSwitchTicket,
@@ -4466,6 +4468,7 @@ class _DesktopQuotePanel extends StatelessWidget {
   final VoidCallback onPickClient;
   final VoidCallback onEditNote;
   final VoidCallback onOpenPdf;
+  final VoidCallback onSendToServiceOrder;
   final VoidCallback onOpenHistory;
   final VoidCallback onCreateTicket;
   final ValueChanged<String> onSwitchTicket;
@@ -4583,27 +4586,15 @@ class _DesktopQuotePanel extends StatelessWidget {
                   ),
                   const SizedBox(width: 4),
                   // ── Action icons ──────────────────────────────────────────
-                  IconButton(
-                    tooltip: 'Nuevo ticket',
-                    visualDensity: VisualDensity.compact,
-                    onPressed: onCreateTicket,
-                    icon: const Icon(Icons.add_circle_outline, size: 18),
-                  ),
-                  IconButton(
+                  const SizedBox(width: 8),
+                  _DesktopQuoteActionIcon(
                     tooltip: 'Cliente',
-                    visualDensity: VisualDensity.compact,
                     onPressed: onPickClient,
-                    icon: const Icon(Icons.person_outline, size: 18),
+                    icon: const Icon(Icons.person_outline_rounded, size: 18),
                   ),
-                  IconButton(
-                    tooltip: 'Fuera de inventario',
-                    visualDensity: VisualDensity.compact,
-                    onPressed: onAddExternalItem,
-                    icon: const Icon(Icons.add_box_outlined, size: 18),
-                  ),
-                  IconButton(
+                  const SizedBox(width: 6),
+                  _DesktopQuoteActionIcon(
                     tooltip: note.trim().isEmpty ? 'Agregar nota' : 'Editar nota',
-                    visualDensity: VisualDensity.compact,
                     onPressed: onEditNote,
                     icon: Icon(
                       note.trim().isEmpty
@@ -4612,17 +4603,63 @@ class _DesktopQuotePanel extends StatelessWidget {
                       size: 18,
                     ),
                   ),
-                  IconButton(
+                  const SizedBox(width: 6),
+                  _DesktopQuoteActionIcon(
                     tooltip: 'PDF',
-                    visualDensity: VisualDensity.compact,
                     onPressed: onOpenPdf,
                     icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
                   ),
-                  IconButton(
-                    tooltip: 'Historial',
-                    visualDensity: VisualDensity.compact,
-                    onPressed: onOpenHistory,
-                    icon: const Icon(Icons.history, size: 18),
+                  const SizedBox(width: 6),
+                  _DesktopQuoteActionIcon(
+                    tooltip: 'Pasar a orden de servicio',
+                    onPressed: onSendToServiceOrder,
+                    icon: const Icon(Icons.assignment_turned_in_outlined, size: 18),
+                    highlighted: true,
+                  ),
+                  const SizedBox(width: 6),
+                  PopupMenuButton<_DesktopQuoteQuickAction>(
+                    tooltip: 'Más acciones',
+                    onSelected: (action) {
+                      switch (action) {
+                        case _DesktopQuoteQuickAction.newTicket:
+                          onCreateTicket();
+                          return;
+                        case _DesktopQuoteQuickAction.externalItem:
+                          onAddExternalItem();
+                          return;
+                        case _DesktopQuoteQuickAction.history:
+                          onOpenHistory();
+                          return;
+                      }
+                    },
+                    itemBuilder: (context) => const [
+                      PopupMenuItem<_DesktopQuoteQuickAction>(
+                        value: _DesktopQuoteQuickAction.newTicket,
+                        child: _DesktopQuoteMenuItem(
+                          icon: Icons.add_circle_outline,
+                          label: 'Nuevo ticket',
+                        ),
+                      ),
+                      PopupMenuItem<_DesktopQuoteQuickAction>(
+                        value: _DesktopQuoteQuickAction.externalItem,
+                        child: _DesktopQuoteMenuItem(
+                          icon: Icons.add_box_outlined,
+                          label: 'Fuera de inventario',
+                        ),
+                      ),
+                      PopupMenuItem<_DesktopQuoteQuickAction>(
+                        value: _DesktopQuoteQuickAction.history,
+                        child: _DesktopQuoteMenuItem(
+                          icon: Icons.history,
+                          label: 'Historial',
+                        ),
+                      ),
+                    ],
+                    child: const _DesktopQuoteActionIcon(
+                      tooltip: 'Más acciones',
+                      onPressed: null,
+                      icon: Icon(Icons.more_vert_rounded, size: 18),
+                    ),
                   ),
                 ],
               ),
@@ -4790,6 +4827,78 @@ class _DesktopQuotePanel extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+enum _DesktopQuoteQuickAction { newTicket, externalItem, history }
+
+class _DesktopQuoteActionIcon extends StatelessWidget {
+  const _DesktopQuoteActionIcon({
+    required this.tooltip,
+    required this.onPressed,
+    required this.icon,
+    this.highlighted = false,
+  });
+
+  final String tooltip;
+  final VoidCallback? onPressed;
+  final Widget icon;
+  final bool highlighted;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final background = highlighted
+        ? theme.colorScheme.primary.withValues(alpha: 0.12)
+        : theme.colorScheme.surface;
+    final border = highlighted
+        ? theme.colorScheme.primary.withValues(alpha: 0.42)
+        : theme.colorScheme.outlineVariant.withValues(alpha: 0.48);
+
+    return Tooltip(
+      message: tooltip,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: background,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: border),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.06),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: onPressed,
+            child: SizedBox(width: 34, height: 34, child: Center(child: icon)),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DesktopQuoteMenuItem extends StatelessWidget {
+  const _DesktopQuoteMenuItem({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: theme.colorScheme.onSurfaceVariant),
+        const SizedBox(width: 10),
+        Text(label),
+      ],
     );
   }
 }

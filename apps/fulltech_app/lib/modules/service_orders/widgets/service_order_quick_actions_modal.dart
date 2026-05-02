@@ -3,8 +3,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/auth/app_role.dart';
-import '../../../core/auth/auth_provider.dart';
 import '../../../core/utils/app_feedback.dart';
 import '../../../core/utils/safe_url_launcher.dart';
 import '../service_order_models.dart';
@@ -76,7 +74,6 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(serviceOrderCardActionsProvider(orderId));
-    final currentUser = ref.watch(authStateProvider).user;
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final screenSize = MediaQuery.sizeOf(context);
@@ -85,10 +82,6 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
         : screenSize.width >= 600
         ? 322.0
         : (screenSize.width * 0.82).clamp(286.0, 332.0);
-    final canConfirmOrder =
-        currentUser?.appRole.isTechnician == true &&
-        order.status == ServiceOrderStatus.pendiente &&
-        (order.assignedToId == null || order.assignedToId == currentUser?.id);
     final canMarkInProgress =
         order.status != ServiceOrderStatus.enProceso &&
         order.status
@@ -105,14 +98,6 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
             .nextStatusesForRole(canFinalizeDirectly: true)
             .contains(ServiceOrderStatus.finalizado);
     final actionCards = <Widget>[
-      if (canConfirmOrder)
-        _ActionButton(
-          icon: Icons.check_circle_outline_rounded,
-          label: 'Confirmar',
-          tone: _ActionTone.primary,
-          isLoading: state.loading,
-          onTap: state.loading ? null : () => _confirmOrder(context, ref),
-        ),
       if (canMarkInProgress)
         _ActionButton(
           icon: Icons.play_circle_outline_rounded,
@@ -407,28 +392,6 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
       await AppFeedback.showError(
         sheetContext,
         error ?? 'No se pudo cambiar el estado',
-      );
-    }
-  }
-
-  Future<void> _confirmOrder(BuildContext sheetContext, WidgetRef ref) async {
-    try {
-      await ref
-          .read(serviceOrderCardActionsProvider(orderId).notifier)
-          .confirmOrder();
-
-      if (!sheetContext.mounted) return;
-      Navigator.pop(sheetContext);
-
-      if (!parentContext.mounted) return;
-      await AppFeedback.showInfo(parentContext, 'Orden confirmada');
-      onOrderUpdated();
-    } catch (_) {
-      if (!sheetContext.mounted) return;
-      final error = ref.read(serviceOrderCardActionsProvider(orderId)).error;
-      await AppFeedback.showError(
-        sheetContext,
-        error ?? 'No se pudo confirmar la orden',
       );
     }
   }
