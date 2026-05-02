@@ -6,15 +6,10 @@ workflows:
     environment:
       flutter: stable
       xcode: latest
-      groups:
-        - app_store_connect
       vars:
         APP_DIR: apps/fulltech_app
         BUNDLE_ID: com.fulltech.app
-        APPLE_TEAM_ID: $APPLE_TEAM_ID
-        APP_STORE_CONNECT_KEY_IDENTIFIER: $APP_STORE_CONNECT_KEY_IDENTIFIER
-        APP_STORE_CONNECT_ISSUER_ID: $APP_STORE_CONNECT_ISSUER_ID
-        APP_STORE_CONNECT_PRIVATE_KEY: $APP_STORE_CONNECT_PRIVATE_KEY
+        APPLE_TEAM_ID: M4WNZDXN2U
     scripts:
       - name: Flutter pub get
         script: |
@@ -37,18 +32,15 @@ workflows:
     name: iOS TestFlight
     max_build_duration: 60
     instance_type: mac_mini_m2
+    integrations:
+      app_store_connect: CodemagicKey2
     environment:
       flutter: stable
       xcode: latest
-      groups:
-        - app_store_connect
       vars:
         APP_DIR: apps/fulltech_app
         BUNDLE_ID: com.fulltech.app
-        APPLE_TEAM_ID: $APPLE_TEAM_ID
-        APP_STORE_CONNECT_KEY_IDENTIFIER: $APP_STORE_CONNECT_KEY_IDENTIFIER
-        APP_STORE_CONNECT_ISSUER_ID: $APP_STORE_CONNECT_ISSUER_ID
-        APP_STORE_CONNECT_PRIVATE_KEY: $APP_STORE_CONNECT_PRIVATE_KEY
+        APPLE_TEAM_ID: M4WNZDXN2U
     scripts:
       - name: Flutter pub get
         script: |
@@ -82,7 +74,5 @@ workflows:
       - apps/fulltech_app/flutter_drive.log
     publishing:
       app_store_connect:
-        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
-        key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
-        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+        auth: integration
         submit_to_testflight: true
