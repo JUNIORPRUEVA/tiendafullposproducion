@@ -802,6 +802,9 @@ class _DesktopSidebarState extends ConsumerState<DesktopSidebar> {
                       _DesktopSidebarCollapsedGroupButton(
                         title: group.title,
                         icon: group.icon,
+                        items: group.items,
+                        currentLocation: widget.currentLocation,
+                        onNavigate: widget.onNavigate,
                         selected: _groupContainsActiveRoute(
                           group,
                           widget.currentLocation,
@@ -809,18 +812,6 @@ class _DesktopSidebarState extends ConsumerState<DesktopSidebar> {
                         showIndicator: group.items.any(
                           (item) => item.showIndicator,
                         ),
-                        onTap: () {
-                          final selectedInGroup = group.items.where(
-                            (item) => isNavigationRouteActive(
-                              widget.currentLocation,
-                              item.route,
-                            ),
-                          );
-                          final target = selectedInGroup.isNotEmpty
-                              ? selectedInGroup.first.route
-                              : group.items.first.route;
-                          widget.onNavigate(target);
-                        },
                       )
                   else
                     for (final group in groups) ...[
@@ -995,16 +986,20 @@ class _DesktopSidebarCollapsedGroupButton extends StatefulWidget {
   const _DesktopSidebarCollapsedGroupButton({
     required this.title,
     required this.icon,
+    required this.items,
+    required this.currentLocation,
+    required this.onNavigate,
     required this.selected,
     required this.showIndicator,
-    required this.onTap,
   });
 
   final String title;
   final IconData icon;
+  final List<AppNavigationItem> items;
+  final String currentLocation;
+  final ValueChanged<String> onNavigate;
   final bool selected;
   final bool showIndicator;
-  final VoidCallback onTap;
 
   @override
   State<_DesktopSidebarCollapsedGroupButton> createState() =>
@@ -1014,6 +1009,52 @@ class _DesktopSidebarCollapsedGroupButton extends StatefulWidget {
 class _DesktopSidebarCollapsedGroupButtonState
     extends State<_DesktopSidebarCollapsedGroupButton> {
   bool _hovered = false;
+
+  Future<void> _openSubmenu() async {
+    if (widget.items.isEmpty) return;
+
+    final box = context.findRenderObject() as RenderBox?;
+    if (box == null) return;
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+    final topLeft = box.localToGlobal(Offset.zero, ancestor: overlay);
+    final bottomRight = box.localToGlobal(
+      box.size.bottomRight(Offset.zero),
+      ancestor: overlay,
+    );
+    final position = RelativeRect.fromLTRB(
+      bottomRight.dx + 8,
+      topLeft.dy,
+      overlay.size.width - bottomRight.dx,
+      overlay.size.height - topLeft.dy,
+    );
+
+    final selectedRoute = await showMenu<String>(
+      context: context,
+      position: position,
+      items: widget.items
+          .map(
+            (item) => PopupMenuItem<String>(
+              value: item.route,
+              child: Row(
+                children: [
+                  Icon(item.icon, size: 18),
+                  const SizedBox(width: 10),
+                  Expanded(child: Text(item.title)),
+                  if (isNavigationRouteActive(widget.currentLocation, item.route))
+                    const Padding(
+                      padding: EdgeInsets.only(left: 8),
+                      child: Icon(Icons.check_rounded, size: 16),
+                    ),
+                ],
+              ),
+            ),
+          )
+          .toList(),
+    );
+
+    if (selectedRoute == null) return;
+    widget.onNavigate(selectedRoute);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1044,6 +1085,17 @@ class _DesktopSidebarCollapsedGroupButtonState
                 widget.icon,
                 size: 20,
                 color: widget.selected ? activeColor : normal,
+              ),
+              Positioned(
+                right: 5,
+                bottom: 6,
+                child: Icon(
+                  Icons.chevron_right_rounded,
+                  size: 12,
+                  color: widget.selected
+                      ? activeColor.withValues(alpha: 0.9)
+                      : normal.withValues(alpha: 0.85),
+                ),
               ),
               if (widget.showIndicator)
                 Positioned(
@@ -1089,7 +1141,7 @@ class _DesktopSidebarCollapsedGroupButtonState
         cursor: SystemMouseCursors.click,
         onEnter: (_) => setState(() => _hovered = true),
         onExit: (_) => setState(() => _hovered = false),
-        child: GestureDetector(onTap: widget.onTap, child: icon),
+        child: GestureDetector(onTap: _openSubmenu, child: icon),
       ),
     );
   }
