@@ -5,12 +5,45 @@ RUN_MIGRATIONS="${RUN_MIGRATIONS:-true}"
 MIGRATION_MAX_RETRIES="${MIGRATION_MAX_RETRIES:-10}"
 MIGRATION_RETRY_DELAY_SECONDS="${MIGRATION_RETRY_DELAY_SECONDS:-5}"
 MIGRATION_STRICT="${MIGRATION_STRICT:-true}"
+FAILED_MIGRATION_NAME="${FAILED_MIGRATION_NAME:-20260502043000_add_status_history_user_name_and_created_at}"
+
+run_prisma_migrate_deploy() {
+  log_file="${TMPDIR:-/tmp}/prisma-migrate-deploy.$$.$1.log"
+
+  if npx prisma migrate deploy >"$log_file" 2>&1; then
+    cat "$log_file"
+    rm -f "$log_file"
+    return 0
+  fi
+
+  status=$?
+  cat "$log_file"
+
+  if grep -q "P3009" "$log_file" && grep -q "$FAILED_MIGRATION_NAME" "$log_file"; then
+    echo "[startup] detected P3009 for migration ${FAILED_MIGRATION_NAME}"
+    echo "[startup] invoking safe resolver"
+
+    if node scripts/resolve-failed-migration.cjs "$FAILED_MIGRATION_NAME" --deploy-after-resolve; then
+      echo "[startup] safe resolver completed for migration ${FAILED_MIGRATION_NAME}"
+      rm -f "$log_file"
+      return 0
+    fi
+
+    resolver_status=$?
+    echo "[startup] safe resolver failed for migration ${FAILED_MIGRATION_NAME}"
+    rm -f "$log_file"
+    return "$resolver_status"
+  fi
+
+  rm -f "$log_file"
+  return "$status"
+}
 
 if [ "$RUN_MIGRATIONS" = "true" ] || [ "$RUN_MIGRATIONS" = "1" ]; then
   echo "[startup] prisma migrate deploy (retries: ${MIGRATION_MAX_RETRIES})"
   attempt=1
   while [ "$attempt" -le "$MIGRATION_MAX_RETRIES" ]; do
-    if npx prisma migrate deploy; then
+    if run_prisma_migrate_deploy "$attempt"; then
       echo "[startup] migrations applied"
       break
     fi

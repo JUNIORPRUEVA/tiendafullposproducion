@@ -511,45 +511,47 @@ class _AppErrorOverlayState extends State<AppErrorOverlay> {
           );
         }
 
-        // Mobile: full-width bottom banner, fully visible and complete
+        // Mobile: small elegant centered card
         return SafeArea(
-          child: Align(
-            alignment: Alignment.bottomCenter,
+          child: Center(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              padding: const EdgeInsets.symmetric(horizontal: 28),
               child: Material(
-                color: theme.colorScheme.surface.withValues(alpha: 0.98),
-                elevation: 8,
-                borderRadius: BorderRadius.circular(14),
+                color: theme.colorScheme.surface,
+                elevation: 6,
+                shadowColor: Colors.black.withValues(alpha: 0.18),
+                borderRadius: BorderRadius.circular(16),
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+                  padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          Icon(severityIcon, size: 18, color: severityColor),
-                          const SizedBox(width: 8),
+                          Icon(severityIcon, size: 14, color: severityColor),
+                          const SizedBox(width: 6),
                           Expanded(
                             child: Text(
                               error.title,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.w800,
+                              style: theme.textTheme.labelMedium?.copyWith(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 12,
                               ),
                             ),
                           ),
-                          IconButton(
-                            visualDensity: VisualDensity.compact,
-                            tooltip: 'Cerrar',
-                            onPressed: AppErrorReporter.instance.clear,
-                            icon: const Icon(Icons.close_rounded, size: 18),
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(
-                              minWidth: 32,
-                              minHeight: 32,
+                          GestureDetector(
+                            onTap: AppErrorReporter.instance.clear,
+                            child: Padding(
+                              padding: const EdgeInsets.only(left: 6),
+                              child: Icon(
+                                Icons.close_rounded,
+                                size: 15,
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
                             ),
                           ),
                         ],
@@ -557,35 +559,40 @@ class _AppErrorOverlayState extends State<AppErrorOverlay> {
                       const SizedBox(height: 4),
                       Text(
                         error.userMessage,
-                        maxLines: 3,
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          fontSize: 11,
+                          color: theme.colorScheme.onSurfaceVariant,
+                          height: 1.4,
+                        ),
                       ),
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 8),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.end,
                         children: [
-                          TextButton.icon(
+                          TextButton(
                             onPressed: () => _copyError(context, error),
-                            icon: const Icon(Icons.copy_all_rounded, size: 16),
-                            label: const Text('Copiar error'),
                             style: TextButton.styleFrom(
                               visualDensity: VisualDensity.compact,
                               padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 6,
+                                horizontal: 8,
+                                vertical: 4,
                               ),
+                              textStyle: const TextStyle(fontSize: 11),
                             ),
+                            child: const Text('Copiar'),
                           ),
-                          const SizedBox(width: 8),
+                          const SizedBox(width: 4),
                           FilledButton.tonal(
                             onPressed: () => _showDetails(context, error),
                             style: FilledButton.styleFrom(
                               visualDensity: VisualDensity.compact,
                               padding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 6,
+                                horizontal: 12,
+                                vertical: 4,
                               ),
+                              textStyle: const TextStyle(fontSize: 11),
                             ),
                             child: const Text('Ver error'),
                           ),
