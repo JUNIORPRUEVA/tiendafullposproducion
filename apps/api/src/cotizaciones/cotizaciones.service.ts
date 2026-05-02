@@ -1,4 +1,11 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadGatewayException,
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { Logger } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
@@ -87,7 +94,90 @@ export class CotizacionesService {
       throw new BadRequestException('El PDF de la cotización llegó vacío.');
     }
 
+    const maxPdfBytes = 8 * 1024 * 1024;
+    if (bytes.length > maxPdfBytes) {
+      const sizeMb = (bytes.length / (1024 * 1024)).toFixed(2);
+      throw new BadRequestException(
+        `El PDF de la cotización pesa ${sizeMb} MB y supera el límite de 8 MB para envío por WhatsApp.`,
+      );
+    }
+
     return bytes;
+  }
+
+  private extractEvolutionHttpStatus(errorMessage: string) {
+    const normalized = (errorMessage ?? '').toString();
+    const matches = [
+      /HTTP\s+(\d{3})/i.exec(normalized),
+      /status\s*[:=]\s*(\d{3})/i.exec(normalized),
+      /\b(4\d{2}|5\d{2})\b/.exec(normalized),
+    ];
+    for (const match of matches) {
+      if (!match?.[1]) continue;
+      const status = Number.parseInt(match[1], 10);
+      if (!Number.isNaN(status)) return status;
+    }
+    return null;
+  }
+
+  private mapWhatsAppSendError(error: unknown) {
+    if (
+      error instanceof BadRequestException ||
+      error instanceof ForbiddenException ||
+      error instanceof NotFoundException
+    ) {
+      return error;
+    }
+
+    if (error instanceof Error) {
+      const message = error.message.trim();
+      const normalized = message.toLowerCase();
+      const status = this.extractEvolutionHttpStatus(message);
+
+      if (normalized.includes('timeout')) {
+        return new ServiceUnavailableException(
+          'No se pudo enviar por WhatsApp porque el servicio tardó demasiado en responder. Revisa conexión e intenta nuevamente.',
+        );
+      }
+
+      if (status === 401 || status === 403) {
+        return new BadRequestException(
+          'El servidor de WhatsApp rechazó la conexión (credenciales o instancia). Revisa API Key, instancia y estado de conexión.',
+        );
+      }
+
+      if (status === 404) {
+        return new BadRequestException(
+          'La instancia de WhatsApp configurada no existe en el servidor de mensajería. Verifica el nombre de la instancia.',
+        );
+      }
+
+      if (status === 413) {
+        return new BadRequestException(
+          'El archivo PDF es demasiado pesado para WhatsApp. Reduce el tamaño del PDF y reintenta.',
+        );
+      }
+
+      if (status === 415 || status === 422) {
+        return new BadRequestException(
+          'El servidor de WhatsApp rechazó el formato del PDF enviado. Regenera el PDF e intenta nuevamente.',
+        );
+      }
+
+      if (status != null && status >= 500) {
+        return new BadGatewayException(
+          'El proveedor de mensajería WhatsApp reportó un error interno. El envío no se completó; intenta nuevamente en unos minutos.',
+        );
+      }
+
+      return new BadGatewayException(
+        `No se pudo completar el envío por WhatsApp. Detalle técnico: ${message}`,
+      );
+    }
+
+    return new BadGatewayException(
+      'No se pudo completar el envío por WhatsApp por un error inesperado del servidor.',
+    );
   }
 
   private async buildQuoteWhatsAppCaption(customerName: string) {
@@ -638,7 +728,7 @@ export class CotizacionesService {
           error instanceof Error ? error.message : String(error)
         }`,
       );
-      throw error;
+      throw this.mapWhatsAppSendError(error);
     }
 
     this.logger.log(

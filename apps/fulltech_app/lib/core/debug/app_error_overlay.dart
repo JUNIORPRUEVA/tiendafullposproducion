@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'app_error_reporter.dart';
-import '../routing/app_router.dart';
 
 class AppErrorOverlay extends StatefulWidget {
   const AppErrorOverlay({super.key});
@@ -14,53 +13,14 @@ class AppErrorOverlay extends StatefulWidget {
 }
 
 class _AppErrorOverlayState extends State<AppErrorOverlay> {
-  int? _lastShownEventId;
-  bool _dialogOpen = false;
   bool _retrying = false;
 
-  @override
-  void initState() {
-    super.initState();
-    AppErrorReporter.instance.lastError.addListener(_handleErrorChanged);
-  }
-
-  @override
-  void dispose() {
-    AppErrorReporter.instance.lastError.removeListener(_handleErrorChanged);
-    super.dispose();
-  }
-
-  void _handleErrorChanged() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _showLatestErrorIfNeeded();
-    });
-  }
-
-  Future<void> _showLatestErrorIfNeeded() async {
-    final error = AppErrorReporter.instance.lastError.value;
-    if (error == null) return;
-    if (_dialogOpen) return;
-    if (_lastShownEventId == error.eventId) return;
-
-    final dialogContext = _resolveDialogContext();
-    if (dialogContext == null) return;
-
-    _dialogOpen = true;
-    _lastShownEventId = error.eventId;
-    await _showDetails(dialogContext, error);
-    _dialogOpen = false;
-
-    final latest = AppErrorReporter.instance.lastError.value;
-    if (!mounted || latest == null) return;
-    if (latest.eventId != _lastShownEventId) {
-      unawaited(_showLatestErrorIfNeeded());
-    }
-  }
-
-  BuildContext? _resolveDialogContext() {
-    return appRootNavigatorKey.currentState?.overlay?.context ??
-        appRootNavigatorKey.currentContext;
+  Future<void> _copyError(BuildContext context, AppErrorDetails error) async {
+    await Clipboard.setData(ClipboardData(text: error.toClipboardString()));
+    if (!context.mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      const SnackBar(content: Text('Reporte copiado al portapapeles')),
+    );
   }
 
   Future<void> _showDetails(BuildContext context, AppErrorDetails error) async {
@@ -442,7 +402,102 @@ class _AppErrorOverlayState extends State<AppErrorOverlay> {
 
   @override
   Widget build(BuildContext context) {
-    return const SizedBox.shrink();
+    return ValueListenableBuilder<AppErrorDetails?>(
+      valueListenable: AppErrorReporter.instance.lastError,
+      builder: (context, error, _) {
+        if (error == null) {
+          return const SizedBox.shrink();
+        }
+
+        final theme = Theme.of(context);
+        final severityColor = _severityColor(context, error.severity);
+        final severityIcon = _severityIcon(error.severity);
+
+        return SafeArea(
+          child: Align(
+            alignment: Alignment.bottomRight,
+            child: Padding(
+              padding: const EdgeInsets.only(right: 12, bottom: 12, left: 12),
+              child: Material(
+                color: theme.colorScheme.surface.withValues(alpha: 0.98),
+                elevation: 8,
+                borderRadius: BorderRadius.circular(12),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 330),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(10, 8, 8, 8),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(severityIcon, size: 16, color: severityColor),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                error.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.labelLarge?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              visualDensity: VisualDensity.compact,
+                              tooltip: 'Cerrar',
+                              onPressed: AppErrorReporter.instance.clear,
+                              icon: const Icon(Icons.close_rounded, size: 16),
+                            ),
+                          ],
+                        ),
+                        Text(
+                          error.userMessage,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall,
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            TextButton.icon(
+                              onPressed: () => _copyError(context, error),
+                              icon: const Icon(Icons.copy_all_rounded, size: 15),
+                              label: const Text('Copiar error'),
+                              style: TextButton.styleFrom(
+                                visualDensity: VisualDensity.compact,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 6,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            FilledButton.tonal(
+                              onPressed: () => _showDetails(context, error),
+                              style: FilledButton.styleFrom(
+                                visualDensity: VisualDensity.compact,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 6,
+                                ),
+                              ),
+                              child: const Text('Ver error'),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 }
 

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -31,6 +32,7 @@ import '../ventas/data/ventas_repository.dart';
 import 'ai/application/quotation_ai_controller.dart';
 import 'ai/domain/models/ai_warning.dart';
 import 'ai/domain/models/quotation_context.dart';
+import 'ai/domain/services/quotation_ai_service.dart';
 import 'ai/presentation/widgets/ai_chat_sheet.dart';
 import 'ai/presentation/widgets/ai_warning_banner.dart';
 import 'ai/presentation/widgets/quotation_rule_detail_sheet.dart';
@@ -574,6 +576,15 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     );
   }
 
+  Future<void> _disposeControllersSafely(
+    Iterable<TextEditingController> controllers,
+  ) async {
+    await WidgetsBinding.instance.endOfFrame;
+    for (final controller in controllers) {
+      controller.dispose();
+    }
+  }
+
   List<String> get _categories {
     final values = _productos
         .map((product) => product.categoriaLabel.trim())
@@ -1110,7 +1121,8 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
         .setContext(_buildQuotationAiContext(), triggerAi: triggerAi);
   }
 
-  QuotationContext _buildQuotationAiContext() {
+  QuotationContext _buildQuotationAiContext({String? noteOverride}) {
+    final effectiveNote = (noteOverride ?? _note).trim();
     final totalQuantity = _items.fold<double>(0, (sum, item) => sum + item.qty);
     final productName = _items.length == 1
         ? _items.first.nombre
@@ -1132,7 +1144,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
             unitPrice: item.unitPrice,
             officialUnitPrice: official?.precio,
             lineTotal: item.total,
-            notes: _note.trim().isEmpty ? null : _note.trim(),
+            notes: effectiveNote.isEmpty ? null : effectiveNote,
           );
         })
         .toList(growable: false);
@@ -1156,7 +1168,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
       offerPrice: null,
       normalPrice: normalPrice,
       components: _items.map((item) => item.nombre).toList(growable: false),
-      notes: _note.trim().isEmpty ? null : _note.trim(),
+      notes: effectiveNote.isEmpty ? null : effectiveNote,
       extraCharges: _detectExtraCharges(),
       currentDvrType: _detectCurrentDvrType(),
       requiredDvrType: _detectRequiredDvrType(totalQuantity: totalQuantity),
@@ -1274,10 +1286,11 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     final amountCtrl = TextEditingController();
     var type = initialType;
 
-    final result = await showDialog<_DiscountInput>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setDialogState) => AlertDialog(
+    try {
+      return await showDialog<_DiscountInput>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (dialogContext, setDialogState) => AlertDialog(
           title: Text(title),
           content: SizedBox(
             width: 360,
@@ -1374,12 +1387,12 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
               child: const Text('Aplicar'),
             ),
           ],
+          ),
         ),
-      ),
-    );
-
-    amountCtrl.dispose();
-    return result;
+      );
+    } finally {
+      await _disposeControllersSafely([amountCtrl]);
+    }
   }
 
   Future<void> _applyGeneralDiscount() async {
@@ -1391,10 +1404,11 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
           : '',
     );
 
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
           insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
           contentPadding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
           titlePadding: const EdgeInsets.fromLTRB(14, 14, 14, 0),
@@ -1514,11 +1528,12 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
               child: const Text('Aplicar'),
             ),
           ],
+          ),
         ),
-      ),
-    );
-
-    amountCtrl.dispose();
+      );
+    } finally {
+      await _disposeControllersSafely([amountCtrl]);
+    }
   }
 
   Future<void> _openItemDiscountMenu(int index, Offset globalPosition) async {
@@ -1724,10 +1739,12 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
         : double.tryParse(costCtrl.text.trim());
     final unitPrice = double.tryParse(priceCtrl.text.trim()) ?? -1;
 
-    nameCtrl.dispose();
-    qtyCtrl.dispose();
-    costCtrl.dispose();
-    priceCtrl.dispose();
+    await _disposeControllersSafely([
+      nameCtrl,
+      qtyCtrl,
+      costCtrl,
+      priceCtrl,
+    ]);
 
     if (ok != true) return;
 
@@ -1933,35 +1950,291 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
 
   Future<void> _openNoteDialog() async {
     final controller = TextEditingController(text: _note);
-    final nextNote = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Nota de cotización'),
-        content: TextField(
-          controller: controller,
-          minLines: 2,
-          maxLines: 4,
-          textInputAction: TextInputAction.done,
-          decoration: const InputDecoration(
-            hintText: 'Escribe una nota para esta cotización',
+    bool applyingAi = false;
+
+    Future<void> requestAiSuggestion(
+      BuildContext dialogContext,
+      void Function(VoidCallback) setDialogState,
+    ) async {
+      final rawNote = controller.text.trim();
+      if (rawNote.isEmpty) {
+        ScaffoldMessenger.maybeOf(dialogContext)?.showSnackBar(
+          const SnackBar(
+            content: Text('Escribe una nota antes de usar IA'),
           ),
-          onSubmitted: (_) => Navigator.pop(context, controller.text.trim()),
+        );
+        return;
+      }
+
+      setDialogState(() => applyingAi = true);
+      try {
+        final suggestion = await _buildAiNoteSuggestions(rawNote);
+        if (!dialogContext.mounted) return;
+        final selected = await _openAiNoteChoiceDialog(
+          original: rawNote,
+          suggestion: suggestion,
+        );
+        if (!dialogContext.mounted || selected == null) return;
+        controller.text = selected;
+        controller.selection = TextSelection.fromPosition(
+          TextPosition(offset: controller.text.length),
+        );
+      } finally {
+        if (dialogContext.mounted) {
+          setDialogState(() => applyingAi = false);
+        }
+      }
+    }
+
+    String? nextNote;
+    try {
+      nextNote = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (dialogContext, setDialogState) => AlertDialog(
+            title: const Text('Nota de cotización'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(
+                  controller: controller,
+                  minLines: 3,
+                  maxLines: 5,
+                  textInputAction: TextInputAction.done,
+                  decoration: const InputDecoration(
+                    hintText: 'Escribe una nota para esta cotización',
+                  ),
+                  onSubmitted: (_) => Navigator.pop(
+                    dialogContext,
+                    _autocorrectNoteText(controller.text),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: applyingAi
+                      ? null
+                      : () => requestAiSuggestion(dialogContext, setDialogState),
+                  icon: applyingAi
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.auto_fix_high_rounded),
+                  label: Text(
+                    applyingAi ? 'Mejorando texto...' : 'Mejorar con IA',
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(
+                  dialogContext,
+                  _autocorrectNoteText(controller.text),
+                ),
+                child: const Text('Guardar'),
+              ),
+            ],
+          ),
+        ),
+      );
+    } finally {
+      await _disposeControllersSafely([controller]);
+    }
+
+    if (nextNote == null || !mounted) return;
+    _commitEditorChange(() => _note = _autocorrectNoteText(nextNote!));
+  }
+
+  Future<_AiNoteSuggestion> _buildAiNoteSuggestions(String rawNote) async {
+    final aiService = ref.read(quotationAiServiceProvider);
+    try {
+      final response = await aiService.sendMessage(
+        context: _buildQuotationAiContext(noteOverride: rawNote),
+        message:
+            'Mejora esta nota de cotizacion para cliente. Corrige ortografia y redaccion sin inventar datos. '
+            'Devuelve SOLO JSON valido con esta estructura exacta: '
+            '{"corrected":"texto corregido","professional":"texto profesional"}. '
+            'Nota: $rawNote',
+      );
+      final parsed = _parseAiNoteSuggestion(response.content);
+      if (parsed != null) {
+        return parsed;
+      }
+    } catch (_) {
+      // Si falla IA (API exception), usamos sugerencia local para no bloquear al usuario.
+    }
+    return _buildLocalAiNoteSuggestion(rawNote);
+  }
+
+  _AiNoteSuggestion _buildLocalAiNoteSuggestion(String rawNote) {
+    final corrected = _autocorrectNoteText(rawNote);
+    return _AiNoteSuggestion(
+      corrected: corrected,
+      professional: _buildProfessionalNoteText(corrected),
+    );
+  }
+
+  String _autocorrectNoteText(String input) {
+    var text = input.trim();
+    if (text.isEmpty) return text;
+
+    const typoFixes = <String, String>{
+      'porfavor': 'por favor',
+      'insteligencia': 'inteligencia',
+      'profeiconal': 'profesional',
+      'camara': 'cámara',
+      'camaras': 'cámaras',
+    };
+
+    typoFixes.forEach((wrong, right) {
+      text = text.replaceAll(
+        RegExp('\\b${RegExp.escape(wrong)}\\b', caseSensitive: false),
+        right,
+      );
+    });
+
+    text = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+
+    final punctuation = RegExp(r'([.,;:!?])([^\s])');
+    text = text.replaceAllMapped(
+      punctuation,
+      (match) => '${match.group(1)} ${match.group(2)}',
+    );
+
+    if (!RegExp(r'[.!?]$').hasMatch(text)) {
+      text = '$text.';
+    }
+
+    final first = text[0].toUpperCase();
+    return '$first${text.substring(1)}';
+  }
+
+  String _buildProfessionalNoteText(String correctedText) {
+    final core = correctedText.trim();
+    if (core.isEmpty) return core;
+    return 'Estimado cliente, favor tomar en cuenta que este presupuesto corresponde a los trabajos descritos. $core';
+  }
+
+  _AiNoteSuggestion? _parseAiNoteSuggestion(String content) {
+    final jsonText = _extractJsonObject(content);
+    if (jsonText == null) return null;
+    try {
+      final decoded = jsonDecode(jsonText);
+      if (decoded is! Map) return null;
+      final corrected = (decoded['corrected'] ?? '').toString().trim();
+      final professional = (decoded['professional'] ?? '').toString().trim();
+      if (corrected.isEmpty || professional.isEmpty) return null;
+      return _AiNoteSuggestion(
+        corrected: corrected,
+        professional: professional,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String? _extractJsonObject(String content) {
+    final normalized = content.trim();
+    if (normalized.isEmpty) return null;
+
+    final fenced = RegExp(
+      r'```(?:json)?\s*(\{[\s\S]*\})\s*```',
+      caseSensitive: false,
+    ).firstMatch(normalized);
+    if (fenced != null) {
+      return fenced.group(1)?.trim();
+    }
+
+    final start = normalized.indexOf('{');
+    final end = normalized.lastIndexOf('}');
+    if (start < 0 || end <= start) return null;
+    return normalized.substring(start, end + 1).trim();
+  }
+
+  Future<String?> _openAiNoteChoiceDialog({
+    required String original,
+    required _AiNoteSuggestion suggestion,
+  }) {
+    return showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Elige la nota sugerida'),
+        content: SizedBox(
+          width: 520,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildAiNotePreviewBlock(label: 'Original', value: original),
+                _buildAiNotePreviewBlock(
+                  label: 'Corregida por IA',
+                  value: suggestion.corrected,
+                ),
+                _buildAiNotePreviewBlock(
+                  label: 'Profesional por IA',
+                  value: suggestion.professional,
+                ),
+              ],
+            ),
+          ),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Cancelar'),
           ),
+          OutlinedButton(
+            onPressed: () => Navigator.pop(dialogContext, suggestion.corrected),
+            child: const Text('Usar corregida'),
+          ),
           FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
-            child: const Text('Guardar'),
+            onPressed: () => Navigator.pop(dialogContext, suggestion.professional),
+            child: const Text('Usar profesional'),
           ),
         ],
       ),
     );
+  }
 
-    if (nextNote == null || !mounted) return;
-    _commitEditorChange(() => _note = nextNote);
+  Widget _buildAiNotePreviewBlock({
+    required String label,
+    required String value,
+  }) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: theme.textTheme.labelLarge?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerHighest.withValues(
+                alpha: 0.5,
+              ),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(value, style: theme.textTheme.bodyMedium),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _openClientDialog() async {
@@ -2478,6 +2751,38 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     return 'No se pudo enviar el PDF al cliente';
   }
 
+  String _formatWhatsAppSendError(
+    ApiException error, {
+    required bool toAdmin,
+  }) {
+    final message = error.message.trim();
+    final lower = message.toLowerCase();
+    final target = toAdmin ? 'a administradores' : 'al cliente';
+
+    if (lower.contains('error interno') ||
+        (error.code != null && error.code! >= 500)) {
+      return 'No se pudo enviar $target porque el proveedor de WhatsApp reportó un fallo interno temporal. Intenta nuevamente en unos minutos.';
+    }
+
+    if (lower.contains('timeout') || lower.contains('tardó')) {
+      return 'No se pudo enviar $target porque el servicio de WhatsApp tardó demasiado en responder. Verifica tu conexión e intenta otra vez.';
+    }
+
+    if (lower.contains('instancia') ||
+        lower.contains('api key') ||
+        lower.contains('credenciales')) {
+      return 'No se pudo enviar $target por un problema de conexión con la instancia de WhatsApp. Revisa que la sesión esté conectada e intenta nuevamente.';
+    }
+
+    if (lower.contains('pdf') && lower.contains('pes')) {
+      return 'No se pudo enviar $target porque el PDF es demasiado pesado para WhatsApp. Reduce el tamaño del archivo e intenta de nuevo.';
+    }
+
+    return message.isNotEmpty
+        ? message
+        : 'No se pudo enviar $target por un error inesperado. Intenta nuevamente.';
+  }
+
   Future<void> enviarPdfCotizacionAAdmin({
     required CotizacionModel cotizacion,
     Uint8List? pdfBytes,
@@ -2622,7 +2927,10 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                   isError: true,
                 );
               } on ApiException catch (e) {
-                showDialogNotification(e.message, isError: true);
+                showDialogNotification(
+                  _formatWhatsAppSendError(e, toAdmin: false),
+                  isError: true,
+                );
               } catch (e) {
                 showDialogNotification(
                   '${_customerDeliveryErrorPrefix()}: $e',
@@ -2655,7 +2963,10 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                   isError: true,
                 );
               } on ApiException catch (e) {
-                showDialogNotification(e.message, isError: true);
+                showDialogNotification(
+                  _formatWhatsAppSendError(e, toAdmin: true),
+                  isError: true,
+                );
               } catch (e) {
                 showDialogNotification(
                   'No se pudo enviar a administradores: $e',
@@ -3521,7 +3832,8 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
     );
   }
 
-  Widget _buildDesktopBody(QuotationAiState aiState) {
+  Widget _buildDesktopBody(QuotationAiState aiState, UserModel? currentUser) {
+    final isAdmin = currentUser?.appRole == AppRole.admin;
     final showAiBanner = _shouldShowAiBanner(aiState);
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
@@ -3581,6 +3893,8 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
                         subtotal: _subtotal,
                         itbisAmount: _itbisAmount,
                         total: _total,
+                        isAdmin: isAdmin,
+                        utilityAmount: _utilityAmount,
                         money: _money,
                         onPickClient: _openClientDialog,
                         onEditNote: _openNoteDialog,
@@ -3630,7 +3944,7 @@ class _CotizacionesScreenState extends ConsumerState<CotizacionesScreen>
       drawer: buildAdaptiveDrawer(context, currentUser: user),
       body: SafeArea(
         child: isDesktop
-            ? _buildDesktopBody(aiState)
+            ? _buildDesktopBody(aiState, user)
             : _buildMobileBody(aiState, user),
       ),
     );
@@ -4073,6 +4387,8 @@ class _DesktopQuotePanel extends StatelessWidget {
     required this.subtotal,
     required this.itbisAmount,
     required this.total,
+    required this.isAdmin,
+    required this.utilityAmount,
     required this.money,
     required this.onPickClient,
     required this.onEditNote,
@@ -4105,6 +4421,8 @@ class _DesktopQuotePanel extends StatelessWidget {
   final double subtotal;
   final double itbisAmount;
   final double total;
+  final bool isAdmin;
+  final double utilityAmount;
   final String Function(double) money;
   final VoidCallback onPickClient;
   final VoidCallback onEditNote;
@@ -4357,6 +4675,14 @@ class _DesktopQuotePanel extends StatelessWidget {
                       label: 'Rebaja general',
                       value: '-${money(generalDiscountAmount)}',
                       valueColor: theme.colorScheme.primary,
+                    ),
+                  ],
+                  if (isAdmin) ...[
+                    const SizedBox(height: 10),
+                    _DesktopTotalRow(
+                      label: 'Utilidad total',
+                      value: money(utilityAmount),
+                      valueColor: Colors.green.shade700,
                     ),
                   ],
                   const SizedBox(height: 10),
@@ -5015,6 +5341,16 @@ class _DiscountInput {
 
   final _DiscountType type;
   final double amount;
+}
+
+class _AiNoteSuggestion {
+  const _AiNoteSuggestion({
+    required this.corrected,
+    required this.professional,
+  });
+
+  final String corrected;
+  final String professional;
 }
 
 class _TicketCompactItem extends StatefulWidget {
