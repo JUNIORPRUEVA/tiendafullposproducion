@@ -91,6 +91,7 @@ workflows:
           cd "$APP_DIR"
           flutter build ipa --release
     artifacts:
+      - build/ios/ipa/*.ipa
       - apps/fulltech_app/build/ios/ipa/*.ipa
       - apps/fulltech_app/build/ios/archive/*.xcarchive
       - apps/fulltech_app/flutter_drive.log
