@@ -653,7 +653,10 @@ class _Section extends StatelessWidget {
 }
 
 class _OverlayCloseButton extends StatelessWidget {
-  const _OverlayCloseButton({required this.onTap, this.compact = false});
+  const _OverlayCloseButton({
+    required this.onTap,
+    this.compact = false,
+  });
 
   final VoidCallback onTap;
   final bool compact;
