@@ -10,6 +10,7 @@ const { PrismaClient, Role, ServiceOrderType } = require('@prisma/client');
 const prisma = new PrismaClient();
 const baseUrl = `http://localhost:${process.env.PORT ?? 4000}`;
 const qaTag = `qa-notifications-e2e-${Date.now()}`;
+const techNotifyMinutesBefore = Number(process.env.SERVICE_ORDER_TECH_NOTIFY_MINUTES_BEFORE || 30);
 
 const created = {
   orderIds: [],
@@ -307,20 +308,23 @@ async function main() {
       assert(job.kind === 'THIRTY_MINUTES_BEFORE', `Job kind is ${job.kind}, expected THIRTY_MINUTES_BEFORE`);
       assert(job.status === 'PENDING', `Job status is ${job.status}, expected PENDING`);
 
-      // Verify runAt is approximately 20 minutes before scheduledFor
+      // Verify runAt is approximately configured minutes before scheduledFor
       const scheduledForTime = new Date(createResp.body.scheduledFor).getTime();
       const runAtTime = new Date(job.runAt).getTime();
-      const twentyMinutesMs = 20 * 60 * 1000;
+      const expectedOffsetMs = techNotifyMinutesBefore * 60 * 1000;
       const diffMs = scheduledForTime - runAtTime;
       const tolerance = 5 * 60 * 1000; // 5 minute tolerance
 
-      if (Math.abs(diffMs - twentyMinutesMs) <= tolerance) {
-        recordPass('Scenario 1: 20-minute trigger timing', `Diff: ${diffMs / 60000} minutes`);
+      if (Math.abs(diffMs - expectedOffsetMs) <= tolerance) {
+        recordPass(
+          'Scenario 1: configured pre-service trigger timing',
+          `Diff: ${diffMs / 60000} minutes (expected ${techNotifyMinutesBefore})`,
+        );
         recordScenario('Create order with future time', true);
       } else {
         recordFail(
-          'Scenario 1: 20-minute trigger timing',
-          `Expected ~20 min, got ${diffMs / 60000} min`,
+          'Scenario 1: configured pre-service trigger timing',
+          `Expected ~${techNotifyMinutesBefore} min, got ${diffMs / 60000} min`,
         );
         recordScenario('Create order with future time', false);
       }
@@ -435,18 +439,23 @@ async function main() {
       },
     });
 
-    const startedWithQuote = outbox.find((n) => n.payload?.kind === 'service_order_started_with_quote');
-    if (startedWithQuote) {
-      recordPass('Scenario 3a: Instalacion -> EN_PROCESO -> Assistant PDF', startedWithQuote.id);
-      created.outboxIds.push(startedWithQuote.id);
-      recordScenario('EN_PROCESO instalacion sends PDF to assistant', true);
+    const customerServiceEvent = outbox.find(
+      (n) => n.payload?.kind === 'SERVICE_ORDER_IN_PROGRESS_CUSTOMER_SERVICE',
+    );
+    const creatorEvent = outbox.find(
+      (n) => n.payload?.kind === 'SERVICE_ORDER_IN_PROGRESS_CREATOR',
+    );
+    if (customerServiceEvent && creatorEvent) {
+      recordPass('Scenario 3a: Instalacion -> EN_PROCESO events routed', `${customerServiceEvent.id}, ${creatorEvent.id}`);
+      created.outboxIds.push(customerServiceEvent.id, creatorEvent.id);
+      recordScenario('EN_PROCESO instalacion notifies customer-service and creator', true);
     } else {
-      recordFail('Scenario 3a', 'No quote notification found for instalacion');
-      recordScenario('EN_PROCESO instalacion sends PDF to assistant', false);
+      recordFail('Scenario 3a', 'Expected in-progress events for customer-service and creator');
+      recordScenario('EN_PROCESO instalacion notifies customer-service and creator', false);
     }
   } catch (error) {
     recordFail('Scenario 3a', error.message);
-    recordScenario('EN_PROCESO instalacion sends PDF to assistant', false);
+    recordScenario('EN_PROCESO instalacion notifies customer-service and creator', false);
   }
 
   // 3b: Mantenimiento
@@ -486,18 +495,23 @@ async function main() {
       },
     });
 
-    const startedWithQuote = outbox.find((n) => n.payload?.kind === 'service_order_started_with_quote');
-    if (startedWithQuote) {
-      recordPass('Scenario 3b: Mantenimiento -> EN_PROCESO -> Assistant PDF', startedWithQuote.id);
-      created.outboxIds.push(startedWithQuote.id);
-      recordScenario('EN_PROCESO mantenimiento sends PDF to assistant', true);
+    const customerServiceEvent = outbox.find(
+      (n) => n.payload?.kind === 'SERVICE_ORDER_IN_PROGRESS_CUSTOMER_SERVICE',
+    );
+    const creatorEvent = outbox.find(
+      (n) => n.payload?.kind === 'SERVICE_ORDER_IN_PROGRESS_CREATOR',
+    );
+    if (customerServiceEvent && creatorEvent) {
+      recordPass('Scenario 3b: Mantenimiento -> EN_PROCESO events routed', `${customerServiceEvent.id}, ${creatorEvent.id}`);
+      created.outboxIds.push(customerServiceEvent.id, creatorEvent.id);
+      recordScenario('EN_PROCESO mantenimiento notifies customer-service and creator', true);
     } else {
-      recordFail('Scenario 3b', 'No quote notification for mantenimiento');
-      recordScenario('EN_PROCESO mantenimiento sends PDF to assistant', false);
+      recordFail('Scenario 3b', 'Expected in-progress events for customer-service and creator');
+      recordScenario('EN_PROCESO mantenimiento notifies customer-service and creator', false);
     }
   } catch (error) {
     recordFail('Scenario 3b', error.message);
-    recordScenario('EN_PROCESO mantenimiento sends PDF to assistant', false);
+    recordScenario('EN_PROCESO mantenimiento notifies customer-service and creator', false);
   }
 
   // 3c: Other service types (NO assistant notification expected)
@@ -538,18 +552,23 @@ async function main() {
       },
     });
 
-    const creatorNotif = outbox.find((n) => n.payload?.kind === 'service_order_started');
-    if (creatorNotif && !outbox.find((n) => n.payload?.kind === 'service_order_started_with_quote')) {
-      recordPass('Scenario 3c: Levantamiento -> Creator only (no PDF)', creatorNotif.id);
-      created.outboxIds.push(creatorNotif.id);
-      recordScenario('EN_PROCESO levantamiento sends to creator only', true);
+    const customerServiceEvent = outbox.find(
+      (n) => n.payload?.kind === 'SERVICE_ORDER_IN_PROGRESS_CUSTOMER_SERVICE',
+    );
+    const creatorEvent = outbox.find(
+      (n) => n.payload?.kind === 'SERVICE_ORDER_IN_PROGRESS_CREATOR',
+    );
+    if (customerServiceEvent && creatorEvent) {
+      recordPass('Scenario 3c: Levantamiento -> EN_PROCESO events routed', `${customerServiceEvent.id}, ${creatorEvent.id}`);
+      created.outboxIds.push(customerServiceEvent.id, creatorEvent.id);
+      recordScenario('EN_PROCESO levantamiento notifies customer-service and creator', true);
     } else {
-      recordFail('Scenario 3c', 'Expected creator-only notification for levantamiento');
-      recordScenario('EN_PROCESO levantamiento sends to creator only', false);
+      recordFail('Scenario 3c', 'Expected in-progress events for customer-service and creator');
+      recordScenario('EN_PROCESO levantamiento notifies customer-service and creator', false);
     }
   } catch (error) {
     recordFail('Scenario 3c', error.message);
-    recordScenario('EN_PROCESO levantamiento sends to creator only', false);
+    recordScenario('EN_PROCESO levantamiento notifies customer-service and creator', false);
   }
 
   // =========================================================================
@@ -602,18 +621,23 @@ async function main() {
       },
     });
 
-    const finalizedNotif = outbox.find((n) => n.payload?.kind === 'service_order_finalized_invoice_flow');
-    if (finalizedNotif) {
-      recordPass('Scenario 4a: Instalacion finalized notification', finalizedNotif.id);
-      created.outboxIds.push(finalizedNotif.id);
-      recordScenario('FINALIZADO instalacion sends to assistant + creator', true);
+    const creatorEvent = outbox.find((n) => n.payload?.kind === 'SERVICE_ORDER_FINISHED_CREATOR');
+    const customerServiceEvent = outbox.find(
+      (n) => n.payload?.kind === 'SERVICE_ORDER_FINISHED_CUSTOMER_SERVICE',
+    );
+    const adminEvent = outbox.find((n) => n.payload?.kind === 'SERVICE_ORDER_FINISHED_ADMIN');
+
+    if (creatorEvent && customerServiceEvent && adminEvent) {
+      recordPass('Scenario 4a: Instalacion finalized notification routing', `${creatorEvent.id}, ${customerServiceEvent.id}, ${adminEvent.id}`);
+      created.outboxIds.push(creatorEvent.id, customerServiceEvent.id, adminEvent.id);
+      recordScenario('FINALIZADO instalacion notifies creator + customer-service + admin', true);
     } else {
-      recordFail('Scenario 4a', 'No finalized invoice flow notification');
-      recordScenario('FINALIZADO instalacion sends to assistant + creator', false);
+      recordFail('Scenario 4a', 'Missing at least one finalized event (creator/customer-service/admin)');
+      recordScenario('FINALIZADO instalacion notifies creator + customer-service + admin', false);
     }
   } catch (error) {
     recordFail('Scenario 4a', error.message);
-    recordScenario('FINALIZADO instalacion sends to assistant + creator', false);
+    recordScenario('FINALIZADO instalacion notifies creator + customer-service + admin', false);
   }
 
   // 4b: Non-invoice service finalized -> creator only
@@ -661,24 +685,125 @@ async function main() {
       },
     });
 
-    const finalizedNotif = outbox.find((n) => n.payload?.kind === 'service_order_finalized');
-    if (finalizedNotif && !outbox.find((n) => n.payload?.kind === 'service_order_finalized_invoice_flow')) {
-      recordPass('Scenario 4b: Garantia finalized (creator only)', finalizedNotif.id);
-      created.outboxIds.push(finalizedNotif.id);
-      recordScenario('FINALIZADO garantia sends to creator only', true);
+    const creatorEvent = outbox.find((n) => n.payload?.kind === 'SERVICE_ORDER_FINISHED_CREATOR');
+    const customerServiceEvent = outbox.find(
+      (n) => n.payload?.kind === 'SERVICE_ORDER_FINISHED_CUSTOMER_SERVICE',
+    );
+    const adminEvent = outbox.find((n) => n.payload?.kind === 'SERVICE_ORDER_FINISHED_ADMIN');
+
+    if (creatorEvent && customerServiceEvent && adminEvent) {
+      recordPass('Scenario 4b: Garantia finalized notification routing', `${creatorEvent.id}, ${customerServiceEvent.id}, ${adminEvent.id}`);
+      created.outboxIds.push(creatorEvent.id, customerServiceEvent.id, adminEvent.id);
+      recordScenario('FINALIZADO garantia notifies creator + customer-service + admin', true);
     } else {
-      recordFail('Scenario 4b', 'Expected creator-only notification for garantia');
-      recordScenario('FINALIZADO garantia sends to creator only', false);
+      recordFail('Scenario 4b', 'Missing at least one finalized event (creator/customer-service/admin)');
+      recordScenario('FINALIZADO garantia notifies creator + customer-service + admin', false);
     }
   } catch (error) {
     recordFail('Scenario 4b', error.message);
-    recordScenario('FINALIZADO garantia sends to creator only', false);
+    recordScenario('FINALIZADO garantia notifies creator + customer-service + admin', false);
   }
 
   // =========================================================================
-  // SCENARIO 5: Edge cases
+  // SCENARIO 5: EN_PAUSA + idempotence on repeated save
   // =========================================================================
-  console.log('\n[SCENARIO 5] Edge cases');
+  console.log('\n[SCENARIO 5] EN_PAUSA creator notification + idempotence');
+  try {
+    const client5 = await createQaClient(admin, `Client 5 ${qaTag}`);
+    const quota5 = await createQaQuotation(admin, client5);
+    const order5 = await http(
+      'POST',
+      '/service-orders',
+      {
+        clientId: client5.id,
+        quotationId: quota5.id,
+        category: 'intercom',
+        serviceType: 'mantenimiento',
+        status: 'pendiente',
+        assignedToId: tech1.id,
+      },
+      adminToken,
+      201,
+    );
+    created.orderIds.push(order5.body.id);
+
+    await http(
+      'PATCH',
+      `/service-orders/${order5.body.id}/status`,
+      { status: 'en_proceso' },
+      adminToken,
+      200,
+    );
+
+    await http(
+      'PATCH',
+      `/service-orders/${order5.body.id}/status`,
+      { status: 'en_pausa', note: 'Cliente no estaba disponible' },
+      adminToken,
+      200,
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    const pausedOutbox = await prisma.notificationOutbox.findMany({
+      where: {
+        payload: {
+          path: ['orderId'],
+          equals: order5.body.id,
+        },
+      },
+    });
+
+    const pauseEventsBefore = pausedOutbox.filter(
+      (row) => row.payload?.kind === 'SERVICE_ORDER_PAUSED_CREATOR',
+    );
+
+    assert(
+      pauseEventsBefore.length === 1,
+      `Expected one pause event, got ${pauseEventsBefore.length}`,
+    );
+
+    // Retry same status save. API may reject the transition, but notification must not duplicate.
+    await http(
+      'PATCH',
+      `/service-orders/${order5.body.id}/status`,
+      { status: 'en_pausa', note: 'Reintento de guardado' },
+      adminToken,
+      [200, 400, 409],
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 350));
+
+    const pausedOutboxAfterRetry = await prisma.notificationOutbox.findMany({
+      where: {
+        payload: {
+          path: ['orderId'],
+          equals: order5.body.id,
+        },
+      },
+    });
+
+    const pauseEventsAfter = pausedOutboxAfterRetry.filter(
+      (row) => row.payload?.kind === 'SERVICE_ORDER_PAUSED_CREATOR',
+    );
+
+    if (pauseEventsAfter.length === 1) {
+      recordPass('Scenario 5: EN_PAUSA + idempotence', `Paused events=${pauseEventsAfter.length}`);
+      created.outboxIds.push(...pauseEventsAfter.map((row) => row.id));
+      recordScenario('EN_PAUSA notifies creator once (idempotent)', true);
+    } else {
+      recordFail('Scenario 5', `Expected one paused event after retry, got ${pauseEventsAfter.length}`);
+      recordScenario('EN_PAUSA notifies creator once (idempotent)', false);
+    }
+  } catch (error) {
+    recordFail('Scenario 5', error.message);
+    recordScenario('EN_PAUSA notifies creator once (idempotent)', false);
+  }
+
+  // =========================================================================
+  // SCENARIO 6: Edge cases
+  // =========================================================================
+  console.log('\n[SCENARIO 6] Edge cases');
 
   // 5a: Client missing GPS
   try {
@@ -730,19 +855,19 @@ async function main() {
     if (outbox.length > 0) {
       const msg = outbox[0].messageText;
       if (msg.includes('Ubicación no registrada') || msg.includes('maps.google.com')) {
-        recordPass('Scenario 5a: Missing GPS handled', 'Fallback message sent');
+        recordPass('Scenario 6a: Missing GPS handled', 'Fallback message sent');
         created.outboxIds.push(...outbox.map((n) => n.id));
         recordScenario('Missing GPS location', true);
       } else {
-        recordFail('Scenario 5a', 'Location message not handled correctly');
+        recordFail('Scenario 6a', 'Location message not handled correctly');
         recordScenario('Missing GPS location', false);
       }
     } else {
-      recordFail('Scenario 5a', 'No notifications generated');
+        recordFail('Scenario 6a', 'No notifications generated');
       recordScenario('Missing GPS location', false);
     }
   } catch (error) {
-    recordFail('Scenario 5a', error.message);
+      recordFail('Scenario 6a', error.message);
     recordScenario('Missing GPS location', false);
   }
 
@@ -776,21 +901,21 @@ async function main() {
         adminToken,
         [200, 400],
       );
-      recordPass('Scenario 5b: User with no phone', 'System handled gracefully');
+      recordPass('Scenario 6b: User with no phone', 'System handled gracefully');
       recordScenario('User with no phone number', true);
     } catch {
-      recordFinding('Scenario 5b: User with no phone may cause errors');
+      recordFinding('Scenario 6b: User with no phone may cause errors');
       recordScenario('User with no phone number', false);
     }
   } catch (error) {
-    recordFail('Scenario 5b', error.message);
+    recordFail('Scenario 6b', error.message);
     recordScenario('User with no phone number', false);
   }
 
   // =========================================================================
-  // SCENARIO 6: Stress test - multiple orders same time
+  // SCENARIO 7: Stress test - multiple orders same time
   // =========================================================================
-  console.log('\n[SCENARIO 6] Stress test - multiple orders simultaneously');
+  console.log('\n[SCENARIO 7] Stress test - multiple orders simultaneously');
   try {
     const stressOrders = [];
     const stressTime = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
@@ -826,14 +951,14 @@ async function main() {
     created.jobIds.push(...jobs.map((j) => j.id));
 
     if (jobs.length === 5) {
-      recordPass('Scenario 6: Stress test - 5 jobs created', `Jobs: ${jobs.length}`);
+      recordPass('Scenario 7: Stress test - 5 jobs created', `Jobs: ${jobs.length}`);
       recordScenario('Multiple orders scheduled simultaneously', true);
     } else {
-      recordFail('Scenario 6', `Expected 5 jobs, got ${jobs.length}`);
+      recordFail('Scenario 7', `Expected 5 jobs, got ${jobs.length}`);
       recordScenario('Multiple orders scheduled simultaneously', false);
     }
   } catch (error) {
-    recordFail('Scenario 6', error.message);
+    recordFail('Scenario 7', error.message);
     recordScenario('Multiple orders scheduled simultaneously', false);
   }
 

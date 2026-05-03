@@ -166,16 +166,14 @@ class _AppErrorOverlayState extends State<AppErrorOverlay> {
                                           ],
                                         ),
                                       ),
-                                      IconButton(
-                                        onPressed: () {
+                                      _OverlayCloseButton(
+                                        onTap: () {
                                           AppErrorReporter.instance.clear();
                                           Navigator.of(
                                             dialogContext,
                                             rootNavigator: true,
                                           ).pop();
                                         },
-                                        tooltip: 'Cerrar',
-                                        icon: const Icon(Icons.close_rounded),
                                       ),
                                     ],
                                   ),
@@ -437,7 +435,11 @@ class _AppErrorOverlayState extends State<AppErrorOverlay> {
                         children: [
                           Row(
                             children: [
-                              Icon(severityIcon, size: 15, color: severityColor),
+                              Icon(
+                                severityIcon,
+                                size: 15,
+                                color: severityColor,
+                              ),
                               const SizedBox(width: 6),
                               Expanded(
                                 child: Text(
@@ -449,16 +451,9 @@ class _AppErrorOverlayState extends State<AppErrorOverlay> {
                                   ),
                                 ),
                               ),
-                              IconButton(
-                                visualDensity: VisualDensity.compact,
-                                tooltip: 'Cerrar',
-                                onPressed: AppErrorReporter.instance.clear,
-                                icon: const Icon(Icons.close_rounded, size: 14),
-                                padding: EdgeInsets.zero,
-                                constraints: const BoxConstraints(
-                                  minWidth: 28,
-                                  minHeight: 28,
-                                ),
+                              _OverlayCloseButton(
+                                compact: true,
+                                onTap: AppErrorReporter.instance.clear,
                               ),
                             ],
                           ),
@@ -652,6 +647,42 @@ class _Section extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _OverlayCloseButton extends StatelessWidget {
+  const _OverlayCloseButton({required this.onTap, this.compact = false});
+
+  final VoidCallback onTap;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final size = compact ? 28.0 : 36.0;
+    final iconSize = compact ? 14.0 : 18.0;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: Container(
+          width: size,
+          height: size,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.42),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            Icons.close_rounded,
+            size: iconSize,
+            color: colorScheme.onSurfaceVariant,
+          ),
+        ),
       ),
     );
   }

@@ -6,7 +6,6 @@ import {
   isSameDominicanDay,
 } from './notification-business-hours.util';
 import { NotificationsService } from './notifications.service';
-import { ServiceOrderQuotationPdfService } from './service-order-quotation-pdf.service';
 
 type ServiceOrderNotificationContext = Prisma.ServiceOrderGetPayload<{
   include: {
@@ -43,6 +42,11 @@ type ServiceOrderNotificationContext = Prisma.ServiceOrderGetPayload<{
         createdAt: 'asc';
       };
     };
+    evidences: {
+      orderBy: {
+        createdAt: 'asc';
+      };
+    };
   };
 }>;
 
@@ -58,18 +62,47 @@ type InProgressReminderRecipient = {
   number: string;
 };
 
+type ServiceOrderNotificationEventType =
+  | 'SERVICE_ORDER_CREATED_TECH_NOTIFY'
+  | 'SERVICE_ORDER_IN_PROGRESS_CUSTOMER_SERVICE'
+  | 'SERVICE_ORDER_IN_PROGRESS_CREATOR'
+  | 'SERVICE_ORDER_PAUSED_CREATOR'
+  | 'SERVICE_ORDER_FINISHED_CREATOR'
+  | 'SERVICE_ORDER_FINISHED_CUSTOMER_SERVICE'
+  | 'SERVICE_ORDER_FINISHED_ADMIN';
+
+type StatusChangeMeta = {
+  actorUserId?: string | null;
+  note?: string | null;
+};
+
 @Injectable()
 export class ServiceOrderNotificationsListener {
   private readonly logger = new Logger(ServiceOrderNotificationsListener.name);
-  private static readonly SCHEDULED_TECHNICIAN_REMINDER_MINUTES = 20;
+  private static readonly DEFAULT_TECH_NOTIFY_MINUTES_BEFORE = 30;
   private static readonly PENDING_TECHNICIAN_REMINDER_INTERVAL_MINUTES = 60;
   private static readonly IN_PROGRESS_REMINDER_INTERVAL_MINUTES = 120;
   private static readonly MAX_TECHNICIAN_REMINDERS_PER_RECIPIENT = 2;
+  private static readonly CREATED_TECH_EVENT: ServiceOrderNotificationEventType =
+    'SERVICE_ORDER_CREATED_TECH_NOTIFY';
+  private static readonly IN_PROGRESS_CUSTOMER_SERVICE_EVENT: ServiceOrderNotificationEventType =
+    'SERVICE_ORDER_IN_PROGRESS_CUSTOMER_SERVICE';
+  private static readonly IN_PROGRESS_CREATOR_EVENT: ServiceOrderNotificationEventType =
+    'SERVICE_ORDER_IN_PROGRESS_CREATOR';
+  private static readonly PAUSED_CREATOR_EVENT: ServiceOrderNotificationEventType =
+    'SERVICE_ORDER_PAUSED_CREATOR';
+  private static readonly FINISHED_CREATOR_EVENT: ServiceOrderNotificationEventType =
+    'SERVICE_ORDER_FINISHED_CREATOR';
+  private static readonly FINISHED_CUSTOMER_SERVICE_EVENT: ServiceOrderNotificationEventType =
+    'SERVICE_ORDER_FINISHED_CUSTOMER_SERVICE';
+  private static readonly FINISHED_ADMIN_EVENT: ServiceOrderNotificationEventType =
+    'SERVICE_ORDER_FINISHED_ADMIN';
   private static readonly IN_PROGRESS_REMINDER_KINDS = [
     'service_order_in_progress_started',
     'service_order_in_progress_reminder',
   ] as const;
   private static readonly TECHNICIAN_REMINDER_KINDS = [
+    'SERVICE_ORDER_CREATED_TECH_NOTIFY',
     'service_order_thirty_minutes_before',
     'service_order_twenty_minutes_before',
     'service_order_fifteen_minutes_pending',
@@ -81,17 +114,14 @@ export class ServiceOrderNotificationsListener {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
-    private readonly quotationPdf: ServiceOrderQuotationPdfService,
   ) {}
 
   async handleOrderCreated(orderId: string) {
     await this.scheduleThirtyMinuteReminder(orderId);
-    await this.syncPendingTechnicianReminders(orderId);
   }
 
   async handleOrderUpdated(orderId: string) {
     await this.scheduleThirtyMinuteReminder(orderId);
-    await this.syncPendingTechnicianReminders(orderId);
   }
 
   async handleOrderDeleted(orderId: string) {
@@ -145,7 +175,7 @@ export class ServiceOrderNotificationsListener {
     orderId: string,
     previousStatus: string,
     nextStatus: string,
-    _actorUserId?: string | null,
+    meta: StatusChangeMeta = {},
   ) {
     await this.cancelPendingInProgressReminderOutbox(orderId, `Estado actualizado a ${nextStatus}`);
 
@@ -162,12 +192,16 @@ export class ServiceOrderNotificationsListener {
 
     if (previousStatus === 'pospuesta' && nextStatus === 'pendiente') {
       await this.notifyPostponedOrderReady(orderId);
-      await this.syncPendingTechnicianReminders(orderId);
       return;
     }
 
     if (nextStatus === 'en_proceso') {
       await this.notifyServiceStarted(orderId);
+      return;
+    }
+
+    if (nextStatus === 'en_pausa') {
+      await this.notifyServicePaused(orderId, meta);
       return;
     }
 
@@ -219,48 +253,30 @@ export class ServiceOrderNotificationsListener {
       return;
     }
 
-    const technicians = await this.getRoleRecipients(Role.TECNICO, { fleetOnly: true, fallbackToPhone: true });
-    if (!technicians.length) {
-      this.logger.warn(`No technician recipients found for scheduled reminder order=${order.id}`);
+    const payloadAssignedToId = this.extractAssignedToUserId(job.payload);
+    const currentAssignedToId = (order.assignedToId ?? '').trim() || null;
+    if (payloadAssignedToId !== currentAssignedToId) {
+      await this.markJobCancelled(job.id, 'El técnico asignado cambió y el job quedó obsoleto');
       return;
     }
 
-    const message = [
-      `*Programado para:* ${order.scheduledFor.toLocaleString('es-DO')}`,
-      `Cliente: ${order.client.nombre}`,
-      `Teléfono cliente: ${order.client.telefono}`,
-      `Ubicación: ${this.mapsLink(order)}`,
-      `Servicio: ${this.formatServiceLabel(order)}`,
-      `Detalle: ${this.orderDetails(order)}`,
-      'Abre la app y confirma la orden para tomar el servicio.',
-    ].join('\n');
-
-    for (const technician of technicians) {
-      for (const number of technician.numbers) {
-        const nextReminderSequence = await this.getNextTechnicianReminderSequence(order.id, number);
-        if (!nextReminderSequence) {
-          this.logger.warn(`Technician reminder limit reached order=${order.id} recipient=${number}`);
-          continue;
-        }
-
-        await this.enqueueOrderWhatsAppRawText(order, {
-          toNumber: number,
-          messageText: this.buildTechnicianReminderMessage(message, nextReminderSequence),
-          dedupeKey: `service-order:20m:${order.id}:${order.scheduledFor.toISOString()}:${technician.userId}:${number}`,
-          payload: {
-            kind: 'service_order_twenty_minutes_before',
-            jobId: job.id,
-            orderId: order.id,
-            scheduledFor: order.scheduledFor.toISOString(),
-            recipientUserId: technician.userId,
-          },
-        });
-      }
+    const recipients = await this.resolveTechnicianRecipients(order);
+    if (!recipients.length) {
+      this.logger.warn(`No technician recipients found for created-order notification order=${order.id}`);
+      return;
     }
 
-    const hasOpenHourlyJob = await this.hasOpenPendingTechnicianReminderJob(order.id);
-    if (!hasOpenHourlyJob) {
-      await this.schedulePendingTechnicianFollowUp(order.id, order.scheduledFor);
+    const message = this.buildCreatedOrderMessage(order);
+
+    for (const recipient of recipients) {
+      for (const number of recipient.numbers) {
+        await this.enqueueTechnicianCreatedNotification(order, {
+          recipientUserId: recipient.userId,
+          recipientName: recipient.name,
+          toNumber: number,
+          messageText: message,
+        });
+      }
     }
   }
 
@@ -272,6 +288,7 @@ export class ServiceOrderNotificationsListener {
         status: true,
         scheduledFor: true,
         technicianConfirmedById: true,
+        assignedToId: true,
       },
     });
 
@@ -280,10 +297,13 @@ export class ServiceOrderNotificationsListener {
     }
 
     await this.cancelPendingReminderJobs(order.id, 'Reprogramando notificación programada');
+    await this.cancelPendingTechnicianReminderJobs(order.id, 'Deshabilitando recordatorios antiguos duplicados');
+    await this.cancelPendingTechnicianReminderOutbox(
+      order.id,
+      'Deshabilitando recordatorios antiguos duplicados',
+    );
 
-    if (!order.scheduledFor) {
-      return;
-    }
+    const notifyMinutesBefore = this.resolveTechNotifyMinutesBefore();
 
     if (
       order.status === ServiceOrderStatus.CANCELADO ||
@@ -294,14 +314,21 @@ export class ServiceOrderNotificationsListener {
       return;
     }
 
-    const runAt = new Date(
-      order.scheduledFor.getTime() -
-        ServiceOrderNotificationsListener.SCHEDULED_TECHNICIAN_REMINDER_MINUTES * 60_000,
-    );
+    if (!order.scheduledFor) {
+      await this.notifyCreatedOrderNow(order.id);
+      return;
+    }
+
+    const runAt = new Date(order.scheduledFor.getTime() - notifyMinutesBefore * 60_000);
+    if (runAt.getTime() <= Date.now()) {
+      await this.notifyCreatedOrderNow(order.id);
+      return;
+    }
+
     const nextRunAt = alignToNotificationBusinessHours(
-      runAt.getTime() <= Date.now() ? new Date() : runAt,
+      runAt,
     );
-    const dedupeKey = `service-order:job:20m:${order.id}:${order.scheduledFor.toISOString()}`;
+    const dedupeKey = `service-order:job:created-tech:${order.id}:${order.scheduledFor.toISOString()}:${(order.assignedToId ?? 'all').toString()}`;
 
     await this.prisma.serviceOrderNotificationJob.create({
       data: {
@@ -312,6 +339,8 @@ export class ServiceOrderNotificationsListener {
         runAt: nextRunAt,
         payload: {
           scheduledFor: order.scheduledFor.toISOString(),
+          assignedToId: order.assignedToId,
+          notifyMinutesBefore,
         },
       },
     }).catch(async (error: unknown) => {
@@ -324,6 +353,8 @@ export class ServiceOrderNotificationsListener {
             runAt: nextRunAt,
             payload: {
               scheduledFor: order.scheduledFor?.toISOString() ?? null,
+              assignedToId: order.assignedToId,
+              notifyMinutesBefore,
             },
             attempts: 0,
             lockedAt: null,
@@ -516,61 +547,68 @@ export class ServiceOrderNotificationsListener {
 
   private async notifyServiceStarted(orderId: string) {
     const order = await this.loadContext(orderId);
-    const isInvoiceFlow = this.requiresAssistantInvoiceFlow(order.serviceType);
     const creatorRecipients = this.collectCreatorRecipients(order);
+    const customerServiceRecipients = await this.getRoleRecipients(Role.ASISTENTE, {
+      fleetOnly: false,
+      fallbackToPhone: true,
+    });
 
-    const baseMessage = [
-      '*Servicio iniciado*',
+    const scheduleLabel = order.scheduledFor
+      ? order.scheduledFor.toLocaleString('es-DO')
+      : 'Sin fecha programada';
+    const quotationTotal = this.formatQuotationTotal(order);
+    const technicianName = order.assignedTo?.nombreCompleto?.trim() || 'Sin técnico asignado';
+
+    const customerServiceMessage = [
+      '*FULLTECH - Orden de servicio*',
+      'Estado: EN PROCESO',
       `Cliente: ${order.client.nombre}`,
-      `Teléfono cliente: ${order.client.telefono}`,
-      `Ubicación: ${this.mapsLink(order)}`,
+      `Teléfono cliente: ${(order.client.telefono ?? '').trim() || 'No disponible'}`,
+      `Dirección: ${this.mapsLink(order)}`,
       `Servicio: ${this.formatServiceLabel(order)}`,
-      `Detalle: ${this.orderDetails(order)}`,
-      isInvoiceFlow
-        ? 'Preparar factura y enviarla inmediatamente después de la finalización.'
-        : 'El servicio cambió a EN PROCESO.',
+      `Técnico: ${technicianName}`,
+      `Fecha/Hora: ${scheduleLabel}`,
+      quotationTotal ? `Monto/Cotización: ${quotationTotal}` : null,
+      'Próximo paso: preparar factura y documentación correspondiente.',
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    const creatorMessage = [
+      '*FULLTECH - Orden de servicio*',
+      'Estado: EN PROCESO',
+      `Cliente: ${order.client.nombre}`,
+      `Técnico: ${technicianName}`,
+      `Fecha/Hora: ${scheduleLabel}`,
+      'Estado actual: EN PROCESO',
+      'Próximo paso documental: preparación de factura/documentación.',
     ].join('\n');
 
-    if (!isInvoiceFlow) {
-      for (const recipient of creatorRecipients) {
-        await this.enqueueOrderWhatsAppRawText(order, {
-          toNumber: recipient,
-          messageText: baseMessage,
-          dedupeKey: `service-order:start:${order.id}:${recipient}`,
-          payload: {
-            kind: 'service_order_started',
-            orderId: order.id,
-            recipient: recipient,
-          },
-        });
-      }
-      return;
-    }
-
-    const assistants = await this.getRoleRecipients(Role.ASISTENTE, { fleetOnly: false, fallbackToPhone: true });
-    if (!assistants.length) {
-      this.logger.warn(`No assistant recipients found for service started order=${order.id}`);
-      return;
-    }
-
-    const pdf = await this.quotationPdf.buildForOrder(order.id);
-
-    for (const assistant of assistants) {
+    for (const assistant of customerServiceRecipients) {
       for (const number of assistant.numbers) {
-        await this.enqueueOrderWhatsAppDocument(order, {
-          toNumber: number,
-          messageText: baseMessage,
-          dedupeKey: `service-order:start:${order.id}:${assistant.userId}:${number}`,
-          payload: {
-            kind: 'service_order_started_with_quote',
-            orderId: order.id,
-            recipientUserId: assistant.userId,
-          },
-          fileName: pdf.fileName,
-          bytes: pdf.bytes,
+        await this.enqueueCompanyEventNotification(order, {
+          eventType: ServiceOrderNotificationsListener.IN_PROGRESS_CUSTOMER_SERVICE_EVENT,
           recipientUserId: assistant.userId,
+          toNumber: number,
+          messageText: customerServiceMessage,
         });
       }
+    }
+
+    for (const recipient of creatorRecipients) {
+      await this.enqueueCompanyEventNotification(order, {
+        eventType: ServiceOrderNotificationsListener.IN_PROGRESS_CREATOR_EVENT,
+        recipientUserId: order.createdBy.id,
+        toNumber: recipient,
+        messageText: creatorMessage,
+      });
+    }
+
+    if (!customerServiceRecipients.length) {
+      this.logger.warn(`No servicio-al-cliente recipients found for in-progress order=${order.id}`);
+    }
+    if (!creatorRecipients.length) {
+      this.logger.warn(`No creator recipients found for in-progress order=${order.id}`);
     }
   }
 
@@ -595,56 +633,99 @@ export class ServiceOrderNotificationsListener {
 
   private async notifyServiceFinalized(orderId: string) {
     const order = await this.loadContext(orderId);
-    const isInvoiceFlow = this.requiresAssistantInvoiceFlow(order.serviceType);
     const creatorRecipients = this.collectCreatorRecipients(order);
+    const customerServiceRecipients = await this.getRoleRecipients(Role.ASISTENTE, {
+      fleetOnly: false,
+      fallbackToPhone: true,
+    });
+    const adminRecipients = await this.getRoleRecipients(Role.ADMIN, {
+      fleetOnly: false,
+      fallbackToPhone: true,
+    });
 
-    const extraDetails = [order.extraRequirements?.trim(), order.technicalNote?.trim()]
-      .filter((item): item is string => !!item)
-      .join(' | ');
-    const customerComments = this.customerComments(order);
+    const scheduleLabel = order.scheduledFor
+      ? order.scheduledFor.toLocaleString('es-DO')
+      : 'Sin fecha programada';
+    const technicianName = order.assignedTo?.nombreCompleto?.trim() || 'Sin técnico asignado';
+    const evidenceSummary = this.buildEvidenceSummary(order);
 
-    const baseMessage = [
-      '*Servicio completado*',
+    const message = [
+      '*FULLTECH - Orden de servicio*',
+      'Estado: FINALIZADA',
       `Cliente: ${order.client.nombre}`,
-      `Servicio: ${this.formatServiceLabel(order)}`,
-      `Detalle: ${this.orderDetails(order)}`,
-      extraDetails ? `Detalles extra: ${extraDetails}` : null,
-      customerComments ? `Comentarios cliente: ${customerComments}` : null,
-      isInvoiceFlow
-        ? 'Enviar factura inmediatamente. El técnico está esperando.'
-        : 'La orden fue finalizada con éxito.',
-    ].filter(Boolean).join('\n');
+      `Técnico: ${technicianName}`,
+      `Servicio realizado: ${this.formatServiceLabel(order)}`,
+      `Fecha/Hora: ${scheduleLabel}`,
+      `Evidencias: ${evidenceSummary}`,
+      `Referencia de orden: ${order.id}`,
+      'Próximo paso: documentación lista para enviar cotización/factura.',
+    ].join('\n');
 
-    if (!isInvoiceFlow) {
-      for (const recipient of creatorRecipients) {
-        await this.enqueueOrderWhatsAppRawText(order, {
-          toNumber: recipient,
-          messageText: baseMessage,
-          dedupeKey: `service-order:finalized:${order.id}:${recipient}`,
-          payload: {
-            kind: 'service_order_finalized',
-            orderId: order.id,
-            recipient: recipient,
-          },
+    for (const recipient of creatorRecipients) {
+      await this.enqueueCompanyEventNotification(order, {
+        eventType: ServiceOrderNotificationsListener.FINISHED_CREATOR_EVENT,
+        recipientUserId: order.createdBy.id,
+        toNumber: recipient,
+        messageText: message,
+      });
+    }
+
+    for (const assistant of customerServiceRecipients) {
+      for (const number of assistant.numbers) {
+        await this.enqueueCompanyEventNotification(order, {
+          eventType: ServiceOrderNotificationsListener.FINISHED_CUSTOMER_SERVICE_EVENT,
+          recipientUserId: assistant.userId,
+          toNumber: number,
+          messageText: message,
         });
       }
+    }
+
+    for (const admin of adminRecipients) {
+      for (const number of admin.numbers) {
+        await this.enqueueCompanyEventNotification(order, {
+          eventType: ServiceOrderNotificationsListener.FINISHED_ADMIN_EVENT,
+          recipientUserId: admin.userId,
+          toNumber: number,
+          messageText: message,
+        });
+      }
+    }
+  }
+
+  private async notifyServicePaused(orderId: string, meta: StatusChangeMeta) {
+    const order = await this.loadContext(orderId);
+    const creatorRecipients = this.collectCreatorRecipients(order);
+    if (!creatorRecipients.length) {
+      this.logger.warn(`No creator recipients found for paused order=${order.id}`);
       return;
     }
 
-    const assistants = await this.getRoleRecipients(Role.ASISTENTE, { fleetOnly: false, fallbackToPhone: true });
-    const assistantNumbers = assistants.flatMap((assistant) => assistant.numbers);
-    const recipients = [...new Set([...assistantNumbers, ...creatorRecipients])];
+    const actorName = await this.resolveActorDisplayName(meta.actorUserId);
+    const note = (meta.note ?? '').trim();
+    const scheduleLabel = order.scheduledFor
+      ? order.scheduledFor.toLocaleString('es-DO')
+      : 'Sin fecha programada';
 
-    for (const recipient of recipients) {
-      await this.enqueueOrderWhatsAppRawText(order, {
+    const message = [
+      '*FULLTECH - Orden de servicio*',
+      'Estado: EN PAUSA',
+      `Cliente: ${order.client.nombre}`,
+      `Técnico que pausó: ${actorName}`,
+      note ? `Motivo de pausa: ${note}` : null,
+      `Fecha/Hora: ${scheduleLabel}`,
+      'Estado actual: EN PAUSA',
+      'Indicación: dar seguimiento y coordinar la reanudación del servicio.',
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    for (const recipient of creatorRecipients) {
+      await this.enqueueCompanyEventNotification(order, {
+        eventType: ServiceOrderNotificationsListener.PAUSED_CREATOR_EVENT,
+        recipientUserId: order.createdBy.id,
         toNumber: recipient,
-        messageText: baseMessage,
-        dedupeKey: `service-order:finalized:${order.id}:${recipient}`,
-        payload: {
-          kind: 'service_order_finalized_invoice_flow',
-          orderId: order.id,
-          recipient: recipient,
-        },
+        messageText: message,
       });
     }
   }
@@ -718,6 +799,11 @@ export class ServiceOrderNotificationsListener {
             createdAt: 'asc',
           },
         },
+        evidences: {
+          orderBy: {
+            createdAt: 'asc',
+          },
+        },
       },
     });
 
@@ -762,6 +848,202 @@ export class ServiceOrderNotificationsListener {
     }
 
     return `https://maps.google.com/?q=${lat},${lng}`;
+  }
+
+  private resolveTechNotifyMinutesBefore() {
+    const raw = (process.env.SERVICE_ORDER_TECH_NOTIFY_MINUTES_BEFORE ?? '').trim();
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return Math.floor(parsed);
+    }
+    return ServiceOrderNotificationsListener.DEFAULT_TECH_NOTIFY_MINUTES_BEFORE;
+  }
+
+  private formatQuotationTotal(order: ServiceOrderNotificationContext) {
+    if (!order.quotation?.total) {
+      return null;
+    }
+
+    const value = this.toNullableNumber(order.quotation.total);
+    if (value == null) {
+      return null;
+    }
+
+    return new Intl.NumberFormat('es-DO', {
+      style: 'currency',
+      currency: 'DOP',
+      maximumFractionDigits: 2,
+    }).format(value);
+  }
+
+  private buildEvidenceSummary(order: ServiceOrderNotificationContext) {
+    const reportsCount = order.reports.length;
+    const imagesCount = order.evidences.filter((item) => item.type.includes('IMAGEN')).length;
+    const videosCount = order.evidences.filter((item) => item.type.includes('VIDEO')).length;
+    return `reportes/texto=${reportsCount}, imágenes=${imagesCount}, videos=${videosCount}`;
+  }
+
+  private async resolveActorDisplayName(actorUserId?: string | null) {
+    const actorId = (actorUserId ?? '').trim();
+    if (!actorId) {
+      return 'No identificado';
+    }
+
+    const actor = await this.prisma.user.findUnique({
+      where: { id: actorId },
+      select: { nombreCompleto: true },
+    });
+    const actorName = (actor?.nombreCompleto ?? '').trim();
+    return actorName || actorId;
+  }
+
+  private buildEventDedupeKey(params: {
+    orderId: string;
+    eventType: ServiceOrderNotificationEventType;
+    recipientUserId?: string | null;
+    toNumber: string;
+  }) {
+    const normalized = this.notifications.normalizeWhatsAppNumber(params.toNumber);
+    const recipientRef = (params.recipientUserId ?? '').trim() || normalized || 'no-recipient';
+    return `service-order:event:${params.eventType}:${params.orderId}:${recipientRef}`;
+  }
+
+  private buildCreatedOrderMessage(order: ServiceOrderNotificationContext) {
+    const scheduledLabel = order.scheduledFor
+      ? order.scheduledFor.toLocaleString('es-DO')
+      : 'Sin fecha programada';
+    const creatorName = order.createdBy.nombreCompleto.trim() || 'Sin creador';
+    const reference = [order.extraRequirements?.trim(), order.technicalNote?.trim()]
+      .filter((item): item is string => !!item)
+      .join(' | ');
+
+    return [
+      '*FULLTECH - Orden de servicio*',
+      'Nueva orden de servicio',
+      `Cliente: ${order.client.nombre}`,
+      `Servicio: ${this.formatServiceLabel(order)}`,
+      `Fecha/Hora programada: ${scheduledLabel}`,
+      `Dirección/Ubicación: ${this.mapsLink(order)}`,
+      `Creada por: ${creatorName}`,
+      reference ? `Observación/Referencia: ${reference}` : null,
+      'Acción requerida: revisa la orden en la app de Operaciones.',
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  private async resolveTechnicianRecipients(order: ServiceOrderNotificationContext) {
+    const assignedId = (order.assignedToId ?? '').trim();
+    if (assignedId) {
+      const assigned = await this.getRoleRecipients(Role.TECNICO, {
+        fleetOnly: true,
+        fallbackToPhone: true,
+      });
+      const filtered = assigned.filter((item) => item.userId === assignedId);
+      if (!filtered.length) {
+        this.logger.warn(`Assigned technician has no valid phone order=${order.id} assignedTo=${assignedId}`);
+      }
+      return filtered;
+    }
+
+    return this.getRoleRecipients(Role.TECNICO, {
+      fleetOnly: true,
+      fallbackToPhone: true,
+    });
+  }
+
+  private async enqueueTechnicianCreatedNotification(
+    order: ServiceOrderNotificationContext,
+    params: {
+      recipientUserId: string;
+      recipientName: string;
+      toNumber: string;
+      messageText: string;
+    },
+  ) {
+    const eventType = ServiceOrderNotificationsListener.CREATED_TECH_EVENT;
+    const dedupeKey = this.buildEventDedupeKey({
+      orderId: order.id,
+      eventType,
+      recipientUserId: params.recipientUserId,
+      toNumber: params.toNumber,
+    });
+
+    await this.notifications.enqueueWhatsAppRawText({
+      toNumber: params.toNumber,
+      messageText: params.messageText,
+      dedupeKey,
+      senderUserId: params.recipientUserId,
+      payload: {
+        kind: eventType,
+        eventType,
+        orderId: order.id,
+        recipientUserId: params.recipientUserId,
+        recipientName: params.recipientName,
+        requirePersonalInstance: false,
+      },
+    });
+  }
+
+  private async enqueueCompanyEventNotification(
+    order: ServiceOrderNotificationContext,
+    params: {
+      eventType: ServiceOrderNotificationEventType;
+      recipientUserId?: string | null;
+      toNumber: string;
+      messageText: string;
+      payload?: Record<string, unknown>;
+    },
+  ) {
+    const dedupeKey = this.buildEventDedupeKey({
+      orderId: order.id,
+      eventType: params.eventType,
+      recipientUserId: params.recipientUserId,
+      toNumber: params.toNumber,
+    });
+
+    await this.enqueueOrderWhatsAppRawText(order, {
+      toNumber: params.toNumber,
+      messageText: params.messageText,
+      dedupeKey,
+      payload: {
+        kind: params.eventType,
+        eventType: params.eventType,
+        orderId: order.id,
+        recipientUserId: params.recipientUserId ?? null,
+        ...(params.payload ?? {}),
+      },
+    });
+  }
+
+  private async notifyCreatedOrderNow(orderId: string) {
+    const order = await this.loadContext(orderId);
+    if (
+      order.status === ServiceOrderStatus.CANCELADO ||
+      order.status === ServiceOrderStatus.FINALIZADO ||
+      order.status === ServiceOrderStatus.POSPUESTA ||
+      order.technicianConfirmedById
+    ) {
+      return;
+    }
+
+    const recipients = await this.resolveTechnicianRecipients(order);
+    if (!recipients.length) {
+      this.logger.warn(`No technician recipients found for immediate created-order notification order=${order.id}`);
+      return;
+    }
+
+    const message = this.buildCreatedOrderMessage(order);
+    for (const recipient of recipients) {
+      for (const number of recipient.numbers) {
+        await this.enqueueTechnicianCreatedNotification(order, {
+          recipientUserId: recipient.userId,
+          recipientName: recipient.name,
+          toNumber: number,
+          messageText: message,
+        });
+      }
+    }
   }
 
   private toNullableNumber(value: Prisma.Decimal | number | string | null | undefined) {
@@ -878,6 +1160,14 @@ export class ServiceOrderNotificationsListener {
       return null;
     }
     const raw = (payload as Record<string, unknown>).scheduledFor;
+    return typeof raw === 'string' && raw.trim().length > 0 ? raw.trim() : null;
+  }
+
+  private extractAssignedToUserId(payload: Prisma.JsonValue | null) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return null;
+    }
+    const raw = (payload as Record<string, unknown>).assignedToId;
     return typeof raw === 'string' && raw.trim().length > 0 ? raw.trim() : null;
   }
 
@@ -1200,6 +1490,14 @@ export class ServiceOrderNotificationsListener {
           numbers: [...numbers],
         };
       })
-      .filter((user) => user.numbers.length > 0);
+      .filter((user) => {
+        if (user.numbers.length > 0) {
+          return true;
+        }
+        this.logger.warn(
+          `Skipping ${role} user without valid phone numbers userId=${user.userId}`,
+        );
+        return false;
+      });
   }
 }

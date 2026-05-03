@@ -350,7 +350,19 @@ export class OrderDocumentFlowService {
 
   async syncFromServiceOrderStatus(orderId: string, status: ServiceOrderStatus) {
     if (status === ServiceOrderStatus.EN_PROCESO) {
-      await this.ensureFlowCreatedForOrder(orderId);
+      const current = await this.ensureFlowCreatedForOrder(orderId);
+      if (
+        current.status !== OrderDocumentFlowStatus.APPROVED &&
+        current.status !== OrderDocumentFlowStatus.SENT &&
+        current.status !== OrderDocumentFlowStatus.READY_FOR_FINALIZATION
+      ) {
+        await this.prisma.orderDocumentFlow.update({
+          where: { id: current.id },
+          data: {
+            status: OrderDocumentFlowStatus.READY_FOR_REVIEW,
+          },
+        });
+      }
       return;
     }
 

@@ -210,6 +210,16 @@ export class NotificationsService {
     payload?: unknown;
     senderUserId?: string | null;
   }) {
+    const dedupeKey = (params.dedupeKey ?? '').toString().trim();
+    if (dedupeKey) {
+      const existing = await this.prisma.notificationOutbox.findUnique({
+        where: { dedupeKey },
+      });
+      if (existing) {
+        return existing;
+      }
+    }
+
     const rawPhone = (params.toNumber ?? '').toString().trim();
     const normalized = this.evolution.normalizeWhatsAppNumber(rawPhone);
     let messageText = (params.messageText ?? '').toString();
@@ -222,7 +232,7 @@ export class NotificationsService {
           channel: 'WHATSAPP',
           status: 'FAILED',
           templateKey: 'custom_text',
-          dedupeKey: params.dedupeKey ?? null,
+          dedupeKey: dedupeKey || null,
           messageText,
           payload: this.attachSenderUserId(params.payload, params.senderUserId),
           recipientUserId: null,
@@ -241,7 +251,7 @@ export class NotificationsService {
           channel: 'WHATSAPP',
           status: 'FAILED',
           templateKey: 'custom_text',
-          dedupeKey: params.dedupeKey ?? null,
+          dedupeKey: dedupeKey || null,
           messageText,
           payload: this.attachSenderUserId(params.payload, params.senderUserId),
           recipientUserId: null,
@@ -260,7 +270,7 @@ export class NotificationsService {
         contentType: 'TEXT' as any,
         status: 'PENDING',
         templateKey: 'custom_text',
-        dedupeKey: params.dedupeKey ?? null,
+        dedupeKey: dedupeKey || null,
         messageText,
         payload: this.attachSenderUserId(params.payload, params.senderUserId),
         recipientUserId: null,
@@ -470,6 +480,10 @@ export class NotificationsService {
         const payload = (row.payload ?? null) as any;
         const kind = payload?.kind ? String(payload.kind) : '';
         const senderUserId = this.extractSenderUserId(payload);
+        const requirePersonalInstance =
+          payload && typeof payload === 'object' && !Array.isArray(payload)
+            ? (payload as Record<string, unknown>).requirePersonalInstance === true
+            : false;
         const allowOutsideBusinessHours =
           payload && typeof payload === 'object' && !Array.isArray(payload)
             ? (payload as Record<string, unknown>).allowOutsideBusinessHours === true
@@ -507,14 +521,14 @@ export class NotificationsService {
             fileName: mediaFileName,
             caption: row.messageText,
             senderUserId,
-            requirePersonalInstance: !!senderUserId,
+            requirePersonalInstance,
           });
         } else {
           await this.evolution.sendTextMessage({
             toNumber: row.toNumberNormalized,
             message: row.messageText,
             senderUserId,
-            requirePersonalInstance: !!senderUserId,
+            requirePersonalInstance,
           });
         }
 

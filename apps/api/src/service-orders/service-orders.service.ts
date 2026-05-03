@@ -804,7 +804,10 @@ export class ServiceOrdersService {
       await this.invalidateCachesForOrder(updated.id);
       this.emitOrderEvent('service.status_changed', updated.id, mapped);
       await this.runNotificationHook(`service.status_changed:${updated.id}:${previousStatus}->${nextStatus}`, () =>
-        this.orderNotifications.handleStatusChanged(updated.id, previousStatus, nextStatus, user.id),
+        this.orderNotifications.handleStatusChanged(updated.id, previousStatus, nextStatus, {
+          actorUserId: user.id,
+          note: statusNote,
+        }),
       );
       await this.runDocumentFlowHook(updated.id, updated.status);
       return mapped;
