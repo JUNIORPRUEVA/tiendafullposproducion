@@ -25,6 +25,7 @@
     "whatsapp:inbox:repair:execute": "ts-node scripts/repair-whatsapp-inbox-duplicates.ts --execute",
     "whatsapp:media:audit": "ts-node scripts/audit-whatsapp-media.ts",
     "whatsapp:media:repair": "ts-node scripts/audit-whatsapp-media.ts --execute",
+    "whatsapp:media:debug": "ts-node scripts/debug-whatsapp-media.ts",
     "reset-whatsapp-inbox-data": "ts-node scripts/reset-whatsapp-inbox-data.ts"
   },
   "prisma": {

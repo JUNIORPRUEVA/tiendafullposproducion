@@ -227,6 +227,68 @@ function mediaUrlFromPayload(
   );
 }
 
+function evolutionMediaMessageFromPayload(payload: unknown): unknown {
+  const root = asRecord(payload);
+  const data = asRecord(root?.data) ?? asRecord(root?.message) ?? root;
+  if (data && (asRecord(data.key) || asRecord(data.message))) return data;
+  return payload;
+}
+
+function mediaRecordFromPayload(payload: unknown): JsonRecord | undefined {
+  const root = asRecord(payload);
+  const data = asRecord(root?.data) ?? asRecord(root?.message) ?? root;
+  const messageObj =
+    asRecord(data?.message) ??
+    asRecord(data?.messageData) ??
+    asRecord(data?.messageContent) ??
+    {};
+  return (
+    asRecord(messageObj.imageMessage) ??
+    asRecord(messageObj.audioMessage) ??
+    asRecord(messageObj.pttMessage) ??
+    asRecord(messageObj.videoMessage) ??
+    asRecord(messageObj.documentMessage) ??
+    asRecord(messageObj.stickerMessage) ??
+    messageObj
+  );
+}
+
+function mediaPayloadDiagnostic(payload: unknown, parsed: ParsedWhatsappMessage) {
+  const root = asRecord(payload);
+  const data = asRecord(root?.data) ?? asRecord(root?.message) ?? root;
+  const messageObj =
+    asRecord(data?.message) ??
+    asRecord(data?.messageData) ??
+    asRecord(data?.messageContent) ??
+    {};
+  const media = mediaRecordFromPayload(payload);
+  const base64 =
+    asString(media?.base64) ??
+    asString(messageObj.base64) ??
+    asString(data?.base64) ??
+    null;
+  const mediaUrl =
+    asString(media?.mediaUrl) ??
+    asString(messageObj.mediaUrl) ??
+    asString(data?.mediaUrl) ??
+    null;
+  const url =
+    asString(media?.url) ?? asString(messageObj.url) ?? asString(data?.url) ?? null;
+  return {
+    event: parsed.eventName,
+    messageType: parsed.messageType,
+    mimetype: mediaMime(media, data ?? {}, parsed.mediaMimeType),
+    hasBase64: !!base64,
+    base64Size: base64?.length ?? 0,
+    hasMediaUrl: !!mediaUrl,
+    hasDirectPath: !!asString(media?.directPath),
+    hasMediaKey: !!asString(media?.mediaKey),
+    hasUrl: !!url,
+    remoteJid: parsed.remoteJid,
+    messageId: parsed.externalMessageId,
+  };
+}
+
 function mediaNeedsEvolutionBase64(mediaUrl: string | null): boolean {
   if (!mediaUrl) return true;
   const lower = mediaUrl.toLowerCase();
@@ -687,10 +749,24 @@ export class WhatsappInboxService {
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
+      const responseMime = normalizeMimeType(response.headers.get('content-type'));
       const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      const preview = buffer.subarray(0, 80).toString('utf8').trim();
+      if (
+        responseMime === 'application/json' ||
+        responseMime === 'text/html' ||
+        preview.startsWith('{') ||
+        preview.startsWith('<!DOCTYPE') ||
+        preview.startsWith('<html')
+      ) {
+        throw new Error(
+          `URL de media devolvio contenido no binario (${responseMime ?? 'sin content-type'})`,
+        );
+      }
       return {
-        buffer: Buffer.from(arrayBuffer),
-        mime: normalizeMimeType(response.headers.get('content-type')),
+        buffer,
+        mime: responseMime,
       };
     } finally {
       clearTimeout(timeout);
@@ -727,12 +803,31 @@ export class WhatsappInboxService {
       throw new Error('No hay instancia Evolution para descargar media');
     }
 
-    const raw = await this.whatsappService.getBase64FromMediaMessage(
-      instanceName,
+    const candidates = [
+      evolutionMediaMessageFromPayload(parsed.rawPayload),
       parsed.rawPayload,
-    );
-    const base64 = findBase64InResponse(raw);
-    if (!base64) throw new Error('Evolution no devolvio base64 de media');
+    ];
+    let base64: string | null = null;
+    let lastError: string | null = null;
+    for (const candidate of candidates) {
+      try {
+        const raw = await this.whatsappService.getBase64FromMediaMessage(
+          instanceName,
+          candidate,
+        );
+        base64 = findBase64InResponse(raw);
+        if (base64) break;
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : String(error);
+      }
+    }
+    if (!base64) {
+      throw new Error(
+        lastError
+          ? `Evolution no devolvio base64 de media: ${lastError}`
+          : 'Evolution no devolvio base64 de media',
+      );
+    }
     const fromEvolution = base64.startsWith('data:')
       ? parseDataUriMedia(base64)
       : { buffer: Buffer.from(base64, 'base64'), mime: parsed.mediaMimeType };
@@ -755,6 +850,13 @@ export class WhatsappInboxService {
     if (parsed.messageType === WhatsappMessageType.TEXT) return null;
 
     try {
+      if (!parsed.fromMe) {
+        console.log('[WhatsappInbox][IncomingMedia][Payload]', {
+          ...mediaPayloadDiagnostic(parsed.rawPayload, parsed),
+          instanceName: parsed.instanceName,
+          fromMe: parsed.fromMe,
+        });
+      }
       console.log('[WhatsappInbox][Media] start', {
         messageId: params.messageId,
         type: parsed.messageType,
@@ -791,6 +893,21 @@ export class WhatsappInboxService {
         contentType: detected.mime,
       });
 
+      if (!parsed.fromMe) {
+        console.log('[WhatsappInbox][IncomingMedia]', {
+          messageId: params.messageId,
+          instanceName: parsed.instanceName,
+          fromMe: parsed.fromMe,
+          messageType: parsed.messageType,
+          source: resolved.source,
+          receivedMime: resolved.hintedMime ?? parsed.mediaMimeType,
+          detectedMime: detected.mime,
+          bufferSize: resolved.buffer.length,
+          r2Key: objectKey,
+          status: 'ready',
+        });
+      }
+
       return {
         mediaUrl: this.buildApiMediaUrl(params.messageId),
         mediaMimeType: detected.mime,
@@ -804,6 +921,21 @@ export class WhatsappInboxService {
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      if (!parsed.fromMe) {
+        console.error('[WhatsappInbox][IncomingMedia]', {
+          messageId: params.messageId,
+          instanceName: parsed.instanceName,
+          fromMe: parsed.fromMe,
+          messageType: parsed.messageType,
+          source: 'failed',
+          receivedMime: parsed.mediaMimeType,
+          detectedMime: null,
+          bufferSize: 0,
+          r2Key: null,
+          status: 'failed',
+          error: message,
+        });
+      }
       console.error('[WhatsappInbox][Media] failed', {
         messageId: params.messageId,
         type: parsed.messageType,
@@ -830,12 +962,21 @@ export class WhatsappInboxService {
       id: string;
       messageType: WhatsappMessageType;
       mediaStorageKey?: string | null;
+      mediaUrl?: string | null;
     },
   >(message: T, instanceId: string, parsed: ParsedWhatsappMessage): Promise<T> {
-    if (
-      message.messageType === WhatsappMessageType.TEXT ||
-      message.mediaStorageKey
-    ) {
+    if (message.messageType === WhatsappMessageType.TEXT) {
+      return message;
+    }
+
+    if (message.mediaStorageKey) {
+      const mediaUrl = this.buildApiMediaUrl(message.id);
+      if (message.mediaUrl !== mediaUrl) {
+        return (await this.prisma.whatsappMessage.update({
+          where: { id: message.id },
+          data: { mediaUrl, mediaStatus: 'ready', mediaError: null },
+        })) as unknown as T;
+      }
       return message;
     }
 
@@ -1042,6 +1183,102 @@ export class WhatsappInboxService {
     return { execute, scanned: messages.length, summary, results };
   }
 
+  async debugMediaMessage(messageId: string) {
+    const message = await this.prisma.whatsappMessage.findUnique({
+      where: { id: messageId },
+      include: {
+        conversation: {
+          include: { instance: { select: { id: true, instanceName: true, phoneNumber: true } } },
+        },
+      },
+    });
+    if (!message) throw new NotFoundException('Mensaje no encontrado');
+
+    const parsed = message.rawPayload
+      ? this.parseEvolutionPayload(message.rawPayload, {
+          instanceName: message.conversation.instance.instanceName,
+          instance: message.conversation.instance,
+        })
+      : null;
+
+    let r2Head: unknown = null;
+    let r2Error: string | null = null;
+    if (message.mediaStorageKey) {
+      try {
+        r2Head = await this.r2.headObject(message.mediaStorageKey);
+      } catch (error) {
+        r2Error = error instanceof Error ? error.message : String(error);
+      }
+    }
+
+    let resolved: unknown = null;
+    if (parsed) {
+      try {
+        const bytes = await this.resolveMediaBuffer(
+          parsed,
+          message.conversation.instance.instanceName,
+        );
+        const detected = await detectMediaType(
+          bytes.buffer,
+          bytes.hintedMime ?? parsed.mediaMimeType,
+        );
+        resolved = {
+          canResolve: true,
+          source: bytes.source,
+          bufferSize: bytes.buffer.length,
+          receivedMime: bytes.hintedMime ?? parsed.mediaMimeType,
+          detectedMime: detected.mime,
+          detectedExt: detected.ext,
+        };
+      } catch (error) {
+        resolved = {
+          canResolve: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
+
+    let endpoint: unknown = null;
+    try {
+      const object = await this.getMediaBytes(messageId);
+      endpoint = {
+        wouldReturn: true,
+        status: 200,
+        contentType: object.contentType,
+        contentLength: object.contentLength,
+        isBinary: object.body.length > 0,
+      };
+    } catch (error) {
+      endpoint = {
+        wouldReturn: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+
+    return {
+      message: {
+        id: message.id,
+        evolutionId: message.evolutionId,
+        direction: message.direction,
+        fromMe: message.direction === WhatsappMessageDirection.OUTGOING,
+        messageType: message.messageType,
+        mediaUrl: message.mediaUrl,
+        mediaMimeType: message.mediaMimeType,
+        mediaStorageKey: message.mediaStorageKey,
+        mediaFileSize: message.mediaFileSize,
+        mediaStatus: message.mediaStatus,
+        mediaError: message.mediaError,
+        hasRawPayload: !!message.rawPayload,
+      },
+      payload: parsed
+        ? mediaPayloadDiagnostic(message.rawPayload, parsed)
+        : { parseable: false },
+      resolved,
+      r2: { hasObject: !!message.mediaStorageKey && !r2Error, head: r2Head, error: r2Error },
+      endpoint,
+    };
+  }
+
   private normalizeConversationForResponse<
     T extends {
       remoteJid: string;
@@ -1096,7 +1333,7 @@ export class WhatsappInboxService {
     try {
       const raw = await this.whatsappService.getBase64FromMediaMessage(
         instanceName,
-        hydrated.rawPayload,
+        evolutionMediaMessageFromPayload(hydrated.rawPayload),
       );
       const base64 = findBase64InResponse(raw);
       if (!base64) return hydrated;
@@ -1619,17 +1856,21 @@ export class WhatsappInboxService {
     if (parsed.evolutionId) {
       const existing = await this.prisma.whatsappMessage.findUnique({
         where: { evolutionId: parsed.evolutionId },
-        select: { id: true },
       });
       if (existing) {
+        const hasStoredMedia = !!existing.mediaStorageKey;
         const updatedExisting = await this.prisma.whatsappMessage.update({
           where: { id: existing.id },
           data: {
             rawPayload: parsed.rawPayload as object,
-            ...(parsed.mediaUrl ? { mediaUrl: parsed.mediaUrl } : {}),
-            ...(parsed.mediaMimeType
-              ? { mediaMimeType: parsed.mediaMimeType }
-              : {}),
+            ...(hasStoredMedia
+              ? { mediaUrl: this.buildApiMediaUrl(existing.id), mediaStatus: 'ready' }
+              : {
+                  ...(parsed.mediaUrl ? { mediaUrl: parsed.mediaUrl } : {}),
+                  ...(parsed.mediaMimeType
+                    ? { mediaMimeType: parsed.mediaMimeType }
+                    : {}),
+                }),
             caption: parsed.caption,
             body: parsed.body,
           },
@@ -1742,6 +1983,11 @@ export class WhatsappInboxService {
         body: message.body,
         mediaUrl: message.mediaUrl,
         mediaMimeType: message.mediaMimeType,
+        mediaStorageKey: message.mediaStorageKey,
+        mediaFileSize: message.mediaFileSize,
+        mediaStatus: message.mediaStatus,
+        mediaError: message.mediaError,
+        originalFileName: message.originalFileName,
         caption: message.caption,
         senderName: message.senderName,
         sentAt: message.sentAt,
@@ -1963,7 +2209,7 @@ export class WhatsappInboxService {
 
     const conversation = await this.prisma.whatsappConversation.findUnique({
       where: { id: conversationId },
-      include: { instance: { select: { instanceName: true } } },
+      include: { instance: { select: { id: true, instanceName: true, phoneNumber: true } } },
     });
 
     const messages = await this.prisma.whatsappMessage.findMany({
@@ -1975,12 +2221,46 @@ export class WhatsappInboxService {
       take: limit,
     });
     return Promise.all(
-      messages.map((message) =>
-        this.hydratePlayableMessageMedia(
-          message,
+      messages.map(async (message) => {
+        let current = message;
+        if (current.mediaStorageKey) {
+          const mediaUrl = this.buildApiMediaUrl(current.id);
+          if (current.mediaUrl !== mediaUrl) {
+            current = await this.prisma.whatsappMessage.update({
+              where: { id: current.id },
+              data: { mediaUrl, mediaStatus: 'ready', mediaError: null },
+            });
+          }
+          return { ...current, mediaUrl };
+        }
+
+        if (
+          conversation?.instance &&
+          current.messageType !== WhatsappMessageType.TEXT &&
+          current.rawPayload &&
+          current.mediaStatus !== 'failed'
+        ) {
+          const parsed = this.parseEvolutionPayload(current.rawPayload, {
+            instanceName: conversation.instance.instanceName,
+            instance: conversation.instance,
+          });
+          if (parsed) {
+            current = await this.ensureMessageMediaStored(
+              current,
+              conversation.instanceId,
+              parsed,
+            );
+            if (current.mediaStorageKey) {
+              return { ...current, mediaUrl: this.buildApiMediaUrl(current.id) };
+            }
+          }
+        }
+
+        return this.hydratePlayableMessageMedia(
+          current,
           conversation?.instance.instanceName,
-        ),
-      ),
+        );
+      }),
     );
   }
 

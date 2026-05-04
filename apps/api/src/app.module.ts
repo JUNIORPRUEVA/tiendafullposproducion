@@ -28,6 +28,7 @@ import { WarrantyConfigsModule } from './warranty-configs/warranty-configs.modul
 import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { WhatsappInboxModule } from './whatsapp-inbox/whatsapp-inbox.module';
 import { EmployeeWarningsModule } from './employee-warnings/employee-warnings.module';
+import { MarketingModule } from './marketing/marketing.module';
 
 @Module({
   imports: [
@@ -66,6 +67,7 @@ import { EmployeeWarningsModule } from './employee-warnings/employee-warnings.mo
     WhatsappModule,
     WhatsappInboxModule,
     EmployeeWarningsModule,
+    MarketingModule,
   ]
 })
 export class AppModule {}

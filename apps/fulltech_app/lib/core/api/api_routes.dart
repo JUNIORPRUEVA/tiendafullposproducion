@@ -182,6 +182,22 @@ class ApiRoutes {
   static const serviceOrderSalesSummary = '/service-orders/sales-summary';
   static const serviceOrderCommissions = '/service-orders/commissions';
   static const mediaGallery = '/media-gallery';
+  static const marketingDashboard = '/marketing/dashboard';
+  static const marketingStories = '/marketing/stories';
+  static const marketingStoriesGenerateMissing =
+      '/marketing/stories/generate-missing';
+  static String marketingStoryApprove(String id) =>
+      '/marketing/stories/$id/approve';
+  static String marketingStoryReject(String id) =>
+      '/marketing/stories/$id/reject';
+  static String marketingStoryRegenerate(String id) =>
+      '/marketing/stories/$id/regenerate';
+  static String marketingStoryEdit(String id) => '/marketing/stories/$id';
+  static const marketingHistory = '/marketing/history';
+  static const marketingConfig = '/marketing/config';
+  static const marketingFlowActivate = '/marketing/flow/activate';
+  static const marketingFlowPause = '/marketing/flow/pause';
+  static const marketingFlowReset = '/marketing/flow/reset';
   static String serviceOrderDetail(String id) => '/service-orders/$id';
   static String serviceOrderUpdate(String id) => '/service-orders/$id';
   static String serviceOrderDelete(String id) => '/service-orders/$id';
@@ -257,13 +273,19 @@ class ApiRoutes {
   static String employeeWarningDetail(String id) => '/employee-warnings/$id';
   static String employeeWarningUpdate(String id) => '/employee-warnings/$id';
   static String employeeWarningDelete(String id) => '/employee-warnings/$id';
-  static String employeeWarningSubmit(String id) => '/employee-warnings/$id/submit';
-  static String employeeWarningAnnul(String id) => '/employee-warnings/$id/annul';
+  static String employeeWarningSubmit(String id) =>
+      '/employee-warnings/$id/submit';
+  static String employeeWarningAnnul(String id) =>
+      '/employee-warnings/$id/annul';
   static String employeeWarningPdf(String id) => '/employee-warnings/$id/pdf';
-  static String employeeWarningEvidences(String id) => '/employee-warnings/$id/evidences';
+  static String employeeWarningEvidences(String id) =>
+      '/employee-warnings/$id/evidences';
   static const employeeWarningsMyPending = '/employee-warnings/me/pending';
   static String employeeWarningsMy(String id) => '/employee-warnings/me/$id';
-  static String employeeWarningsMyPdf(String id) => '/employee-warnings/me/$id/pdf';
-  static String employeeWarningsMySign(String id) => '/employee-warnings/me/$id/sign';
-  static String employeeWarningsMyRefuse(String id) => '/employee-warnings/me/$id/refuse';
+  static String employeeWarningsMyPdf(String id) =>
+      '/employee-warnings/me/$id/pdf';
+  static String employeeWarningsMySign(String id) =>
+      '/employee-warnings/me/$id/sign';
+  static String employeeWarningsMyRefuse(String id) =>
+      '/employee-warnings/me/$id/refuse';
 }

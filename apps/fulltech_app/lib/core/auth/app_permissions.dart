@@ -30,6 +30,7 @@ enum AppPermission {
 
   // Admin
   viewAdminPanel,
+  viewPublicidad,
   manageUsers,
   manageSettings,
   managePayroll,
@@ -63,6 +64,7 @@ const Map<AppRole, Set<AppPermission>> rolePermissions = {
     AppPermission.viewAccounting,
     AppPermission.viewCompanyManual,
     AppPermission.viewAdminPanel,
+    AppPermission.viewPublicidad,
     AppPermission.manageUsers,
     AppPermission.manageSettings,
     AppPermission.managePayroll,

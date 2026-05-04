@@ -58,6 +58,8 @@ class RouteAccess {
         return AppPermission.manageSettings;
       case Routes.whatsapp:
         return AppPermission.viewWhatsapp;
+      case Routes.publicidad:
+        return AppPermission.viewPublicidad;
       case Routes.whatsappCrm:
         return AppPermission.viewWhatsappCrm;
       case Routes.amonestaciones:

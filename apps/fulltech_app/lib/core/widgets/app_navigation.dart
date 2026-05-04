@@ -53,10 +53,12 @@ List<AppNavigationSection> buildAppNavigationSections(
       ) ??
       false;
   final showWhatsappEntry = can(AppPermission.viewWhatsapp)
-      ? ref.watch(whatsappNavigationVisibilityProvider).maybeWhen(
-            data: (value) => value,
-            orElse: () => role == null ? false : role == AppRole.admin,
-          )
+      ? ref
+            .watch(whatsappNavigationVisibilityProvider)
+            .maybeWhen(
+              data: (value) => value,
+              orElse: () => role == null ? false : role == AppRole.admin,
+            )
       : false;
 
   final sections = <AppNavigationSection>[
@@ -122,6 +124,12 @@ List<AppNavigationSection> buildAppNavigationSections(
             icon: Icons.admin_panel_settings_outlined,
             title: 'Administración',
             route: Routes.administracion,
+          ),
+        if (can(AppPermission.viewPublicidad))
+          const AppNavigationItem(
+            icon: Icons.campaign_outlined,
+            title: 'Publicidad',
+            route: Routes.publicidad,
           ),
       ],
     ),
@@ -253,9 +261,12 @@ String resolveNavigationTitle(
   if (path == Routes.cotizacionesHistorial) return 'Historial de cotizaciones';
   if (path == Routes.clienteNuevo) return 'Nuevo cliente';
   if (path == Routes.ai) return 'IA';
+  if (path == Routes.publicidad) return 'Publicidad';
   if (path == Routes.whatsappCrm) return 'CRM WhatsApp';
   if (path == Routes.amonestaciones) return 'Amonestaciones';
-  if (path == Routes.misAmonestacionesPendientes) return 'Mis pendientes de firma';
+  if (path == Routes.misAmonestacionesPendientes) {
+    return 'Mis pendientes de firma';
+  }
   if (path.startsWith('/amonestaciones/')) return 'Detalle amonestación';
   if (path == Routes.profile) return 'Perfil';
   if (path.startsWith('${Routes.serviceOrders}/')) return 'Detalle de orden';
@@ -293,6 +304,7 @@ bool desktopShellShouldShowOwnAppBar(String location) {
     Routes.ai,
     Routes.configuracion,
     Routes.administracion,
+    Routes.publicidad,
     Routes.users,
     Routes.profile,
   ];

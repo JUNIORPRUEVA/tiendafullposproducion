@@ -1540,6 +1540,18 @@ String? _mimeFromDataUri(String mediaUrl) {
   return semiIdx == -1 ? header : header.substring(0, semiIdx);
 }
 
+String? _mediaUrlForMessage(WaCrmMessage msg) {
+  final raw = msg.mediaUrl?.trim();
+  if (raw == null || raw.isEmpty) return null;
+  if (raw.startsWith('data:')) return raw;
+  if (raw.startsWith('/whatsapp-inbox/media/')) return raw;
+  if (msg.mediaStorageKey?.trim().isNotEmpty == true ||
+      msg.mediaStatus?.toLowerCase() == 'ready') {
+    return '/whatsapp-inbox/media/${msg.id}';
+  }
+  return raw;
+}
+
 Future<Uint8List> _bytesFromMediaUrl(
   String mediaUrl, {
   required Future<Uint8List> Function(String mediaUrl)? downloadBytes,
@@ -1975,7 +1987,7 @@ class _ImageContent extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final url = msg.mediaUrl;
+    final url = _mediaUrlForMessage(msg);
     final downloadBytes = ref.read(waCrmRepositoryProvider).downloadMediaBytes;
     if (msg.mediaFailed) {
       return _MediaUnavailable(
@@ -2117,7 +2129,7 @@ class _AudioContentState extends ConsumerState<_AudioContent> {
     setState(() => _initializing = true);
 
     try {
-      final url = widget.msg.mediaUrl;
+      final url = _mediaUrlForMessage(widget.msg);
       if (url == null) throw Exception('Sin URL de audio');
 
       final source = await _mediaSourceForPlayback(
@@ -2183,7 +2195,7 @@ class _AudioContentState extends ConsumerState<_AudioContent> {
   Widget build(BuildContext context) {
     final color = widget.textColor;
 
-    if (widget.msg.mediaUrl == null || widget.msg.mediaFailed) {
+    if (_mediaUrlForMessage(widget.msg) == null || widget.msg.mediaFailed) {
       return _MediaUnavailable(icon: Icons.mic_off_rounded, textColor: color);
     }
 
@@ -2414,11 +2426,12 @@ class _VideoContentState extends ConsumerState<_VideoContent> {
   }
 
   Future<void> _initializeAndPlay() async {
-    if (widget.msg.mediaUrl == null) return;
+    final mediaUrl = _mediaUrlForMessage(widget.msg);
+    if (mediaUrl == null) return;
     setState(() => _loading = true);
     try {
       final source = await _mediaSourceForPlayback(
-        widget.msg.mediaUrl!,
+        mediaUrl,
         widget.msg.mediaMimeType ?? 'video/mp4',
         prefix: 'wa_video',
         downloadBytes: ref.read(waCrmRepositoryProvider).downloadMediaBytes,
@@ -2464,7 +2477,7 @@ class _VideoContentState extends ConsumerState<_VideoContent> {
   Widget build(BuildContext context) {
     final color = widget.textColor;
     final controller = _videoController;
-    if (widget.msg.mediaUrl == null || widget.msg.mediaFailed) {
+    if (_mediaUrlForMessage(widget.msg) == null || widget.msg.mediaFailed) {
       return _MediaUnavailable(
         icon: Icons.videocam_off_outlined,
         textColor: color,
@@ -2573,10 +2586,11 @@ class _DocumentContentState extends ConsumerState<_DocumentContent> {
   bool _loading = false;
 
   Future<void> _open() async {
-    if (widget.msg.mediaUrl == null) return;
+    final mediaUrl = _mediaUrlForMessage(widget.msg);
+    if (mediaUrl == null) return;
     setState(() => _loading = true);
     await _openMedia(
-      widget.msg.mediaUrl!,
+      mediaUrl,
       widget.msg.mediaMimeType,
       downloadBytes: ref.read(waCrmRepositoryProvider).downloadMediaBytes,
     );
@@ -2586,7 +2600,7 @@ class _DocumentContentState extends ConsumerState<_DocumentContent> {
   @override
   Widget build(BuildContext context) {
     final color = widget.textColor;
-    if (widget.msg.mediaUrl == null || widget.msg.mediaFailed) {
+    if (_mediaUrlForMessage(widget.msg) == null || widget.msg.mediaFailed) {
       return _MediaUnavailable(
         icon: Icons.insert_drive_file_outlined,
         textColor: color,
@@ -2611,7 +2625,7 @@ class _DocumentContentState extends ConsumerState<_DocumentContent> {
             overflow: TextOverflow.ellipsis,
           ),
         ),
-        if (widget.msg.mediaUrl != null) ...[
+        if (_mediaUrlForMessage(widget.msg) != null) ...[
           const SizedBox(width: 6),
           GestureDetector(
             onTap: _open,
