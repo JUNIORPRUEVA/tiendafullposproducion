@@ -151,6 +151,32 @@ export class R2Service {
     };
   }
 
+  async getObjectRange(objectKey: string, range: string) {
+    if (!this.bucket) {
+      throw new InternalServerErrorException('R2 bucket no configurado');
+    }
+
+    const res = (await this.s3.send(
+      new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: objectKey,
+        Range: range,
+      }),
+    )) as GetObjectCommandOutput;
+
+    if (!res.Body) {
+      throw new InternalServerErrorException('R2 no devolvió contenido');
+    }
+
+    const bytes = Buffer.from(await res.Body.transformToByteArray());
+    return {
+      body: bytes,
+      contentType: typeof res.ContentType === 'string' ? res.ContentType : null,
+      contentLength: typeof res.ContentLength === 'number' ? res.ContentLength : bytes.length,
+      contentRange: typeof res.ContentRange === 'string' ? res.ContentRange : null,
+    };
+  }
+
   async headObject(objectKey: string) {
     if (!this.bucket) {
       throw new InternalServerErrorException('R2 bucket no configurado');

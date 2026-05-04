@@ -657,6 +657,13 @@ model WhatsappMessage {
   body           String?                  @db.Text
   mediaUrl       String?                  @db.Text @map("media_url")
   mediaMimeType  String?                  @map("media_mime_type")
+  mediaStorageKey String?                  @map("media_storage_key")
+  mediaFileSize   Int?                     @map("media_file_size")
+  originalFileName String?                 @map("original_file_name")
+  playableStorageKey String?               @map("playable_storage_key")
+  playableMimeType String?                 @map("playable_mime_type")
+  mediaStatus     String?                  @map("media_status")
+  mediaError      String?                  @db.Text @map("media_error")
   caption        String?                  @db.Text
   senderName     String?                  @map("sender_name")
   sentAt         DateTime                 @map("sent_at")
@@ -666,6 +673,7 @@ model WhatsappMessage {
   conversation WhatsappConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@index([conversationId, sentAt(sort: Desc)])
+  @@index([mediaStorageKey])
   @@map("whatsapp_messages")
 }
 

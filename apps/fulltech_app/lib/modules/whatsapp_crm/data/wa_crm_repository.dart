@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'dart:typed_data';
 
 import '../../../core/auth/auth_repository.dart';
 import '../models/wa_crm_conversation.dart';
@@ -85,6 +86,21 @@ class WaCrmRepository {
         .cast<Map<String, dynamic>>()
         .map(WaCrmMessage.fromJson)
         .toList();
+  }
+
+  Future<Uint8List> downloadMediaBytes(String mediaUrl) async {
+    final res = await _dio.get<dynamic>(
+      mediaUrl,
+      options: Options(
+        responseType: ResponseType.bytes,
+        extra: const {'skipLoader': true, 'silent': true},
+      ),
+    );
+    final data = res.data;
+    if (data is Uint8List) return data;
+    if (data is List<int>) return Uint8List.fromList(data);
+    if (data is ByteBuffer) return data.asUint8List();
+    return Uint8List(0);
   }
 
   /// Mark conversation as read

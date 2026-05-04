@@ -9,7 +9,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { WhatsappMessageDirection, WhatsappMessageType } from '@prisma/client';
 import { CatalogRealtimeRelayService } from '../products/catalog-realtime-relay.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
+import { R2Service } from '../storage/r2.service';
 import * as bcrypt from 'bcryptjs';
+import { randomUUID } from 'node:crypto';
 import {
   normalizeInstanceName,
   normalizeWhatsappIdentity,
@@ -35,6 +37,19 @@ export interface ParsedWhatsappMessage {
 }
 
 type JsonRecord = Record<string, unknown>;
+
+type DetectedMediaType = { ext: string; mime: string };
+type PreparedWhatsappMedia = {
+  mediaUrl: string;
+  mediaMimeType: string;
+  mediaStorageKey: string;
+  mediaFileSize: number;
+  originalFileName: string | null;
+  playableStorageKey: string | null;
+  playableMimeType: string | null;
+  mediaStatus: 'ready' | 'failed';
+  mediaError: string | null;
+};
 
 function asRecord(value: unknown): JsonRecord | undefined {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -246,6 +261,178 @@ function findBase64InResponse(value: unknown): string | null {
   ]) {
     const found = findBase64InResponse(record[key]);
     if (found) return found;
+  }
+  return null;
+}
+
+function normalizeMimeType(value: unknown): string | null {
+  const raw = asString(value)?.toLowerCase();
+  if (!raw) return null;
+  const [mime] = raw.split(';').map((part) => part.trim());
+  if (!mime || !mime.includes('/')) return null;
+  if (mime === 'audio/opus') return 'audio/ogg';
+  if (mime === 'image/jpg') return 'image/jpeg';
+  return mime;
+}
+
+function extensionForMime(mime: string | null): string | null {
+  switch (normalizeMimeType(mime)) {
+    case 'audio/ogg':
+      return 'ogg';
+    case 'audio/mpeg':
+      return 'mp3';
+    case 'audio/mp4':
+    case 'audio/aac':
+      return 'm4a';
+    case 'audio/wav':
+    case 'audio/x-wav':
+      return 'wav';
+    case 'image/jpeg':
+      return 'jpg';
+    case 'image/png':
+      return 'png';
+    case 'image/webp':
+      return 'webp';
+    case 'video/mp4':
+      return 'mp4';
+    case 'video/webm':
+      return 'webm';
+    case 'video/3gpp':
+      return '3gp';
+    case 'application/pdf':
+      return 'pdf';
+    default:
+      return null;
+  }
+}
+
+function fallbackDetectMediaType(buffer: Buffer): DetectedMediaType | null {
+  if (buffer.length < 4) return null;
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return { ext: 'jpg', mime: 'image/jpeg' };
+  }
+  if (
+    buffer.length >= 8 &&
+    buffer[0] === 0x89 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x4e &&
+    buffer[3] === 0x47 &&
+    buffer[4] === 0x0d &&
+    buffer[5] === 0x0a &&
+    buffer[6] === 0x1a &&
+    buffer[7] === 0x0a
+  ) {
+    return { ext: 'png', mime: 'image/png' };
+  }
+  if (
+    buffer.length >= 12 &&
+    buffer.toString('ascii', 0, 4) === 'RIFF' &&
+    buffer.toString('ascii', 8, 12) === 'WEBP'
+  ) {
+    return { ext: 'webp', mime: 'image/webp' };
+  }
+  if (buffer.toString('ascii', 0, 4) === '%PDF') {
+    return { ext: 'pdf', mime: 'application/pdf' };
+  }
+  if (buffer.toString('ascii', 0, 4) === 'OggS') {
+    return { ext: 'ogg', mime: 'audio/ogg' };
+  }
+  if (buffer.toString('ascii', 0, 3) === 'ID3') {
+    return { ext: 'mp3', mime: 'audio/mpeg' };
+  }
+  if (buffer[0] === 0xff && (buffer[1] & 0xe0) === 0xe0) {
+    return { ext: 'mp3', mime: 'audio/mpeg' };
+  }
+  if (
+    buffer.length >= 12 &&
+    buffer.toString('ascii', 0, 4) === 'RIFF' &&
+    buffer.toString('ascii', 8, 12) === 'WAVE'
+  ) {
+    return { ext: 'wav', mime: 'audio/wav' };
+  }
+  if (
+    buffer.length >= 12 &&
+    buffer.toString('ascii', 4, 8) === 'ftyp'
+  ) {
+    const brand = buffer.toString('ascii', 8, 12).toLowerCase();
+    return brand.includes('3g')
+      ? { ext: '3gp', mime: 'video/3gpp' }
+      : { ext: 'mp4', mime: 'video/mp4' };
+  }
+  if (
+    buffer.length >= 4 &&
+    buffer[0] === 0x1a &&
+    buffer[1] === 0x45 &&
+    buffer[2] === 0xdf &&
+    buffer[3] === 0xa3
+  ) {
+    return { ext: 'webm', mime: 'video/webm' };
+  }
+  return null;
+}
+
+async function detectMediaType(
+  buffer: Buffer,
+  hintedMime: string | null,
+): Promise<DetectedMediaType> {
+  try {
+    const mod = await import('file-type');
+    const detected = await mod.fileTypeFromBuffer(buffer);
+    if (detected?.mime && detected.ext) {
+      const mime = normalizeMimeType(detected.mime) ?? detected.mime;
+      return { ext: extensionForMime(mime) ?? detected.ext, mime };
+    }
+  } catch (error) {
+    console.warn(
+      `[WhatsappInbox][Media] file-type no disponible, usando fallback: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+
+  const fallback = fallbackDetectMediaType(buffer);
+  if (fallback) return fallback;
+
+  const mime = normalizeMimeType(hintedMime) ?? 'application/octet-stream';
+  return { ext: extensionForMime(mime) ?? 'bin', mime };
+}
+
+function parseDataUriMedia(value: string): { buffer: Buffer; mime: string | null } | null {
+  const commaIdx = value.indexOf(',');
+  if (!value.startsWith('data:') || commaIdx === -1) return null;
+  const header = value.substring(5, commaIdx);
+  const mime = normalizeMimeType(header.split(';')[0]);
+  const base64 = value.substring(commaIdx + 1).trim();
+  if (!base64) return null;
+  return { buffer: Buffer.from(base64, 'base64'), mime };
+}
+
+function sanitizeObjectSegment(value: string): string {
+  return value
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+}
+
+function originalFileNameFromPayload(payload: unknown): string | null {
+  const root = asRecord(payload);
+  const data = asRecord(root?.data) ?? asRecord(root?.message) ?? root;
+  const message =
+    asRecord(data?.message) ??
+    asRecord(data?.messageData) ??
+    asRecord(data?.messageContent) ??
+    {};
+  for (const record of [
+    asRecord(message.documentMessage),
+    asRecord(message.imageMessage),
+    asRecord(message.videoMessage),
+    asRecord(message.audioMessage),
+    message,
+    data,
+  ]) {
+    const name = asString(record?.fileName) ?? asString(record?.filename);
+    if (name) return name.slice(0, 180);
   }
   return null;
 }
@@ -468,7 +655,392 @@ export class WhatsappInboxService {
     private readonly realtime: CatalogRealtimeRelayService,
     private readonly config: ConfigService,
     private readonly whatsappService: WhatsappService,
+    private readonly r2: R2Service,
   ) {}
+
+  private buildApiMediaUrl(messageId: string): string {
+    return `/whatsapp-inbox/media/${messageId}`;
+  }
+
+  private buildWhatsappMediaKey(params: {
+    instanceId: string;
+    messageId: string;
+    messageType: WhatsappMessageType;
+    ext: string;
+  }): string {
+    const now = new Date();
+    const yyyy = String(now.getUTCFullYear());
+    const mm = String(now.getUTCMonth() + 1).padStart(2, '0');
+    const type = params.messageType.toLowerCase();
+    const id = sanitizeObjectSegment(params.messageId) || randomUUID();
+    return `whatsapp/inbox/${params.instanceId}/${yyyy}/${mm}/${type}/${id}.${params.ext}`;
+  }
+
+  private async downloadRemoteMedia(url: string): Promise<{
+    buffer: Buffer;
+    mime: string | null;
+  }> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await fetch(url, { signal: controller.signal });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      return {
+        buffer: Buffer.from(arrayBuffer),
+        mime: normalizeMimeType(response.headers.get('content-type')),
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private async resolveMediaBuffer(
+    parsed: ParsedWhatsappMessage,
+    instanceName?: string | null,
+  ): Promise<{ buffer: Buffer; hintedMime: string | null; source: string }> {
+    const dataUri = parsed.mediaUrl ? parseDataUriMedia(parsed.mediaUrl) : null;
+    if (dataUri) {
+      return {
+        buffer: dataUri.buffer,
+        hintedMime: dataUri.mime ?? parsed.mediaMimeType,
+        source: 'payload_data_uri',
+      };
+    }
+
+    if (
+      parsed.mediaUrl &&
+      /^https?:\/\//i.test(parsed.mediaUrl) &&
+      !mediaNeedsEvolutionBase64(parsed.mediaUrl)
+    ) {
+      const downloaded = await this.downloadRemoteMedia(parsed.mediaUrl);
+      return {
+        buffer: downloaded.buffer,
+        hintedMime: downloaded.mime ?? parsed.mediaMimeType,
+        source: 'payload_url',
+      };
+    }
+
+    if (!instanceName) {
+      throw new Error('No hay instancia Evolution para descargar media');
+    }
+
+    const raw = await this.whatsappService.getBase64FromMediaMessage(
+      instanceName,
+      parsed.rawPayload,
+    );
+    const base64 = findBase64InResponse(raw);
+    if (!base64) throw new Error('Evolution no devolvio base64 de media');
+    const fromEvolution = base64.startsWith('data:')
+      ? parseDataUriMedia(base64)
+      : { buffer: Buffer.from(base64, 'base64'), mime: parsed.mediaMimeType };
+    if (!fromEvolution?.buffer?.length) {
+      throw new Error('Media base64 vacia o invalida');
+    }
+    return {
+      buffer: fromEvolution.buffer,
+      hintedMime: fromEvolution.mime ?? parsed.mediaMimeType,
+      source: 'evolution_base64',
+    };
+  }
+
+  private async prepareWhatsappMedia(params: {
+    messageId: string;
+    instanceId: string;
+    parsed: ParsedWhatsappMessage;
+  }): Promise<PreparedWhatsappMedia | null> {
+    const { parsed } = params;
+    if (parsed.messageType === WhatsappMessageType.TEXT) return null;
+
+    try {
+      console.log('[WhatsappInbox][Media] start', {
+        messageId: params.messageId,
+        type: parsed.messageType,
+        payloadMime: parsed.mediaMimeType,
+        hasPayloadUrl: !!parsed.mediaUrl,
+      });
+      const resolved = await this.resolveMediaBuffer(parsed, parsed.instanceName);
+      if (resolved.buffer.length === 0) throw new Error('Buffer de media vacio');
+      const detected = await detectMediaType(
+        resolved.buffer,
+        resolved.hintedMime ?? parsed.mediaMimeType,
+      );
+      const objectKey = this.buildWhatsappMediaKey({
+        instanceId: params.instanceId,
+        messageId: params.messageId,
+        messageType: parsed.messageType,
+        ext: detected.ext,
+      });
+
+      console.log('[WhatsappInbox][Media] upload', {
+        messageId: params.messageId,
+        source: resolved.source,
+        bytes: resolved.buffer.length,
+        payloadMime: parsed.mediaMimeType,
+        hintedMime: resolved.hintedMime,
+        detectedMime: detected.mime,
+        ext: detected.ext,
+        objectKey,
+      });
+
+      await this.r2.putObject({
+        objectKey,
+        body: resolved.buffer,
+        contentType: detected.mime,
+      });
+
+      return {
+        mediaUrl: this.buildApiMediaUrl(params.messageId),
+        mediaMimeType: detected.mime,
+        mediaStorageKey: objectKey,
+        mediaFileSize: resolved.buffer.length,
+        originalFileName: originalFileNameFromPayload(parsed.rawPayload),
+        playableStorageKey: null,
+        playableMimeType: null,
+        mediaStatus: 'ready',
+        mediaError: null,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('[WhatsappInbox][Media] failed', {
+        messageId: params.messageId,
+        type: parsed.messageType,
+        payloadMime: parsed.mediaMimeType,
+        error: message,
+      });
+      return {
+        mediaUrl: parsed.mediaUrl ?? this.buildApiMediaUrl(params.messageId),
+        mediaMimeType:
+          normalizeMimeType(parsed.mediaMimeType) ?? 'application/octet-stream',
+        mediaStorageKey: '',
+        mediaFileSize: 0,
+        originalFileName: originalFileNameFromPayload(parsed.rawPayload),
+        playableStorageKey: null,
+        playableMimeType: null,
+        mediaStatus: 'failed',
+        mediaError: message,
+      };
+    }
+  }
+
+  private async ensureMessageMediaStored<
+    T extends {
+      id: string;
+      messageType: WhatsappMessageType;
+      mediaStorageKey?: string | null;
+    },
+  >(message: T, instanceId: string, parsed: ParsedWhatsappMessage): Promise<T> {
+    if (
+      message.messageType === WhatsappMessageType.TEXT ||
+      message.mediaStorageKey
+    ) {
+      return message;
+    }
+
+    const prepared = await this.prepareWhatsappMedia({
+      messageId: message.id,
+      instanceId,
+      parsed,
+    });
+    if (!prepared) return message;
+
+    const data =
+      prepared.mediaStatus === 'ready'
+        ? {
+            mediaUrl: prepared.mediaUrl,
+            mediaMimeType: prepared.mediaMimeType,
+            mediaStorageKey: prepared.mediaStorageKey,
+            mediaFileSize: prepared.mediaFileSize,
+            originalFileName: prepared.originalFileName,
+            playableStorageKey: prepared.playableStorageKey,
+            playableMimeType: prepared.playableMimeType,
+            mediaStatus: prepared.mediaStatus,
+            mediaError: null,
+          }
+        : {
+            mediaMimeType: prepared.mediaMimeType,
+            originalFileName: prepared.originalFileName,
+            mediaStatus: prepared.mediaStatus,
+            mediaError: prepared.mediaError,
+          };
+
+    return (await this.prisma.whatsappMessage.update({
+      where: { id: message.id },
+      data,
+    })) as unknown as T;
+  }
+
+  async getMediaBytes(messageId: string, range?: string | null) {
+    const message = await this.prisma.whatsappMessage.findUnique({
+      where: { id: messageId },
+      select: {
+        id: true,
+        body: true,
+        messageType: true,
+        mediaStorageKey: true,
+        mediaMimeType: true,
+        mediaFileSize: true,
+        originalFileName: true,
+        mediaStatus: true,
+      },
+    });
+    if (!message) throw new NotFoundException('Media no encontrada');
+    if (!message.mediaStorageKey || message.mediaStatus === 'failed') {
+      throw new NotFoundException('Archivo no disponible');
+    }
+
+    const rangeHeader = range?.trim();
+    const object = rangeHeader?.startsWith('bytes=')
+      ? await this.r2.getObjectRange(message.mediaStorageKey, rangeHeader)
+      : await this.r2.getObject(message.mediaStorageKey);
+    const filename =
+      message.originalFileName ??
+      `${message.messageType.toLowerCase()}-${message.id}.${
+        extensionForMime(message.mediaMimeType) ?? 'bin'
+      }`;
+    return {
+      body: object.body,
+      contentType:
+        object.contentType ?? message.mediaMimeType ?? 'application/octet-stream',
+      contentLength: object.contentLength,
+      contentRange: 'contentRange' in object ? object.contentRange : null,
+      filename,
+      partial: !!rangeHeader?.startsWith('bytes='),
+    };
+  }
+
+  async auditExistingMedia(options?: { execute?: boolean; limit?: number }) {
+    const execute = !!options?.execute;
+    const limit = Math.max(1, Math.min(options?.limit ?? 100, 1000));
+    const messages = await this.prisma.whatsappMessage.findMany({
+      where: {
+        messageType: { not: WhatsappMessageType.TEXT },
+      },
+      include: {
+        conversation: {
+          include: { instance: { select: { id: true, instanceName: true } } },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
+
+    const results: Array<{
+      id: string;
+      type: string;
+      status: string;
+      beforeMime: string | null;
+      afterMime?: string | null;
+      storageKey?: string | null;
+      error?: string | null;
+    }> = [];
+
+    for (const message of messages) {
+      try {
+        if (message.mediaStorageKey) {
+          const object = await this.r2.getObject(message.mediaStorageKey);
+          const detected = await detectMediaType(
+            object.body,
+            object.contentType ?? message.mediaMimeType,
+          );
+          const mismatch =
+            normalizeMimeType(message.mediaMimeType) !== detected.mime ||
+            object.contentType !== detected.mime ||
+            message.mediaFileSize !== object.body.length;
+          if (execute && mismatch) {
+            await this.prisma.whatsappMessage.update({
+              where: { id: message.id },
+              data: {
+                mediaMimeType: detected.mime,
+                mediaFileSize: object.body.length,
+                mediaStatus: 'ready',
+                mediaError: null,
+              },
+            });
+          }
+          results.push({
+            id: message.id,
+            type: message.messageType,
+            status: mismatch ? (execute ? 'updated_metadata' : 'mismatch') : 'ok',
+            beforeMime: message.mediaMimeType,
+            afterMime: detected.mime,
+            storageKey: message.mediaStorageKey,
+          });
+          continue;
+        }
+
+        if (!execute) {
+          results.push({
+            id: message.id,
+            type: message.messageType,
+            status: 'missing_storage_key',
+            beforeMime: message.mediaMimeType,
+            storageKey: null,
+          });
+          continue;
+        }
+
+        const parsed = this.parseEvolutionPayload(message.rawPayload, {
+          instanceName: message.conversation.instance.instanceName,
+          instance: message.conversation.instance,
+        });
+        if (!parsed) {
+          await this.prisma.whatsappMessage.update({
+            where: { id: message.id },
+            data: { mediaStatus: 'failed', mediaError: 'Payload no parseable' },
+          });
+          results.push({
+            id: message.id,
+            type: message.messageType,
+            status: 'failed',
+            beforeMime: message.mediaMimeType,
+            error: 'Payload no parseable',
+          });
+          continue;
+        }
+        const repaired = await this.ensureMessageMediaStored(
+          message,
+          message.conversation.instanceId,
+          parsed,
+        );
+        results.push({
+          id: message.id,
+          type: message.messageType,
+          status: repaired.mediaStorageKey ? 'repaired' : 'failed',
+          beforeMime: message.mediaMimeType,
+          afterMime: repaired.mediaMimeType,
+          storageKey: repaired.mediaStorageKey,
+          error: repaired.mediaError,
+        });
+      } catch (error) {
+        const messageText = error instanceof Error ? error.message : String(error);
+        if (execute) {
+          await this.prisma.whatsappMessage.update({
+            where: { id: message.id },
+            data: { mediaStatus: 'failed', mediaError: messageText },
+          });
+        }
+        results.push({
+          id: message.id,
+          type: message.messageType,
+          status: 'failed',
+          beforeMime: message.mediaMimeType,
+          error: messageText,
+        });
+      }
+    }
+
+    const summary = results.reduce(
+      (acc, item) => {
+        acc[item.status] = (acc[item.status] ?? 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>,
+    );
+    return { execute, scanned: messages.length, summary, results };
+  }
 
   private normalizeConversationForResponse<
     T extends {
@@ -1054,15 +1626,22 @@ export class WhatsappInboxService {
           where: { id: existing.id },
           data: {
             rawPayload: parsed.rawPayload as object,
-            mediaUrl: parsed.mediaUrl,
-            mediaMimeType: parsed.mediaMimeType,
+            ...(parsed.mediaUrl ? { mediaUrl: parsed.mediaUrl } : {}),
+            ...(parsed.mediaMimeType
+              ? { mediaMimeType: parsed.mediaMimeType }
+              : {}),
             caption: parsed.caption,
             body: parsed.body,
           },
         });
+        const readyExisting = await this.ensureMessageMediaStored(
+          updatedExisting,
+          instanceId,
+          parsed,
+        );
         return {
           conversation,
-          message: updatedExisting,
+          message: readyExisting,
           duplicate: true,
           action: wasMerged ? 'merged' : 'duplicate',
         };
@@ -1091,9 +1670,14 @@ export class WhatsappInboxService {
               mediaMimeType: parsed.mediaMimeType ?? optimistic.mediaMimeType,
             },
           });
+          const readyUpdated = await this.ensureMessageMediaStored(
+            updated,
+            instanceId,
+            parsed,
+          );
           return {
             conversation,
-            message: updated,
+            message: readyUpdated,
             duplicate: false,
             action: wasMerged ? 'merged' : 'saved',
           };
@@ -1123,7 +1707,7 @@ export class WhatsappInboxService {
       }
     }
 
-    const message = await this.prisma.whatsappMessage.create({
+    const createdMessage = await this.prisma.whatsappMessage.create({
       data: {
         conversationId: conversation.id,
         evolutionId: parsed.evolutionId || null,
@@ -1138,6 +1722,11 @@ export class WhatsappInboxService {
         rawPayload: parsed.rawPayload as object,
       },
     });
+    const message = await this.ensureMessageMediaStored(
+      createdMessage,
+      instanceId,
+      parsed,
+    );
 
     // Emit realtime event to all admin sockets
     this.realtime.emitTo('ops:role:admin', 'whatsapp.message', {

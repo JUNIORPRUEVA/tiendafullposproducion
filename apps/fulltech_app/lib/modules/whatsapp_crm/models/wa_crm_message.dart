@@ -51,6 +51,8 @@ class WaCrmMessage {
     this.body,
     this.mediaUrl,
     this.mediaMimeType,
+    this.mediaStatus,
+    this.mediaError,
     this.caption,
     this.senderName,
   });
@@ -64,11 +66,14 @@ class WaCrmMessage {
   final String? body;
   final String? mediaUrl;
   final String? mediaMimeType;
+  final String? mediaStatus;
+  final String? mediaError;
   final String? caption;
   final String? senderName;
 
   bool get isOutgoing => direction == WaMessageDirection.outgoing;
   bool get isIncoming => direction == WaMessageDirection.incoming;
+  bool get mediaFailed => mediaStatus?.toLowerCase() == 'failed';
 
   String get previewText {
     switch (messageType) {
@@ -106,6 +111,8 @@ class WaCrmMessage {
       mediaMimeType: sanitizeWaText(
         json['mediaMimeType'] ?? json['media_mime_type'],
       ),
+      mediaStatus: sanitizeWaText(json['mediaStatus'] ?? json['media_status']),
+      mediaError: sanitizeWaText(json['mediaError'] ?? json['media_error']),
       caption: sanitizeWaText(json['caption']),
       senderName: sanitizeWaText(json['senderName'] ?? json['sender_name']),
     );

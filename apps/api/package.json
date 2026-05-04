@@ -23,6 +23,8 @@
     "test:smoke": "ts-node scripts/smoke-test.ts",
     "whatsapp:inbox:repair": "ts-node scripts/repair-whatsapp-inbox-duplicates.ts",
     "whatsapp:inbox:repair:execute": "ts-node scripts/repair-whatsapp-inbox-duplicates.ts --execute",
+    "whatsapp:media:audit": "ts-node scripts/audit-whatsapp-media.ts",
+    "whatsapp:media:repair": "ts-node scripts/audit-whatsapp-media.ts --execute",
     "reset-whatsapp-inbox-data": "ts-node scripts/reset-whatsapp-inbox-data.ts"
   },
   "prisma": {
@@ -44,6 +46,7 @@
     "bcryptjs": "^2.4.3",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
+    "file-type": "^19.6.0",
     "ioredis": "^5.10.0",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",

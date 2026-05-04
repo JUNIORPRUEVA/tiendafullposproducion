@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -20,6 +21,7 @@ import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
 import '../../core/widgets/user_avatar.dart';
 import '../whatsapp_crm/application/wa_crm_controller.dart';
+import '../whatsapp_crm/data/wa_crm_repository.dart';
 import '../whatsapp_crm/models/wa_crm_conversation.dart';
 import '../whatsapp_crm/models/wa_crm_message.dart';
 
@@ -27,6 +29,7 @@ import '../whatsapp_crm/models/wa_crm_message.dart';
 
 const double _kMobileBreak = 600;
 const double _kTabletBreak = 960;
+final Map<String, Future<Uint8List>> _waMediaBytesCache = {};
 
 String _waText(dynamic value, [String fallback = '']) {
   return sanitizeWaText(value) ?? fallback;
@@ -1509,38 +1512,76 @@ String _mimeToExtension(String? mime) {
   }
 }
 
-Future<void> _openMedia(String mediaUrl, String? mimeType) async {
+Uint8List? _tryDecodeInlineMedia(String mediaUrl) {
   try {
     if (mediaUrl.startsWith('data:')) {
       final commaIdx = mediaUrl.indexOf(',');
-      if (commaIdx == -1) return;
+      if (commaIdx == -1) return null;
+      return Uint8List.fromList(base64Decode(mediaUrl.substring(commaIdx + 1)));
+    }
+    if (!mediaUrl.startsWith('http://') &&
+        !mediaUrl.startsWith('https://') &&
+        !mediaUrl.startsWith('/') &&
+        !mediaUrl.startsWith('file://')) {
+      return Uint8List.fromList(base64Decode(mediaUrl));
+    }
+  } catch (_) {
+    return null;
+  }
+  return null;
+}
 
-      // Detect mime from the data URI header if not provided
-      String? detectedMime = mimeType;
-      if (detectedMime == null) {
-        final header = mediaUrl.substring(5, commaIdx); // strip 'data:'
-        final semiIdx = header.indexOf(';');
-        if (semiIdx != -1) detectedMime = header.substring(0, semiIdx);
-      }
+String? _mimeFromDataUri(String mediaUrl) {
+  if (!mediaUrl.startsWith('data:')) return null;
+  final commaIdx = mediaUrl.indexOf(',');
+  if (commaIdx == -1) return null;
+  final header = mediaUrl.substring(5, commaIdx);
+  final semiIdx = header.indexOf(';');
+  return semiIdx == -1 ? header : header.substring(0, semiIdx);
+}
 
-      final bytes = base64Decode(mediaUrl.substring(commaIdx + 1));
-      final ext = _mimeToExtension(detectedMime);
-      final tempDir = await getTemporaryDirectory();
-      final hash = mediaUrl.hashCode.abs();
-      final file = File(
-        '${tempDir.path}${Platform.pathSeparator}wa_media_$hash$ext',
-      );
-      await file.writeAsBytes(bytes, flush: true);
-      await launchUrl(
-        Uri.file(file.path),
-        mode: LaunchMode.externalApplication,
-      );
-    } else {
+Future<Uint8List> _bytesFromMediaUrl(
+  String mediaUrl, {
+  required Future<Uint8List> Function(String mediaUrl)? downloadBytes,
+}) async {
+  final inline = _tryDecodeInlineMedia(mediaUrl);
+  if (inline != null) return inline;
+  if (downloadBytes == null) throw Exception('No hay descargador de media');
+  final bytes = await _waMediaBytesCache.putIfAbsent(
+    mediaUrl,
+    () => downloadBytes(mediaUrl),
+  );
+  if (bytes.isEmpty) throw Exception('Archivo vacio');
+  return bytes;
+}
+
+Future<void> _openMedia(
+  String mediaUrl,
+  String? mimeType, {
+  required Future<Uint8List> Function(String mediaUrl)? downloadBytes,
+}) async {
+  try {
+    if (mediaUrl.startsWith('http://') && downloadBytes == null ||
+        mediaUrl.startsWith('https://') && downloadBytes == null) {
       await launchUrl(
         Uri.parse(mediaUrl),
         mode: LaunchMode.externalApplication,
       );
+      return;
     }
+    final bytes = await _bytesFromMediaUrl(
+      mediaUrl,
+      downloadBytes: downloadBytes,
+    );
+    final detectedMime = mimeType ?? _mimeFromDataUri(mediaUrl);
+    final ext = _mimeToExtension(detectedMime);
+    final tempDir = await getTemporaryDirectory();
+    final hash = mediaUrl.hashCode.abs();
+    final file = File(
+      '${tempDir.path}${Platform.pathSeparator}wa_media_$hash$ext',
+    );
+    await file.writeAsBytes(bytes, flush: true);
+    await launchUrl(Uri.file(file.path), mode: LaunchMode.externalApplication);
   } catch (e) {
     debugPrint('[WaCrm] _openMedia error: $e');
   }
@@ -1550,11 +1591,13 @@ Future<String> _mediaSourceForPlayback(
   String mediaUrl,
   String? mimeType, {
   required String prefix,
+  Future<Uint8List> Function(String mediaUrl)? downloadBytes,
 }) async {
   if (!mediaUrl.startsWith('data:') &&
       (mediaUrl.startsWith('http://') ||
           mediaUrl.startsWith('https://') ||
-          mediaUrl.startsWith('file://'))) {
+          mediaUrl.startsWith('file://')) &&
+      downloadBytes == null) {
     return mediaUrl;
   }
 
@@ -1573,8 +1616,9 @@ Future<String> _mediaSourceForPlayback(
     }
   }
 
-  final bytes = base64Decode(
-    isDataUri ? mediaUrl.substring(commaIdx + 1) : mediaUrl,
+  final bytes = await _bytesFromMediaUrl(
+    mediaUrl,
+    downloadBytes: downloadBytes,
   );
   final ext = _mimeToExtension(detectedMime);
   final tempDir = await getTemporaryDirectory();
@@ -1882,14 +1926,63 @@ class _MessageContent extends StatelessWidget {
   }
 }
 
-class _ImageContent extends StatelessWidget {
+class _MediaUnavailable extends StatelessWidget {
+  const _MediaUnavailable({
+    required this.icon,
+    required this.textColor,
+    this.onRetry,
+  });
+
+  final IconData icon;
+  final Color textColor;
+  final VoidCallback? onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 16, color: textColor),
+        const SizedBox(width: 6),
+        Text(
+          'Archivo no disponible',
+          style: TextStyle(color: textColor, fontSize: 13),
+        ),
+        if (onRetry != null) ...[
+          const SizedBox(width: 6),
+          InkWell(
+            onTap: onRetry,
+            child: Text(
+              'Reintentar cargar',
+              style: TextStyle(
+                color: textColor,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                decoration: TextDecoration.underline,
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _ImageContent extends ConsumerWidget {
   const _ImageContent({required this.msg, required this.textColor});
   final WaCrmMessage msg;
   final Color textColor;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final url = msg.mediaUrl;
+    final downloadBytes = ref.read(waCrmRepositoryProvider).downloadMediaBytes;
+    if (msg.mediaFailed) {
+      return _MediaUnavailable(
+        icon: Icons.image_not_supported_outlined,
+        textColor: textColor,
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1897,25 +1990,14 @@ class _ImageContent extends StatelessWidget {
           ClipRRect(
             borderRadius: BorderRadius.circular(8),
             child: GestureDetector(
-              onTap: () => _showFullImage(context, url),
-              child: _buildImageWidget(url),
+              onTap: () => _showFullImage(context, url, downloadBytes),
+              child: _buildImageWidget(url, downloadBytes),
             ),
           )
         else
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.image_not_supported_outlined,
-                size: 16,
-                color: textColor,
-              ),
-              const SizedBox(width: 4),
-              Text(
-                'Imagen no disponible',
-                style: TextStyle(color: textColor, fontSize: 13),
-              ),
-            ],
+          _MediaUnavailable(
+            icon: Icons.image_not_supported_outlined,
+            textColor: textColor,
           ),
         if (msg.caption?.isNotEmpty == true)
           Padding(
@@ -1929,47 +2011,30 @@ class _ImageContent extends StatelessWidget {
     );
   }
 
-  Widget _buildImageWidget(String url) {
-    if (url.startsWith('data:')) {
-      try {
-        final commaIdx = url.indexOf(',');
-        if (commaIdx != -1) {
-          final bytes = base64Decode(url.substring(commaIdx + 1));
-          return Image.memory(
-            bytes,
+  Widget _buildImageWidget(
+    String url,
+    Future<Uint8List> Function(String mediaUrl) downloadBytes,
+  ) {
+    return FutureBuilder<Uint8List>(
+      future: _bytesFromMediaUrl(url, downloadBytes: downloadBytes),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return Container(
             width: 220,
-            fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => _brokenImage(),
+            height: 120,
+            color: Colors.grey.shade200,
+            child: const Center(child: CircularProgressIndicator()),
           );
         }
-      } catch (_) {
-        return _brokenImage();
-      }
-    }
-    if (!url.startsWith('http://') && !url.startsWith('https://')) {
-      try {
+        final bytes = snapshot.data;
+        if (snapshot.hasError || bytes == null || bytes.isEmpty) {
+          return _brokenImage();
+        }
         return Image.memory(
-          base64Decode(url),
+          bytes,
           width: 220,
           fit: BoxFit.cover,
           errorBuilder: (_, __, ___) => _brokenImage(),
-        );
-      } catch (_) {
-        return _brokenImage();
-      }
-    }
-    return Image.network(
-      url,
-      width: 220,
-      fit: BoxFit.cover,
-      errorBuilder: (_, __, ___) => _brokenImage(),
-      loadingBuilder: (_, child, progress) {
-        if (progress == null) return child;
-        return Container(
-          width: 220,
-          height: 120,
-          color: Colors.grey.shade200,
-          child: const Center(child: CircularProgressIndicator()),
         );
       },
     );
@@ -1982,55 +2047,51 @@ class _ImageContent extends StatelessWidget {
     child: const Icon(Icons.broken_image_rounded, size: 40),
   );
 
-  void _showFullImage(BuildContext context, String url) {
-    Widget imageWidget;
-    if (url.startsWith('data:')) {
-      try {
-        final commaIdx = url.indexOf(',');
-        final bytes = base64Decode(url.substring(commaIdx + 1));
-        imageWidget = Image.memory(bytes);
-      } catch (_) {
-        imageWidget = const Icon(
-          Icons.broken_image_rounded,
-          size: 64,
-          color: Colors.white,
-        );
-      }
-    } else if (!url.startsWith('http://') && !url.startsWith('https://')) {
-      try {
-        imageWidget = Image.memory(base64Decode(url));
-      } catch (_) {
-        imageWidget = const Icon(
-          Icons.broken_image_rounded,
-          size: 64,
-          color: Colors.white,
-        );
-      }
-    } else {
-      imageWidget = Image.network(url);
-    }
+  void _showFullImage(
+    BuildContext context,
+    String url,
+    Future<Uint8List> Function(String mediaUrl) downloadBytes,
+  ) {
     showDialog(
       context: context,
       builder: (ctx) => Dialog(
         backgroundColor: Colors.black,
         child: GestureDetector(
           onTap: () => Navigator.of(ctx).pop(),
-          child: InteractiveViewer(child: imageWidget),
+          child: InteractiveViewer(
+            child: FutureBuilder<Uint8List>(
+              future: _bytesFromMediaUrl(url, downloadBytes: downloadBytes),
+              builder: (context, snapshot) {
+                final bytes = snapshot.data;
+                if (snapshot.connectionState != ConnectionState.done) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (snapshot.hasError || bytes == null || bytes.isEmpty) {
+                  return const Icon(
+                    Icons.broken_image_rounded,
+                    size: 64,
+                    color: Colors.white,
+                  );
+                }
+                return Image.memory(bytes);
+              },
+            ),
+          ),
         ),
       ),
     );
   }
 }
 
-class _AudioContent extends StatefulWidget {
+class _AudioContent extends ConsumerStatefulWidget {
   const _AudioContent({required this.msg, required this.textColor});
   final WaCrmMessage msg;
   final Color textColor;
   @override
-  State<_AudioContent> createState() => _AudioContentState();
+  ConsumerState<_AudioContent> createState() => _AudioContentState();
 }
 
-class _AudioContentState extends State<_AudioContent> {
+class _AudioContentState extends ConsumerState<_AudioContent> {
   media_kit.Player? _player;
   StreamSubscription<bool>? _playingSub;
   StreamSubscription<Duration>? _positionSub;
@@ -2063,6 +2124,7 @@ class _AudioContentState extends State<_AudioContent> {
         url,
         widget.msg.mediaMimeType,
         prefix: 'wa_audio',
+        downloadBytes: ref.read(waCrmRepositoryProvider).downloadMediaBytes,
       );
 
       final player = media_kit.Player();
@@ -2121,31 +2183,18 @@ class _AudioContentState extends State<_AudioContent> {
   Widget build(BuildContext context) {
     final color = widget.textColor;
 
-    if (widget.msg.mediaUrl == null) {
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.mic_off_rounded, color: color, size: 16),
-          const SizedBox(width: 6),
-          Text(
-            'Audio no disponible',
-            style: TextStyle(color: color, fontSize: 13),
-          ),
-        ],
-      );
+    if (widget.msg.mediaUrl == null || widget.msg.mediaFailed) {
+      return _MediaUnavailable(icon: Icons.mic_off_rounded, textColor: color);
     }
 
     if (_error != null) {
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.error_outline, color: color, size: 16),
-          const SizedBox(width: 6),
-          Text(
-            'Error al cargar audio',
-            style: TextStyle(color: color, fontSize: 13),
-          ),
-        ],
+      return _MediaUnavailable(
+        icon: Icons.error_outline,
+        textColor: color,
+        onRetry: () {
+          setState(() => _error = null);
+          _ensureInitialized();
+        },
       );
     }
 
@@ -2340,15 +2389,15 @@ class _StaticWaveform extends StatelessWidget {
   }
 }
 
-class _VideoContent extends StatefulWidget {
+class _VideoContent extends ConsumerStatefulWidget {
   const _VideoContent({required this.msg, required this.textColor});
   final WaCrmMessage msg;
   final Color textColor;
   @override
-  State<_VideoContent> createState() => _VideoContentState();
+  ConsumerState<_VideoContent> createState() => _VideoContentState();
 }
 
-class _VideoContentState extends State<_VideoContent> {
+class _VideoContentState extends ConsumerState<_VideoContent> {
   media_kit.Player? _player;
   media_kit_video.VideoController? _videoController;
   StreamSubscription<bool>? _playingSub;
@@ -2372,6 +2421,7 @@ class _VideoContentState extends State<_VideoContent> {
         widget.msg.mediaUrl!,
         widget.msg.mediaMimeType ?? 'video/mp4',
         prefix: 'wa_video',
+        downloadBytes: ref.read(waCrmRepositoryProvider).downloadMediaBytes,
       );
       final player = media_kit.Player();
       await player.setVolume(100);
@@ -2414,6 +2464,12 @@ class _VideoContentState extends State<_VideoContent> {
   Widget build(BuildContext context) {
     final color = widget.textColor;
     final controller = _videoController;
+    if (widget.msg.mediaUrl == null || widget.msg.mediaFailed) {
+      return _MediaUnavailable(
+        icon: Icons.videocam_off_outlined,
+        textColor: color,
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -2427,11 +2483,18 @@ class _VideoContentState extends State<_VideoContent> {
               height: 150,
               color: Colors.black87,
               child: _error != null
-                  ? const Center(
-                      child: Icon(
-                        Icons.error_outline,
-                        color: Colors.white70,
-                        size: 34,
+                  ? Center(
+                      child: IconButton(
+                        tooltip: 'Reintentar cargar',
+                        onPressed: () {
+                          setState(() => _error = null);
+                          _initializeAndPlay();
+                        },
+                        icon: const Icon(
+                          Icons.refresh_rounded,
+                          color: Colors.white70,
+                          size: 34,
+                        ),
                       ),
                     )
                   : _initialized && controller != null
@@ -2498,27 +2561,37 @@ class _VideoContentState extends State<_VideoContent> {
   }
 }
 
-class _DocumentContent extends StatefulWidget {
+class _DocumentContent extends ConsumerStatefulWidget {
   const _DocumentContent({required this.msg, required this.textColor});
   final WaCrmMessage msg;
   final Color textColor;
   @override
-  State<_DocumentContent> createState() => _DocumentContentState();
+  ConsumerState<_DocumentContent> createState() => _DocumentContentState();
 }
 
-class _DocumentContentState extends State<_DocumentContent> {
+class _DocumentContentState extends ConsumerState<_DocumentContent> {
   bool _loading = false;
 
   Future<void> _open() async {
     if (widget.msg.mediaUrl == null) return;
     setState(() => _loading = true);
-    await _openMedia(widget.msg.mediaUrl!, widget.msg.mediaMimeType);
+    await _openMedia(
+      widget.msg.mediaUrl!,
+      widget.msg.mediaMimeType,
+      downloadBytes: ref.read(waCrmRepositoryProvider).downloadMediaBytes,
+    );
     if (mounted) setState(() => _loading = false);
   }
 
   @override
   Widget build(BuildContext context) {
     final color = widget.textColor;
+    if (widget.msg.mediaUrl == null || widget.msg.mediaFailed) {
+      return _MediaUnavailable(
+        icon: Icons.insert_drive_file_outlined,
+        textColor: color,
+      );
+    }
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [

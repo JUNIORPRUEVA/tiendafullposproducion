@@ -8,6 +8,8 @@ import {
   UseGuards,
   ParseUUIDPipe,
   Req,
+  Res,
+  Headers,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { RolesGuard } from '../auth/roles.guard';
@@ -18,6 +20,7 @@ import { WhatsappInboxService } from './whatsapp-inbox.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { Request } from 'express';
+import type { Response } from 'express';
 
 class SendMessageDto {
   @IsString()
@@ -140,6 +143,27 @@ export class WhatsappInboxController {
       (req.user ?? {}) as { id?: string; role?: string },
       dto.password,
     );
+  }
+
+  @Get('media/:messageId')
+  async getMedia(
+    @Param('messageId', ParseUUIDPipe) messageId: string,
+    @Headers('range') range: string | undefined,
+    @Res() res: Response,
+  ) {
+    const media = await this.inboxService.getMediaBytes(messageId, range);
+    res.status(media.partial ? 206 : 200);
+    res.setHeader('Content-Type', media.contentType);
+    res.setHeader('Content-Length', String(media.contentLength));
+    res.setHeader('Accept-Ranges', 'bytes');
+    if (typeof media.contentRange === 'string' && media.contentRange) {
+      res.setHeader('Content-Range', media.contentRange);
+    }
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${media.filename.replace(/"/g, '')}"`,
+    );
+    res.send(media.body);
   }
 
   /** Reply to a specific conversation */
