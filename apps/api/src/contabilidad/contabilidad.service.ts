@@ -17,6 +17,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { R2Service } from '../storage/r2.service';
 import {
+  CloseFinancialSummaryQueryDto,
   CloseStatus,
   CloseTransferEntryDto,
   CreateCloseDto,
@@ -431,6 +432,208 @@ export class ContabilidadService {
         },
       },
     });
+  }
+
+  async getCloseFinancialSummary(
+    query: CloseFinancialSummaryQueryDto,
+    actor: Actor,
+  ) {
+    this.ensureAdmin(actor);
+
+    const parseDate = (value?: string | null) => {
+      const raw = (value ?? '').trim();
+      if (!raw) return null;
+      const parsed = new Date(raw);
+      if (Number.isNaN(parsed.getTime())) {
+        throw new BadRequestException('Rango de fechas inválido para resumen.');
+      }
+      return parsed;
+    };
+    const toNumber = (value: unknown) => {
+      if (value instanceof Prisma.Decimal) return value.toNumber();
+      if (typeof value === 'number') return value;
+      if (typeof value === 'string') {
+        const n = Number(value);
+        return Number.isFinite(n) ? n : 0;
+      }
+      return 0;
+    };
+    const toMoney = (value: number) => this.roundMoney(value);
+    const fromRaw = parseDate(query.fromDate);
+    const toRaw = parseDate(query.toDate);
+    const now = new Date();
+    const fromDate = this.accountingDay(fromRaw ?? now);
+    const toDate = this.accountingDay(toRaw ?? fromRaw ?? now);
+    if (toDate.getTime() < fromDate.getTime()) {
+      throw new BadRequestException(
+        'La fecha final no puede ser menor que la fecha inicial.',
+      );
+    }
+
+    const { start } = this.normalizeDayRange(fromDate);
+    const { end } = this.normalizeDayRange(toDate);
+    const businessType = query.businessType ?? null;
+
+    const where: Prisma.CloseWhereInput = {
+      date: { gte: start, lte: end },
+      ...(businessType != null ? { type: businessType } : {}),
+    };
+
+    const closes = await this.prisma.close.findMany({
+      where,
+      include: {
+        transfers: {
+          select: {
+            bankName: true,
+            amount: true,
+          },
+        },
+      },
+    });
+
+    const bankTotals = new Map<string, number>([
+      ['Banco Popular', 0],
+      ['Banco BHD', 0],
+      ['Banreservas', 0],
+      ['Otros bancos', 0],
+      ['Sin banco especificado', 0],
+    ]);
+    const classifyBank = (bankName?: string | null) => {
+      const normalized = (bankName ?? '').trim().toUpperCase();
+      if (!normalized) return 'Sin banco especificado';
+      if (normalized.includes('POPULAR')) return 'Banco Popular';
+      if (normalized.includes('BHD')) return 'Banco BHD';
+      if (normalized.includes('BANRESERVAS') || normalized.includes('RESERVAS')) {
+        return 'Banreservas';
+      }
+      return 'Otros bancos';
+    };
+
+    let cashDeclared = 0;
+    let cashDelivered = 0;
+    let transfers = 0;
+    let cardPayments = 0;
+    let otherIncome = 0;
+    let expenses = 0;
+    let netTotal = 0;
+    let difference = 0;
+
+    for (const close of closes) {
+      cashDeclared += toNumber(close.cash);
+      cashDelivered += toNumber(close.cashDelivered);
+      transfers += toNumber(close.transfer);
+      cardPayments += toNumber(close.card);
+      otherIncome += toNumber(close.otherIncome);
+      expenses += toNumber(close.expenses);
+      netTotal += toNumber(close.netTotal);
+      difference += toNumber(close.difference);
+
+      for (const transfer of close.transfers) {
+        const key = classifyBank(transfer.bankName);
+        bankTotals.set(key, (bankTotals.get(key) ?? 0) + toNumber(transfer.amount));
+      }
+    }
+
+    const deposits = await this.prisma.depositOrder.findMany({
+      where: {
+        status: DepositOrderStatus.EXECUTED,
+        windowFrom: { lte: end },
+        windowTo: { gte: start },
+      },
+      orderBy: [{ executedAt: 'desc' }, { createdAt: 'desc' }],
+    });
+
+    const depositFromOrder = (order: {
+      depositTotal: Prisma.Decimal;
+      depositByType: Prisma.JsonValue;
+    }) => {
+      if (businessType == null) {
+        return toNumber(order.depositTotal);
+      }
+
+      const payload =
+        order.depositByType && typeof order.depositByType === 'object'
+          ? (order.depositByType as Record<string, unknown>)
+          : null;
+      if (!payload) return 0;
+      return toNumber(payload[businessType]);
+    };
+
+    let deposited = 0;
+    let lastDepositDate: string | null = null;
+    let destinationBank: string | null = null;
+    for (const order of deposits) {
+      const amount = depositFromOrder(order);
+      if (amount <= 0) continue;
+      deposited += amount;
+      if (lastDepositDate == null) {
+        lastDepositDate = (order.executedAt ?? order.createdAt).toISOString();
+        destinationBank = (order.bankName ?? '').trim() || null;
+      }
+    }
+
+    const cashBase = cashDelivered > 0 ? cashDelivered : cashDeclared;
+    const depositedToCash = Math.min(deposited, cashBase);
+    const remainingDeposit = Math.max(deposited - depositedToCash, 0);
+    const depositedToTransfers = Math.min(remainingDeposit, transfers);
+
+    const availableCash = Math.max(cashBase - depositedToCash, 0);
+    const availableTransfers = Math.max(transfers - depositedToTransfers, 0);
+    const totalAvailable = availableCash + availableTransfers;
+
+    const status =
+      deposited <= 0
+        ? 'pending'
+        : totalAvailable <= 0.009
+          ? 'deposited'
+          : 'partial';
+
+    const orderedBanks = [
+      'Banco Popular',
+      'Banco BHD',
+      'Banreservas',
+      'Otros bancos',
+      'Sin banco especificado',
+    ];
+    const transfersByBank = orderedBanks
+      .map((bank) => ({ bank, amount: toMoney(bankTotals.get(bank) ?? 0) }))
+      .filter(
+        (item) => item.amount > 0 || item.bank === 'Sin banco especificado',
+      );
+
+    return {
+      range: {
+        fromDate: start.toISOString().slice(0, 10),
+        toDate: end.toISOString().slice(0, 10),
+        businessType,
+        companyId: this.toNullableTrimmed(query.companyId),
+      },
+      count: closes.length,
+      totals: {
+        cashDeclared: toMoney(cashDeclared),
+        cashDelivered: toMoney(cashDelivered),
+        cashAvailable: toMoney(availableCash),
+        transfers: toMoney(transfers),
+        cardPayments: toMoney(cardPayments),
+        otherIncome: toMoney(otherIncome),
+        expenses: toMoney(expenses),
+        netTotal: toMoney(netTotal),
+        deposited: toMoney(deposited),
+        pendingDeposit: toMoney(totalAvailable),
+        difference: toMoney(difference),
+      },
+      transfersByBank,
+      availableForDeposit: {
+        cash: toMoney(availableCash),
+        transfers: toMoney(availableTransfers),
+        total: toMoney(totalAvailable),
+      },
+      depositStatus: {
+        status,
+        lastDepositDate,
+        destinationBank,
+      },
+    };
   }
 
   async getCloseById(id: string, actor?: Actor) {

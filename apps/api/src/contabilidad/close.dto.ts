@@ -234,3 +234,21 @@ export class BulkDeleteClosesDto {
   @IsNotEmpty()
   adminPassword!: string;
 }
+
+export class CloseFinancialSummaryQueryDto {
+  @IsDateString()
+  @IsOptional()
+  fromDate?: string;
+
+  @IsDateString()
+  @IsOptional()
+  toDate?: string;
+
+  @IsEnum(CloseType)
+  @IsOptional()
+  businessType?: CloseType;
+
+  @IsString()
+  @IsOptional()
+  companyId?: string;
+}

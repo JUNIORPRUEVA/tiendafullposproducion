@@ -9,6 +9,7 @@ import '../../../core/api/api_routes.dart';
 import '../../../core/auth/auth_repository.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../../core/models/close_model.dart';
+import '../models/close_financial_summary_model.dart';
 import '../models/deposit_order_model.dart';
 import '../models/fiscal_invoice_model.dart';
 import '../models/payable_models.dart';
@@ -137,6 +138,41 @@ class ContabilidadRepository {
     } on DioException catch (e) {
       throw ApiException(
         _extractMessage(e.response?.data, 'No se pudieron cargar los cierres'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<CloseFinancialSummaryModel> getCloseFinancialSummary({
+    required DateTime fromDate,
+    required DateTime toDate,
+    CloseType? businessType,
+    String? companyId,
+  }) async {
+    try {
+      final res = await _dio.get(
+        ApiRoutes.contabilidadCloseFinancialSummary,
+        queryParameters: {
+          'fromDate': _dateOnly(fromDate),
+          'toDate': _dateOnly(toDate),
+          if (businessType != null) 'businessType': businessType.apiValue,
+          if ((companyId ?? '').trim().isNotEmpty) 'companyId': companyId,
+        },
+      );
+
+      if (res.data is! Map) {
+        throw ApiException('Se recibió un resumen financiero con formato inválido.');
+      }
+
+      return CloseFinancialSummaryModel.fromJson(
+        (res.data as Map).cast<String, dynamic>(),
+      );
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(
+          e.response?.data,
+          'No se pudo cargar el resumen financiero de cierres',
+        ),
         e.response?.statusCode,
       );
     }

@@ -28,6 +28,7 @@ import { sanitizeFileName } from '../storage/helpers/storage_helpers';
 import { ContabilidadService } from './contabilidad.service';
 import {
   BulkDeleteClosesDto,
+  CloseFinancialSummaryQueryDto,
   CloseStatus,
   CreateCloseDto,
   DeleteCloseDto,
@@ -91,6 +92,18 @@ export class ContabilidadController {
     return this.contabilidadService.getCloses(
       { date, from, to, type },
       (req?.user ?? {}) as RequestActor,
+    );
+  }
+
+  @Get('closes/financial-summary')
+  @Roles('ADMIN')
+  async getFinancialSummary(
+    @Query() query: CloseFinancialSummaryQueryDto,
+    @Req() req: Request,
+  ) {
+    return this.contabilidadService.getCloseFinancialSummary(
+      query,
+      (req.user ?? {}) as RequestActor,
     );
   }
 

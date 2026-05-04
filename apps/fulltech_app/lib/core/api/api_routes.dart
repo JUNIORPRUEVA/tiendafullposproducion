@@ -50,6 +50,8 @@ class ApiRoutes {
       '/contabilidad/closes/$id/reject';
   static String contabilidadCloseAiReport(String id) =>
       '/contabilidad/closes/$id/ai-report';
+  static const contabilidadCloseFinancialSummary =
+      '/contabilidad/closes/financial-summary';
   static const contabilidadCloseVoucherUpload =
       '/contabilidad/closes/vouchers/upload';
   static const contabilidadDepositOrders = '/contabilidad/deposit-orders';

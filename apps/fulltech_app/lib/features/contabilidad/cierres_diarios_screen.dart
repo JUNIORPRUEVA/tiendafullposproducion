@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 
 import '../../core/api/env.dart';
 import '../../core/utils/pdf_file_actions.dart';
+import '../../core/auth/app_role.dart';
 import '../../core/auth/auth_provider.dart';
 import '../../core/models/close_model.dart';
 import '../../core/theme/app_theme.dart';
@@ -14,9 +15,12 @@ import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
 import 'application/cierres_diarios_controller.dart';
 import 'data/contabilidad_repository.dart';
+import 'models/close_financial_summary_model.dart';
 import 'widgets/app_card.dart';
 import 'widgets/section_title.dart';
 import 'deposit_bank_catalog.dart';
+
+enum _FinancialSummaryPreset { hoy, ayer, quincena, mes, personalizado }
 
 DepositBankOption? _resolveDepositBank(String? bankName) {
   final normalized = (bankName ?? '').trim().toLowerCase();
@@ -912,6 +916,30 @@ class _HistoryFullScreenPageState
   bool _selectionMode = false;
   bool _deletingSelection = false;
   final Set<String> _selectedCloseIds = <String>{};
+  _FinancialSummaryPreset _summaryPreset = _FinancialSummaryPreset.hoy;
+  DateTime? _summaryFromDate;
+  DateTime? _summaryToDate;
+  CloseType? _summaryBusinessType;
+  bool _summaryLoading = false;
+  String? _summaryError;
+  CloseFinancialSummaryModel? _summary;
+
+  bool get _isAdmin {
+    final role = ref.read(authStateProvider).user?.role;
+    return parseAppRole(role).isAdmin;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    if (_isAdmin) {
+      _setSummaryPreset(_FinancialSummaryPreset.hoy, refresh: false);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _fetchSummary();
+      });
+    }
+  }
 
   String _dateOnly(DateTime date) => DateFormat('dd/MM/yyyy').format(date);
 
@@ -1052,11 +1080,492 @@ class _HistoryFullScreenPageState
     return true;
   }
 
+  void _setSummaryPreset(_FinancialSummaryPreset preset, {bool refresh = true}) {
+    final now = DateTime.now();
+    DateTime from;
+    DateTime to;
+
+    switch (preset) {
+      case _FinancialSummaryPreset.hoy:
+        from = DateTime(now.year, now.month, now.day);
+        to = from;
+        break;
+      case _FinancialSummaryPreset.ayer:
+        final yesterday = now.subtract(const Duration(days: 1));
+        from = DateTime(yesterday.year, yesterday.month, yesterday.day);
+        to = from;
+        break;
+      case _FinancialSummaryPreset.quincena:
+        if (now.day >= 15) {
+          from = DateTime(now.year, now.month, 15);
+          to = DateTime(now.year, now.month + 1, 0);
+        } else {
+          from = DateTime(now.year, now.month, 1);
+          to = DateTime(now.year, now.month, 14);
+        }
+        break;
+      case _FinancialSummaryPreset.mes:
+        from = DateTime(now.year, now.month, 1);
+        to = DateTime(now.year, now.month + 1, 0);
+        break;
+      case _FinancialSummaryPreset.personalizado:
+        from = _summaryFromDate ?? DateTime(now.year, now.month, now.day);
+        to = _summaryToDate ?? from;
+        break;
+    }
+
+    setState(() {
+      _summaryPreset = preset;
+      _summaryFromDate = DateTime(from.year, from.month, from.day);
+      _summaryToDate = DateTime(to.year, to.month, to.day);
+    });
+
+    if (refresh) {
+      _fetchSummary();
+    }
+  }
+
+  Future<void> _pickSummaryDate({required bool fromDate}) async {
+    final base = fromDate ? _summaryFromDate : _summaryToDate;
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: base ?? DateTime.now(),
+      firstDate: DateTime(2024),
+      lastDate: DateTime(2100),
+    );
+    if (picked == null) return;
+
+    setState(() {
+      _summaryPreset = _FinancialSummaryPreset.personalizado;
+      if (fromDate) {
+        _summaryFromDate = DateTime(picked.year, picked.month, picked.day);
+      } else {
+        _summaryToDate = DateTime(picked.year, picked.month, picked.day);
+      }
+    });
+  }
+
+  Future<void> _fetchSummary() async {
+    if (!_isAdmin) return;
+
+    final from = _summaryFromDate ?? DateTime.now();
+    final to = _summaryToDate ?? from;
+
+    setState(() {
+      _summaryLoading = true;
+      _summaryError = null;
+    });
+
+    try {
+      final summary = await ref
+          .read(contabilidadRepositoryProvider)
+          .getCloseFinancialSummary(
+            fromDate: from,
+            toDate: to,
+            businessType: _summaryBusinessType,
+          );
+      if (!mounted) return;
+      setState(() {
+        _summary = summary;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _summaryError = e.toString();
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _summaryLoading = false;
+        });
+      }
+    }
+  }
+
+  void _clearSummaryFilters() {
+    setState(() {
+      _summaryBusinessType = null;
+    });
+    _setSummaryPreset(_FinancialSummaryPreset.hoy);
+  }
+
+  String _money(double value) =>
+      NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$ ').format(value);
+
+  String _depositStatusLabel(String status) {
+    switch (status.trim().toLowerCase()) {
+      case 'deposited':
+        return 'Depositado';
+      case 'partial':
+        return 'Parcial';
+      default:
+        return 'Pendiente';
+    }
+  }
+
+  Widget _buildSummaryMetricCard(
+    String title,
+    double amount, {
+    Color? amountColor,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x08000000),
+            blurRadius: 8,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF475569),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _money(amount),
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+              color: amountColor ?? const Color(0xFF0F172A),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSummaryPanel({required bool compact}) {
+    final summary = _summary;
+    final cardColor = const Color(0xFFF8FAFC);
+
+    return Container(
+      height: double.infinity,
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                'Resumen financiero',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Solo administración',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF64748B),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  ChoiceChip(
+                    label: const Text('Hoy'),
+                    selected: _summaryPreset == _FinancialSummaryPreset.hoy,
+                    onSelected: (_) =>
+                        _setSummaryPreset(_FinancialSummaryPreset.hoy),
+                  ),
+                  ChoiceChip(
+                    label: const Text('Ayer'),
+                    selected: _summaryPreset == _FinancialSummaryPreset.ayer,
+                    onSelected: (_) =>
+                        _setSummaryPreset(_FinancialSummaryPreset.ayer),
+                  ),
+                  ChoiceChip(
+                    label: const Text('Esta quincena'),
+                    selected:
+                        _summaryPreset == _FinancialSummaryPreset.quincena,
+                    onSelected: (_) =>
+                        _setSummaryPreset(_FinancialSummaryPreset.quincena),
+                  ),
+                  ChoiceChip(
+                    label: const Text('Este mes'),
+                    selected: _summaryPreset == _FinancialSummaryPreset.mes,
+                    onSelected: (_) =>
+                        _setSummaryPreset(_FinancialSummaryPreset.mes),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => _pickSummaryDate(fromDate: true),
+                      icon: const Icon(Icons.calendar_today_outlined, size: 16),
+                      label: Text(
+                        _summaryFromDate == null
+                            ? 'Desde'
+                            : _dateOnly(_summaryFromDate!),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => _pickSummaryDate(fromDate: false),
+                      icon: const Icon(Icons.event_outlined, size: 16),
+                      label: Text(
+                        _summaryToDate == null ? 'Hasta' : _dateOnly(_summaryToDate!),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: 'Unidad de cierre',
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<CloseType?>(
+                          value: _summaryBusinessType,
+                          isExpanded: true,
+                          items: const [
+                            DropdownMenuItem<CloseType?>(
+                              value: null,
+                              child: Text('Todos'),
+                            ),
+                            DropdownMenuItem<CloseType?>(
+                              value: CloseType.tienda,
+                              child: Text('Tienda'),
+                            ),
+                            DropdownMenuItem<CloseType?>(
+                              value: CloseType.phytoemagry,
+                              child: Text('PhytoEmagry'),
+                            ),
+                          ],
+                          onChanged: (value) {
+                            setState(() => _summaryBusinessType = value);
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: _summaryLoading ? null : _fetchSummary,
+                      icon: const Icon(Icons.filter_alt_outlined),
+                      label: const Text('Aplicar filtro'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton(
+                    onPressed: _summaryLoading ? null : _clearSummaryFilters,
+                    child: const Text('Limpiar'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (_summaryLoading)
+                const LinearProgressIndicator()
+              else if (_summaryError != null)
+                _ErrorBox(message: _summaryError!)
+              else if (summary == null)
+                const Text(
+                  'No hay resumen disponible para este rango.',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                )
+              else ...[
+                Text(
+                  '${summary.count} cierres incluidos',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF475569),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                _buildSummaryMetricCard(
+                  'Total efectivo declarado',
+                  summary.totals.cashDeclared,
+                ),
+                const SizedBox(height: 8),
+                _buildSummaryMetricCard(
+                  'Total efectivo entregado',
+                  summary.totals.cashDelivered,
+                ),
+                const SizedBox(height: 8),
+                _buildSummaryMetricCard(
+                  'Efectivo disponible para depósito',
+                  summary.totals.cashAvailable,
+                  amountColor: const Color(0xFF047857),
+                ),
+                const SizedBox(height: 8),
+                _buildSummaryMetricCard(
+                  'Total transferencias',
+                  summary.totals.transfers,
+                ),
+                const SizedBox(height: 8),
+                _buildSummaryMetricCard(
+                  'Total pago con tarjeta',
+                  summary.totals.cardPayments,
+                ),
+                const SizedBox(height: 8),
+                _buildSummaryMetricCard(
+                  'Otros ingresos',
+                  summary.totals.otherIncome,
+                ),
+                const SizedBox(height: 8),
+                _buildSummaryMetricCard(
+                  'Total gastos del día',
+                  summary.totals.expenses,
+                  amountColor: const Color(0xFFB91C1C),
+                ),
+                const SizedBox(height: 8),
+                _buildSummaryMetricCard('Total neto', summary.totals.netTotal),
+                const SizedBox(height: 8),
+                _buildSummaryMetricCard(
+                  'Total depositado',
+                  summary.totals.deposited,
+                ),
+                const SizedBox(height: 8),
+                _buildSummaryMetricCard(
+                  'Total pendiente por depositar',
+                  summary.totals.pendingDeposit,
+                  amountColor: const Color(0xFF1D4ED8),
+                ),
+                const SizedBox(height: 8),
+                _buildSummaryMetricCard(
+                  'Diferencia total',
+                  summary.totals.difference,
+                  amountColor: const Color(0xFFB91C1C),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFD1FAE5)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Disponible para depósito',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xFF065F46),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Disponible en efectivo: ${_money(summary.availableForDeposit.cash)}',
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      Text(
+                        'Disponible en transferencias: ${_money(summary.availableForDeposit.transfers)}',
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      Text(
+                        'Total general disponible: ${_money(summary.availableForDeposit.total)}',
+                        style: const TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFDBEAFE)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Dinero depositado',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xFF1E3A8A),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Total depositado: ${_money(summary.totals.deposited)}',
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      Text(
+                        'Último depósito: ${summary.depositStatus.lastDepositDate == null ? 'N/D' : _dateOnly(summary.depositStatus.lastDepositDate!)}',
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      Text(
+                        'Banco destino: ${summary.depositStatus.destinationBank ?? 'N/D'}',
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      Text(
+                        'Estado: ${_depositStatusLabel(summary.depositStatus.status)}',
+                        style: const TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Transferencias por banco',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 8),
+                ...summary.transfersByBank.map(
+                  (row) => ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(row.bank),
+                    trailing: Text(
+                      _money(row.amount),
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                ),
+              ],
+              if (compact) const SizedBox(height: 4),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(cierresDiariosControllerProvider);
-    final role = ref.watch(authStateProvider).user?.role;
-    final canDelete = role == 'ADMIN';
+    final canDelete = _isAdmin;
     final filtered = state.closes.where((close) {
       if (close.type != _selectedType) return false;
       if (_selectedStatus != 'TODOS' && close.status != _selectedStatus) {
@@ -1076,6 +1585,232 @@ class _HistoryFullScreenPageState
           }
         });
       });
+    }
+
+    Widget historyFilters() {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      final range = await showDateRangePicker(
+                        context: context,
+                        firstDate: DateTime(2024),
+                        lastDate: DateTime(2100),
+                        initialDateRange: DateTimeRange(
+                          start: _fromDate ?? DateTime.now(),
+                          end: _toDate ?? DateTime.now(),
+                        ),
+                      );
+                      if (range == null) return;
+                      setState(() {
+                        _fromDate = range.start;
+                        _toDate = range.end;
+                      });
+                    },
+                    icon: const Icon(Icons.date_range_outlined),
+                    label: Text(
+                      _fromDate == null || _toDate == null
+                          ? 'Elegir rango'
+                          : '${_dateOnly(_fromDate!)} - ${_dateOnly(_toDate!)}',
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                if (_fromDate != null || _toDate != null)
+                  TextButton(
+                    onPressed: () => setState(() {
+                      _fromDate = null;
+                      _toDate = null;
+                    }),
+                    child: const Text('Limpiar'),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                FilterChip(
+                  label: const Text('Tienda'),
+                  selected: _selectedType == CloseType.tienda,
+                  onSelected: (_) =>
+                      setState(() => _selectedType = CloseType.tienda),
+                ),
+                const SizedBox(width: 8),
+                FilterChip(
+                  label: const Text('PhytoEmagry'),
+                  selected: _selectedType == CloseType.phytoemagry,
+                  onSelected: (_) =>
+                      setState(() => _selectedType = CloseType.phytoemagry),
+                ),
+                const Spacer(),
+                DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _selectedStatus,
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'TODOS',
+                        child: Text('Estado: Todos'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'pending',
+                        child: Text('Pendiente'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'approved',
+                        child: Text('Aprobado'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'rejected',
+                        child: Text('Rechazado'),
+                      ),
+                    ],
+                    onChanged: (value) {
+                      if (value == null) return;
+                      setState(() => _selectedStatus = value);
+                    },
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '${filtered.length} registros',
+                style: Theme.of(context).textTheme.labelLarge,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    Widget historyList() {
+      if (filtered.isEmpty) {
+        return const Center(
+          child: Text('No hay cierres para el filtro seleccionado.'),
+        );
+      }
+
+      return ListView.separated(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 18),
+        itemCount: filtered.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 10),
+        itemBuilder: (context, index) {
+          final close = filtered[index];
+          final statusLabel = switch (close.status) {
+            'approved' => 'Aprobado',
+            'rejected' => 'Rechazado',
+            _ => 'Pendiente',
+          };
+
+          return Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: () async {
+                if (_selectionMode) {
+                  setState(() {
+                    if (_selectedCloseIds.contains(close.id)) {
+                      _selectedCloseIds.remove(close.id);
+                    } else {
+                      _selectedCloseIds.add(close.id);
+                    }
+                  });
+                  return;
+                }
+
+                final duplicate = await Navigator.of(context).push<CloseModel>(
+                  MaterialPageRoute(
+                    builder: (_) => _CloseDetailFullScreenPage(
+                      closeId: close.id,
+                    ),
+                  ),
+                );
+                if (duplicate != null && context.mounted) {
+                  Navigator.of(context).pop(duplicate);
+                }
+              },
+              child: Ink(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    if (_selectionMode)
+                      Checkbox(
+                        value: _selectedCloseIds.contains(close.id),
+                        onChanged: (_) {
+                          setState(() {
+                            if (_selectedCloseIds.contains(close.id)) {
+                              _selectedCloseIds.remove(close.id);
+                            } else {
+                              _selectedCloseIds.add(close.id);
+                            }
+                          });
+                        },
+                      ),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '${close.type.label} · ${DateFormat('dd/MM/yyyy').format(close.date)}',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 15,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Creado por ${close.createdByName ?? close.createdById ?? 'N/D'}',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(999),
+                        color: Theme.of(context)
+                            .colorScheme
+                            .surfaceContainerHighest,
+                      ),
+                      child: Text(
+                        statusLabel,
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                    if (!_selectionMode && canDelete)
+                      IconButton(
+                        tooltip: 'Eliminar cierre',
+                        onPressed: () => _deleteOneClose(close),
+                        icon: const Icon(Icons.delete_outline),
+                      )
+                    else if (!_selectionMode) ...[
+                      const SizedBox(width: 12),
+                      const Icon(Icons.chevron_right_rounded),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      );
     }
 
     return Scaffold(
@@ -1126,8 +1861,12 @@ class _HistoryFullScreenPageState
             ),
           IconButton(
             tooltip: 'Actualizar',
-            onPressed: () =>
-                ref.read(cierresDiariosControllerProvider.notifier).refresh(),
+            onPressed: () async {
+              await ref.read(cierresDiariosControllerProvider.notifier).refresh();
+              if (canDelete) {
+                await _fetchSummary();
+              }
+            },
             icon: const Icon(Icons.refresh),
           ),
         ],
@@ -1135,234 +1874,71 @@ class _HistoryFullScreenPageState
       body: Column(
         children: [
           if (state.loading) const LinearProgressIndicator(),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () async {
-                          final range = await showDateRangePicker(
-                            context: context,
-                            firstDate: DateTime(2024),
-                            lastDate: DateTime(2100),
-                            initialDateRange: DateTimeRange(
-                              start: _fromDate ?? DateTime.now(),
-                              end: _toDate ?? DateTime.now(),
-                            ),
-                          );
-                          if (range == null) return;
-                          setState(() {
-                            _fromDate = range.start;
-                            _toDate = range.end;
-                          });
-                        },
-                        icon: const Icon(Icons.date_range_outlined),
-                        label: Text(
-                          _fromDate == null || _toDate == null
-                              ? 'Elegir rango'
-                              : '${_dateOnly(_fromDate!)} - ${_dateOnly(_toDate!)}',
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    if (_fromDate != null || _toDate != null)
-                      TextButton(
-                        onPressed: () => setState(() {
-                          _fromDate = null;
-                          _toDate = null;
-                        }),
-                        child: const Text('Limpiar'),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    FilterChip(
-                      label: const Text('Tienda'),
-                      selected: _selectedType == CloseType.tienda,
-                      onSelected: (_) =>
-                          setState(() => _selectedType = CloseType.tienda),
-                    ),
-                    const SizedBox(width: 8),
-                    FilterChip(
-                      label: const Text('PhytoEmagry'),
-                      selected: _selectedType == CloseType.phytoemagry,
-                      onSelected: (_) =>
-                          setState(() => _selectedType = CloseType.phytoemagry),
-                    ),
-                    const Spacer(),
-                    DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        value: _selectedStatus,
-                        items: const [
-                          DropdownMenuItem(
-                            value: 'TODOS',
-                            child: Text('Estado: Todos'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'pending',
-                            child: Text('Pendiente'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'approved',
-                            child: Text('Aprobado'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'rejected',
-                            child: Text('Rechazado'),
-                          ),
-                        ],
-                        onChanged: (value) {
-                          if (value == null) return;
-                          setState(() => _selectedStatus = value);
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    '${filtered.length} registros',
-                    style: Theme.of(context).textTheme.labelLarge,
-                  ),
-                ),
-              ],
-            ),
-          ),
           Expanded(
-            child: filtered.isEmpty
-                ? const Center(
-                    child: Text('No hay cierres para el filtro seleccionado.'),
-                  )
-                : ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 18),
-                    itemCount: filtered.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 10),
-                    itemBuilder: (context, index) {
-                      final close = filtered[index];
-                      final statusLabel = switch (close.status) {
-                        'approved' => 'Aprobado',
-                        'rejected' => 'Rechazado',
-                        _ => 'Pendiente',
-                      };
-                      return Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(14),
-                          onTap: () async {
-                            if (_selectionMode) {
-                              setState(() {
-                                if (_selectedCloseIds.contains(close.id)) {
-                                  _selectedCloseIds.remove(close.id);
-                                } else {
-                                  _selectedCloseIds.add(close.id);
-                                }
-                              });
-                              return;
-                            }
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final showSidePanel = canDelete && constraints.maxWidth >= 1180;
 
-                            final duplicate = await Navigator.of(context)
-                                .push<CloseModel>(
-                                  MaterialPageRoute(
-                                    builder: (_) => _CloseDetailFullScreenPage(
-                                      closeId: close.id,
-                                    ),
-                                  ),
-                                );
-                            if (duplicate != null && context.mounted) {
-                              Navigator.of(context).pop(duplicate);
-                            }
-                          },
-                          child: Ink(
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.outlineVariant,
+                if (showSidePanel) {
+                  return Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            children: [
+                              historyFilters(),
+                              Expanded(child: historyList()),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        SizedBox(
+                          width: 390,
+                          child: _buildSummaryPanel(compact: false),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+
+                return Column(
+                  children: [
+                    historyFilters(),
+                    if (canDelete)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                        child: ExpansionTile(
+                          tilePadding: const EdgeInsets.symmetric(horizontal: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            side: const BorderSide(color: Color(0xFFE2E8F0)),
+                          ),
+                          collapsedShape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            side: const BorderSide(color: Color(0xFFE2E8F0)),
+                          ),
+                          title: const Text(
+                            'Resumen financiero (Admin)',
+                            style: TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                          children: [
+                            SizedBox(
+                              height: 560,
+                              child: Padding(
+                                padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+                                child: _buildSummaryPanel(compact: true),
                               ),
                             ),
-                            child: Row(
-                              children: [
-                                if (_selectionMode)
-                                  Checkbox(
-                                    value: _selectedCloseIds.contains(close.id),
-                                    onChanged: (_) {
-                                      setState(() {
-                                        if (_selectedCloseIds.contains(
-                                          close.id,
-                                        )) {
-                                          _selectedCloseIds.remove(close.id);
-                                        } else {
-                                          _selectedCloseIds.add(close.id);
-                                        }
-                                      });
-                                    },
-                                  ),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        '${close.type.label} · ${DateFormat('dd/MM/yyyy').format(close.date)}',
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w800,
-                                          fontSize: 15,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        'Creado por ${close.createdByName ?? close.createdById ?? 'N/D'}',
-                                        style: Theme.of(
-                                          context,
-                                        ).textTheme.bodySmall,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 6,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(999),
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.surfaceContainerHighest,
-                                  ),
-                                  child: Text(
-                                    statusLabel,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ),
-                                if (!_selectionMode && canDelete)
-                                  IconButton(
-                                    tooltip: 'Eliminar cierre',
-                                    onPressed: () => _deleteOneClose(close),
-                                    icon: const Icon(Icons.delete_outline),
-                                  )
-                                else if (!_selectionMode) ...[
-                                  const SizedBox(width: 12),
-                                  const Icon(Icons.chevron_right_rounded),
-                                ],
-                              ],
-                            ),
-                          ),
+                          ],
                         ),
-                      );
-                    },
-                  ),
+                      ),
+                    Expanded(child: historyList()),
+                  ],
+                );
+              },
+            ),
           ),
         ],
       ),

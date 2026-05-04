@@ -11,6 +11,7 @@ import 'package:latlong2/latlong.dart';
 
 import '../../core/cache/fulltech_map_tile_cache.dart';
 import '../../core/auth/auth_repository.dart';
+import '../../core/models/user_model.dart';
 import '../../core/routing/routes.dart';
 import '../service_orders/application/service_orders_list_controller.dart';
 import '../service_orders/service_order_models.dart';
@@ -30,6 +31,11 @@ class _ClientesMapScreenState extends ConsumerState<ClientesMapScreen> {
   bool _resolvingLocations = false;
   String _locationSignature = '';
   String _tileWarmSignature = '';
+  String? _selectedSellerId;
+  _MapOrderScope _selectedOrderScope = _MapOrderScope.all;
+  _MapDatePreset _selectedDatePreset = _MapDatePreset.all;
+  DateTime? _dateFrom;
+  DateTime? _dateTo;
 
   @override
   void initState() {
@@ -118,6 +124,17 @@ class _ClientesMapScreenState extends ConsumerState<ClientesMapScreen> {
   Widget build(BuildContext context) {
     final clientsState = ref.watch(clientesControllerProvider);
     final ordersState = ref.watch(serviceOrdersListControllerProvider);
+    final sellerFilters = _buildSellerFilters(
+      orders: ordersState.items,
+      usersById: ordersState.usersById,
+    );
+    final filteredOrders = _applyOrderFilters(ordersState.items);
+    final hasActiveFilters =
+      _selectedSellerId != null ||
+      _selectedOrderScope != _MapOrderScope.all ||
+      _selectedDatePreset != _MapDatePreset.all ||
+      _dateFrom != null ||
+      _dateTo != null;
 
     final nextSignature = clientsState.items
         .map(
@@ -135,8 +152,10 @@ class _ClientesMapScreenState extends ConsumerState<ClientesMapScreen> {
 
     final items = _buildMapItems(
       clients: clientsState.items,
-      orders: ordersState.items,
+      orders: filteredOrders,
+      usersById: ordersState.usersById,
       locationsByClientId: _locationsByClientId,
+      includeClientsWithoutOrders: !hasActiveFilters,
     );
     final summary = _MapSummary.fromItems(items);
     final nextTileWarmSignature = _buildTileWarmSignature(items);
@@ -160,10 +179,84 @@ class _ClientesMapScreenState extends ConsumerState<ClientesMapScreen> {
                   : _FullscreenMapSurface(
                       items: items,
                       summary: summary,
+                      selectedSellerId: _selectedSellerId,
+                      selectedOrderScope: _selectedOrderScope,
+                      selectedDatePreset: _selectedDatePreset,
+                      dateFrom: _dateFrom,
+                      dateTo: _dateTo,
+                      sellerFilters: sellerFilters,
+                      hasActiveFilters: hasActiveFilters,
                       isResolvingLocations:
                           _resolvingLocations ||
                           clientsState.refreshing ||
                           ordersState.refreshing,
+                      onSelectedSellerChanged: (nextSellerId) {
+                        setState(() {
+                          _selectedSellerId = nextSellerId;
+                        });
+                      },
+                      onSelectedOrderScopeChanged: (nextScope) {
+                        setState(() {
+                          _selectedOrderScope = nextScope;
+                        });
+                      },
+                      onDatePresetChanged: (nextPreset) {
+                        setState(() {
+                          _selectedDatePreset = nextPreset;
+                          final now = DateTime.now();
+                          final end = DateTime(
+                            now.year,
+                            now.month,
+                            now.day,
+                            23,
+                            59,
+                            59,
+                            999,
+                          );
+                          switch (nextPreset) {
+                            case _MapDatePreset.all:
+                              _dateFrom = null;
+                              _dateTo = null;
+                            case _MapDatePreset.today:
+                              _dateFrom = DateTime(now.year, now.month, now.day);
+                              _dateTo = end;
+                            case _MapDatePreset.last7Days:
+                              final start = DateTime(
+                                now.year,
+                                now.month,
+                                now.day,
+                              ).subtract(const Duration(days: 6));
+                              _dateFrom = start;
+                              _dateTo = end;
+                            case _MapDatePreset.last30Days:
+                              final start = DateTime(
+                                now.year,
+                                now.month,
+                                now.day,
+                              ).subtract(const Duration(days: 29));
+                              _dateFrom = start;
+                              _dateTo = end;
+                            case _MapDatePreset.custom:
+                              _dateFrom ??= DateTime(
+                                now.year,
+                                now.month,
+                                now.day,
+                              ).subtract(const Duration(days: 7));
+                              _dateTo ??= end;
+                          }
+                        });
+                      },
+                      onPickDateFrom: () => _pickDateFrom(context),
+                      onPickDateTo: () => _pickDateTo(context),
+                      onClearFilters: () {
+                        setState(() {
+                          _selectedSellerId = null;
+                          _selectedOrderScope = _MapOrderScope.all;
+                          _selectedDatePreset = _MapDatePreset.all;
+                          _dateFrom = null;
+                          _dateTo = null;
+                        });
+                      },
                       onClientTap: _openClient,
                     ),
             ),
@@ -226,6 +319,102 @@ class _ClientesMapScreenState extends ConsumerState<ClientesMapScreen> {
       _buildInitialTileUrls(items),
     );
   }
+
+  List<ServiceOrderModel> _applyOrderFilters(List<ServiceOrderModel> orders) {
+    var filtered = orders.where((order) {
+      if (_selectedSellerId == null) return true;
+      return order.createdById.trim() == _selectedSellerId;
+    });
+
+    filtered = filtered.where((order) {
+      switch (_selectedOrderScope) {
+        case _MapOrderScope.all:
+          return true;
+        case _MapOrderScope.completed:
+          return order.status == ServiceOrderStatus.finalizado;
+        case _MapOrderScope.inProgress:
+          return order.status == ServiceOrderStatus.enProceso;
+        case _MapOrderScope.pending:
+          return order.status == ServiceOrderStatus.pendiente;
+      }
+    });
+
+    filtered = filtered.where((order) {
+      final at = _orderDateForFilter(order);
+      if (at == null) return false;
+
+      if (_dateFrom != null && at.isBefore(_dateFrom!)) {
+        return false;
+      }
+      if (_dateTo != null && at.isAfter(_dateTo!)) {
+        return false;
+      }
+      return true;
+    });
+
+    return filtered.toList(growable: false);
+  }
+
+  DateTime? _orderDateForFilter(ServiceOrderModel order) {
+    return order.finalizedAt ?? order.scheduledFor ?? order.createdAt;
+  }
+
+  Future<void> _pickDateFrom(BuildContext context) async {
+    final now = DateTime.now();
+    final initial = _dateFrom ?? DateTime(now.year, now.month, now.day);
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2022),
+      lastDate: DateTime(now.year + 1),
+      helpText: 'Fecha desde',
+    );
+    if (!mounted || picked == null) return;
+    setState(() {
+      _selectedDatePreset = _MapDatePreset.custom;
+      _dateFrom = DateTime(picked.year, picked.month, picked.day);
+      if (_dateTo != null && _dateTo!.isBefore(_dateFrom!)) {
+        _dateTo = DateTime(
+          picked.year,
+          picked.month,
+          picked.day,
+          23,
+          59,
+          59,
+          999,
+        );
+      }
+    });
+  }
+
+  Future<void> _pickDateTo(BuildContext context) async {
+    final now = DateTime.now();
+    final seed = _dateTo ?? DateTime(now.year, now.month, now.day);
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: seed,
+      firstDate: DateTime(2022),
+      lastDate: DateTime(now.year + 1),
+      helpText: 'Fecha hasta',
+    );
+    if (!mounted || picked == null) return;
+    final end = DateTime(
+      picked.year,
+      picked.month,
+      picked.day,
+      23,
+      59,
+      59,
+      999,
+    );
+    setState(() {
+      _selectedDatePreset = _MapDatePreset.custom;
+      _dateTo = end;
+      if (_dateFrom != null && _dateFrom!.isAfter(_dateTo!)) {
+        _dateFrom = DateTime(picked.year, picked.month, picked.day);
+      }
+    });
+  }
 }
 
 String _buildTopLabel(_MapSummary summary) {
@@ -239,7 +428,9 @@ String _buildTopLabel(_MapSummary summary) {
 List<_ClientMapItem> _buildMapItems({
   required List<ClienteModel> clients,
   required List<ServiceOrderModel> orders,
+  required Map<String, UserModel> usersById,
   required Map<String, ClientLocationPreview> locationsByClientId,
+  bool includeClientsWithoutOrders = true,
 }) {
   final ordersByClientId = <String, List<ServiceOrderModel>>{};
   for (final order in orders) {
@@ -254,11 +445,19 @@ List<_ClientMapItem> _buildMapItems({
     if (preview == null || !preview.hasCoordinates) continue;
     final clientOrders =
         ordersByClientId[client.id] ?? const <ServiceOrderModel>[];
+    if (!includeClientsWithoutOrders && clientOrders.isEmpty) {
+      continue;
+    }
+    final sellerName = _resolveSellerName(
+      orders: clientOrders,
+      usersById: usersById,
+    );
     items.add(
       _ClientMapItem(
         client: client,
         location: LatLng(preview.latitude!, preview.longitude!),
         state: _ClientServiceState.fromOrders(clientOrders),
+        sellerName: sellerName,
       ),
     );
   }
@@ -274,17 +473,105 @@ List<_ClientMapItem> _buildMapItems({
   return items;
 }
 
+String? _resolveSellerName({
+  required List<ServiceOrderModel> orders,
+  required Map<String, UserModel> usersById,
+}) {
+  if (orders.isEmpty) return null;
+
+  final finalizedOrders = orders
+      .where((order) => order.status == ServiceOrderStatus.finalizado)
+      .toList(growable: false);
+
+  ServiceOrderModel pickMostRecent(ServiceOrderModel current, ServiceOrderModel next) {
+    final currentAt = current.finalizedAt ?? current.updatedAt;
+    final nextAt = next.finalizedAt ?? next.updatedAt;
+    return nextAt.isAfter(currentAt) ? next : current;
+  }
+
+  if (finalizedOrders.isEmpty) return null;
+
+  final selected = finalizedOrders.reduce(pickMostRecent);
+  final sellerId = selected.createdById.trim();
+  if (sellerId.isEmpty) return null;
+
+  final sellerName = (usersById[sellerId]?.nombreCompleto ?? sellerId).trim();
+  if (sellerName.isEmpty) return null;
+  return _extractFirstName(sellerName);
+}
+
+String _extractFirstName(String fullName) {
+  final tokens = fullName
+      .trim()
+      .split(RegExp(r'\s+'))
+      .where((part) => part.trim().isNotEmpty)
+      .toList(growable: false);
+  if (tokens.isEmpty) return fullName.trim();
+  return tokens.first.trim();
+}
+
+List<_SellerFilterOption> _buildSellerFilters({
+  required List<ServiceOrderModel> orders,
+  required Map<String, UserModel> usersById,
+}) {
+  final countsBySellerId = <String, int>{};
+  for (final order in orders) {
+    final sellerId = order.createdById.trim();
+    if (sellerId.isEmpty) continue;
+    countsBySellerId.update(sellerId, (count) => count + 1, ifAbsent: () => 1);
+  }
+
+  final options = countsBySellerId.entries.map((entry) {
+    final userName = (usersById[entry.key]?.nombreCompleto ?? entry.key).trim();
+    final shortName = userName.isEmpty ? entry.key : _extractFirstName(userName);
+    return _SellerFilterOption(
+      sellerId: entry.key,
+      sellerLabel: shortName,
+      orderCount: entry.value,
+    );
+  }).toList(growable: false)
+    ..sort((a, b) => a.sellerLabel.toLowerCase().compareTo(b.sellerLabel.toLowerCase()));
+
+  return options;
+}
+
 class _FullscreenMapSurface extends StatelessWidget {
   const _FullscreenMapSurface({
     required this.items,
     required this.summary,
+    required this.selectedSellerId,
+    required this.selectedOrderScope,
+    required this.selectedDatePreset,
+    required this.dateFrom,
+    required this.dateTo,
+    required this.sellerFilters,
+    required this.hasActiveFilters,
     required this.isResolvingLocations,
+    required this.onSelectedSellerChanged,
+    required this.onSelectedOrderScopeChanged,
+    required this.onDatePresetChanged,
+    required this.onPickDateFrom,
+    required this.onPickDateTo,
+    required this.onClearFilters,
     required this.onClientTap,
   });
 
   final List<_ClientMapItem> items;
   final _MapSummary summary;
+  final String? selectedSellerId;
+  final _MapOrderScope selectedOrderScope;
+  final _MapDatePreset selectedDatePreset;
+  final DateTime? dateFrom;
+  final DateTime? dateTo;
+  final List<_SellerFilterOption> sellerFilters;
+  final bool hasActiveFilters;
   final bool isResolvingLocations;
+  final ValueChanged<String?> onSelectedSellerChanged;
+  final ValueChanged<_MapOrderScope> onSelectedOrderScopeChanged;
+  final ValueChanged<_MapDatePreset> onDatePresetChanged;
+  final VoidCallback onPickDateFrom;
+  final VoidCallback onPickDateTo;
+  final VoidCallback onClearFilters;
   final ValueChanged<String> onClientTap;
 
   @override
@@ -308,6 +595,25 @@ class _FullscreenMapSurface extends StatelessWidget {
           right: 92,
           bottom: 18,
           child: _MapLegendCard(summary: summary),
+        ),
+        Positioned(
+          right: 16,
+          top: 56,
+          child: _MapFiltersFloatingButton(
+            selectedSellerId: selectedSellerId,
+            selectedOrderScope: selectedOrderScope,
+            selectedDatePreset: selectedDatePreset,
+            dateFrom: dateFrom,
+            dateTo: dateTo,
+            sellerFilters: sellerFilters,
+            hasActiveFilters: hasActiveFilters,
+            onSelectedSellerChanged: onSelectedSellerChanged,
+            onSelectedOrderScopeChanged: onSelectedOrderScopeChanged,
+            onDatePresetChanged: onDatePresetChanged,
+            onPickDateFrom: onPickDateFrom,
+            onPickDateTo: onPickDateTo,
+            onClearFilters: onClearFilters,
+          ),
         ),
         if (summary.total == 0)
           Positioned.fill(
@@ -335,8 +641,8 @@ class _FullscreenMapSurface extends StatelessWidget {
           ),
         if (isResolvingLocations)
           const Positioned(
-            right: 16,
-            top: 56,
+            right: 25,
+            top: 106,
             child: SizedBox(
               width: 22,
               height: 22,
@@ -441,7 +747,7 @@ class _InteractiveClientMapState extends State<_InteractiveClientMap> {
                   Marker(
                     point: item.location,
                     width: showLabels ? 132 : 64,
-                    height: showLabels ? 106 : 70,
+                    height: showLabels ? 132 : 70,
                     child: _MapMarker(
                       item: item,
                       onTap: widget.onClientTap,
@@ -649,6 +955,34 @@ class _MapMarker extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (showLabel && (item.sellerName?.isNotEmpty ?? false))
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 84),
+              child: Container(
+                margin: const EdgeInsets.only(bottom: 3),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 5,
+                  vertical: 2,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.48),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  'v.por ${item.sellerName}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    fontSize: 8,
+                    height: 1.0,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.white.withValues(alpha: 0.84),
+                    letterSpacing: 0.08,
+                  ),
+                ),
+              ),
+            ),
           if (showLabel)
             ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 120),
@@ -897,6 +1231,363 @@ class _FloatingMapButton extends StatelessWidget {
   }
 }
 
+class _MapFiltersFloatingButton extends StatelessWidget {
+  const _MapFiltersFloatingButton({
+    required this.selectedSellerId,
+    required this.selectedOrderScope,
+    required this.selectedDatePreset,
+    required this.dateFrom,
+    required this.dateTo,
+    required this.sellerFilters,
+    required this.hasActiveFilters,
+    required this.onSelectedSellerChanged,
+    required this.onSelectedOrderScopeChanged,
+    required this.onDatePresetChanged,
+    required this.onPickDateFrom,
+    required this.onPickDateTo,
+    required this.onClearFilters,
+  });
+
+  final String? selectedSellerId;
+  final _MapOrderScope selectedOrderScope;
+  final _MapDatePreset selectedDatePreset;
+  final DateTime? dateFrom;
+  final DateTime? dateTo;
+  final List<_SellerFilterOption> sellerFilters;
+  final bool hasActiveFilters;
+  final ValueChanged<String?> onSelectedSellerChanged;
+  final ValueChanged<_MapOrderScope> onSelectedOrderScopeChanged;
+  final ValueChanged<_MapDatePreset> onDatePresetChanged;
+  final VoidCallback onPickDateFrom;
+  final VoidCallback onPickDateTo;
+  final VoidCallback onClearFilters;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: 'Filtrar por vendedor, fecha y estado',
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => _open(context),
+        child: Ink(
+          width: 94,
+          height: 38,
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.32),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x1F0F172A),
+                blurRadius: 14,
+                offset: Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Stack(
+            alignment: Alignment.centerLeft,
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.tune_rounded,
+                      color: Colors.white.withValues(alpha: 0.95),
+                      size: 18,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Filtros',
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (hasActiveFilters)
+                const Positioned(
+                  right: 7,
+                  top: 7,
+                  child: _ActiveFilterDot(),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _open(BuildContext context) async {
+    await showGeneralDialog<void>(
+      context: context,
+      barrierLabel: 'Filtros de mapa',
+      barrierDismissible: true,
+      barrierColor: Colors.black.withValues(alpha: 0.18),
+      transitionDuration: const Duration(milliseconds: 180),
+      pageBuilder: (dialogContext, animation, secondaryAnimation) {
+        final screenWidth = MediaQuery.sizeOf(dialogContext).width;
+        return SafeArea(
+          child: Align(
+            alignment: Alignment.topRight,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 56, right: 16, left: 16),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: math.min(320, screenWidth - 32),
+                ),
+                child: _MapFiltersPanel(
+                  selectedSellerId: selectedSellerId,
+                  selectedOrderScope: selectedOrderScope,
+                  selectedDatePreset: selectedDatePreset,
+                  dateFrom: dateFrom,
+                  dateTo: dateTo,
+                  sellerFilters: sellerFilters,
+                  hasActiveFilters: hasActiveFilters,
+                  onSelectedSellerChanged: onSelectedSellerChanged,
+                  onSelectedOrderScopeChanged: onSelectedOrderScopeChanged,
+                  onDatePresetChanged: onDatePresetChanged,
+                  onPickDateFrom: onPickDateFrom,
+                  onPickDateTo: onPickDateTo,
+                  onClearFilters: onClearFilters,
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        final curved = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutCubic,
+          reverseCurve: Curves.easeInCubic,
+        );
+        return FadeTransition(
+          opacity: curved,
+          child: SlideTransition(
+            position:
+                Tween<Offset>(
+                  begin: const Offset(0, -0.03),
+                  end: Offset.zero,
+                ).animate(curved),
+            child: child,
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _MapFiltersPanel extends StatelessWidget {
+  const _MapFiltersPanel({
+    required this.selectedSellerId,
+    required this.selectedOrderScope,
+    required this.selectedDatePreset,
+    required this.dateFrom,
+    required this.dateTo,
+    required this.sellerFilters,
+    required this.hasActiveFilters,
+    required this.onSelectedSellerChanged,
+    required this.onSelectedOrderScopeChanged,
+    required this.onDatePresetChanged,
+    required this.onPickDateFrom,
+    required this.onPickDateTo,
+    required this.onClearFilters,
+  });
+
+  final String? selectedSellerId;
+  final _MapOrderScope selectedOrderScope;
+  final _MapDatePreset selectedDatePreset;
+  final DateTime? dateFrom;
+  final DateTime? dateTo;
+  final List<_SellerFilterOption> sellerFilters;
+  final bool hasActiveFilters;
+  final ValueChanged<String?> onSelectedSellerChanged;
+  final ValueChanged<_MapOrderScope> onSelectedOrderScopeChanged;
+  final ValueChanged<_MapDatePreset> onDatePresetChanged;
+  final VoidCallback onPickDateFrom;
+  final VoidCallback onPickDateTo;
+  final VoidCallback onClearFilters;
+
+  @override
+  Widget build(BuildContext context) {
+    final sellerValue = selectedSellerId ?? '__all__';
+
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.96),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x2A0F172A),
+              blurRadius: 28,
+              offset: Offset(0, 14),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.tune_rounded, size: 16, color: Color(0xFF0F172A)),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Filtros del mapa',
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: const Color(0xFF0F172A),
+                    ),
+                  ),
+                ),
+                if (hasActiveFilters)
+                  TextButton(
+                    onPressed: onClearFilters,
+                    style: TextButton.styleFrom(
+                      minimumSize: const Size(0, 28),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: const Text('Limpiar'),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              initialValue: sellerValue,
+              decoration: const InputDecoration(
+                isDense: true,
+                labelText: 'Vendedor',
+                border: OutlineInputBorder(),
+              ),
+              items: [
+                const DropdownMenuItem<String>(
+                  value: '__all__',
+                  child: Text('Todos'),
+                ),
+                for (final option in sellerFilters)
+                  DropdownMenuItem<String>(
+                    value: option.sellerId,
+                    child: Text('${option.sellerLabel} (${option.orderCount})'),
+                  ),
+              ],
+              onChanged: (value) {
+                onSelectedSellerChanged(value == '__all__' ? null : value);
+              },
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Estado',
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: const Color(0xFF334155),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final scope in _MapOrderScope.values)
+                  ChoiceChip(
+                    label: Text(scope.label),
+                    selected: scope == selectedOrderScope,
+                    onSelected: (_) => onSelectedOrderScopeChanged(scope),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Fecha',
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: const Color(0xFF334155),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final preset in _MapDatePreset.values)
+                  ChoiceChip(
+                    label: Text(preset.label),
+                    selected: preset == selectedDatePreset,
+                    onSelected: (_) => onDatePresetChanged(preset),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: onPickDateFrom,
+                    icon: const Icon(Icons.event_available_rounded, size: 16),
+                    label: Text(
+                      dateFrom == null
+                          ? 'Desde'
+                          : 'Desde ${_fmtDate(dateFrom!)}',
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(34),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: onPickDateTo,
+                    icon: const Icon(Icons.event_busy_rounded, size: 16),
+                    label: Text(
+                      dateTo == null ? 'Hasta' : 'Hasta ${_fmtDate(dateTo!)}',
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(34),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _fmtDate(DateTime value) {
+  final day = value.day.toString().padLeft(2, '0');
+  final month = value.month.toString().padLeft(2, '0');
+  return '$day/$month/${value.year}';
+}
+
+class _ActiveFilterDot extends StatelessWidget {
+  const _ActiveFilterDot();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 8,
+      height: 8,
+      decoration: const BoxDecoration(
+        color: Color(0xFF22C55E),
+        shape: BoxShape.circle,
+      ),
+    );
+  }
+}
+
 class _CachedMapTileProvider extends TileProvider {
   _CachedMapTileProvider();
 
@@ -1088,11 +1779,61 @@ class _ClientMapItem {
     required this.client,
     required this.location,
     required this.state,
+    required this.sellerName,
   });
 
   final ClienteModel client;
   final LatLng location;
   final _ClientServiceState state;
+  final String? sellerName;
+}
+
+class _SellerFilterOption {
+  const _SellerFilterOption({
+    required this.sellerId,
+    required this.sellerLabel,
+    required this.orderCount,
+  });
+
+  final String sellerId;
+  final String sellerLabel;
+  final int orderCount;
+}
+
+enum _MapOrderScope { all, completed, inProgress, pending }
+
+extension on _MapOrderScope {
+  String get label {
+    switch (this) {
+      case _MapOrderScope.all:
+        return 'Todos';
+      case _MapOrderScope.completed:
+        return 'Finalizados';
+      case _MapOrderScope.inProgress:
+        return 'En proceso';
+      case _MapOrderScope.pending:
+        return 'Pendientes';
+    }
+  }
+}
+
+enum _MapDatePreset { all, today, last7Days, last30Days, custom }
+
+extension on _MapDatePreset {
+  String get label {
+    switch (this) {
+      case _MapDatePreset.all:
+        return 'Todo';
+      case _MapDatePreset.today:
+        return 'Hoy';
+      case _MapDatePreset.last7Days:
+        return '7d';
+      case _MapDatePreset.last30Days:
+        return '30d';
+      case _MapDatePreset.custom:
+        return 'Rango';
+    }
+  }
 }
 
 class _MapSummary {
