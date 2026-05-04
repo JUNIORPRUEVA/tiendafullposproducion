@@ -101,7 +101,7 @@ export class MarketingGenerationService {
     ],
   };
 
-  async generateMissingStories(companyId: string, date: Date, userId: string) {
+  async generateMissingStories(companyId: string, date: Date, userId?: string | null) {
     const existing = await this.prisma.marketingDailyStory.findMany({
       where: {
         companyId,
@@ -165,7 +165,7 @@ export class MarketingGenerationService {
           companyId,
           action: 'MARKETING_STORIES_GENERATED',
           description: `Se generaron contenidos: ${generated.join(', ')}`,
-          userId,
+          userId: userId ?? null,
           metadata: { date: this.toDateOnly(date), generatedTypes: generated },
         },
       });

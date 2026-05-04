@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { MarketingApprovalService } from './marketing-approval.service';
+import { MarketingAutomationScheduler } from './marketing-automation.scheduler';
 import { MarketingConfigService } from './marketing-config.service';
 import { MarketingController } from './marketing.controller';
 import { MarketingGenerationService } from './marketing-generation.service';
@@ -12,6 +13,7 @@ import { MarketingService } from './marketing.service';
     MarketingGenerationService,
     MarketingApprovalService,
     MarketingConfigService,
+    MarketingAutomationScheduler,
   ],
 })
 export class MarketingModule {}
