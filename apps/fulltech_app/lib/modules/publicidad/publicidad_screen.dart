@@ -849,10 +849,10 @@ class _ConfigTabState extends State<_ConfigTab> {
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _hour;
   late TextEditingController _count;
-  late TextEditingController _regenerateHours;
   late TextEditingController _priorityProducts;
   late TextEditingController _targetCity;
   late TextEditingController _brandTone;
+  late int _regenerateHoursValue;
   late bool _active;
   late bool _paused;
   late bool _autoRegenerate;
@@ -863,9 +863,7 @@ class _ConfigTabState extends State<_ConfigTab> {
     final c = widget.config;
     _hour = TextEditingController(text: c?.generationTime ?? '08:00');
     _count = TextEditingController(text: '${c?.dailyStoriesCount ?? 3}');
-    _regenerateHours = TextEditingController(
-      text: '${c?.regenerateAfterHours ?? 6}',
-    );
+    _regenerateHoursValue = _normalizeRegenerateHours(c?.regenerateAfterHours);
     _priorityProducts = TextEditingController(
       text: (c?.priorityProducts ?? const []).join(', '),
     );
@@ -883,7 +881,7 @@ class _ConfigTabState extends State<_ConfigTab> {
     final c = widget.config;
     _hour.text = c?.generationTime ?? '08:00';
     _count.text = '${c?.dailyStoriesCount ?? 3}';
-    _regenerateHours.text = '${c?.regenerateAfterHours ?? 6}';
+    _regenerateHoursValue = _normalizeRegenerateHours(c?.regenerateAfterHours);
     _priorityProducts.text = (c?.priorityProducts ?? const []).join(', ');
     _targetCity.text = c?.targetCity ?? '';
     _brandTone.text = c?.brandTone ?? '';
@@ -896,11 +894,22 @@ class _ConfigTabState extends State<_ConfigTab> {
   void dispose() {
     _hour.dispose();
     _count.dispose();
-    _regenerateHours.dispose();
     _priorityProducts.dispose();
     _targetCity.dispose();
     _brandTone.dispose();
     super.dispose();
+  }
+
+  static const List<int> _regenerateOptions = [0, 1, 2, 3, 6, 12, 24, 48, 72];
+
+  int _normalizeRegenerateHours(int? value) {
+    final safe = value ?? 6;
+    if (_regenerateOptions.contains(safe)) {
+      return safe;
+    }
+    if (safe < 0) return 0;
+    if (safe > 72) return 72;
+    return safe;
   }
 
   @override
@@ -962,12 +971,28 @@ class _ConfigTabState extends State<_ConfigTab> {
               ),
             ),
             const SizedBox(height: 8),
-            TextFormField(
-              controller: _regenerateHours,
-              keyboardType: TextInputType.number,
+            DropdownButtonFormField<int>(
+              initialValue: _regenerateHoursValue,
               decoration: const InputDecoration(
-                labelText: 'horas_para_regenerar (default 6)',
+                labelText: 'horas_para_regenerar',
+                helperText: '0 = prueba inmediata',
               ),
+              items: _regenerateOptions
+                  .map(
+                    (value) => DropdownMenuItem<int>(
+                      value: value,
+                      child: Text(
+                        value == 0 ? '0 (inmediato)' : '$value hora(s)',
+                      ),
+                    ),
+                  )
+                  .toList(growable: false),
+              onChanged: widget.busy
+                  ? null
+                  : (value) {
+                      if (value == null) return;
+                      setState(() => _regenerateHoursValue = value);
+                    },
             ),
             const SizedBox(height: 8),
             TextFormField(
@@ -1002,8 +1027,7 @@ class _ConfigTabState extends State<_ConfigTab> {
                             ? '08:00'
                             : _hour.text.trim(),
                         autoRegenerate: _autoRegenerate,
-                        regenerateAfterHours:
-                            int.tryParse(_regenerateHours.text.trim()) ?? 6,
+                        regenerateAfterHours: _regenerateHoursValue,
                         priorityProducts: _priorityProducts.text
                             .split(',')
                             .map((item) => item.trim())

@@ -17,7 +17,7 @@ export class MarketingAutomationScheduler {
     private readonly generationService: MarketingGenerationService,
   ) {}
 
-  @Cron(CronExpression.EVERY_5_MINUTES, { timeZone: 'America/Santo_Domingo' })
+  @Cron(CronExpression.EVERY_MINUTE, { timeZone: 'America/Santo_Domingo' })
   async runAutomation() {
     if (this.isRunning) {
       return;

@@ -26,7 +26,7 @@ export class UpdateMarketingConfigDto {
 
   @IsOptional()
   @IsInt()
-  @Min(1)
+  @Min(0)
   @Max(72)
   horas_para_regenerar?: number;
 
