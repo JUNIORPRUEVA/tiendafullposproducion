@@ -197,21 +197,45 @@ class PublicidadController extends StateNotifier<PublicidadState> {
       final to = date;
       final dashboard = await _api.loadDashboard(date);
       final config = await _api.loadConfig();
-      final stories = await _api.loadStories(date);
-      final history = await _api.loadHistory(from: from, to: to);
+      var stories = const <MarketingStory>[];
+      var historyItems = const <MarketingStory>[];
+      String? softError;
+
+      try {
+        stories = await _api.loadStories(date);
+      } catch (error) {
+        softError = _friendlyError(
+          error,
+          fallback: 'No se pudieron cargar los estados diarios.',
+        );
+      }
+
+      try {
+        final history = await _api.loadHistory(from: from, to: to);
+        historyItems = history.items;
+      } catch (error) {
+        softError ??= _friendlyError(
+          error,
+          fallback: 'No se pudo cargar el historial reciente.',
+        );
+      }
 
       state = state.copyWith(
         loading: false,
         dashboard: dashboard,
         config: config,
         dailyStories: stories,
-        history: history.items,
+        history: historyItems,
+        error: softError,
       );
     } catch (error) {
       state = state.copyWith(
         loading: false,
         busy: false,
-        error: error is ApiException ? error.message : '$error',
+        error: _friendlyError(
+          error,
+          fallback: 'No se pudo actualizar el modulo Publicidad.',
+        ),
       );
     }
   }
@@ -225,9 +249,37 @@ class PublicidadController extends StateNotifier<PublicidadState> {
     } catch (error) {
       state = state.copyWith(
         busy: false,
-        error: error is ApiException ? error.message : '$error',
+        error: _friendlyError(
+          error,
+          fallback: 'No se pudo completar la accion solicitada.',
+        ),
       );
     }
+  }
+
+  String _friendlyError(Object error, {required String fallback}) {
+    if (error is ApiException) {
+      final raw = error.message.trim();
+      final normalized = raw.toLowerCase();
+      final paginationError =
+          error.code == 400 &&
+          (normalized.contains('page must') ||
+              normalized.contains('limit must'));
+      if (paginationError) {
+        return 'Se corrigio automaticamente la paginacion. Intenta actualizar de nuevo.';
+      }
+
+      if (raw.isEmpty || raw.startsWith('{') || raw.startsWith('[')) {
+        return fallback;
+      }
+      return raw;
+    }
+
+    final raw = '$error'.trim();
+    if (raw.isEmpty || raw.startsWith('{') || raw.startsWith('[')) {
+      return fallback;
+    }
+    return raw;
   }
 }
 

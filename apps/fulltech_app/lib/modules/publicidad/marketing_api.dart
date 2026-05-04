@@ -81,16 +81,19 @@ class MarketingApi {
     required DateTime from,
     required DateTime to,
     int page = 1,
-    int limit = 50,
+    int limit = 20,
   }) async {
+    final safePage = page < 1 ? 1 : page;
+    final safeLimit = limit < 1 ? 1 : (limit > 100 ? 100 : limit);
+
     try {
       final res = await _dio.get(
         ApiRoutes.marketingHistory,
         queryParameters: {
           'from': _dateOnly(from),
           'to': _dateOnly(to),
-          'page': page,
-          'limit': limit,
+          'page': safePage,
+          'limit': safeLimit,
         },
         options: _backgroundOptions,
       );

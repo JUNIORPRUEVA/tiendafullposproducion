@@ -712,6 +712,8 @@ export function resolveWhatsappConversationIdentity(
 
 @Injectable()
 export class WhatsappInboxService {
+  private whatsappMediaColumnsAvailableCache: boolean | null = null;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtime: CatalogRealtimeRelayService,
@@ -719,6 +721,69 @@ export class WhatsappInboxService {
     private readonly whatsappService: WhatsappService,
     private readonly r2: R2Service,
   ) {}
+
+  private async hasWhatsappMediaColumns(): Promise<boolean> {
+    if (this.whatsappMediaColumnsAvailableCache !== null) {
+      return this.whatsappMediaColumnsAvailableCache;
+    }
+    try {
+      const rows = await this.prisma.$queryRaw<
+        Array<{ column_name: string }>
+      >`
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_name = 'whatsapp_messages'
+          AND column_name IN (
+            'media_storage_key',
+            'media_file_size',
+            'original_file_name',
+            'playable_storage_key',
+            'playable_mime_type',
+            'media_status',
+            'media_error'
+          )
+      `;
+      const names = new Set(rows.map((row) => row.column_name));
+      this.whatsappMediaColumnsAvailableCache =
+        names.has('media_storage_key') &&
+        names.has('media_file_size') &&
+        names.has('original_file_name') &&
+        names.has('media_status') &&
+        names.has('media_error');
+      if (!this.whatsappMediaColumnsAvailableCache) {
+        console.warn('[WhatsappInbox][MediaOptionalError]', {
+          reason: 'media_columns_missing',
+          found: Array.from(names),
+        });
+      }
+      return this.whatsappMediaColumnsAvailableCache;
+    } catch (error) {
+      this.whatsappMediaColumnsAvailableCache = false;
+      console.warn('[WhatsappInbox][MediaOptionalError]', {
+        reason: 'media_columns_check_failed',
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
+  }
+
+  private whatsappMessageBaseSelect() {
+    return {
+      id: true,
+      conversationId: true,
+      evolutionId: true,
+      direction: true,
+      messageType: true,
+      body: true,
+      mediaUrl: true,
+      mediaMimeType: true,
+      caption: true,
+      senderName: true,
+      sentAt: true,
+      createdAt: true,
+      rawPayload: true,
+    };
+  }
 
   private buildApiMediaUrl(messageId: string): string {
     return `/whatsapp-inbox/media/${messageId}`;
@@ -969,6 +1034,10 @@ export class WhatsappInboxService {
       return message;
     }
 
+    if (!(await this.hasWhatsappMediaColumns())) {
+      return message;
+    }
+
     if (message.mediaStorageKey) {
       const mediaUrl = this.buildApiMediaUrl(message.id);
       if (message.mediaUrl !== mediaUrl) {
@@ -1011,6 +1080,45 @@ export class WhatsappInboxService {
       where: { id: message.id },
       data,
     })) as unknown as T;
+  }
+
+  private materializeMessageMediaInBackground(params: {
+    message: {
+      id: string;
+      messageType: WhatsappMessageType;
+      mediaUrl?: string | null;
+      mediaStorageKey?: string | null;
+      rawPayload?: unknown;
+    };
+    instanceId: string;
+    instanceName: string;
+    instance?: { phoneNumber?: string | null; instanceName?: string | null } | null;
+  }) {
+    const { message, instanceId, instanceName, instance } = params;
+    if (
+      message.messageType === WhatsappMessageType.TEXT ||
+      message.mediaStorageKey ||
+      !message.rawPayload
+    ) {
+      return;
+    }
+
+    void (async () => {
+      try {
+        if (!(await this.hasWhatsappMediaColumns())) return;
+        const parsed = this.parseEvolutionPayload(message.rawPayload, {
+          instanceName,
+          instance: instance ?? { instanceName },
+        });
+        if (!parsed) return;
+        await this.ensureMessageMediaStored(message, instanceId, parsed);
+      } catch (error) {
+        console.warn('[WhatsappInbox][MediaOptionalError]', {
+          messageId: message.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    })();
   }
 
   async getMediaBytes(messageId: string, range?: string | null) {
@@ -1786,6 +1894,19 @@ export class WhatsappInboxService {
   // ─── Save incoming/outgoing message to DB ──────────────────────────────
 
   async saveMessage(instanceId: string, parsed: ParsedWhatsappMessage) {
+    const hasMediaColumns = await this.hasWhatsappMediaColumns();
+    const messageSelect = hasMediaColumns
+      ? {
+          ...this.whatsappMessageBaseSelect(),
+          mediaStorageKey: true,
+          mediaFileSize: true,
+          originalFileName: true,
+          playableStorageKey: true,
+          playableMimeType: true,
+          mediaStatus: true,
+          mediaError: true,
+        }
+      : this.whatsappMessageBaseSelect();
     const direction = parsed.fromMe
       ? WhatsappMessageDirection.OUTGOING
       : WhatsappMessageDirection.INCOMING;
@@ -1856,9 +1977,13 @@ export class WhatsappInboxService {
     if (parsed.evolutionId) {
       const existing = await this.prisma.whatsappMessage.findUnique({
         where: { evolutionId: parsed.evolutionId },
+        select: messageSelect,
       });
       if (existing) {
-        const hasStoredMedia = !!existing.mediaStorageKey;
+        const existingWithMedia = existing as typeof existing & {
+          mediaStorageKey?: string | null;
+        };
+        const hasStoredMedia = !!existingWithMedia.mediaStorageKey;
         const updatedExisting = await this.prisma.whatsappMessage.update({
           where: { id: existing.id },
           data: {
@@ -1874,12 +1999,15 @@ export class WhatsappInboxService {
             caption: parsed.caption,
             body: parsed.body,
           },
+          select: messageSelect,
         });
-        const readyExisting = await this.ensureMessageMediaStored(
-          updatedExisting,
-          instanceId,
-          parsed,
-        );
+        const readyExisting = hasMediaColumns
+          ? await this.ensureMessageMediaStored(
+              updatedExisting,
+              instanceId,
+              parsed,
+            )
+          : updatedExisting;
         return {
           conversation,
           message: readyExisting,
@@ -1901,6 +2029,7 @@ export class WhatsappInboxService {
             body: parsed.body,
           },
           orderBy: { sentAt: 'desc' },
+          select: messageSelect,
         });
         if (optimistic) {
           const updated = await this.prisma.whatsappMessage.update({
@@ -1910,12 +2039,15 @@ export class WhatsappInboxService {
               mediaUrl: parsed.mediaUrl ?? optimistic.mediaUrl,
               mediaMimeType: parsed.mediaMimeType ?? optimistic.mediaMimeType,
             },
+            select: messageSelect,
           });
-          const readyUpdated = await this.ensureMessageMediaStored(
-            updated,
-            instanceId,
-            parsed,
-          );
+          const readyUpdated = hasMediaColumns
+            ? await this.ensureMessageMediaStored(
+                updated,
+                instanceId,
+                parsed,
+              )
+            : updated;
           return {
             conversation,
             message: readyUpdated,
@@ -1937,6 +2069,7 @@ export class WhatsappInboxService {
           sentAt: parsed.sentAt,
         },
         orderBy: { createdAt: 'desc' },
+        select: messageSelect,
       });
       if (dupeByFingerprint) {
         return {
@@ -1962,12 +2095,19 @@ export class WhatsappInboxService {
         sentAt: parsed.sentAt,
         rawPayload: parsed.rawPayload as object,
       },
+      select: messageSelect,
     });
-    const message = await this.ensureMessageMediaStored(
-      createdMessage,
-      instanceId,
-      parsed,
-    );
+    const message = hasMediaColumns
+      ? await this.ensureMessageMediaStored(createdMessage, instanceId, parsed)
+      : createdMessage;
+
+    const messageWithOptionalMedia = message as typeof message & {
+      mediaStorageKey?: string | null;
+      mediaFileSize?: number | null;
+      mediaStatus?: string | null;
+      mediaError?: string | null;
+      originalFileName?: string | null;
+    };
 
     // Emit realtime event to all admin sockets
     this.realtime.emitTo('ops:role:admin', 'whatsapp.message', {
@@ -1983,11 +2123,11 @@ export class WhatsappInboxService {
         body: message.body,
         mediaUrl: message.mediaUrl,
         mediaMimeType: message.mediaMimeType,
-        mediaStorageKey: message.mediaStorageKey,
-        mediaFileSize: message.mediaFileSize,
-        mediaStatus: message.mediaStatus,
-        mediaError: message.mediaError,
-        originalFileName: message.originalFileName,
+        mediaStorageKey: messageWithOptionalMedia.mediaStorageKey ?? null,
+        mediaFileSize: messageWithOptionalMedia.mediaFileSize ?? null,
+        mediaStatus: messageWithOptionalMedia.mediaStatus ?? null,
+        mediaError: messageWithOptionalMedia.mediaError ?? null,
+        originalFileName: messageWithOptionalMedia.originalFileName ?? null,
         caption: message.caption,
         senderName: message.senderName,
         sentAt: message.sentAt,
@@ -2015,8 +2155,9 @@ export class WhatsappInboxService {
   // ─── Query conversations for an instance ──────────────────────────────
 
   async getConversations(instanceId: string, limit = 50) {
+    console.log('[WhatsappInbox][LoadChats]', { instanceId, limit });
     let avatarByConversationKey = new Map<string, string>();
-    await this.syncRecentChatsFromEvolution(instanceId)
+    void this.syncRecentChatsFromEvolution(instanceId)
       .then((sync) => {
         avatarByConversationKey = sync.avatarByConversationKey;
       })
@@ -2028,39 +2169,47 @@ export class WhatsappInboxService {
       );
       });
 
-    const conversations = await this.prisma.whatsappConversation.findMany({
-      where: {
-        instanceId,
-        NOT: [{ remoteJid: { contains: '@g.us' } }],
-      },
-      orderBy: { lastMessageAt: 'desc' },
-      take: limit,
-      include: {
-        messages: {
-          orderBy: { sentAt: 'desc' },
-          take: 1,
-          select: {
-            id: true,
-            direction: true,
-            messageType: true,
-            body: true,
-            caption: true,
-            sentAt: true,
+    try {
+      const conversations = await this.prisma.whatsappConversation.findMany({
+        where: {
+          instanceId,
+          NOT: [{ remoteJid: { contains: '@g.us' } }],
+        },
+        orderBy: { lastMessageAt: 'desc' },
+        take: limit,
+        include: {
+          messages: {
+            orderBy: { sentAt: 'desc' },
+            take: 1,
+            select: {
+              id: true,
+              direction: true,
+              messageType: true,
+              body: true,
+              caption: true,
+              sentAt: true,
+            },
           },
         },
-      },
-    });
-    return conversations.map((conversation) => {
-      const normalized = this.normalizeConversationForResponse(conversation);
-      const avatarUrl =
-        conversationIdentityKeys(normalized.remoteJid, normalized.remotePhone)
-          .map((key) => avatarByConversationKey.get(key) ?? null)
-          .find((value) => value != null && value.trim().length > 0) ?? null;
-      return {
-        ...normalized,
-        remoteAvatarUrl: avatarUrl,
-      };
-    });
+      });
+      return conversations.map((conversation) => {
+        const normalized = this.normalizeConversationForResponse(conversation);
+        const avatarUrl =
+          conversationIdentityKeys(normalized.remoteJid, normalized.remotePhone)
+            .map((key) => avatarByConversationKey.get(key) ?? null)
+            .find((value) => value != null && value.trim().length > 0) ?? null;
+        return {
+          ...normalized,
+          remoteAvatarUrl: avatarUrl,
+        };
+      });
+    } catch (error) {
+      console.error('[WhatsappInbox][LoadChats]', {
+        instanceId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
   }
 
   // ─── Query messages for a conversation ───────────────────────────────
@@ -2195,8 +2344,13 @@ export class WhatsappInboxService {
   }
 
   async getMessages(conversationId: string, limit = 50, before?: Date) {
+    console.log('[WhatsappInbox][LoadMessages]', {
+      conversationId,
+      limit,
+      before: before?.toISOString() ?? null,
+    });
     if (!before) {
-      await this.syncConversationFromEvolution(conversationId).catch(
+      void this.syncConversationFromEvolution(conversationId).catch(
         (error) => {
           console.warn(
             `[WhatsappInbox] No se pudo sincronizar conversacion ${conversationId}: ${
@@ -2212,56 +2366,57 @@ export class WhatsappInboxService {
       include: { instance: { select: { id: true, instanceName: true, phoneNumber: true } } },
     });
 
-    const messages = await this.prisma.whatsappMessage.findMany({
-      where: {
-        conversationId,
-        ...(before ? { sentAt: { lt: before } } : {}),
-      },
-      orderBy: { sentAt: 'desc' },
-      take: limit,
-    });
-    return Promise.all(
-      messages.map(async (message) => {
-        let current = message;
+    const hasMediaColumns = await this.hasWhatsappMediaColumns();
+    const select = hasMediaColumns
+      ? {
+          ...this.whatsappMessageBaseSelect(),
+          mediaStorageKey: true,
+          mediaFileSize: true,
+          originalFileName: true,
+          playableStorageKey: true,
+          playableMimeType: true,
+          mediaStatus: true,
+          mediaError: true,
+        }
+      : this.whatsappMessageBaseSelect();
+
+    try {
+      const messages = await this.prisma.whatsappMessage.findMany({
+        where: {
+          conversationId,
+          ...(before ? { sentAt: { lt: before } } : {}),
+        },
+        orderBy: { sentAt: 'desc' },
+        take: limit,
+        select,
+      });
+      return messages.map((message) => {
+        const current = message as typeof message & {
+          mediaStorageKey?: string | null;
+          mediaStatus?: string | null;
+        };
         if (current.mediaStorageKey) {
-          const mediaUrl = this.buildApiMediaUrl(current.id);
-          if (current.mediaUrl !== mediaUrl) {
-            current = await this.prisma.whatsappMessage.update({
-              where: { id: current.id },
-              data: { mediaUrl, mediaStatus: 'ready', mediaError: null },
-            });
-          }
-          return { ...current, mediaUrl };
+          return { ...current, mediaUrl: this.buildApiMediaUrl(current.id) };
         }
 
-        if (
-          conversation?.instance &&
-          current.messageType !== WhatsappMessageType.TEXT &&
-          current.rawPayload &&
-          current.mediaStatus !== 'failed'
-        ) {
-          const parsed = this.parseEvolutionPayload(current.rawPayload, {
+        if (conversation?.instance && hasMediaColumns) {
+          this.materializeMessageMediaInBackground({
+            message: current,
+            instanceId: conversation.instanceId,
             instanceName: conversation.instance.instanceName,
             instance: conversation.instance,
           });
-          if (parsed) {
-            current = await this.ensureMessageMediaStored(
-              current,
-              conversation.instanceId,
-              parsed,
-            );
-            if (current.mediaStorageKey) {
-              return { ...current, mediaUrl: this.buildApiMediaUrl(current.id) };
-            }
-          }
         }
 
-        return this.hydratePlayableMessageMedia(
-          current,
-          conversation?.instance.instanceName,
-        );
-      }),
-    );
+        return current;
+      });
+    } catch (error) {
+      console.error('[WhatsappInbox][LoadMessages]', {
+        conversationId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
   }
 
   async syncConversationFromEvolution(conversationId: string) {
