@@ -10,6 +10,7 @@ import { WhatsappMessageDirection, WhatsappMessageType } from '@prisma/client';
 import { CatalogRealtimeRelayService } from '../products/catalog-realtime-relay.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { R2Service } from '../storage/r2.service';
+import { RedisService } from '../common/redis/redis.service';
 import * as bcrypt from 'bcryptjs';
 import { randomUUID } from 'node:crypto';
 import {
@@ -737,7 +738,34 @@ export class WhatsappInboxService {
     private readonly config: ConfigService,
     private readonly whatsappService: WhatsappService,
     private readonly r2: R2Service,
+    private readonly redis: RedisService,
   ) {}
+
+  private conversationsCacheKey(instanceId: string, limit: number) {
+    return `whatsapp-inbox:conversations:${instanceId}:limit:${limit}`;
+  }
+
+  private messagesCacheKey(conversationId: string, limit: number) {
+    return `whatsapp-inbox:messages:${conversationId}:limit:${limit}`;
+  }
+
+  private async invalidateWhatsappInboxCache(
+    instanceId: string,
+    conversationId?: string | null,
+  ) {
+    await Promise.all([
+      this.redis.delByPattern(`whatsapp-inbox:conversations:${instanceId}:*`),
+      conversationId
+        ? this.redis.delByPattern(`whatsapp-inbox:messages:${conversationId}:*`)
+        : Promise.resolve(0),
+    ]).catch((error) => {
+      console.warn('[WhatsappInbox][RedisInvalidate]', {
+        instanceId,
+        conversationId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
 
   private async hasWhatsappMediaColumns(): Promise<boolean> {
     if (this.whatsappMediaColumnsAvailableCache !== null) {
@@ -2059,6 +2087,7 @@ export class WhatsappInboxService {
       parsed.rawPayload,
       remotePhone,
     );
+    void this.invalidateWhatsappInboxCache(instanceId, conversation.id);
 
     // Skip duplicate Evolution IDs
     if (parsed.evolutionId) {
@@ -2234,8 +2263,14 @@ export class WhatsappInboxService {
 
   // ─── Query conversations for an instance ──────────────────────────────
 
-  async getConversations(instanceId: string, limit = 50) {
+  async getConversations(instanceId: string, limit = 50, updatedAfter?: Date) {
     console.log('[WhatsappInbox][LoadChats]', { instanceId, limit });
+    const canUseCache = !updatedAfter || Number.isNaN(updatedAfter.getTime());
+    const cacheKey = this.conversationsCacheKey(instanceId, limit);
+    if (canUseCache) {
+      const cached = await this.redis.get<unknown[]>(cacheKey);
+      if (cached) return cached;
+    }
     let avatarByConversationKey = new Map<string, string>();
     void this.syncRecentChatsFromEvolution(instanceId)
       .then((sync) => {
@@ -2254,6 +2289,14 @@ export class WhatsappInboxService {
         where: {
           instanceId,
           NOT: [{ remoteJid: { contains: '@g.us' } }],
+          ...(updatedAfter && !Number.isNaN(updatedAfter.getTime())
+            ? {
+                OR: [
+                  { updatedAt: { gt: updatedAfter } },
+                  { lastMessageAt: { gt: updatedAfter } },
+                ],
+              }
+            : {}),
         },
         orderBy: [{ lastMessageAt: 'desc' }, { updatedAt: 'desc' }],
         take: limit,
@@ -2273,7 +2316,7 @@ export class WhatsappInboxService {
           },
         },
       });
-      return conversations.map((conversation) => {
+      const response = conversations.map((conversation) => {
         const normalized = this.normalizeConversationForResponse(conversation);
         const avatarUrl =
           conversationIdentityKeys(normalized.remoteJid, normalized.remotePhone)
@@ -2288,6 +2331,10 @@ export class WhatsappInboxService {
           remoteAvatarUrl: avatarUrl,
         };
       });
+      if (canUseCache) {
+        void this.redis.set(cacheKey, response, 20);
+      }
+      return response;
     } catch (error) {
       console.error('[WhatsappInbox][LoadChats]', {
         instanceId,
@@ -2428,13 +2475,19 @@ export class WhatsappInboxService {
     });
   }
 
-  async getMessages(conversationId: string, limit = 50, before?: Date) {
+  async getMessages(
+    conversationId: string,
+    limit = 50,
+    before?: Date,
+    after?: Date,
+  ) {
     console.log('[WhatsappInbox][LoadMessages]', {
       conversationId,
       limit,
       before: before?.toISOString() ?? null,
+      after: after?.toISOString() ?? null,
     });
-    if (!before) {
+    if (!before && !after) {
       void this.syncConversationFromEvolution(conversationId).catch(
         (error) => {
           console.warn(
@@ -2466,16 +2519,25 @@ export class WhatsappInboxService {
       : this.whatsappMessageBaseSelect();
 
     try {
+      const canUseCache = !before && !after;
+      const cacheKey = this.messagesCacheKey(conversationId, limit);
+      if (canUseCache) {
+        const cached = await this.redis.get<unknown[]>(cacheKey);
+        if (cached) return cached;
+      }
       const messages = await this.prisma.whatsappMessage.findMany({
         where: {
           conversationId,
           ...(before ? { sentAt: { lt: before } } : {}),
+          ...(after && !Number.isNaN(after.getTime())
+            ? { sentAt: { gt: after } }
+            : {}),
         },
         orderBy: { sentAt: 'desc' },
         take: limit,
         select,
       });
-      return messages.map((message) => {
+      const response = messages.map((message) => {
         const current = message as typeof message & {
           mediaStorageKey?: string | null;
           mediaStatus?: string | null;
@@ -2495,6 +2557,10 @@ export class WhatsappInboxService {
 
         return current;
       });
+      if (canUseCache) {
+        void this.redis.set(cacheKey, response, 20);
+      }
+      return response;
     } catch (error) {
       console.error('[WhatsappInbox][LoadMessages]', {
         conversationId,
@@ -2548,10 +2614,12 @@ export class WhatsappInboxService {
   // ─── Mark conversation as read ────────────────────────────────────────
 
   async markRead(conversationId: string) {
-    return this.prisma.whatsappConversation.update({
+    const updated = await this.prisma.whatsappConversation.update({
       where: { id: conversationId },
       data: { unreadCount: 0 },
     });
+    void this.invalidateWhatsappInboxCache(updated.instanceId, conversationId);
+    return updated;
   }
 
   // ─── List users with whatsapp instances (for admin user selector) ────

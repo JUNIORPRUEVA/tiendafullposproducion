@@ -298,7 +298,7 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
 
   void _startAutoRefresh() {
     _autoRefreshTimer?.cancel();
-    _autoRefreshTimer = Timer.periodic(const Duration(seconds: 6), (_) {
+    _autoRefreshTimer = Timer.periodic(const Duration(seconds: 45), (_) {
       if (!mounted) return;
       ref.read(waCrmControllerProvider.notifier).refreshActiveView();
     });
@@ -829,7 +829,7 @@ class _ConversationsPanelState extends State<_ConversationsPanel> {
         const Divider(height: 1),
         // ── Conversations list ────────────────────────────────────────
         Expanded(
-          child: state.loadingConversations
+          child: state.loadingConversations && state.conversations.isEmpty
               ? const Center(child: CircularProgressIndicator())
               : state.conversations.isEmpty
               ? _EmptyConvState(loading: state.loadingUsers)
@@ -2190,9 +2190,43 @@ class _ChatPanel extends StatelessWidget {
             ],
           ),
         ),
+        if (state.isOffline || state.syncingInBackground)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
+            color: state.isOffline
+                ? theme.colorScheme.errorContainer.withValues(alpha: 0.45)
+                : theme.colorScheme.primaryContainer.withValues(alpha: 0.35),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  state.isOffline
+                      ? Icons.cloud_off_outlined
+                      : Icons.sync_rounded,
+                  size: 14,
+                  color: state.isOffline
+                      ? theme.colorScheme.onErrorContainer
+                      : theme.colorScheme.primary,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  state.isOffline
+                      ? 'Sin conexión: mostrando datos guardados'
+                      : 'Sincronizando en segundo plano',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: state.isOffline
+                        ? theme.colorScheme.onErrorContainer
+                        : theme.colorScheme.primary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
         // Messages
         Expanded(
-          child: state.loadingMessages
+          child: state.loadingMessages && state.messages.isEmpty
               ? const Center(child: CircularProgressIndicator())
               : filteredMessages.isEmpty
               ? Center(

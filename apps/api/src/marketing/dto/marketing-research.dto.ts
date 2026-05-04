@@ -1,4 +1,4 @@
-import { IsBoolean, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsBoolean, IsInt, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class UpdateMarketingResearchConfigDto {
   @IsOptional()
@@ -46,6 +46,62 @@ export class UpdateMarketingResearchConfigDto {
   @IsOptional()
   @IsBoolean()
   require_approval?: boolean;
+
+  // ── New company profile fields ────────────────────────────────────────────
+
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  @IsOptional()
+  @IsString()
+  address?: string;
+
+  @IsOptional()
+  @IsString()
+  city?: string;
+
+  @IsOptional()
+  @IsString()
+  province?: string;
+
+  @IsOptional()
+  @IsString()
+  country?: string;
+
+  @IsOptional()
+  @IsNumber()
+  latitude?: number;
+
+  @IsOptional()
+  @IsNumber()
+  longitude?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(1000)
+  service_radius_km?: number;
+
+  @IsOptional()
+  @IsString({ each: true })
+  service_zones?: string[];
+
+  @IsOptional()
+  @IsString()
+  default_cta?: string;
+
+  @IsOptional()
+  @IsString({ each: true })
+  brand_colors?: string[];
+
+  @IsOptional()
+  @IsString()
+  business_hours?: string;
+
+  @IsOptional()
+  @IsString()
+  internal_notes?: string;
 }
 
 export class GenerateResearchDto {

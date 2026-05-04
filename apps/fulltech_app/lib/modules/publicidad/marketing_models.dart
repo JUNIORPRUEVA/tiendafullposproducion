@@ -309,52 +309,139 @@ List<String> _parseStringList(dynamic value) {
   if (value is List) {
     return value.map((item) => '$item'.trim()).where((item) => item.isNotEmpty).toList(growable: false);
   }
-  return const [];
-}
+  class MarketingResearchConfig {
+    const MarketingResearchConfig({
+      required this.id,
+      required this.defaultResearchPrompt,
+      required this.businessName,
+      required this.businessLocation,
+  class MarketingDashboardResearch {
+    const MarketingDashboardResearch({
+      required this.id,
+      required this.status,
+      required this.date,
+      required this.confidenceScore,
+      required this.dataSources,
+      required this.createdAt,
+    });
 
-class MarketingResearch {
-  const MarketingResearch({
-    required this.id,
-    required this.date,
-    required this.researchPrompt,
-    required this.marketSummary,
-    required this.competitorPublishingPatterns,
-    required this.commonOffers,
-    required this.observedPriceRanges,
-    required this.strongAngles,
-    required this.weakAngles,
-    required this.contentOpportunities,
-    required this.recommendedProducts,
-    required this.recommendedContentTypes,
-    required this.recommendedOffers,
-    required this.recommendedHooks,
-    required this.recommendedCTAs,
-    required this.doMoreOfThis,
-    required this.avoidThis,
-    required this.confidenceScore,
-    required this.dataSources,
-    required this.status,
-    required this.createdAt,
-    required this.approvedAt,
-    required this.rejectedAt,
-  });
+    final String id;
+    final String status;
+    final DateTime date;
+    final double confidenceScore;
+    final List<String> dataSources;
+    final DateTime? createdAt;
 
-  final String id;
-  final DateTime date;
-  final String researchPrompt;
-  final String marketSummary;
-  final String competitorPublishingPatterns;
-  final String commonOffers;
-  final String observedPriceRanges;
-  final List<String> strongAngles;
-  final List<String> weakAngles;
-  final String contentOpportunities;
-  final List<String> recommendedProducts;
-  final List<String> recommendedContentTypes;
-  final List<String> recommendedOffers;
-  final List<String> recommendedHooks;
-  final List<String> recommendedCTAs;
-  final List<String> doMoreOfThis;
+    factory MarketingDashboardResearch.fromJson(Map<String, dynamic> json) {
+      return MarketingDashboardResearch(
+        id: '${json['id'] ?? ''}',
+        status: '${json['status'] ?? ''}',
+        date: DateTime.tryParse('${json['date'] ?? ''}') ?? DateTime.now(),
+        confidenceScore: (json['confidenceScore'] as num?)?.toDouble() ?? 0.5,
+        dataSources: _parseStringList(json['dataSources']),
+        createdAt: DateTime.tryParse('${json['createdAt'] ?? ''}'),
+      );
+    }
+  }
+
+  class MarketingDashboard {
+    const MarketingDashboard({
+      required this.flowStatus,
+      required this.pendingApprovalCount,
+      required this.approvedTodayCount,
+      required this.lastGenerationAt,
+      required this.nextSuggestedGeneration,
+      required this.latestResearch,
+      required this.researchUsable,
+      required this.nextAutoResearch,
+      required this.researchFrequencyDays,
+      required this.serviceRadiusKm,
+      required this.serviceZone,
+      required this.storiesFromCurrentResearch,
+    });
+
+    final String flowStatus;
+    final int pendingApprovalCount;
+    final int approvedTodayCount;
+    final DateTime? lastGenerationAt;
+    final DateTime? nextSuggestedGeneration;
+    final MarketingDashboardResearch? latestResearch;
+    final bool researchUsable;
+    final DateTime? nextAutoResearch;
+    final int researchFrequencyDays;
+    final int serviceRadiusKm;
+    final String serviceZone;
+    final int storiesFromCurrentResearch;
+
+    factory MarketingDashboard.fromJson(Map<String, dynamic> json) {
+      final rawResearch = json['latestResearch'];
+      return MarketingDashboard(
+        flowStatus: '${json['flowStatus'] ?? 'INACTIVO'}',
+        pendingApprovalCount: (json['pendingApprovalCount'] as num?)?.toInt() ?? 0,
+        approvedTodayCount: (json['approvedTodayCount'] as num?)?.toInt() ?? 0,
+        lastGenerationAt: DateTime.tryParse('${json['lastGenerationAt'] ?? ''}'),
+        nextSuggestedGeneration: DateTime.tryParse('${json['nextSuggestedGeneration'] ?? ''}'),
+        latestResearch: rawResearch is Map
+            ? MarketingDashboardResearch.fromJson(rawResearch.cast<String, dynamic>())
+            : null,
+        researchUsable: json['researchUsable'] == true,
+        nextAutoResearch: DateTime.tryParse('${json['nextAutoResearch'] ?? ''}'),
+        researchFrequencyDays: (json['researchFrequencyDays'] as num?)?.toInt() ?? 2,
+        serviceRadiusKm: (json['serviceRadiusKm'] as num?)?.toInt() ?? 25,
+        serviceZone: '${json['serviceZone'] ?? 'Higüey, La Altagracia'}',
+        storiesFromCurrentResearch: (json['storiesFromCurrentResearch'] as num?)?.toInt() ?? 0,
+      );
+    }
+  }
+    final List<String> priorityServices;
+    final String targetMarket;
+    final String brandTone;
+    final bool learningEnabled;
+    final int researchFrequencyDays;
+    // New company profile fields
+    final String phone;
+    final String address;
+    final String city;
+    final String province;
+    final String country;
+    final double? latitude;
+    final double? longitude;
+    final int serviceRadiusKm;
+    final List<String> serviceZones;
+    final String defaultCTA;
+    final List<String> brandColors;
+    final String businessHours;
+    final String internalNotes;
+
+    factory MarketingResearchConfig.fromJson(Map<String, dynamic> json) {
+      return MarketingResearchConfig(
+        id: '${json['id'] ?? ''}',
+        defaultResearchPrompt: '${json['defaultResearchPrompt'] ?? ''}',
+        businessName: '${json['businessName'] ?? 'FULLTECH SRL'}',
+        businessLocation: '${json['businessLocation'] ?? 'Higüey, La Altagracia, República Dominicana'}',
+        businessDescription: '${json['businessDescription'] ?? ''}',
+        mainServices: _parseStringList(json['mainServices']),
+        priorityServices: _parseStringList(json['priorityServices']),
+        targetMarket: '${json['targetMarket'] ?? ''}',
+        brandTone: '${json['brandTone'] ?? ''}',
+        learningEnabled: json['learningEnabled'] == true,
+        researchFrequencyDays: (json['researchFrequencyDays'] as num?)?.toInt() ?? 2,
+        phone: '${json['phone'] ?? ''}',
+        address: '${json['address'] ?? ''}',
+        city: '${json['city'] ?? 'Higüey'}',
+        province: '${json['province'] ?? 'La Altagracia'}',
+        country: '${json['country'] ?? 'República Dominicana'}',
+        latitude: (json['latitude'] as num?)?.toDouble(),
+        longitude: (json['longitude'] as num?)?.toDouble(),
+        serviceRadiusKm: (json['serviceRadiusKm'] as num?)?.toInt() ?? 25,
+        serviceZones: _parseStringList(json['serviceZones']),
+        defaultCTA: '${json['defaultCTA'] ?? ''}',
+        brandColors: _parseStringList(json['brandColors']),
+        businessHours: '${json['businessHours'] ?? ''}',
+        internalNotes: '${json['internalNotes'] ?? ''}',
+      );
+    }
+  }
   final List<String> avoidThis;
   final double confidenceScore;
   final List<String> dataSources;

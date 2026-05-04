@@ -5,9 +5,10 @@ import { WhatsappInboxController, WhatsappInboxWebhookController } from './whats
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { ProductsModule } from '../products/products.module';
 import { StorageModule } from '../storage/storage.module';
+import { RedisModule } from '../common/redis/redis.module';
 
 @Module({
-  imports: [PrismaModule, WhatsappModule, ProductsModule, StorageModule],
+  imports: [PrismaModule, WhatsappModule, ProductsModule, StorageModule, RedisModule],
   providers: [WhatsappInboxService],
   controllers: [WhatsappInboxController, WhatsappInboxWebhookController],
   exports: [WhatsappInboxService],

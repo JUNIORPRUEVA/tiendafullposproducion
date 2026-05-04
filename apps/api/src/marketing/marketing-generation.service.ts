@@ -101,12 +101,14 @@ export class MarketingGenerationService {
     ],
   };
 
-  async generateMissingStories(companyId: string, date: Date, userId?: string | null) {
+  async generateMissingStories(companyId: string, date: Date, userId?: string | null, researchId?: string | null) {
+    let research: any = null;
+    if (researchId) {
+      research = await this.prisma.marketingResearch.findFirst({ where: { id: researchId, companyId } });
+    }
+
     const existing = await this.prisma.marketingDailyStory.findMany({
-      where: {
-        companyId,
-        date,
-      },
+      where: { companyId, date },
       orderBy: { createdAt: 'asc' },
     });
 
@@ -115,7 +117,7 @@ export class MarketingGenerationService {
     for (const type of this.orderedTypes) {
       const current = existing.find((item) => item.type === type);
       if (!current) {
-        const content = this.pickTemplate(type);
+        const content = research ? this.pickResearchEnrichedTemplate(type, research) : this.pickTemplate(type);
         await this.prisma.marketingDailyStory.create({
           data: {
             companyId,
@@ -129,6 +131,7 @@ export class MarketingGenerationService {
             imageUrl: 'image_placeholder',
             status: 'PENDING',
             generationAttempt: 1,
+            researchId: researchId ?? null,
           },
         });
         generated.push(type);
@@ -139,7 +142,7 @@ export class MarketingGenerationService {
         continue;
       }
 
-      const content = this.pickTemplate(type);
+      const content = research ? this.pickResearchEnrichedTemplate(type, research) : this.pickTemplate(type);
       await this.prisma.marketingDailyStory.update({
         where: { id: current.id },
         data: {
@@ -154,6 +157,7 @@ export class MarketingGenerationService {
           approvedAt: null,
           approvedByUserId: null,
           rejectedAt: null,
+          researchId: researchId ?? (current as any).researchId ?? null,
         },
       });
       generated.push(type);
@@ -166,7 +170,7 @@ export class MarketingGenerationService {
           action: 'MARKETING_STORIES_GENERATED',
           description: `Se generaron contenidos: ${generated.join(', ')}`,
           userId: userId ?? null,
-          metadata: { date: this.toDateOnly(date), generatedTypes: generated },
+          metadata: { date: this.toDateOnly(date), generatedTypes: generated, researchId: researchId ?? null },
         },
       });
     }
@@ -176,10 +180,7 @@ export class MarketingGenerationService {
       orderBy: { type: 'asc' },
       include: {
         approvedByUser: {
-          select: {
-            id: true,
-            nombreCompleto: true,
-          },
+          select: { id: true, nombreCompleto: true },
         },
       },
     });
@@ -234,6 +235,55 @@ export class MarketingGenerationService {
     });
 
     return updated;
+  }
+
+  private pickResearchEnrichedTemplate(type: MarketingStoryType, research: any): StoryTemplate {
+    const hooks: string[] = Array.isArray(research.recommendedHooks) ? research.recommendedHooks : [];
+    const offers: string[] = Array.isArray(research.recommendedOffers) ? research.recommendedOffers : [];
+    const ctas: string[] = Array.isArray(research.recommendedCTAs) ? research.recommendedCTAs : [];
+    const strong: string[] = Array.isArray(research.strongAngles) ? research.strongAngles : [];
+    const products: string[] = Array.isArray(research.recommendedProducts) ? research.recommendedProducts : [];
+    const base = this.pickTemplate(type);
+
+    switch (type) {
+      case MarketingStoryType.SALES: {
+        const hook = hooks[0] ?? base.title;
+        const offer = offers[0] ?? base.shortText;
+        const cta = ctas[0] ?? 'Contáctanos hoy';
+        const product = products[0] ?? 'nuestros servicios';
+        const opportunity = (research.contentOpportunities ?? '').split('.')[0]?.trim() ?? '';
+        return {
+          title: hook,
+          shortText: offer,
+          longText: `${opportunity || base.longText} ${cta}.`,
+          hashtags: base.hashtags,
+          imagePrompt: `${product} instalado profesionalmente, iluminación moderna, calidad premium`,
+        };
+      }
+      case MarketingStoryType.TRUST: {
+        const angle = strong[0] ?? base.shortText;
+        const cta = ctas[1] ?? ctas[0] ?? 'Consúltanos sin compromiso';
+        const commonOffer = (research.commonOffers ?? '').split('.')[0]?.trim() ?? '';
+        return {
+          title: base.title,
+          shortText: angle,
+          longText: `${angle}. ${commonOffer ? commonOffer + '.' : ''} ${cta}.`.trim(),
+          hashtags: base.hashtags,
+          imagePrompt: base.imagePrompt,
+        };
+      }
+      case MarketingStoryType.EDUCATIONAL: {
+        const opportunity = (research.contentOpportunities ?? '').split('.').slice(0, 2).join('.').trim();
+        const priceNote = (research.observedPriceRanges ?? '').split('.')[0]?.trim() ?? '';
+        return {
+          title: base.title,
+          shortText: priceNote ? `Referencia: ${priceNote}.` : base.shortText,
+          longText: opportunity || base.longText,
+          hashtags: base.hashtags,
+          imagePrompt: base.imagePrompt,
+        };
+      }
+    }
   }
 
   private pickTemplate(type: MarketingStoryType): StoryTemplate {

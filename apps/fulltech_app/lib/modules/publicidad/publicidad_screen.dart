@@ -261,7 +261,19 @@ class PublicidadController extends StateNotifier<PublicidadState> {
         brandTone: cfg.brandTone,
         learningEnabled: cfg.learningEnabled,
         researchFrequencyDays: cfg.researchFrequencyDays,
-        requireApproval: cfg.requireApproval,
+        phone: cfg.phone,
+        address: cfg.address,
+        city: cfg.city,
+        province: cfg.province,
+        country: cfg.country,
+        latitude: cfg.latitude,
+        longitude: cfg.longitude,
+        serviceRadiusKm: cfg.serviceRadiusKm,
+        serviceZones: cfg.serviceZones,
+        defaultCTA: cfg.defaultCTA,
+        brandColors: cfg.brandColors,
+        businessHours: cfg.businessHours,
+        internalNotes: cfg.internalNotes,
       );
       final updatedConfig = await _api.loadResearchConfig();
       state = state.copyWith(researchConfig: updatedConfig);
@@ -444,28 +456,14 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
                   onRefresh: controller.refresh,
                 ),
               ),
-              if (state.error != null)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: _ErrorBanner(message: state.error!),
-                ),
-              Expanded(
-                child: state.loading
-                    ? const Center(child: CircularProgressIndicator())
-                    : RefreshIndicator(
-                        onRefresh: controller.refresh,
-                        child: ListView(
-                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
-                          children: [
-                            if (_tab == _PublicidadTab.dashboard)
-                              _DashboardTab(
-                                state: state,
-                                onActivate: controller.activateFlow,
-                                onPause: controller.pauseFlow,
-                                onGenerateNow: controller.generateNow,
-                                onReset: controller.resetFlow,
-                                busy: state.busy,
-                              ),
+                  final researchCards = [
+                    ('Última investigación', dashboard?.latestResearch?.status == 'APPROVED' ? 'Aprobada ✓' : 'Sin investigación'),
+                    ('Investigación usable', dashboard?.researchUsable == true ? 'Sí ✓' : 'No'),
+                    ('Próxima investigación auto', _formatDateTime(dashboard?.nextAutoResearch)),
+                    ('Frecuencia investigación', 'Cada ${dashboard?.researchFrequencyDays ?? 2} días'),
+                    ('Estados desde investigación actual', '${dashboard?.storiesFromCurrentResearch ?? 0}'),
+                    ('Radio de servicio', '${dashboard?.serviceRadiusKm ?? 25} km'),
+                    ('Zona objetivo', dashboard?.serviceZone ?? 'Higüey, La Altagracia'),
                             if (_tab == _PublicidadTab.investigacion)
                               _ResearchTab(
                                 research: state.latestResearch,
@@ -537,127 +535,47 @@ class _TopToolbar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: scheme.surface.withValues(alpha: 0.9),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.4)),
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'Flujo de contenidos diarios',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              IconButton(
-                tooltip: 'Actualizar',
-                onPressed: busy ? null : onRefresh,
-                icon: const Icon(Icons.refresh_rounded),
-              ),
-              OutlinedButton.icon(
-                onPressed: busy
-                    ? null
-                    : () async {
-                        final selected = await showDatePicker(
-                          context: context,
-                          initialDate: date,
-                          firstDate: DateTime(2024),
-                          lastDate: DateTime(2100),
-                        );
-                        if (selected != null) onPickDate(selected);
-                      },
-                icon: const Icon(Icons.calendar_today_rounded, size: 16),
-                label: Text(
-                  '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}',
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          SegmentedButton<_PublicidadTab>(
-            segments: const [
-              ButtonSegment(
-                value: _PublicidadTab.dashboard,
-                label: Text('Dashboard'),
-              ),
-              ButtonSegment(
-                value: _PublicidadTab.investigacion,
-                label: Text('Investigación'),
-              ),
-              ButtonSegment(
-                value: _PublicidadTab.estados,
-                label: Text('Estados diarios'),
-              ),
-              ButtonSegment(
-                value: _PublicidadTab.historial,
-                label: Text('Historial'),
-              ),
-              ButtonSegment(
-                value: _PublicidadTab.configuracion,
-                label: Text('Configuración'),
-              ),
-            ],
-            selected: {tab},
-            onSelectionChanged: (value) {
-              if (value.isNotEmpty) onTabChanged(value.first);
-            },
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DashboardTab extends StatelessWidget {
-  const _DashboardTab({
-    required this.state,
-    required this.onActivate,
-    required this.onPause,
-    required this.onGenerateNow,
-    required this.onReset,
-    required this.busy,
-  });
-
-  final PublicidadState state;
-  final Future<void> Function() onActivate;
-  final Future<void> Function() onPause;
-  final Future<void> Function() onGenerateNow;
-  final Future<void> Function() onReset;
-  final bool busy;
-
   @override
   Widget build(BuildContext context) {
     final dashboard = state.dashboard;
-    final cards = [
+    final flowCards = [
       ('Estado del flujo', dashboard?.flowStatus ?? 'INACTIVO'),
       ('Pendientes de aprobación', '${dashboard?.pendingApprovalCount ?? 0}'),
       ('Aprobados hoy', '${dashboard?.approvedTodayCount ?? 0}'),
       ('Última generación', _formatDateTime(dashboard?.lastGenerationAt)),
-      (
-        'Próxima generación sugerida',
-        _formatDateTime(dashboard?.nextSuggestedGeneration),
-      ),
+      ('Próxima generación sugerida', _formatDateTime(dashboard?.nextSuggestedGeneration)),
     ];
-
+    final researchCards = [
+      ('Última investigación', dashboard?.latestResearch?.status == 'APPROVED' ? 'Aprobada ✓' : dashboard?.latestResearch?.status == 'DRAFT' ? 'Borrador' : 'Sin investigación'),
+      ('Investigación usable', dashboard?.researchUsable == true ? 'Sí ✓' : 'No'),
+      ('Próxima investigación auto', _formatDateTime(dashboard?.nextAutoResearch)),
+      ('Frecuencia investigación', 'Cada ${dashboard?.researchFrequencyDays ?? 2} días'),
+      ('Estados desde investigación', '${dashboard?.storiesFromCurrentResearch ?? 0}'),
+      ('Radio de servicio', '${dashboard?.serviceRadiusKm ?? 25} km'),
+      ('Zona objetivo', dashboard?.serviceZone ?? 'Higüey, La Altagracia'),
+    ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        const _DashSectionHeader(label: 'Flujo de contenido'),
+        const SizedBox(height: 8),
         Wrap(
           spacing: 10,
           runSpacing: 10,
           children: [
-            for (final card in cards)
-              SizedBox(
-                width: 270,
-                child: _MetricCard(label: card.$1, value: card.$2),
-              ),
+            for (final card in flowCards)
+              SizedBox(width: 260, child: _MetricCard(label: card.$1, value: card.$2)),
+          ],
+        ),
+        const SizedBox(height: 16),
+        const _DashSectionHeader(label: 'Investigación de mercado'),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            for (final card in researchCards)
+              SizedBox(width: 260, child: _MetricCard(label: card.$1, value: card.$2)),
           ],
         ),
         const SizedBox(height: 14),
@@ -683,6 +601,117 @@ class _DashboardTab extends StatelessWidget {
             OutlinedButton.icon(
               onPressed: busy ? null : onReset,
               icon: const Icon(Icons.restart_alt_rounded),
+              label: const Text('Eliminar/Reiniciar flujo'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _DashSectionHeader extends StatelessWidget {
+  const _DashSectionHeader({required this.label});
+  final String label;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(top: 4),
+    child: Text(
+      label,
+      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+        fontWeight: FontWeight.w700,
+        color: Theme.of(context).colorScheme.primary,
+      ),
+    ),
+  );
+}
+            ('Última generación', _formatDateTime(dashboard?.lastGenerationAt)),
+            ('Próxima generación sugerida', _formatDateTime(dashboard?.nextSuggestedGeneration)),
+          ];
+          final researchCards = [
+            ('Última investigación', dashboard?.latestResearch?.status == 'APPROVED' ? 'Aprobada ✓' : 'Sin investigación'),
+            ('Investigación usable', dashboard?.researchUsable == true ? 'Sí ✓' : 'No'),
+            ('Próxima investigación auto', _formatDateTime(dashboard?.nextAutoResearch)),
+            ('Frecuencia investigación', 'Cada ${dashboard?.researchFrequencyDays ?? 2} días'),
+            ('Estados desde investigación actual', '${dashboard?.storiesFromCurrentResearch ?? 0}'),
+            ('Radio de servicio', '${dashboard?.serviceRadiusKm ?? 25} km'),
+            ('Zona objetivo', dashboard?.serviceZone ?? 'Higüey, La Altagracia'),
+          ];
+
+        final researchCards = [
+          ('Última investigación', researchStatusLabel),
+          ('Investigación usable', dashboard?.researchUsable == true ? 'Sí ✓' : 'No'),
+          ('Próxima investigación auto', _formatDateTime(dashboard?.nextAutoResearch)),
+          ('Frecuencia investigación', 'Cada ${dashboard?.researchFrequencyDays ?? 2} días'),
+          ('Estados desde investigación actual', '${dashboard?.storiesFromCurrentResearch ?? 0}'),
+          ('Radio de servicio', '${dashboard?.serviceRadiusKm ?? 25} km'),
+          ('Zona objetivo', dashboard?.serviceZone ?? 'Higüey, La Altagracia'),
+        ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+                for (final card in flowCards)
+              SizedBox(
+                width: 270,
+                child: _MetricCard(label: card.$1, value: card.$2),
+              ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            FilledButton.icon(
+              onPressed: busy ? null : onActivate,
+              icon: const Icon(Icons.play_circle_fill_rounded),
+              label: const Text('Activar flujo'),
+            ),
+            OutlinedButton.icon(
+              onPressed: busy ? null : onPause,
+              icon: const Icon(Icons.pause_circle_filled_rounded),
+              label: const Text('Pausar flujo'),
+            ),
+            OutlinedButton.icon(
+            OutlinedButton.icon(
+              onPressed: busy ? null : onReset,
+              icon: const Icon(Icons.restart_alt_rounded),
+              label: const Text('Eliminar/Reiniciar flujo'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        const _DashSectionHeader(label: 'Investigación de mercado'),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            for (final card in researchCards)
+              SizedBox(width: 260, child: _MetricCard(label: card.$1, value: card.$2)),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _DashSectionHeader extends StatelessWidget {
+  const _DashSectionHeader({required this.label});
+  final String label;
+    ),
+  );
+}
+
               label: const Text('Eliminar/Reiniciar flujo'),
             ),
           ],

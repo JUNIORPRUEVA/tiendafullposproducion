@@ -217,6 +217,8 @@ class WaCrmState {
     this.messageDateFilter = WaCrmMessageDateFilter.all,
     this.customMessageDate,
     this.highlightedConversationIds = const <String>{},
+    this.syncingInBackground = false,
+    this.isOffline = false,
   });
 
   final List<WaCrmUser> users;
@@ -240,6 +242,8 @@ class WaCrmState {
   final WaCrmMessageDateFilter messageDateFilter;
   final DateTime? customMessageDate;
   final Set<String> highlightedConversationIds;
+  final bool syncingInBackground;
+  final bool isOffline;
 
   WaCrmState copyWith({
     List<WaCrmUser>? users,
@@ -263,6 +267,8 @@ class WaCrmState {
     WaCrmMessageDateFilter? messageDateFilter,
     DateTime? Function()? customMessageDate,
     Set<String>? highlightedConversationIds,
+    bool? syncingInBackground,
+    bool? isOffline,
   }) {
     return WaCrmState(
       users: users ?? this.users,
@@ -297,6 +303,8 @@ class WaCrmState {
           : this.customMessageDate,
       highlightedConversationIds:
           highlightedConversationIds ?? this.highlightedConversationIds,
+      syncingInBackground: syncingInBackground ?? this.syncingInBackground,
+      isOffline: isOffline ?? this.isOffline,
     );
   }
 }
@@ -373,18 +381,27 @@ class WaCrmController extends StateNotifier<WaCrmState> {
   // ─── Load all instances with webhook status ──────────────────────────
 
   Future<void> loadAllInstances() async {
-    state = state.copyWith(loadingInstances: true);
+    final cached = await _repo.cachedInstances();
+    if (cached.isNotEmpty) {
+      state = state.copyWith(allInstances: cached, loadingInstances: false);
+    } else {
+      state = state.copyWith(loadingInstances: true);
+    }
     try {
       final raw = await _repo.listAllInstancesForCrm();
       final instances = raw.map(WaCrmInstanceEntry.fromJson).toList();
-      state = state.copyWith(allInstances: instances, loadingInstances: false);
+      state = state.copyWith(
+        allInstances: instances,
+        loadingInstances: false,
+        isOffline: false,
+      );
       if (!_autoSyncedWebhookEvents) {
         _autoSyncedWebhookEvents = true;
         unawaited(_resyncEnabledWebhookEvents(instances));
       }
     } catch (e, st) {
       debugPrint('[WaCrm] loadAllInstances error: $e\n$st');
-      state = state.copyWith(loadingInstances: false);
+      state = state.copyWith(loadingInstances: false, isOffline: true);
     }
   }
 
@@ -438,11 +455,27 @@ class WaCrmController extends StateNotifier<WaCrmState> {
   // ─── Load users ─────────────────────────────────────────────────────
 
   Future<void> loadUsers() async {
-    state = state.copyWith(loadingUsers: true, error: () => null);
+    final cached = await _repo.cachedUsers();
+    if (cached.isNotEmpty) {
+      state = state.copyWith(
+        users: cached,
+        loadingUsers: false,
+        error: () => null,
+      );
+      if (state.selectedUser == null) {
+        await selectUser(cached.first);
+      }
+    } else {
+      state = state.copyWith(loadingUsers: true, error: () => null);
+    }
     try {
       final raw = await _repo.listUsers();
       final users = raw.map(WaCrmUser.fromJson).toList();
-      state = state.copyWith(users: users, loadingUsers: false);
+      state = state.copyWith(
+        users: users,
+        loadingUsers: false,
+        isOffline: false,
+      );
       // Auto-select first user
       if (users.isNotEmpty && state.selectedUser == null) {
         await selectUser(users.first);
@@ -451,6 +484,7 @@ class WaCrmController extends StateNotifier<WaCrmState> {
       debugPrint('[WaCrm] loadUsers error: $e\n$st');
       state = state.copyWith(
         loadingUsers: false,
+        isOffline: cached.isNotEmpty,
         error: () => 'Error cargando usuarios: $e',
       );
     }
@@ -461,9 +495,12 @@ class WaCrmController extends StateNotifier<WaCrmState> {
   // ─── Select user (loads conversations) ───────────────────────────────
 
   Future<void> selectUser(WaCrmUser user) async {
+    final cachedConversations = await _repo.cachedConversations(user.id);
     state = state.copyWith(
       selectedUser: () => user,
-      conversations: [],
+      conversations: _sortConversations(
+        _mergeConversationsByPhone(cachedConversations),
+      ),
       selectedConversation: () => null,
       messages: [],
       composerUnlocked: false,
@@ -471,7 +508,7 @@ class WaCrmController extends StateNotifier<WaCrmState> {
       aiSummary: () => null,
       aiSummaryError: () => null,
     );
-    await loadConversations(user.id);
+    unawaited(loadConversations(user.id));
   }
 
   Future<void> generateDailyAiSummary({DateTime? date}) async {
@@ -591,15 +628,37 @@ class WaCrmController extends StateNotifier<WaCrmState> {
   // ─── Load conversations ───────────────────────────────────────────────
 
   Future<void> loadConversations(String userId) async {
-    state = state.copyWith(loadingConversations: true, error: () => null);
+    final hasLocal =
+        state.conversations.isNotEmpty && state.selectedUser?.id == userId;
+    if (!hasLocal) {
+      final cached = await _repo.cachedConversations(userId);
+      if (cached.isNotEmpty) {
+        state = state.copyWith(
+          conversations: _sortConversations(_mergeConversationsByPhone(cached)),
+          loadingConversations: false,
+          error: () => null,
+        );
+      }
+    }
+    state = state.copyWith(
+      loadingConversations: state.conversations.isEmpty,
+      syncingInBackground: state.conversations.isNotEmpty,
+      error: () => null,
+    );
     try {
+      final lastSync = await _repo.lastConversationSync(userId);
       final convs = _sortConversations(
-        _mergeConversationsByPhone(await _repo.getConversations(userId)),
+        _mergeConversationsByPhone(
+          await _repo.getConversations(userId, updatedAfter: lastSync),
+        ),
+      );
+      final mergedConvs = _sortConversations(
+        _mergeConversationsByPhone([...state.conversations, ...convs]),
       );
       final selected = state.selectedConversation;
       final selectedReplacement = selected == null
           ? null
-          : convs.cast<WaCrmConversation?>().firstWhere(
+          : mergedConvs.cast<WaCrmConversation?>().firstWhere(
               (conv) =>
                   conv?.id == selected.id ||
                   (conv?.instanceId == selected.instanceId &&
@@ -608,15 +667,21 @@ class WaCrmController extends StateNotifier<WaCrmState> {
               orElse: () => selected,
             );
       state = state.copyWith(
-        conversations: convs,
+        conversations: mergedConvs,
         loadingConversations: false,
+        syncingInBackground: false,
+        isOffline: false,
         selectedConversation: () => selectedReplacement,
       );
     } catch (e, st) {
       debugPrint('[WaCrm] loadConversations error: $e\n$st');
       state = state.copyWith(
         loadingConversations: false,
-        error: () => 'Error cargando conversaciones: $e',
+        syncingInBackground: false,
+        isOffline: state.conversations.isNotEmpty,
+        error: () => state.conversations.isEmpty
+            ? 'Error cargando conversaciones: $e'
+            : null,
       );
     }
   }
@@ -624,13 +689,14 @@ class WaCrmController extends StateNotifier<WaCrmState> {
   // ─── Select conversation (loads messages) ────────────────────────────
 
   Future<void> selectConversation(WaCrmConversation conv) async {
+    final cachedMessages = await _repo.cachedMessages(conv.id);
     state = state.copyWith(
       selectedConversation: () => conv,
-      messages: [],
+      messages: cachedMessages,
       composerUnlocked: false,
       composerUnlockedConversationKey: () => null,
     );
-    await loadMessages(conv.id);
+    unawaited(loadMessages(conv.id));
     // Mark as read
     try {
       await _repo.markRead(conv.id);
@@ -651,21 +717,48 @@ class WaCrmController extends StateNotifier<WaCrmState> {
             : c;
       }).toList();
       state = state.copyWith(conversations: _sortConversations(updated));
+      final userId = state.selectedUser?.id;
+      final readConversation = updated.cast<WaCrmConversation?>().firstWhere(
+        (item) => item?.id == conv.id,
+        orElse: () => null,
+      );
+      if (userId != null && readConversation != null) {
+        unawaited(_repo.cacheConversation(userId, readConversation));
+      }
     } catch (_) {}
   }
 
   // ─── Load messages ───────────────────────────────────────────────────
 
   Future<void> loadMessages(String conversationId) async {
-    state = state.copyWith(loadingMessages: true, error: () => null);
+    if (state.messages.isEmpty) {
+      final cached = await _repo.cachedMessages(conversationId);
+      if (cached.isNotEmpty) {
+        state = state.copyWith(messages: cached, loadingMessages: false);
+      }
+    }
+    state = state.copyWith(
+      loadingMessages: state.messages.isEmpty,
+      syncingInBackground: state.messages.isNotEmpty,
+      error: () => null,
+    );
     try {
-      final msgs = await _repo.getMessages(conversationId);
-      state = state.copyWith(messages: msgs, loadingMessages: false);
+      final lastSync = await _repo.lastMessageSync(conversationId);
+      final msgs = await _repo.getMessages(conversationId, after: lastSync);
+      state = state.copyWith(
+        messages: _mergeMessages(state.messages, msgs),
+        loadingMessages: false,
+        syncingInBackground: false,
+        isOffline: false,
+      );
     } catch (e, st) {
       debugPrint('[WaCrm] loadMessages error: $e\n$st');
       state = state.copyWith(
         loadingMessages: false,
-        error: () => 'Error cargando mensajes: $e',
+        syncingInBackground: false,
+        isOffline: state.messages.isNotEmpty,
+        error: () =>
+            state.messages.isEmpty ? 'Error cargando mensajes: $e' : null,
       );
     }
   }
@@ -676,13 +769,25 @@ class WaCrmController extends StateNotifier<WaCrmState> {
     final user = state.selectedUser;
     if (user == null) return;
     try {
+      state = state.copyWith(
+        syncingInBackground: state.conversations.isNotEmpty,
+      );
+      final lastConversationSync = await _repo.lastConversationSync(user.id);
       final convs = _sortConversations(
-        _mergeConversationsByPhone(await _repo.getConversations(user.id)),
+        _mergeConversationsByPhone(
+          await _repo.getConversations(
+            user.id,
+            updatedAfter: lastConversationSync,
+          ),
+        ),
+      );
+      final mergedConvs = _sortConversations(
+        _mergeConversationsByPhone([...state.conversations, ...convs]),
       );
       final selected = state.selectedConversation;
       WaCrmConversation? selectedReplacement;
       if (selected != null) {
-        selectedReplacement = convs.cast<WaCrmConversation?>().firstWhere(
+        selectedReplacement = mergedConvs.cast<WaCrmConversation?>().firstWhere(
           (conv) =>
               conv?.id == selected.id ||
               (conv?.instanceId == selected.instanceId &&
@@ -694,16 +799,29 @@ class WaCrmController extends StateNotifier<WaCrmState> {
 
       List<WaCrmMessage>? messages;
       if (selectedReplacement != null) {
-        messages = await _repo.getMessages(selectedReplacement.id);
+        final lastMessageSync = await _repo.lastMessageSync(
+          selectedReplacement.id,
+        );
+        final fresh = await _repo.getMessages(
+          selectedReplacement.id,
+          after: lastMessageSync,
+        );
+        messages = _mergeMessages(state.messages, fresh);
       }
 
       state = state.copyWith(
-        conversations: convs,
+        conversations: mergedConvs,
         selectedConversation: () => selectedReplacement,
         messages: messages ?? state.messages,
+        syncingInBackground: false,
+        isOffline: false,
       );
     } catch (e) {
       debugPrint('[WaCrm] refreshActiveView error: $e');
+      state = state.copyWith(
+        syncingInBackground: false,
+        isOffline: state.conversations.isNotEmpty || state.messages.isNotEmpty,
+      );
     }
   }
 
@@ -787,10 +905,15 @@ class WaCrmController extends StateNotifier<WaCrmState> {
   /// Refreshes messages in the background without the loading spinner.
   void _silentRefreshMessages(String conversationId) {
     _repo
-        .getMessages(conversationId)
+        .lastMessageSync(conversationId)
+        .then((lastSync) {
+          return _repo.getMessages(conversationId, after: lastSync);
+        })
         .then((msgs) {
           if (state.selectedConversation?.id == conversationId) {
-            state = state.copyWith(messages: msgs);
+            state = state.copyWith(
+              messages: _mergeMessages(state.messages, msgs),
+            );
           }
         })
         .catchError((e) {
@@ -858,6 +981,23 @@ class WaCrmController extends StateNotifier<WaCrmState> {
       );
     }
     return _sortConversations(byKey.values.toList());
+  }
+
+  List<WaCrmMessage> _mergeMessages(
+    List<WaCrmMessage> existing,
+    List<WaCrmMessage> incoming,
+  ) {
+    if (incoming.isEmpty) return existing;
+    final byId = <String, WaCrmMessage>{};
+    for (final message in existing) {
+      byId[message.id] = message;
+    }
+    for (final message in incoming) {
+      byId[message.id] = message;
+    }
+    final merged = byId.values.toList();
+    merged.sort((a, b) => a.sentAt.compareTo(b.sentAt));
+    return merged;
   }
 
   // ─── Real-time message push ───────────────────────────────────────────
@@ -982,6 +1122,16 @@ class WaCrmController extends StateNotifier<WaCrmState> {
               ? () => updatedConv.copyWith(unreadCount: 0)
               : null,
         );
+        final userId = state.selectedUser?.id;
+        if (userId != null) {
+          unawaited(
+            _repo.cacheRealtimeMessage(
+              userId: userId,
+              conversation: updatedConv,
+              message: msg,
+            ),
+          );
+        }
         _pulseConversation(targetConversationId);
       }
 

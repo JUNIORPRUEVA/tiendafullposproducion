@@ -1,31 +1,54 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http_parser/http_parser.dart';
 import 'dart:typed_data';
+import 'package:path_provider/path_provider.dart';
 
 import '../../../core/auth/auth_repository.dart';
+import 'wa_crm_local_cache.dart';
+import '../application/wa_crm_controller.dart';
 import '../models/wa_crm_conversation.dart';
 import '../models/wa_crm_message.dart';
 
 final waCrmRepositoryProvider = Provider<WaCrmRepository>((ref) {
-  return WaCrmRepository(ref.watch(dioProvider));
+  return WaCrmRepository(
+    ref.watch(dioProvider),
+    ref.watch(waCrmLocalCacheProvider),
+  );
 });
 
 class WaCrmRepository {
-  WaCrmRepository(this._dio);
+  WaCrmRepository(this._dio, this._cache);
 
   final Dio _dio;
+  final WaCrmLocalCache _cache;
 
   /// List users that have a WhatsApp instance
   Future<List<Map<String, dynamic>>> listUsers() async {
     final res = await _dio.get<List<dynamic>>('/whatsapp-inbox/users');
-    return (res.data ?? []).cast<Map<String, dynamic>>();
+    final rows = (res.data ?? []).cast<Map<String, dynamic>>();
+    await _cache.saveUserRows(rows);
+    return rows;
+  }
+
+  Future<List<WaCrmUser>> cachedUsers() async {
+    final rows = await _cache.getUserRows();
+    return rows.map(WaCrmUser.fromJson).toList(growable: false);
   }
 
   /// List ALL instances (user + company) with webhook status — for CRM panel
   Future<List<Map<String, dynamic>>> listAllInstancesForCrm() async {
     final res = await _dio.get<List<dynamic>>('/whatsapp/admin/all-instances');
-    return (res.data ?? []).cast<Map<String, dynamic>>();
+    final rows = (res.data ?? []).cast<Map<String, dynamic>>();
+    await _cache.saveInstanceRows(rows);
+    return rows;
+  }
+
+  Future<List<WaCrmInstanceEntry>> cachedInstances() async {
+    final rows = await _cache.getInstanceRows();
+    return rows.map(WaCrmInstanceEntry.fromJson).toList(growable: false);
   }
 
   /// Toggle webhook for a specific instance — returns the configured URL
@@ -57,16 +80,33 @@ class WaCrmRepository {
   }
 
   /// List conversations for a user
-  Future<List<WaCrmConversation>> getConversations(String userId) async {
+  Future<List<WaCrmConversation>> getConversations(
+    String userId, {
+    DateTime? updatedAfter,
+  }) async {
     final res = await _dio.get<List<dynamic>>(
       '/whatsapp-inbox/conversations',
-      queryParameters: {'userId': userId},
+      queryParameters: {
+        'userId': userId,
+        if (updatedAfter != null)
+          'updatedAfter': updatedAfter.toIso8601String(),
+      },
       options: Options(extra: const {'skipLoader': true, 'silent': true}),
     );
-    return (res.data ?? [])
+    final conversations = (res.data ?? [])
         .cast<Map<String, dynamic>>()
         .map(WaCrmConversation.fromJson)
         .toList();
+    await _cache.saveConversations(userId, conversations);
+    return conversations;
+  }
+
+  Future<List<WaCrmConversation>> cachedConversations(String userId) {
+    return _cache.getConversations(userId);
+  }
+
+  Future<DateTime?> lastConversationSync(String userId) {
+    return _cache.getLastConversationSync(userId);
   }
 
   /// Load messages for a conversation
@@ -74,22 +114,56 @@ class WaCrmRepository {
     String conversationId, {
     int limit = 50,
     DateTime? before,
+    DateTime? after,
   }) async {
     final res = await _dio.get<List<dynamic>>(
       '/whatsapp-inbox/conversations/$conversationId/messages',
       queryParameters: {
         'limit': limit,
         if (before != null) 'before': before.toIso8601String(),
+        if (after != null) 'after': after.toIso8601String(),
       },
       options: Options(extra: const {'skipLoader': true, 'silent': true}),
     );
-    return (res.data ?? [])
+    final messages = (res.data ?? [])
         .cast<Map<String, dynamic>>()
         .map(WaCrmMessage.fromJson)
         .toList();
+    await _cache.saveMessages(conversationId, messages);
+    return messages;
+  }
+
+  Future<List<WaCrmMessage>> cachedMessages(
+    String conversationId, {
+    int limit = 80,
+  }) {
+    return _cache.getMessages(conversationId, limit: limit);
+  }
+
+  Future<DateTime?> lastMessageSync(String conversationId) {
+    return _cache.getLastMessageSync(conversationId);
+  }
+
+  Future<void> cacheRealtimeMessage({
+    required String userId,
+    required WaCrmConversation conversation,
+    required WaCrmMessage message,
+  }) async {
+    await _cache.upsertConversation(userId, conversation);
+    await _cache.upsertMessage(conversation.id, message);
+  }
+
+  Future<void> cacheConversation(
+    String userId,
+    WaCrmConversation conversation,
+  ) {
+    return _cache.upsertConversation(userId, conversation);
   }
 
   Future<Uint8List> downloadMediaBytes(String mediaUrl) async {
+    final cached = await _readCachedMedia(mediaUrl);
+    if (cached != null && cached.isNotEmpty) return cached;
+
     final res = await _dio.get<dynamic>(
       mediaUrl,
       options: Options(
@@ -98,10 +172,45 @@ class WaCrmRepository {
       ),
     );
     final data = res.data;
-    if (data is Uint8List) return data;
-    if (data is List<int>) return Uint8List.fromList(data);
-    if (data is ByteBuffer) return data.asUint8List();
-    return Uint8List(0);
+    final bytes = data is Uint8List
+        ? data
+        : data is List<int>
+        ? Uint8List.fromList(data)
+        : data is ByteBuffer
+        ? data.asUint8List()
+        : Uint8List(0);
+    if (bytes.isNotEmpty) {
+      await _writeCachedMedia(mediaUrl, bytes);
+    }
+    return bytes;
+  }
+
+  Future<Uint8List?> _readCachedMedia(String mediaUrl) async {
+    try {
+      final file = await _mediaCacheFile(mediaUrl);
+      if (!await file.exists()) return null;
+      final stat = await file.stat();
+      if (stat.size <= 0) return null;
+      return await file.readAsBytes();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _writeCachedMedia(String mediaUrl, Uint8List bytes) async {
+    try {
+      final file = await _mediaCacheFile(mediaUrl);
+      await file.parent.create(recursive: true);
+      await file.writeAsBytes(bytes, flush: false);
+    } catch (_) {}
+  }
+
+  Future<File> _mediaCacheFile(String mediaUrl) async {
+    final dir = await getApplicationCacheDirectory();
+    final key = base64Url.encode(utf8.encode(mediaUrl)).replaceAll('=', '');
+    return File(
+      '${dir.path}${Platform.pathSeparator}wa_media$Platform.pathSeparator$key.bin',
+    );
   }
 
   /// Mark conversation as read

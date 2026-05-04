@@ -27,8 +27,8 @@ export class MarketingResearchService {
         businessLocation: 'Higüey, La Altagracia, República Dominicana',
         businessDescription: 'Empresa dominicana especializada en seguridad e instalación tecnológica para hogares y negocios.',
         mainServices: [
-          'Instalación de cámaras de seguridad',
           'Automatización de motores para portones eléctricos',
+          'Instalación de cámaras de seguridad',
           'Cercos eléctricos',
           'Intercoms',
           'Alarmas',
@@ -47,6 +47,13 @@ export class MarketingResearchService {
         learningEnabled: true,
         researchFrequencyDays: 2,
         requireApproval: false,
+        city: 'Higüey',
+        province: 'La Altagracia',
+        country: 'República Dominicana',
+        serviceRadiusKm: 25,
+        serviceZones: ['Higüey', 'La Altagracia', 'San Pedro de Macorís', 'La Romana'],
+        defaultCTA: 'Llámanos o escríbenos por WhatsApp',
+        businessHours: 'Lun–Vie 8:00am–6:00pm · Sáb 8:00am–1:00pm',
       },
     });
   }
@@ -66,7 +73,22 @@ export class MarketingResearchService {
         ...(dto.brand_tone != null ? { brandTone: dto.brand_tone.trim() } : {}),
         ...(dto.learning_enabled != null ? { learningEnabled: dto.learning_enabled } : {}),
         ...(dto.research_frequency_days != null ? { researchFrequencyDays: dto.research_frequency_days } : {}),
-        ...(dto.require_approval != null ? { requireApproval: dto.require_approval } : {}),
+        // requireApproval is always false — research auto-approved
+        requireApproval: false,
+        // New company profile fields
+        ...(dto.phone != null ? { phone: dto.phone.trim() } : {}),
+        ...(dto.address != null ? { address: dto.address.trim() } : {}),
+        ...(dto.city != null ? { city: dto.city.trim() } : {}),
+        ...(dto.province != null ? { province: dto.province.trim() } : {}),
+        ...(dto.country != null ? { country: dto.country.trim() } : {}),
+        ...(dto.latitude != null ? { latitude: dto.latitude } : {}),
+        ...(dto.longitude != null ? { longitude: dto.longitude } : {}),
+        ...(dto.service_radius_km != null ? { serviceRadiusKm: dto.service_radius_km } : {}),
+        ...(dto.service_zones != null ? { serviceZones: dto.service_zones.map((z) => z.trim()).filter((z) => z.length > 0) } : {}),
+        ...(dto.default_cta != null ? { defaultCTA: dto.default_cta.trim() } : {}),
+        ...(dto.brand_colors != null ? { brandColors: dto.brand_colors.map((c) => c.trim()).filter((c) => c.length > 0) } : {}),
+        ...(dto.business_hours != null ? { businessHours: dto.business_hours.trim() } : {}),
+        ...(dto.internal_notes != null ? { internalNotes: dto.internal_notes.trim() } : {}),
         updatedByUserId: userId,
       },
     });

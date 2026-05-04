@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import {
   Prisma,
   ServiceEvidenceType,
@@ -225,5 +229,73 @@ export class MediaGalleryService {
 
   private encodeCursor(cursor: MediaCursor): string {
     return `${cursor.createdAt.toISOString()}__${cursor.id}`;
+  }
+
+  async deleteEvidence(id: string): Promise<{ id: string }> {
+    const existing = await this.prisma.serviceEvidence.findUnique({
+      where: { id },
+    });
+    if (!existing) {
+      throw new NotFoundException('Evidencia no encontrada');
+    }
+    await this.prisma.serviceEvidence.delete({ where: { id } });
+    return { id };
+  }
+
+  async markForPublicidad(id: string): Promise<{ id: string; forPublicidad: boolean }> {
+    const existing = await this.prisma.serviceEvidence.findUnique({
+      where: { id },
+    });
+    if (!existing) {
+      throw new NotFoundException('Evidencia no encontrada');
+    }
+    const updated = await this.prisma.serviceEvidence.update({
+      where: { id },
+      data: { forPublicidad: true },
+    });
+    return { id: updated.id, forPublicidad: updated.forPublicidad };
+  }
+
+  async unmarkForPublicidad(id: string): Promise<{ id: string; forPublicidad: boolean }> {
+    const existing = await this.prisma.serviceEvidence.findUnique({
+      where: { id },
+    });
+    if (!existing) {
+      throw new NotFoundException('Evidencia no encontrada');
+    }
+    const updated = await this.prisma.serviceEvidence.update({
+      where: { id },
+      data: { forPublicidad: false },
+    });
+    return { id: updated.id, forPublicidad: updated.forPublicidad };
+  }
+
+  async listPublicidad(): Promise<{
+    items: (Omit<MediaGalleryItem, 'createdAt'> & { createdAt: string; forPublicidad: boolean })[];
+  }> {
+    const rows = await this.prisma.serviceEvidence.findMany({
+      where: { forPublicidad: true },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      include: {
+        serviceOrder: {
+          select: {
+            id: true,
+            status: true,
+            serviceType: true,
+          },
+        },
+      },
+    });
+
+    const items = rows
+      .map((row) => this.mapItem(row))
+      .filter((item): item is MediaGalleryItem => item !== null)
+      .map((item) => ({
+        ...item,
+        createdAt: item.createdAt.toISOString(),
+        forPublicidad: true as const,
+      }));
+
+    return { items };
   }
 }

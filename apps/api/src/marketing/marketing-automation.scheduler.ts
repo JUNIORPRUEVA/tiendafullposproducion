@@ -4,6 +4,7 @@ import { MarketingStoryStatus, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MarketingConfigService } from './marketing-config.service';
 import { MarketingGenerationService } from './marketing-generation.service';
+import { MarketingResearchService } from './marketing-research.service';
 
 @Injectable()
 export class MarketingAutomationScheduler {
@@ -15,6 +16,7 @@ export class MarketingAutomationScheduler {
     private readonly prisma: PrismaService,
     private readonly configService: MarketingConfigService,
     private readonly generationService: MarketingGenerationService,
+    private readonly researchService: MarketingResearchService,
   ) {}
 
   @Cron(CronExpression.EVERY_MINUTE, { timeZone: 'America/Santo_Domingo' })
@@ -48,10 +50,12 @@ export class MarketingAutomationScheduler {
 
         this.logger.log('Generando estados automaticamente...');
         const actorUserId = await this.resolveActorUserId();
-        const generated = await this.generationService.generateMissingStories(companyId, today, actorUserId);
+        const researchId = await this.ensureResearch(companyId, actorUserId);
+        const generated = await this.generationService.generateMissingStories(companyId, today, actorUserId, researchId);
         await this.logActivity(companyId, 'AUTO_GENERATED', 'Generacion automatica de estados diarios', {
           date: this.toIsoDate(today),
           generatedCount: generated.length,
+          researchId: researchId ?? null,
         }, actorUserId);
         return;
       }
@@ -88,11 +92,13 @@ export class MarketingAutomationScheduler {
         },
       });
 
-      const generated = await this.generationService.generateMissingStories(companyId, today, actorUserId);
+      const researchId2 = await this.ensureResearch(companyId, actorUserId);
+      const generated = await this.generationService.generateMissingStories(companyId, today, actorUserId, researchId2);
       await this.logActivity(companyId, 'AUTO_REGENERATED', 'Regeneracion automatica por timeout de aprobacion', {
         date: this.toIsoDate(today),
         regenerateAfterHours: config.regenerateAfterHours,
         generatedCount: generated.length,
+        researchId: researchId2 ?? null,
       }, actorUserId);
     } catch (error) {
       this.logger.error(
@@ -101,6 +107,34 @@ export class MarketingAutomationScheduler {
       );
     } finally {
       this.isRunning = false;
+    }
+  }
+
+  private async ensureResearch(companyId: string, actorUserId: string | null): Promise<string | null> {
+    try {
+      const existing = await this.researchService.getUsableResearch(companyId);
+      if (existing) {
+        this.logger.log(`Investigacion existente reutilizada: ${existing.id}`);
+        await this.logActivity(companyId, 'AUTO_RESEARCH_REUSED', 'Investigacion existente reutilizada para generacion de estados', {
+          researchId: existing.id,
+          status: existing.status,
+        }, actorUserId).catch(() => {});
+        return existing.id;
+      }
+
+      this.logger.log('Generando investigacion de mercado automatica...');
+      const research = await this.researchService.generate(companyId, {}, actorUserId ?? '', false);
+      await this.logActivity(companyId, 'AUTO_RESEARCH_GENERATED', 'Investigacion de mercado generada automaticamente', {
+        researchId: research.id,
+        confidenceScore: research.confidenceScore,
+      }, actorUserId).catch(() => {});
+      return research.id;
+    } catch (error) {
+      this.logger.error('Error en investigacion automatica', error instanceof Error ? error.stack : String(error));
+      await this.logActivity(companyId, 'AUTO_RESEARCH_FAILED', 'Error al generar investigacion automatica de mercado', {
+        error: error instanceof Error ? error.message : String(error),
+      }, actorUserId).catch(() => {});
+      return null;
     }
   }
 
@@ -184,7 +218,7 @@ export class MarketingAutomationScheduler {
 
   private async logActivity(
     companyId: string,
-    action: 'AUTO_GENERATED' | 'AUTO_REGENERATED',
+    action: string,
     description: string,
     metadata: unknown,
     userId: string | null,

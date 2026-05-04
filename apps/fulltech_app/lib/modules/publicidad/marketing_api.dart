@@ -283,40 +283,65 @@ class MarketingApi {
       );
       if (res.data == null) return null;
       final raw = (res.data as Map?)?.cast<String, dynamic>();
-      if (raw == null || raw.isEmpty) return null;
-      return MarketingResearch.fromJson(raw);
+  Future<void> saveResearchConfig({
+    required String defaultPrompt,
+    required String businessName,
+    required String businessLocation,
+    required String businessDescription,
+    required List<String> mainServices,
+    required List<String> priorityServices,
+    required String targetMarket,
+    required String brandTone,
+    required bool learningEnabled,
+    required int researchFrequencyDays,
+    // New company profile fields
+    required String phone,
+    required String address,
+    required String city,
+    required String province,
+    required String country,
+    required double? latitude,
+    required double? longitude,
+    required int serviceRadiusKm,
+    required List<String> serviceZones,
+    required String defaultCTA,
+    required List<String> brandColors,
+    required String businessHours,
+    required String internalNotes,
+  }) async {
+    try {
+      await _dio.patch(
+        ApiRoutes.marketingResearchConfig,
+        data: {
+          'default_research_prompt': defaultPrompt.trim(),
+          'business_name': businessName.trim(),
+          'business_location': businessLocation.trim(),
+          'business_description': businessDescription.trim(),
+          'main_services': mainServices,
+          'priority_services': priorityServices,
+          'target_market': targetMarket.trim(),
+          'brand_tone': brandTone.trim(),
+          'learning_enabled': learningEnabled,
+          'research_frequency_days': researchFrequencyDays,
+          'phone': phone.trim(),
+          'address': address.trim(),
+          'city': city.trim(),
+          'province': province.trim(),
+          'country': country.trim(),
+          if (latitude != null) 'latitude': latitude,
+          if (longitude != null) 'longitude': longitude,
+          'service_radius_km': serviceRadiusKm,
+          'service_zones': serviceZones,
+          'default_cta': defaultCTA.trim(),
+          'brand_colors': brandColors,
+          'business_hours': businessHours.trim(),
+          'internal_notes': internalNotes.trim(),
+        },
+      );
     } on DioException catch (error) {
-      _rethrow(error, 'No se pudo cargar la investigacion');
+      _rethrow(error, 'No se pudo guardar la configuracion de investigacion');
     }
   }
-
-  Future<List<MarketingResearch>> loadResearchList() async {
-    try {
-      final res = await _dio.get(
-        ApiRoutes.marketingResearchList,
-        options: _backgroundOptions,
-      );
-      final rows = (res.data is List) ? (res.data as List) : const [];
-      return rows
-          .whereType<Map>()
-          .map((item) => MarketingResearch.fromJson(item.cast<String, dynamic>()))
-          .toList(growable: false);
-    } on DioException catch (error) {
-      _rethrow(error, 'No se pudo cargar las investigaciones');
-    }
-  }
-
-  Future<MarketingResearch> generateResearch({String? customPrompt}) async {
-    try {
-      final res = await _dio.post(
-        ApiRoutes.marketingResearchGenerate,
-        data: customPrompt != null ? {'custom_prompt': customPrompt.trim()} : <String, dynamic>{},
-      );
-      final raw = (res.data as Map?)?.cast<String, dynamic>() ?? const <String, dynamic>{};
-      return MarketingResearch.fromJson(raw);
-    } on DioException catch (error) {
-      _rethrow(error, 'No se pudo generar la investigacion');
-    }
   }
 
   Future<MarketingResearch> forceResearch({String? customPrompt}) async {

@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { MarketingApprovalService } from './marketing-approval.service';
 import { MarketingConfigService } from './marketing-config.service';
 import { MarketingGenerationService } from './marketing-generation.service';
+import { MarketingResearchService } from './marketing-research.service';
 import { MarketingHistoryQueryDto } from './dto/marketing-query.dto';
 import { UpdateMarketingConfigDto } from './dto/update-marketing-config.dto';
 import { UpdateMarketingStoryDto } from './dto/update-marketing-story.dto';
@@ -15,6 +16,7 @@ export class MarketingService {
     private readonly generation: MarketingGenerationService,
     private readonly approvals: MarketingApprovalService,
     private readonly configService: MarketingConfigService,
+    private readonly researchService: MarketingResearchService,
   ) {}
 
   resolveCompanyId() {
@@ -38,10 +40,7 @@ export class MarketingService {
   async getDashboard(companyId: string, date: Date) {
     const config = await this.configService.getOrCreate(companyId);
     const stories = await this.prisma.marketingDailyStory.findMany({
-      where: {
-        companyId,
-        date,
-      },
+      where: { companyId, date },
     });
 
     const pending = stories.filter(
@@ -50,12 +49,32 @@ export class MarketingService {
     const approved = stories.filter((item) => item.status === MarketingStoryStatus.APPROVED).length;
 
     const lastGeneration = await this.prisma.marketingActivityLog.findFirst({
-      where: {
-        companyId,
-        action: 'MARKETING_STORIES_GENERATED',
-      },
+      where: { companyId, action: 'MARKETING_STORIES_GENERATED' },
       orderBy: { createdAt: 'desc' },
     });
+
+    // Research data for dashboard
+    const [latestResearch, researchConfig] = await Promise.all([
+      this.researchService.getLatestResearch(companyId).catch(() => null),
+      this.researchService.getOrCreateConfig(companyId).catch(() => null),
+    ]);
+
+    const now = new Date();
+    let researchUsable = false;
+    let nextAutoResearch: Date | null = null;
+    let storiesFromCurrentResearch = 0;
+
+    if (researchConfig) {
+      const frequencyMs = researchConfig.researchFrequencyDays * 24 * 60 * 60 * 1000;
+      if (latestResearch) {
+        const age = now.getTime() - latestResearch.createdAt.getTime();
+        researchUsable = (latestResearch.status === 'APPROVED' || latestResearch.status === 'DRAFT') && age <= frequencyMs;
+        nextAutoResearch = new Date(latestResearch.createdAt.getTime() + frequencyMs);
+        storiesFromCurrentResearch = stories.filter((s) => (s as any).researchId === latestResearch.id).length;
+      } else {
+        nextAutoResearch = new Date(now);
+      }
+    }
 
     return {
       flowStatus: config.paused ? 'PAUSADO' : config.active ? 'ACTIVO' : 'INACTIVO',
@@ -64,6 +83,23 @@ export class MarketingService {
       lastGenerationAt: lastGeneration?.createdAt ?? null,
       nextSuggestedGeneration: this.nextGenerationSuggestion(config.generationTime),
       config,
+      // Research summary for dashboard
+      latestResearch: latestResearch
+        ? {
+            id: latestResearch.id,
+            status: latestResearch.status,
+            date: latestResearch.date,
+            confidenceScore: latestResearch.confidenceScore,
+            dataSources: latestResearch.dataSources,
+            createdAt: latestResearch.createdAt,
+          }
+        : null,
+      researchUsable,
+      nextAutoResearch,
+      researchFrequencyDays: researchConfig?.researchFrequencyDays ?? 2,
+      serviceRadiusKm: researchConfig?.serviceRadiusKm ?? 25,
+      serviceZone: researchConfig ? `${researchConfig.city}, ${researchConfig.province}` : 'Higüey, La Altagracia',
+      storiesFromCurrentResearch,
     };
   }
 

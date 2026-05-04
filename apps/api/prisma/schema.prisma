@@ -712,6 +712,19 @@ model MarketingResearchConfig {
   learningEnabled        Boolean  @default(true) @map("learning_enabled")
   researchFrequencyDays  Int      @default(2) @map("research_frequency_days")
   requireApproval        Boolean  @default(false) @map("require_approval")
+  phone                  String?  @db.Text
+  address                String?  @db.Text
+  city                   String   @default("Higüey")
+  province               String   @default("La Altagracia")
+  country                String   @default("República Dominicana")
+  latitude               Float?
+  longitude              Float?
+  serviceRadiusKm        Int      @default(25) @map("service_radius_km")
+  serviceZones           String[] @default([]) @map("service_zones")
+  defaultCTA             String?  @db.Text @map("default_cta")
+  brandColors            String[] @default([]) @map("brand_colors")
+  businessHours          String?  @db.Text @map("business_hours")
+  internalNotes          String?  @db.Text @map("internal_notes")
   updatedByUserId        String?  @map("updated_by_user_id") @db.Uuid
   createdAt              DateTime @default(now()) @map("created_at")
   updatedAt              DateTime @updatedAt @map("updated_at")
@@ -2040,6 +2053,7 @@ model ServiceEvidence {
   content        String              @db.Text
   createdById    String              @db.Uuid @map("created_by")
   createdAt      DateTime            @default(now()) @map("created_at")
+  forPublicidad  Boolean             @default(false) @map("for_publicidad")
 
   serviceOrder ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
   createdBy    User         @relation("ServiceEvidenceCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)

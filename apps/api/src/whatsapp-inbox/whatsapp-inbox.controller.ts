@@ -122,9 +122,20 @@ export class WhatsappInboxController {
 
   /** List conversations for a given user's instance */
   @Get('conversations')
-  async getConversations(@Query('userId') userId: string) {
+  async getConversations(
+    @Query('userId') userId: string,
+    @Query('limit') limit?: string,
+    @Query('updatedAfter') updatedAfter?: string,
+    @Query('since') since?: string,
+  ) {
     const instance = await this.inboxService.getInstanceByUserId(userId);
-    return this.inboxService.getConversations(instance.id);
+    const lim = limit ? Math.min(parseInt(limit, 10) || 50, 120) : 50;
+    const sinceDate = updatedAfter ?? since;
+    return this.inboxService.getConversations(
+      instance.id,
+      lim,
+      sinceDate ? new Date(sinceDate) : undefined,
+    );
   }
 
   /** List messages in a conversation (ascending for chat display) */
@@ -133,13 +144,18 @@ export class WhatsappInboxController {
     @Param('id', ParseUUIDPipe) conversationId: string,
     @Query('limit') limit?: string,
     @Query('before') before?: string,
+    @Query('after') after?: string,
+    @Query('since') since?: string,
   ) {
     const lim = limit ? Math.min(parseInt(limit, 10) || 50, 100) : 50;
     const beforeDate = before ? new Date(before) : undefined;
+    const afterValue = after ?? since;
+    const afterDate = afterValue ? new Date(afterValue) : undefined;
     const messages = await this.inboxService.getMessages(
       conversationId,
       lim,
       beforeDate,
+      afterDate,
     );
     return messages.reverse();
   }
