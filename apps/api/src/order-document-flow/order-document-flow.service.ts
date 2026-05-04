@@ -258,7 +258,7 @@ export class OrderDocumentFlowService {
     await this.evolutionWhatsApp.sendTextMessage({
       toNumber: customerPhone,
       message: messageText,
-      senderUserId: flow.order.createdBy.id,
+      senderUserId: user.id,
       requirePersonalInstance: true,
     });
     await this.evolutionWhatsApp.sendPdfDocument({
@@ -266,7 +266,7 @@ export class OrderDocumentFlowService {
       bytes: invoiceBytes,
       fileName: this.buildDocumentFileName('factura', flow.order.id),
       caption: 'Factura correspondiente a su servicio.',
-      senderUserId: flow.order.createdBy.id,
+      senderUserId: user.id,
       requirePersonalInstance: true,
     });
     await this.evolutionWhatsApp.sendPdfDocument({
@@ -274,7 +274,7 @@ export class OrderDocumentFlowService {
       bytes: warrantyBytes,
       fileName: this.buildDocumentFileName('carta_garantia', flow.order.id),
       caption: 'Carta de garantia correspondiente a su servicio.',
-      senderUserId: flow.order.createdBy.id,
+      senderUserId: user.id,
       requirePersonalInstance: true,
     });
 

@@ -18,6 +18,7 @@ import '../../core/utils/safe_url_launcher.dart';
 import '../clientes/cliente_model.dart';
 import '../clientes/client_location_utils.dart';
 import '../cotizaciones/cotizacion_models.dart';
+import '../cotizaciones/cotizaciones_screen.dart';
 import 'application/service_order_detail_controller.dart';
 import 'service_order_models.dart';
 import 'service_order_schedule_formatter.dart';
@@ -53,6 +54,24 @@ class _ServiceOrderDetailScreenState
     await Clipboard.setData(ClipboardData(text: payload));
     if (!mounted) return;
     await AppFeedback.showInfo(context, 'Información copiada al portapapeles');
+  }
+
+  Future<void> _editQuotationInline(
+    BuildContext context,
+    ServiceOrderDetailController controller,
+    CotizacionModel quotation,
+  ) async {
+    final updated = await Navigator.of(context).push<CotizacionModel>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => CotizacionesScreen(
+          initialQuotation: quotation,
+          returnSavedQuotation: true,
+        ),
+      ),
+    );
+    if (updated == null || !mounted) return;
+    await controller.refresh();
   }
 
   Future<void> _showQuotationPreviewDialog(CotizacionModel quotation) {
@@ -356,6 +375,13 @@ class _ServiceOrderDetailScreenState
                                     onOpen: () => _showQuotationPreviewDialog(
                                       state.quotation!,
                                     ),
+                                    onEdit: canEditOrder
+                                        ? () => _editQuotationInline(
+                                            context,
+                                            controller,
+                                            state.quotation!,
+                                          )
+                                        : null,
                                   ),
                           ),
                           const SizedBox(height: 10),
@@ -2862,10 +2888,12 @@ class _CompactQuotationDetails extends StatelessWidget {
   const _CompactQuotationDetails({
     required this.quotation,
     required this.onOpen,
+    this.onEdit,
   });
 
   final CotizacionModel quotation;
   final VoidCallback onOpen;
+  final VoidCallback? onEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -2900,14 +2928,36 @@ class _CompactQuotationDetails extends StatelessWidget {
           ),
         ],
         const SizedBox(height: 8),
-        OutlinedButton.icon(
-          onPressed: onOpen,
-          style: OutlinedButton.styleFrom(
-            minimumSize: const Size(0, 34),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          ),
-          icon: const Icon(Icons.visibility_outlined),
-          label: const Text('Ver detalle'),
+        Row(
+          children: [
+            OutlinedButton.icon(
+              onPressed: onOpen,
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size(0, 34),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+              ),
+              icon: const Icon(Icons.visibility_outlined),
+              label: const Text('Ver detalle'),
+            ),
+            if (onEdit != null) ...[
+              const SizedBox(width: 8),
+              FilledButton.tonalIcon(
+                onPressed: onEdit,
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size(0, 34),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                ),
+                icon: const Icon(Icons.edit_outlined),
+                label: const Text('Editar'),
+              ),
+            ],
+          ],
         ),
       ],
     );

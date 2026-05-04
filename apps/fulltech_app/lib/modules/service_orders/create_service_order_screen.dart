@@ -571,6 +571,20 @@ class _CreateServiceOrderScreenState
                             controller,
                           ),
                   ),
+                  if (state.selectedQuotation != null &&
+                      _canEditQuotation(state.selectedQuotation!)) ...[
+                    const SizedBox(width: 6),
+                    _CompactActionIconButton(
+                      icon: Icons.edit_outlined,
+                      onTap: _inlineFlowBusy || state.loading
+                          ? null
+                          : () => _editQuotationInline(
+                              context,
+                              controller,
+                              state.selectedQuotation!,
+                            ),
+                    ),
+                  ],
                 ],
               ],
             ),

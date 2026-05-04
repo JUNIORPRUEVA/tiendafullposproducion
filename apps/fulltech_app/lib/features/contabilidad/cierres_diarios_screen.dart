@@ -1209,18 +1209,11 @@ class _HistoryFullScreenPageState
     Color? amountColor,
   }) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(color: const Color(0xFFE5E7EB)),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x08000000),
-            blurRadius: 8,
-            offset: Offset(0, 4),
-          ),
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1228,19 +1221,25 @@ class _HistoryFullScreenPageState
           Text(
             title,
             style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
               color: Color(0xFF475569),
+              height: 1.1,
             ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 3),
           Text(
             _money(amount),
             style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w900,
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
               color: amountColor ?? const Color(0xFF0F172A),
+              height: 1.1,
             ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
         ],
       ),
@@ -1250,6 +1249,8 @@ class _HistoryFullScreenPageState
   Widget _buildSummaryPanel({required bool compact}) {
     final summary = _summary;
     final cardColor = const Color(0xFFF8FAFC);
+    final metricColumns = compact ? 2 : 3;
+    final metricSpacing = compact ? 6.0 : 5.0;
 
     return Container(
       height: double.infinity,
@@ -1259,304 +1260,370 @@ class _HistoryFullScreenPageState
         border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text(
-                'Resumen financiero',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
-              ),
-              const SizedBox(height: 4),
-              const Text(
-                'Solo administración',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF64748B),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  ChoiceChip(
-                    label: const Text('Hoy'),
-                    selected: _summaryPreset == _FinancialSummaryPreset.hoy,
-                    onSelected: (_) =>
-                        _setSummaryPreset(_FinancialSummaryPreset.hoy),
-                  ),
-                  ChoiceChip(
-                    label: const Text('Ayer'),
-                    selected: _summaryPreset == _FinancialSummaryPreset.ayer,
-                    onSelected: (_) =>
-                        _setSummaryPreset(_FinancialSummaryPreset.ayer),
-                  ),
-                  ChoiceChip(
-                    label: const Text('Esta quincena'),
-                    selected:
-                        _summaryPreset == _FinancialSummaryPreset.quincena,
-                    onSelected: (_) =>
-                        _setSummaryPreset(_FinancialSummaryPreset.quincena),
-                  ),
-                  ChoiceChip(
-                    label: const Text('Este mes'),
-                    selected: _summaryPreset == _FinancialSummaryPreset.mes,
-                    onSelected: (_) =>
-                        _setSummaryPreset(_FinancialSummaryPreset.mes),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () => _pickSummaryDate(fromDate: true),
-                      icon: const Icon(Icons.calendar_today_outlined, size: 16),
-                      label: Text(
-                        _summaryFromDate == null
-                            ? 'Desde'
-                            : _dateOnly(_summaryFromDate!),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () => _pickSummaryDate(fromDate: false),
-                      icon: const Icon(Icons.event_outlined, size: 16),
-                      label: Text(
-                        _summaryToDate == null ? 'Hasta' : _dateOnly(_summaryToDate!),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: InputDecorator(
-                      decoration: const InputDecoration(
-                        labelText: 'Unidad de cierre',
-                      ),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<CloseType?>(
-                          value: _summaryBusinessType,
-                          isExpanded: true,
-                          items: const [
-                            DropdownMenuItem<CloseType?>(
-                              value: null,
-                              child: Text('Todos'),
-                            ),
-                            DropdownMenuItem<CloseType?>(
-                              value: CloseType.tienda,
-                              child: Text('Tienda'),
-                            ),
-                            DropdownMenuItem<CloseType?>(
-                              value: CloseType.phytoemagry,
-                              child: Text('PhytoEmagry'),
-                            ),
-                          ],
-                          onChanged: (value) {
-                            setState(() => _summaryBusinessType = value);
-                          },
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: _summaryLoading ? null : _fetchSummary,
-                      icon: const Icon(Icons.filter_alt_outlined),
-                      label: const Text('Aplicar filtro'),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  OutlinedButton(
-                    onPressed: _summaryLoading ? null : _clearSummaryFilters,
-                    child: const Text('Limpiar'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              if (_summaryLoading)
-                const LinearProgressIndicator()
-              else if (_summaryError != null)
-                _ErrorBox(message: _summaryError!)
-              else if (summary == null)
+        padding: const EdgeInsets.all(10),
+        child: LayoutBuilder(
+          builder: (context, panelConstraints) {
+            final cardWidth =
+                (panelConstraints.maxWidth - ((metricColumns - 1) * metricSpacing)) /
+                metricColumns;
+
+            final content = Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
                 const Text(
-                  'No hay resumen disponible para este rango.',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                )
-              else ...[
-                Text(
-                  '${summary.count} cierres incluidos',
-                  style: const TextStyle(
-                    fontSize: 12,
+                  'Resumen financiero',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 2),
+                const Text(
+                  'Solo administración',
+                  style: TextStyle(
+                    fontSize: 10,
                     fontWeight: FontWeight.w700,
-                    color: Color(0xFF475569),
+                    color: Color(0xFF64748B),
                   ),
                 ),
-                const SizedBox(height: 10),
-                _buildSummaryMetricCard(
-                  'Total efectivo declarado',
-                  summary.totals.cashDeclared,
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 5,
+                  runSpacing: 5,
+                  children: [
+                    ChoiceChip(
+                      label: const Text('Hoy', style: TextStyle(fontSize: 11)),
+                      selected: _summaryPreset == _FinancialSummaryPreset.hoy,
+                      onSelected: (_) =>
+                          _setSummaryPreset(_FinancialSummaryPreset.hoy),
+                    ),
+                    ChoiceChip(
+                      label: const Text('Ayer', style: TextStyle(fontSize: 11)),
+                      selected: _summaryPreset == _FinancialSummaryPreset.ayer,
+                      onSelected: (_) =>
+                          _setSummaryPreset(_FinancialSummaryPreset.ayer),
+                    ),
+                    ChoiceChip(
+                      label: const Text(
+                        'Quincena',
+                        style: TextStyle(fontSize: 11),
+                      ),
+                      selected:
+                          _summaryPreset == _FinancialSummaryPreset.quincena,
+                      onSelected: (_) =>
+                          _setSummaryPreset(_FinancialSummaryPreset.quincena),
+                    ),
+                    ChoiceChip(
+                      label: const Text('Mes', style: TextStyle(fontSize: 11)),
+                      selected: _summaryPreset == _FinancialSummaryPreset.mes,
+                      onSelected: (_) =>
+                          _setSummaryPreset(_FinancialSummaryPreset.mes),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 8),
-                _buildSummaryMetricCard(
-                  'Total efectivo entregado',
-                  summary.totals.cashDelivered,
-                ),
-                const SizedBox(height: 8),
-                _buildSummaryMetricCard(
-                  'Efectivo disponible para depósito',
-                  summary.totals.cashAvailable,
-                  amountColor: const Color(0xFF047857),
-                ),
-                const SizedBox(height: 8),
-                _buildSummaryMetricCard(
-                  'Total transferencias',
-                  summary.totals.transfers,
-                ),
-                const SizedBox(height: 8),
-                _buildSummaryMetricCard(
-                  'Total pago con tarjeta',
-                  summary.totals.cardPayments,
-                ),
-                const SizedBox(height: 8),
-                _buildSummaryMetricCard(
-                  'Otros ingresos',
-                  summary.totals.otherIncome,
-                ),
-                const SizedBox(height: 8),
-                _buildSummaryMetricCard(
-                  'Total gastos del día',
-                  summary.totals.expenses,
-                  amountColor: const Color(0xFFB91C1C),
-                ),
-                const SizedBox(height: 8),
-                _buildSummaryMetricCard('Total neto', summary.totals.netTotal),
-                const SizedBox(height: 8),
-                _buildSummaryMetricCard(
-                  'Total depositado',
-                  summary.totals.deposited,
-                ),
-                const SizedBox(height: 8),
-                _buildSummaryMetricCard(
-                  'Total pendiente por depositar',
-                  summary.totals.pendingDeposit,
-                  amountColor: const Color(0xFF1D4ED8),
-                ),
-                const SizedBox(height: 8),
-                _buildSummaryMetricCard(
-                  'Diferencia total',
-                  summary.totals.difference,
-                  amountColor: const Color(0xFFB91C1C),
-                ),
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFD1FAE5)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Disponible para depósito',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w900,
-                          color: Color(0xFF065F46),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () => _pickSummaryDate(fromDate: true),
+                        icon: const Icon(
+                          Icons.calendar_today_outlined,
+                          size: 14,
+                        ),
+                        label: Text(
+                          _summaryFromDate == null
+                              ? 'Desde'
+                              : _dateOnly(_summaryFromDate!),
+                          style: const TextStyle(fontSize: 11),
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Disponible en efectivo: ${_money(summary.availableForDeposit.cash)}',
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      Text(
-                        'Disponible en transferencias: ${_money(summary.availableForDeposit.transfers)}',
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      Text(
-                        'Total general disponible: ${_money(summary.availableForDeposit.total)}',
-                        style: const TextStyle(fontWeight: FontWeight.w900),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFDBEAFE)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Dinero depositado',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w900,
-                          color: Color(0xFF1E3A8A),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () => _pickSummaryDate(fromDate: false),
+                        icon: const Icon(Icons.event_outlined, size: 14),
+                        label: Text(
+                          _summaryToDate == null
+                              ? 'Hasta'
+                              : _dateOnly(_summaryToDate!),
+                          style: const TextStyle(fontSize: 11),
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Total depositado: ${_money(summary.totals.deposited)}',
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      Text(
-                        'Último depósito: ${summary.depositStatus.lastDepositDate == null ? 'N/D' : _dateOnly(summary.depositStatus.lastDepositDate!)}',
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      Text(
-                        'Banco destino: ${summary.depositStatus.destinationBank ?? 'N/D'}',
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      Text(
-                        'Estado: ${_depositStatusLabel(summary.depositStatus.status)}',
-                        style: const TextStyle(fontWeight: FontWeight.w900),
-                      ),
-                    ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                InputDecorator(
+                  decoration: const InputDecoration(
+                    labelText: 'Unidad de cierre',
+                    isDense: true,
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 8,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  'Transferencias por banco',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900),
-                ),
-                const SizedBox(height: 8),
-                ...summary.transfersByBank.map(
-                  (row) => ListTile(
-                    dense: true,
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(row.bank),
-                    trailing: Text(
-                      _money(row.amount),
-                      style: const TextStyle(fontWeight: FontWeight.w800),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<CloseType?>(
+                      value: _summaryBusinessType,
+                      isExpanded: true,
+                      items: const [
+                        DropdownMenuItem<CloseType?>(
+                          value: null,
+                          child: Text('Todos', style: TextStyle(fontSize: 12)),
+                        ),
+                        DropdownMenuItem<CloseType?>(
+                          value: CloseType.tienda,
+                          child: Text('Tienda', style: TextStyle(fontSize: 12)),
+                        ),
+                        DropdownMenuItem<CloseType?>(
+                          value: CloseType.phytoemagry,
+                          child: Text(
+                            'PhytoEmagry',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                        ),
+                      ],
+                      onChanged: (value) {
+                        setState(() => _summaryBusinessType = value);
+                      },
                     ),
                   ),
                 ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: _summaryLoading ? null : _fetchSummary,
+                        icon: const Icon(Icons.filter_alt_outlined, size: 14),
+                        label: const Text(
+                          'Aplicar',
+                          style: TextStyle(fontSize: 11),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    OutlinedButton(
+                      onPressed: _summaryLoading ? null : _clearSummaryFilters,
+                      child: const Text(
+                        'Limpiar',
+                        style: TextStyle(fontSize: 11),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 7),
+                if (_summaryLoading)
+                  const LinearProgressIndicator()
+                else if (_summaryError != null)
+                  _ErrorBox(message: _summaryError!)
+                else if (summary == null)
+                  const Text(
+                    'No hay resumen disponible para este rango.',
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 11),
+                  )
+                else ...[
+                  Text(
+                    '${summary.count} cierres incluidos',
+                    style: const TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF475569),
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Wrap(
+                    spacing: metricSpacing,
+                    runSpacing: metricSpacing,
+                    children: [
+                      SizedBox(
+                        width: cardWidth,
+                        child: _buildSummaryMetricCard(
+                          'Efectivo declarado',
+                          summary.totals.cashDeclared,
+                        ),
+                      ),
+                      SizedBox(
+                        width: cardWidth,
+                        child: _buildSummaryMetricCard(
+                          'Efectivo entregado',
+                          summary.totals.cashDelivered,
+                        ),
+                      ),
+                      SizedBox(
+                        width: cardWidth,
+                        child: _buildSummaryMetricCard(
+                          'Efec. disponible',
+                          summary.totals.cashAvailable,
+                          amountColor: const Color(0xFF047857),
+                        ),
+                      ),
+                      SizedBox(
+                        width: cardWidth,
+                        child: _buildSummaryMetricCard(
+                          'Transferencias',
+                          summary.totals.transfers,
+                        ),
+                      ),
+                      SizedBox(
+                        width: cardWidth,
+                        child: _buildSummaryMetricCard(
+                          'Pago tarjeta',
+                          summary.totals.cardPayments,
+                        ),
+                      ),
+                      SizedBox(
+                        width: cardWidth,
+                        child: _buildSummaryMetricCard(
+                          'Otros ingresos',
+                          summary.totals.otherIncome,
+                        ),
+                      ),
+                      SizedBox(
+                        width: cardWidth,
+                        child: _buildSummaryMetricCard(
+                          'Gastos',
+                          summary.totals.expenses,
+                          amountColor: const Color(0xFFB91C1C),
+                        ),
+                      ),
+                      SizedBox(
+                        width: cardWidth,
+                        child: _buildSummaryMetricCard(
+                          'Total neto',
+                          summary.totals.netTotal,
+                        ),
+                      ),
+                      SizedBox(
+                        width: cardWidth,
+                        child: _buildSummaryMetricCard(
+                          'Depositado',
+                          summary.totals.deposited,
+                        ),
+                      ),
+                      SizedBox(
+                        width: cardWidth,
+                        child: _buildSummaryMetricCard(
+                          'Pendiente dep.',
+                          summary.totals.pendingDeposit,
+                          amountColor: const Color(0xFF1D4ED8),
+                        ),
+                      ),
+                      SizedBox(
+                        width: cardWidth,
+                        child: _buildSummaryMetricCard(
+                          'Diferencia',
+                          summary.totals.difference,
+                          amountColor: const Color(0xFFB91C1C),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 7),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFD1FAE5)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Disponible para depósito',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w900,
+                            color: Color(0xFF065F46),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Efectivo: ${_money(summary.availableForDeposit.cash)} · Transferencias: ${_money(summary.availableForDeposit.transfers)} · Total: ${_money(summary.availableForDeposit.total)}',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 10.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFDBEAFE)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Dinero depositado',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w900,
+                            color: Color(0xFF1E3A8A),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Total: ${_money(summary.totals.deposited)} · Último: ${summary.depositStatus.lastDepositDate == null ? 'N/D' : _dateOnly(summary.depositStatus.lastDepositDate!)} · Banco: ${summary.depositStatus.destinationBank ?? 'N/D'} · Estado: ${_depositStatusLabel(summary.depositStatus.status)}',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 10.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Transferencias por banco',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900),
+                  ),
+                  const SizedBox(height: 2),
+                  ...summary.transfersByBank.map(
+                    (row) => Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              row.bank,
+                              style: const TextStyle(fontSize: 10.5),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          Text(
+                            _money(row.amount),
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 10.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+                if (compact) const SizedBox(height: 4),
               ],
-              if (compact) const SizedBox(height: 4),
-            ],
-          ),
+            );
+
+            if (compact) {
+              return SingleChildScrollView(child: content);
+            }
+
+            return content;
+          },
         ),
       ),
     );
@@ -1877,7 +1944,7 @@ class _HistoryFullScreenPageState
           Expanded(
             child: LayoutBuilder(
               builder: (context, constraints) {
-                final showSidePanel = canDelete && constraints.maxWidth >= 1180;
+                final showSidePanel = canDelete && constraints.maxWidth >= 1240;
 
                 if (showSidePanel) {
                   return Padding(
@@ -1895,7 +1962,7 @@ class _HistoryFullScreenPageState
                         ),
                         const SizedBox(width: 12),
                         SizedBox(
-                          width: 390,
+                          width: 560,
                           child: _buildSummaryPanel(compact: false),
                         ),
                       ],
