@@ -22,7 +22,8 @@ workflows:
       - name: Build iOS release without codesign
         script: |
           cd "$APP_DIR"
-          flutter build ios --release --no-codesign
+          IOS_BUILD_NUMBER="$(date +%Y%m%d%H%M%S)"
+          flutter build ios --release --no-codesign --build-number="$IOS_BUILD_NUMBER"
     artifacts:
       - apps/fulltech_app/build/ios/iphoneos/Runner.app
       - apps/fulltech_app/build/ios/iphoneos/*.app
@@ -87,7 +88,8 @@ workflows:
       - name: Build IPA
         script: |
           cd "$APP_DIR"
-          flutter build ipa --release --export-options-plist=ios/ExportOptions.plist
+          IOS_BUILD_NUMBER="$(date +%Y%m%d%H%M%S)"
+          flutter build ipa --release --build-number="$IOS_BUILD_NUMBER" --export-options-plist=ios/ExportOptions.plist
           mkdir -p "$CM_BUILD_DIR/build/ios/ipa"
           cp build/ios/ipa/*.ipa "$CM_BUILD_DIR/build/ios/ipa/"
     artifacts:
