@@ -259,7 +259,7 @@ export class OrderDocumentFlowService {
       toNumber: customerPhone,
       message: messageText,
       senderUserId: user.id,
-      requirePersonalInstance: true,
+        requirePersonalInstance: false,
     });
     await this.evolutionWhatsApp.sendPdfDocument({
       toNumber: customerPhone,
@@ -267,7 +267,7 @@ export class OrderDocumentFlowService {
       fileName: this.buildDocumentFileName('factura', flow.order.id),
       caption: 'Factura correspondiente a su servicio.',
       senderUserId: user.id,
-      requirePersonalInstance: true,
+        requirePersonalInstance: false,
     });
     await this.evolutionWhatsApp.sendPdfDocument({
       toNumber: customerPhone,
@@ -275,7 +275,7 @@ export class OrderDocumentFlowService {
       fileName: this.buildDocumentFileName('carta_garantia', flow.order.id),
       caption: 'Carta de garantia correspondiente a su servicio.',
       senderUserId: user.id,
-      requirePersonalInstance: true,
+        requirePersonalInstance: false,
     });
 
     const updated = await this.prisma.orderDocumentFlow.update({
@@ -298,7 +298,7 @@ export class OrderDocumentFlowService {
         '*Documentos enviados al cliente*',
         `Cliente: ${customerName}`,
         `Teléfono: ${normalizedPhone || customerPhone}`,
-        'Se enviaron la factura y la carta de garantía desde la instancia principal de empresa.',
+          'Se enviaron la factura y la carta de garantía usando la instancia del usuario remitente o, si no tenía una personal, la instancia principal de empresa.',
       ].join('\n');
 
       await this.notifications.enqueueWhatsAppToUser({
