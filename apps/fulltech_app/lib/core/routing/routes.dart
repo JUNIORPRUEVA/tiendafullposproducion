@@ -22,6 +22,7 @@ class Routes {
   static const serviceOrders = '/service-orders';
   static const serviceOrderCommissions = '/service-orders/commissions';
   static const mediaGallery = '/media-gallery';
+  static const galeriaPublicidad = '/galeria-publicidad';
   static const serviceOrderCreate = '/service-orders/nueva';
   static const serviceOrderDetail = '/service-orders/:id';
   static const documentFlows = '/document-flows';

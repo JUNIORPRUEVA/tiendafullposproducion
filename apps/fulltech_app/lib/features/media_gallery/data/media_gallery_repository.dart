@@ -64,6 +64,64 @@ class MediaGalleryRepository {
     }
   }
 
+  Future<void> deleteItem(String id) async {
+    try {
+      await _dio.delete(
+        ApiRoutes.mediaGalleryDelete(id),
+        options: _backgroundOptions,
+      );
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo eliminar la evidencia');
+    }
+  }
+
+  Future<void> markForPublicidad(String id) async {
+    try {
+      await _dio.patch(
+        ApiRoutes.mediaGalleryMarkPublicidad(id),
+        options: _backgroundOptions,
+      );
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo marcar la evidencia para publicidad');
+    }
+  }
+
+  Future<void> unmarkForPublicidad(String id) async {
+    try {
+      await _dio.patch(
+        ApiRoutes.mediaGalleryUnmarkPublicidad(id),
+        options: _backgroundOptions,
+      );
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo quitar la evidencia de publicidad');
+    }
+  }
+
+  Future<List<MediaGalleryItem>> fetchPublicidad() async {
+    try {
+      final res = await _dio.get(
+        ApiRoutes.mediaGalleryPublicidad,
+        options: _backgroundOptions,
+      );
+      final data = (res.data as Map).cast<String, dynamic>();
+      final rawItems = (data['items'] as List?) ?? const [];
+      return rawItems
+          .whereType<Map>()
+          .map((row) => MediaGalleryItem.fromJson(row.cast<String, dynamic>()))
+          .toList(growable: false);
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo cargar la galería de publicidad');
+    } catch (error) {
+      throw ApiException.detailed(
+        message: 'No se pudo cargar la galería de publicidad. Formato inválido.',
+        type: ApiErrorType.parse,
+        displayCode: 'PARSE_ERROR',
+        technicalDetails: error.toString(),
+        retryable: false,
+      );
+    }
+  }
+
   String _typeValue(MediaGalleryTypeFilter filter) {
     switch (filter) {
       case MediaGalleryTypeFilter.image:

@@ -311,4 +311,52 @@ class MediaGalleryController extends StateNotifier<MediaGalleryState> {
     if (filter == state.installationFilter) return;
     state = state.copyWith(installationFilter: filter);
   }
+
+  Future<void> deleteItem(String id) async {
+    if (!_canViewGallery) return;
+    try {
+      await ref.read(mediaGalleryRepositoryProvider).deleteItem(id);
+      final updatedItems = state.items.where((item) => item.id != id).toList(growable: false);
+      state = state.copyWith(items: updatedItems);
+      // Update local cache
+      final syncedAt = state.lastSyncedAt ?? DateTime.now();
+      await _persistSnapshot(
+        items: updatedItems,
+        syncedAt: syncedAt,
+        nextCursor: state.nextCursor,
+      );
+    } catch (error) {
+      state = state.copyWith(error: _friendlyMessage(error));
+    }
+  }
+
+  Future<void> markForPublicidad(String id) async {
+    if (!_canViewGallery) return;
+    try {
+      await ref.read(mediaGalleryRepositoryProvider).markForPublicidad(id);
+      final updatedItems = state.items.map((item) {
+        if (item.id != id) return item;
+        return MediaGalleryItem(
+          id: item.id,
+          url: item.url,
+          type: item.type,
+          comment: item.comment,
+          orderId: item.orderId,
+          createdAt: item.createdAt,
+          uploadedByRole: item.uploadedByRole,
+          orderStatus: item.orderStatus,
+          isInstallationCompleted: item.isInstallationCompleted,
+          forPublicidad: true,
+        );
+      }).toList(growable: false);
+      state = state.copyWith(items: updatedItems);
+      await _persistSnapshot(
+        items: updatedItems,
+        syncedAt: state.lastSyncedAt ?? DateTime.now(),
+        nextCursor: state.nextCursor,
+      );
+    } catch (error) {
+      state = state.copyWith(error: _friendlyMessage(error));
+    }
+  }
 }

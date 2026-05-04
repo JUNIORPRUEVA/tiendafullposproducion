@@ -182,6 +182,12 @@ class ApiRoutes {
   static const serviceOrderSalesSummary = '/service-orders/sales-summary';
   static const serviceOrderCommissions = '/service-orders/commissions';
   static const mediaGallery = '/media-gallery';
+  static const mediaGalleryPublicidad = '/media-gallery/publicidad';
+  static String mediaGalleryDelete(String id) => '/media-gallery/$id';
+  static String mediaGalleryMarkPublicidad(String id) =>
+      '/media-gallery/$id/publicidad';
+  static String mediaGalleryUnmarkPublicidad(String id) =>
+      '/media-gallery/$id/quitar-publicidad';
   static const marketingDashboard = '/marketing/dashboard';
   static const marketingStories = '/marketing/stories';
   static const marketingStoriesGenerateMissing =

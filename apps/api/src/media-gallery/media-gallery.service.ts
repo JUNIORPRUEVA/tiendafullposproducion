@@ -79,6 +79,7 @@ export class MediaGalleryService {
       items: items.map((item) => ({
         ...item,
         createdAt: item.createdAt.toISOString(),
+        forPublicidad: pageRows.find((r) => r.id === item.id)?.forPublicidad ?? false,
       })),
       nextCursor: hasMore && last
         ? this.encodeCursor({ createdAt: last.createdAt, id: last.id })

@@ -1,4 +1,13 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Delete,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Role } from '@prisma/client';
 import { Roles } from '../auth/roles.decorator';
@@ -15,5 +24,29 @@ export class MediaGalleryController {
   @Roles(Role.ADMIN, Role.MARKETING)
   list(@Query() query: MediaGalleryQueryDto) {
     return this.mediaGallery.list(query);
+  }
+
+  @Get('publicidad')
+  @Roles(Role.ADMIN)
+  listPublicidad() {
+    return this.mediaGallery.listPublicidad();
+  }
+
+  @Patch(':id/publicidad')
+  @Roles(Role.ADMIN)
+  markForPublicidad(@Param('id', ParseUUIDPipe) id: string) {
+    return this.mediaGallery.markForPublicidad(id);
+  }
+
+  @Patch(':id/quitar-publicidad')
+  @Roles(Role.ADMIN)
+  unmarkForPublicidad(@Param('id', ParseUUIDPipe) id: string) {
+    return this.mediaGallery.unmarkForPublicidad(id);
+  }
+
+  @Delete(':id')
+  @Roles(Role.ADMIN)
+  deleteEvidence(@Param('id', ParseUUIDPipe) id: string) {
+    return this.mediaGallery.deleteEvidence(id);
   }
 }

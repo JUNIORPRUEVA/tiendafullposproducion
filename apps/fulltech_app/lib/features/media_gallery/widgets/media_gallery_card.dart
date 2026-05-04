@@ -148,11 +148,17 @@ class MediaGalleryCard extends StatelessWidget {
     required this.item,
     required this.onTap,
     this.onDownload,
+    this.onDelete,
+    this.onMarkPublicidad,
+    this.isAdmin = false,
   });
 
   final MediaGalleryItem item;
   final VoidCallback onTap;
   final Future<void> Function()? onDownload;
+  final Future<void> Function()? onDelete;
+  final Future<void> Function()? onMarkPublicidad;
+  final bool isAdmin;
 
   @override
   Widget build(BuildContext context) {
@@ -322,8 +328,41 @@ class MediaGalleryCard extends StatelessWidget {
                           accent: theme.colorScheme.onSurfaceVariant,
                           background: theme.colorScheme.surfaceContainerHighest,
                         ),
+                        if (item.forPublicidad)
+                          const _MiniInfoPill(
+                            text: 'Publicidad',
+                            accent: Color(0xFF9333EA),
+                            background: Color(0xFFF3E8FF),
+                          ),
                       ],
                     ),
+                    if (isAdmin) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          if (!item.forPublicidad && onMarkPublicidad != null)
+                            Expanded(
+                              child: _AdminActionButton(
+                                icon: Icons.campaign_outlined,
+                                label: 'Para publicidad',
+                                color: const Color(0xFF9333EA),
+                                onPressed: onMarkPublicidad!,
+                              ),
+                            ),
+                          if (!item.forPublicidad && onMarkPublicidad != null && onDelete != null)
+                            const SizedBox(width: 6),
+                          if (onDelete != null)
+                            Expanded(
+                              child: _AdminActionButton(
+                                icon: Icons.delete_outline_rounded,
+                                label: 'Eliminar',
+                                color: const Color(0xFFDC2626),
+                                onPressed: onDelete!,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -773,6 +812,66 @@ class _MiniInfoPill extends StatelessWidget {
             fontWeight: FontWeight.w700,
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _AdminActionButton extends StatefulWidget {
+  const _AdminActionButton({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+  final Future<void> Function() onPressed;
+
+  @override
+  State<_AdminActionButton> createState() => _AdminActionButtonState();
+}
+
+class _AdminActionButtonState extends State<_AdminActionButton> {
+  bool _loading = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 32,
+      child: OutlinedButton.icon(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: widget.color,
+          side: BorderSide(color: widget.color.withValues(alpha: 0.38)),
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
+        ),
+        onPressed: _loading
+            ? null
+            : () async {
+                setState(() => _loading = true);
+                try {
+                  await widget.onPressed();
+                } finally {
+                  if (mounted) setState(() => _loading = false);
+                }
+              },
+        icon: _loading
+            ? SizedBox(
+                width: 12,
+                height: 12,
+                child: CircularProgressIndicator(
+                  strokeWidth: 1.5,
+                  color: widget.color,
+                ),
+              )
+            : Icon(widget.icon, size: 14),
+        label: Text(widget.label),
       ),
     );
   }

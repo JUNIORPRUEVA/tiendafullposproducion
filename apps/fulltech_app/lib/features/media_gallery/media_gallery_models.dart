@@ -19,6 +19,7 @@ class MediaGalleryItem {
     required this.uploadedByRole,
     required this.orderStatus,
     required this.isInstallationCompleted,
+    this.forPublicidad = false,
   });
 
   final String id;
@@ -30,6 +31,7 @@ class MediaGalleryItem {
   final MediaGalleryUploadedByRole uploadedByRole;
   final ServiceOrderStatus orderStatus;
   final bool isInstallationCompleted;
+  final bool forPublicidad;
 
   bool get isImage => type == MediaGalleryAssetType.image;
   bool get isVideo => type == MediaGalleryAssetType.video;
@@ -108,6 +110,7 @@ class MediaGalleryItem {
         (json['orderStatus'] ?? '').toString(),
       ),
       isInstallationCompleted: json['isInstallationCompleted'] == true,
+      forPublicidad: json['forPublicidad'] == true,
     );
   }
 
@@ -124,6 +127,7 @@ class MediaGalleryItem {
           : 'technician',
       'orderStatus': orderStatus.apiValue,
       'isInstallationCompleted': isInstallationCompleted,
+      'forPublicidad': forPublicidad,
     };
   }
 }

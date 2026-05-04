@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/auth/app_permissions.dart';
@@ -9,13 +9,7 @@ import '../../core/widgets/custom_app_bar.dart';
 import 'marketing_api.dart';
 import 'marketing_models.dart';
 
-enum _PublicidadTab {
-  dashboard,
-  investigacion,
-  estados,
-  historial,
-  configuracion,
-}
+enum _PublicidadTab { dashboard, estados, historial, configuracion }
 
 class PublicidadState {
   const PublicidadState({
@@ -27,9 +21,6 @@ class PublicidadState {
     required this.dailyStories,
     required this.history,
     required this.error,
-    required this.latestResearch,
-    required this.researchConfig,
-    required this.learningStats,
   });
 
   final bool loading;
@@ -40,9 +31,6 @@ class PublicidadState {
   final List<MarketingStory> dailyStories;
   final List<MarketingStory> history;
   final String? error;
-  final MarketingResearch? latestResearch;
-  final MarketingResearchConfig? researchConfig;
-  final MarketingLearningStats? learningStats;
 
   factory PublicidadState.initial() {
     final now = DateTime.now();
@@ -55,9 +43,6 @@ class PublicidadState {
       dailyStories: const [],
       history: const [],
       error: null,
-      latestResearch: null,
-      researchConfig: null,
-      learningStats: null,
     );
   }
 
@@ -71,10 +56,6 @@ class PublicidadState {
     List<MarketingStory>? history,
     String? error,
     bool clearError = false,
-    MarketingResearch? latestResearch,
-    bool clearLatestResearch = false,
-    MarketingResearchConfig? researchConfig,
-    MarketingLearningStats? learningStats,
   }) {
     return PublicidadState(
       loading: loading ?? this.loading,
@@ -85,11 +66,6 @@ class PublicidadState {
       dailyStories: dailyStories ?? this.dailyStories,
       history: history ?? this.history,
       error: clearError ? null : (error ?? this.error),
-      latestResearch: clearLatestResearch
-          ? null
-          : (latestResearch ?? this.latestResearch),
-      researchConfig: researchConfig ?? this.researchConfig,
-      learningStats: learningStats ?? this.learningStats,
     );
   }
 }
@@ -208,78 +184,6 @@ class PublicidadController extends StateNotifier<PublicidadState> {
     });
   }
 
-  Future<void> generateResearch({String? customPrompt}) async {
-    await _runBusy(() async {
-      final result = await _api.generateResearch(customPrompt: customPrompt);
-      state = state.copyWith(latestResearch: result);
-      final stats = await _api.loadLearningStats();
-      state = state.copyWith(learningStats: stats);
-    });
-  }
-
-  Future<void> forceResearch({String? customPrompt}) async {
-    await _runBusy(() async {
-      final result = await _api.forceResearch(customPrompt: customPrompt);
-      state = state.copyWith(latestResearch: result);
-      final stats = await _api.loadLearningStats();
-      state = state.copyWith(learningStats: stats);
-    });
-  }
-
-  Future<void> approveResearch(String researchId) async {
-    await _runBusy(() async {
-      await _api.approveResearch(researchId);
-      final latest = await _api.loadLatestResearch();
-      state = state.copyWith(
-        latestResearch: latest,
-        clearLatestResearch: latest == null,
-      );
-    });
-  }
-
-  Future<void> rejectResearch(String researchId, {String reason = ''}) async {
-    await _runBusy(() async {
-      await _api.rejectResearch(researchId, reason: reason);
-      final latest = await _api.loadLatestResearch();
-      state = state.copyWith(
-        latestResearch: latest,
-        clearLatestResearch: latest == null,
-      );
-    });
-  }
-
-  Future<void> saveResearchConfig(MarketingResearchConfig cfg) async {
-    await _runBusy(() async {
-      await _api.saveResearchConfig(
-        defaultPrompt: cfg.defaultResearchPrompt,
-        businessName: cfg.businessName,
-        businessLocation: cfg.businessLocation,
-        businessDescription: cfg.businessDescription,
-        mainServices: cfg.mainServices,
-        priorityServices: cfg.priorityServices,
-        targetMarket: cfg.targetMarket,
-        brandTone: cfg.brandTone,
-        learningEnabled: cfg.learningEnabled,
-        researchFrequencyDays: cfg.researchFrequencyDays,
-        phone: cfg.phone,
-        address: cfg.address,
-        city: cfg.city,
-        province: cfg.province,
-        country: cfg.country,
-        latitude: cfg.latitude,
-        longitude: cfg.longitude,
-        serviceRadiusKm: cfg.serviceRadiusKm,
-        serviceZones: cfg.serviceZones,
-        defaultCTA: cfg.defaultCTA,
-        brandColors: cfg.brandColors,
-        businessHours: cfg.businessHours,
-        internalNotes: cfg.internalNotes,
-      );
-      final updatedConfig = await _api.loadResearchConfig();
-      state = state.copyWith(researchConfig: updatedConfig);
-    });
-  }
-
   Future<void> _refresh({required bool keepLoading}) async {
     try {
       state = state.copyWith(
@@ -316,22 +220,6 @@ class PublicidadController extends StateNotifier<PublicidadState> {
         );
       }
 
-      MarketingResearch? latestResearch;
-      MarketingResearchConfig? researchConfig;
-      MarketingLearningStats? learningStats;
-
-      try {
-        latestResearch = await _api.loadLatestResearch();
-      } catch (_) {}
-
-      try {
-        researchConfig = await _api.loadResearchConfig();
-      } catch (_) {}
-
-      try {
-        learningStats = await _api.loadLearningStats();
-      } catch (_) {}
-
       state = state.copyWith(
         loading: false,
         dashboard: dashboard,
@@ -339,10 +227,6 @@ class PublicidadController extends StateNotifier<PublicidadState> {
         dailyStories: stories,
         history: historyItems,
         error: softError,
-        latestResearch: latestResearch,
-        clearLatestResearch: latestResearch == null,
-        researchConfig: researchConfig,
-        learningStats: learningStats,
       );
     } catch (error) {
       state = state.copyWith(
@@ -456,25 +340,27 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
                   onRefresh: controller.refresh,
                 ),
               ),
-                  final researchCards = [
-                    ('Última investigación', dashboard?.latestResearch?.status == 'APPROVED' ? 'Aprobada ✓' : 'Sin investigación'),
-                    ('Investigación usable', dashboard?.researchUsable == true ? 'Sí ✓' : 'No'),
-                    ('Próxima investigación auto', _formatDateTime(dashboard?.nextAutoResearch)),
-                    ('Frecuencia investigación', 'Cada ${dashboard?.researchFrequencyDays ?? 2} días'),
-                    ('Estados desde investigación actual', '${dashboard?.storiesFromCurrentResearch ?? 0}'),
-                    ('Radio de servicio', '${dashboard?.serviceRadiusKm ?? 25} km'),
-                    ('Zona objetivo', dashboard?.serviceZone ?? 'Higüey, La Altagracia'),
-                            if (_tab == _PublicidadTab.investigacion)
-                              _ResearchTab(
-                                research: state.latestResearch,
-                                researchConfig: state.researchConfig,
-                                learningStats: state.learningStats,
+              if (state.error != null)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: _ErrorBanner(message: state.error!),
+                ),
+              Expanded(
+                child: state.loading
+                    ? const Center(child: CircularProgressIndicator())
+                    : RefreshIndicator(
+                        onRefresh: controller.refresh,
+                        child: ListView(
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+                          children: [
+                            if (_tab == _PublicidadTab.dashboard)
+                              _DashboardTab(
+                                state: state,
+                                onActivate: controller.activateFlow,
+                                onPause: controller.pauseFlow,
+                                onGenerateNow: controller.generateNow,
+                                onReset: controller.resetFlow,
                                 busy: state.busy,
-                                onGenerate: controller.generateResearch,
-                                onForce: controller.forceResearch,
-                                onApprove: controller.approveResearch,
-                                onReject: controller.rejectResearch,
-                                onSaveConfig: controller.saveResearchConfig,
                               ),
                             if (_tab == _PublicidadTab.estados)
                               _DailyStoriesTab(
@@ -535,47 +421,123 @@ class _TopToolbar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: scheme.surface.withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.4)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Flujo de contenidos diarios',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Actualizar',
+                onPressed: busy ? null : onRefresh,
+                icon: const Icon(Icons.refresh_rounded),
+              ),
+              OutlinedButton.icon(
+                onPressed: busy
+                    ? null
+                    : () async {
+                        final selected = await showDatePicker(
+                          context: context,
+                          initialDate: date,
+                          firstDate: DateTime(2024),
+                          lastDate: DateTime(2100),
+                        );
+                        if (selected != null) onPickDate(selected);
+                      },
+                icon: const Icon(Icons.calendar_today_rounded, size: 16),
+                label: Text(
+                  '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}',
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          SegmentedButton<_PublicidadTab>(
+            segments: const [
+              ButtonSegment(
+                value: _PublicidadTab.dashboard,
+                label: Text('Dashboard'),
+              ),
+              ButtonSegment(
+                value: _PublicidadTab.estados,
+                label: Text('Estados diarios'),
+              ),
+              ButtonSegment(
+                value: _PublicidadTab.historial,
+                label: Text('Historial'),
+              ),
+              ButtonSegment(
+                value: _PublicidadTab.configuracion,
+                label: Text('Configuraci├│n'),
+              ),
+            ],
+            selected: {tab},
+            onSelectionChanged: (value) {
+              if (value.isNotEmpty) onTabChanged(value.first);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DashboardTab extends StatelessWidget {
+  const _DashboardTab({
+    required this.state,
+    required this.onActivate,
+    required this.onPause,
+    required this.onGenerateNow,
+    required this.onReset,
+    required this.busy,
+  });
+
+  final PublicidadState state;
+  final Future<void> Function() onActivate;
+  final Future<void> Function() onPause;
+  final Future<void> Function() onGenerateNow;
+  final Future<void> Function() onReset;
+  final bool busy;
+
   @override
   Widget build(BuildContext context) {
     final dashboard = state.dashboard;
-    final flowCards = [
+    final cards = [
       ('Estado del flujo', dashboard?.flowStatus ?? 'INACTIVO'),
-      ('Pendientes de aprobación', '${dashboard?.pendingApprovalCount ?? 0}'),
+      ('Pendientes de aprobaci├│n', '${dashboard?.pendingApprovalCount ?? 0}'),
       ('Aprobados hoy', '${dashboard?.approvedTodayCount ?? 0}'),
-      ('Última generación', _formatDateTime(dashboard?.lastGenerationAt)),
-      ('Próxima generación sugerida', _formatDateTime(dashboard?.nextSuggestedGeneration)),
+      ('├Ültima generaci├│n', _formatDateTime(dashboard?.lastGenerationAt)),
+      (
+        'Pr├│xima generaci├│n sugerida',
+        _formatDateTime(dashboard?.nextSuggestedGeneration),
+      ),
     ];
-    final researchCards = [
-      ('Última investigación', dashboard?.latestResearch?.status == 'APPROVED' ? 'Aprobada ✓' : dashboard?.latestResearch?.status == 'DRAFT' ? 'Borrador' : 'Sin investigación'),
-      ('Investigación usable', dashboard?.researchUsable == true ? 'Sí ✓' : 'No'),
-      ('Próxima investigación auto', _formatDateTime(dashboard?.nextAutoResearch)),
-      ('Frecuencia investigación', 'Cada ${dashboard?.researchFrequencyDays ?? 2} días'),
-      ('Estados desde investigación', '${dashboard?.storiesFromCurrentResearch ?? 0}'),
-      ('Radio de servicio', '${dashboard?.serviceRadiusKm ?? 25} km'),
-      ('Zona objetivo', dashboard?.serviceZone ?? 'Higüey, La Altagracia'),
-    ];
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _DashSectionHeader(label: 'Flujo de contenido'),
-        const SizedBox(height: 8),
         Wrap(
           spacing: 10,
           runSpacing: 10,
           children: [
-            for (final card in flowCards)
-              SizedBox(width: 260, child: _MetricCard(label: card.$1, value: card.$2)),
-          ],
-        ),
-        const SizedBox(height: 16),
-        const _DashSectionHeader(label: 'Investigación de mercado'),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: [
-            for (final card in researchCards)
-              SizedBox(width: 260, child: _MetricCard(label: card.$1, value: card.$2)),
+            for (final card in cards)
+              SizedBox(
+                width: 270,
+                child: _MetricCard(label: card.$1, value: card.$2),
+              ),
           ],
         ),
         const SizedBox(height: 14),
@@ -601,117 +563,6 @@ class _TopToolbar extends StatelessWidget {
             OutlinedButton.icon(
               onPressed: busy ? null : onReset,
               icon: const Icon(Icons.restart_alt_rounded),
-              label: const Text('Eliminar/Reiniciar flujo'),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-class _DashSectionHeader extends StatelessWidget {
-  const _DashSectionHeader({required this.label});
-  final String label;
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(top: 4),
-    child: Text(
-      label,
-      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-        fontWeight: FontWeight.w700,
-        color: Theme.of(context).colorScheme.primary,
-      ),
-    ),
-  );
-}
-            ('Última generación', _formatDateTime(dashboard?.lastGenerationAt)),
-            ('Próxima generación sugerida', _formatDateTime(dashboard?.nextSuggestedGeneration)),
-          ];
-          final researchCards = [
-            ('Última investigación', dashboard?.latestResearch?.status == 'APPROVED' ? 'Aprobada ✓' : 'Sin investigación'),
-            ('Investigación usable', dashboard?.researchUsable == true ? 'Sí ✓' : 'No'),
-            ('Próxima investigación auto', _formatDateTime(dashboard?.nextAutoResearch)),
-            ('Frecuencia investigación', 'Cada ${dashboard?.researchFrequencyDays ?? 2} días'),
-            ('Estados desde investigación actual', '${dashboard?.storiesFromCurrentResearch ?? 0}'),
-            ('Radio de servicio', '${dashboard?.serviceRadiusKm ?? 25} km'),
-            ('Zona objetivo', dashboard?.serviceZone ?? 'Higüey, La Altagracia'),
-          ];
-
-        final researchCards = [
-          ('Última investigación', researchStatusLabel),
-          ('Investigación usable', dashboard?.researchUsable == true ? 'Sí ✓' : 'No'),
-          ('Próxima investigación auto', _formatDateTime(dashboard?.nextAutoResearch)),
-          ('Frecuencia investigación', 'Cada ${dashboard?.researchFrequencyDays ?? 2} días'),
-          ('Estados desde investigación actual', '${dashboard?.storiesFromCurrentResearch ?? 0}'),
-          ('Radio de servicio', '${dashboard?.serviceRadiusKm ?? 25} km'),
-          ('Zona objetivo', dashboard?.serviceZone ?? 'Higüey, La Altagracia'),
-        ];
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: [
-                for (final card in flowCards)
-              SizedBox(
-                width: 270,
-                child: _MetricCard(label: card.$1, value: card.$2),
-              ),
-          ],
-        ),
-        const SizedBox(height: 14),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            FilledButton.icon(
-              onPressed: busy ? null : onActivate,
-              icon: const Icon(Icons.play_circle_fill_rounded),
-              label: const Text('Activar flujo'),
-            ),
-            OutlinedButton.icon(
-              onPressed: busy ? null : onPause,
-              icon: const Icon(Icons.pause_circle_filled_rounded),
-              label: const Text('Pausar flujo'),
-            ),
-            OutlinedButton.icon(
-            OutlinedButton.icon(
-              onPressed: busy ? null : onReset,
-              icon: const Icon(Icons.restart_alt_rounded),
-              label: const Text('Eliminar/Reiniciar flujo'),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        const _DashSectionHeader(label: 'Investigación de mercado'),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: [
-            for (final card in researchCards)
-              SizedBox(width: 260, child: _MetricCard(label: card.$1, value: card.$2)),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-class _DashSectionHeader extends StatelessWidget {
-  const _DashSectionHeader({required this.label});
-  final String label;
-    ),
-  );
-}
-
               label: const Text('Eliminar/Reiniciar flujo'),
             ),
           ],
@@ -951,7 +802,7 @@ class _HistoryTab extends StatelessWidget {
               leading: _StatusPill(status: item.status),
               title: Text(item.title),
               subtitle: Text(
-                '${_formatDate(item.date)}  ·  ${_storyTypeLabel(item.type)}  ·  Regenerado: ${item.regeneratedCount}x',
+                '${_formatDate(item.date)}  ┬À  ${_storyTypeLabel(item.type)}  ┬À  Regenerado: ${item.regeneratedCount}x',
               ),
               trailing: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -967,7 +818,7 @@ class _HistoryTab extends StatelessWidget {
                         ? 'Aprobado: ${_formatDateTime(item.approvedAt)}'
                         : item.rejectedAt != null
                         ? 'Rechazado: ${_formatDateTime(item.rejectedAt)}'
-                        : 'Sin decisión',
+                        : 'Sin decisi├│n',
                     style: Theme.of(context).textTheme.labelSmall,
                   ),
                 ],
@@ -998,10 +849,10 @@ class _ConfigTabState extends State<_ConfigTab> {
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _hour;
   late TextEditingController _count;
+  late TextEditingController _regenerateHours;
   late TextEditingController _priorityProducts;
   late TextEditingController _targetCity;
   late TextEditingController _brandTone;
-  late int _regenerateHoursValue;
   late bool _active;
   late bool _paused;
   late bool _autoRegenerate;
@@ -1012,7 +863,9 @@ class _ConfigTabState extends State<_ConfigTab> {
     final c = widget.config;
     _hour = TextEditingController(text: c?.generationTime ?? '08:00');
     _count = TextEditingController(text: '${c?.dailyStoriesCount ?? 3}');
-    _regenerateHoursValue = _normalizeRegenerateHours(c?.regenerateAfterHours);
+    _regenerateHours = TextEditingController(
+      text: '${c?.regenerateAfterHours ?? 6}',
+    );
     _priorityProducts = TextEditingController(
       text: (c?.priorityProducts ?? const []).join(', '),
     );
@@ -1030,7 +883,7 @@ class _ConfigTabState extends State<_ConfigTab> {
     final c = widget.config;
     _hour.text = c?.generationTime ?? '08:00';
     _count.text = '${c?.dailyStoriesCount ?? 3}';
-    _regenerateHoursValue = _normalizeRegenerateHours(c?.regenerateAfterHours);
+    _regenerateHours.text = '${c?.regenerateAfterHours ?? 6}';
     _priorityProducts.text = (c?.priorityProducts ?? const []).join(', ');
     _targetCity.text = c?.targetCity ?? '';
     _brandTone.text = c?.brandTone ?? '';
@@ -1043,22 +896,11 @@ class _ConfigTabState extends State<_ConfigTab> {
   void dispose() {
     _hour.dispose();
     _count.dispose();
+    _regenerateHours.dispose();
     _priorityProducts.dispose();
     _targetCity.dispose();
     _brandTone.dispose();
     super.dispose();
-  }
-
-  static const List<int> _regenerateOptions = [0, 1, 2, 3, 6, 12, 24, 48, 72];
-
-  int _normalizeRegenerateHours(int? value) {
-    final safe = value ?? 6;
-    if (_regenerateOptions.contains(safe)) {
-      return safe;
-    }
-    if (safe < 0) return 0;
-    if (safe > 72) return 72;
-    return safe;
   }
 
   @override
@@ -1066,7 +908,7 @@ class _ConfigTabState extends State<_ConfigTab> {
     final scheme = Theme.of(context).colorScheme;
     final config = widget.config;
     if (config == null) {
-      return const _EmptyState(text: 'No se encontró configuración del flujo.');
+      return const _EmptyState(text: 'No se encontr├│ configuraci├│n del flujo.');
     }
 
     return Container(
@@ -1120,28 +962,12 @@ class _ConfigTabState extends State<_ConfigTab> {
               ),
             ),
             const SizedBox(height: 8),
-            DropdownButtonFormField<int>(
-              initialValue: _regenerateHoursValue,
+            TextFormField(
+              controller: _regenerateHours,
+              keyboardType: TextInputType.number,
               decoration: const InputDecoration(
-                labelText: 'horas_para_regenerar',
-                helperText: '0 = prueba inmediata',
+                labelText: 'horas_para_regenerar (default 6)',
               ),
-              items: _regenerateOptions
-                  .map(
-                    (value) => DropdownMenuItem<int>(
-                      value: value,
-                      child: Text(
-                        value == 0 ? '0 (inmediato)' : '$value hora(s)',
-                      ),
-                    ),
-                  )
-                  .toList(growable: false),
-              onChanged: widget.busy
-                  ? null
-                  : (value) {
-                      if (value == null) return;
-                      setState(() => _regenerateHoursValue = value);
-                    },
             ),
             const SizedBox(height: 8),
             TextFormField(
@@ -1176,7 +1002,8 @@ class _ConfigTabState extends State<_ConfigTab> {
                             ? '08:00'
                             : _hour.text.trim(),
                         autoRegenerate: _autoRegenerate,
-                        regenerateAfterHours: _regenerateHoursValue,
+                        regenerateAfterHours:
+                            int.tryParse(_regenerateHours.text.trim()) ?? 6,
                         priorityProducts: _priorityProducts.text
                             .split(',')
                             .map((item) => item.trim())
@@ -1188,573 +1015,11 @@ class _ConfigTabState extends State<_ConfigTab> {
                       await widget.onSave(payload);
                     },
               icon: const Icon(Icons.save_rounded),
-              label: const Text('Guardar configuración'),
+              label: const Text('Guardar configuraci├│n'),
             ),
           ],
         ),
       ),
-    );
-  }
-}
-
-class _ResearchTab extends StatefulWidget {
-  const _ResearchTab({
-    required this.research,
-    required this.researchConfig,
-    required this.learningStats,
-    required this.busy,
-    required this.onGenerate,
-    required this.onForce,
-    required this.onApprove,
-    required this.onReject,
-    required this.onSaveConfig,
-  });
-
-  final MarketingResearch? research;
-  final MarketingResearchConfig? researchConfig;
-  final MarketingLearningStats? learningStats;
-  final bool busy;
-  final Future<void> Function({String? customPrompt}) onGenerate;
-  final Future<void> Function({String? customPrompt}) onForce;
-  final Future<void> Function(String researchId) onApprove;
-  final Future<void> Function(String researchId, {String reason}) onReject;
-  final Future<void> Function(MarketingResearchConfig config) onSaveConfig;
-
-  @override
-  State<_ResearchTab> createState() => _ResearchTabState();
-}
-
-class _ResearchTabState extends State<_ResearchTab> {
-  late TextEditingController _promptController;
-
-  @override
-  void initState() {
-    super.initState();
-    _promptController = TextEditingController(
-      text: widget.researchConfig?.defaultResearchPrompt ?? '',
-    );
-  }
-
-  @override
-  void didUpdateWidget(covariant _ResearchTab oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.researchConfig?.id != widget.researchConfig?.id &&
-        widget.researchConfig != null) {
-      _promptController.text = widget.researchConfig!.defaultResearchPrompt;
-    }
-  }
-
-  @override
-  void dispose() {
-    _promptController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final research = widget.research;
-    final config = widget.researchConfig;
-    final stats = widget.learningStats;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // ── Prompt section ──────────────────────────────────────────────────
-        _ResearchSection(
-          title: 'Instrucción de investigación',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              TextFormField(
-                controller: _promptController,
-                minLines: 4,
-                maxLines: 8,
-                decoration: const InputDecoration(
-                  labelText: 'Prompt de investigación',
-                  helperText: 'Define qué analizar en el mercado.',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 10),
-              if (config != null)
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    FilledButton.icon(
-                      onPressed: widget.busy
-                          ? null
-                          : () async {
-                              final updatedConfig = MarketingResearchConfig(
-                                id: config.id,
-                                defaultResearchPrompt: _promptController.text
-                                    .trim(),
-                                businessName: config.businessName,
-                                businessLocation: config.businessLocation,
-                                businessDescription: config.businessDescription,
-                                mainServices: config.mainServices,
-                                priorityServices: config.priorityServices,
-                                targetMarket: config.targetMarket,
-                                brandTone: config.brandTone,
-                                learningEnabled: config.learningEnabled,
-                                researchFrequencyDays:
-                                    config.researchFrequencyDays,
-                                requireApproval: config.requireApproval,
-                              );
-                              await widget.onSaveConfig(updatedConfig);
-                            },
-                      icon: const Icon(Icons.save_rounded, size: 18),
-                      label: const Text('Guardar instrucción'),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: widget.busy
-                          ? null
-                          : () async {
-                              await widget.onGenerate(
-                                customPrompt:
-                                    _promptController.text.trim().isEmpty
-                                    ? null
-                                    : _promptController.text.trim(),
-                              );
-                            },
-                      icon: const Icon(Icons.search_rounded, size: 18),
-                      label: const Text('Generar investigación'),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: widget.busy
-                          ? null
-                          : () async {
-                              final confirmed = await showDialog<bool>(
-                                context: context,
-                                builder: (_) => AlertDialog(
-                                  title: const Text(
-                                    'Forzar nueva investigación',
-                                  ),
-                                  content: const Text(
-                                    'Esto generará una nueva investigación aunque ya exista una reciente. ¿Continuar?',
-                                  ),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () =>
-                                          Navigator.of(context).pop(false),
-                                      child: const Text('Cancelar'),
-                                    ),
-                                    FilledButton(
-                                      onPressed: () =>
-                                          Navigator.of(context).pop(true),
-                                      child: const Text('Forzar'),
-                                    ),
-                                  ],
-                                ),
-                              );
-                              if (confirmed == true) {
-                                await widget.onForce(
-                                  customPrompt:
-                                      _promptController.text.trim().isEmpty
-                                      ? null
-                                      : _promptController.text.trim(),
-                                );
-                              }
-                            },
-                      icon: const Icon(Icons.bolt_rounded, size: 18),
-                      label: const Text('Forzar nueva investigación'),
-                    ),
-                  ],
-                ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 14),
-
-        // ── Latest research results ─────────────────────────────────────────
-        if (research == null)
-          const _EmptyState(
-            text:
-                'No hay investigación de mercado disponible. Genera una nueva.',
-          )
-        else ...[
-          // Status + meta
-          _ResearchSection(
-            title: 'Última investigación',
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    _ResearchStatusPill(status: research.status),
-                    const SizedBox(width: 10),
-                    Text(
-                      'Confianza: ${(research.confidenceScore * 100).toStringAsFixed(0)}%',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    if (research.createdAt != null)
-                      Text(
-                        _formatDateTime(research.createdAt),
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-                  ],
-                ),
-                if (research.dataSources.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 4,
-                    children: research.dataSources
-                        .map((src) => _MetaChip(label: 'Fuente', value: src))
-                        .toList(),
-                  ),
-                ],
-                if (research.status == MarketingResearchStatus.draft) ...[
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      FilledButton.icon(
-                        onPressed: widget.busy
-                            ? null
-                            : () => widget.onApprove(research.id),
-                        icon: const Icon(Icons.check_circle_rounded, size: 18),
-                        label: const Text('Aprobar investigación'),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: widget.busy
-                            ? null
-                            : () async {
-                                final reason = await showDialog<String>(
-                                  context: context,
-                                  builder: (_) => const _TextInputDialog(
-                                    title: 'Rechazar investigación',
-                                    hint: 'Motivo (opcional)',
-                                  ),
-                                );
-                                if (reason != null) {
-                                  await widget.onReject(
-                                    research.id,
-                                    reason: reason,
-                                  );
-                                }
-                              },
-                        icon: const Icon(Icons.cancel_rounded, size: 18),
-                        label: const Text('Rechazar'),
-                      ),
-                    ],
-                  ),
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(height: 10),
-
-          if (research.marketSummary.trim().isNotEmpty)
-            _ResearchSection(
-              title: 'Resumen del mercado',
-              child: Text(research.marketSummary),
-            ),
-          const SizedBox(height: 10),
-
-          if (research.competitorPublishingPatterns.trim().isNotEmpty)
-            _ResearchSection(
-              title: 'Patrones de competidores',
-              child: Text(research.competitorPublishingPatterns),
-            ),
-          const SizedBox(height: 10),
-
-          if (research.commonOffers.trim().isNotEmpty)
-            _ResearchSection(
-              title: 'Ofertas comunes en el mercado',
-              child: Text(research.commonOffers),
-            ),
-          const SizedBox(height: 10),
-
-          if (research.observedPriceRanges.trim().isNotEmpty)
-            _ResearchSection(
-              title: 'Rangos de precios observados',
-              child: Text(research.observedPriceRanges),
-            ),
-          const SizedBox(height: 10),
-
-          if (research.strongAngles.isNotEmpty)
-            _ResearchSection(
-              title: 'Ángulos fuertes',
-              child: _BulletList(
-                items: research.strongAngles,
-                color: const Color(0xFF0E5F33),
-              ),
-            ),
-          const SizedBox(height: 10),
-
-          if (research.weakAngles.isNotEmpty)
-            _ResearchSection(
-              title: 'Ángulos débiles',
-              child: _BulletList(
-                items: research.weakAngles,
-                color: const Color(0xFF7B1A1A),
-              ),
-            ),
-          const SizedBox(height: 10),
-
-          if (research.contentOpportunities.trim().isNotEmpty)
-            _ResearchSection(
-              title: 'Oportunidades de contenido',
-              child: Text(research.contentOpportunities),
-            ),
-          const SizedBox(height: 10),
-
-          if (research.recommendedProducts.isNotEmpty)
-            _ResearchSection(
-              title: 'Productos recomendados',
-              child: _BulletList(items: research.recommendedProducts),
-            ),
-          const SizedBox(height: 10),
-
-          if (research.recommendedContentTypes.isNotEmpty)
-            _ResearchSection(
-              title: 'Tipos de contenido recomendados',
-              child: _BulletList(items: research.recommendedContentTypes),
-            ),
-          const SizedBox(height: 10),
-
-          if (research.recommendedOffers.isNotEmpty)
-            _ResearchSection(
-              title: 'Ofertas recomendadas',
-              child: _BulletList(items: research.recommendedOffers),
-            ),
-          const SizedBox(height: 10),
-
-          if (research.recommendedHooks.isNotEmpty)
-            _ResearchSection(
-              title: 'Hooks recomendados',
-              child: _BulletList(items: research.recommendedHooks),
-            ),
-          const SizedBox(height: 10),
-
-          if (research.recommendedCTAs.isNotEmpty)
-            _ResearchSection(
-              title: 'CTAs recomendados',
-              child: _BulletList(items: research.recommendedCTAs),
-            ),
-          const SizedBox(height: 10),
-
-          if (research.doMoreOfThis.isNotEmpty)
-            _ResearchSection(
-              title: 'Hacer más de esto ✓',
-              child: _BulletList(
-                items: research.doMoreOfThis,
-                color: const Color(0xFF0E5F33),
-              ),
-            ),
-          const SizedBox(height: 10),
-
-          if (research.avoidThis.isNotEmpty)
-            _ResearchSection(
-              title: 'Evitar esto ✗',
-              child: _BulletList(
-                items: research.avoidThis,
-                color: const Color(0xFF7B1A1A),
-              ),
-            ),
-          const SizedBox(height: 14),
-        ],
-
-        // ── Learning stats ──────────────────────────────────────────────────
-        if (stats != null)
-          _ResearchSection(
-            title: 'Aprendizaje acumulado',
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 8,
-                  children: [
-                    _MetaChip(label: 'Activos', value: '${stats.activeCount}'),
-                    _MetaChip(
-                      label: 'Descartados',
-                      value: '${stats.discardedCount}',
-                    ),
-                  ],
-                ),
-                if (stats.topInsights.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    'Top insights:',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  _BulletList(items: stats.topInsights),
-                ],
-              ],
-            ),
-          ),
-        const SizedBox(height: 20),
-      ],
-    );
-  }
-}
-
-class _ResearchSection extends StatelessWidget {
-  const _ResearchSection({required this.title, required this.child});
-
-  final String title;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: scheme.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: scheme.outlineVariant.withValues(alpha: 0.35),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: Theme.of(
-              context,
-            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 8),
-          child,
-        ],
-      ),
-    );
-  }
-}
-
-class _BulletList extends StatelessWidget {
-  const _BulletList({required this.items, this.color});
-
-  final List<String> items;
-  final Color? color;
-
-  @override
-  Widget build(BuildContext context) {
-    final textStyle = Theme.of(
-      context,
-    ).textTheme.bodyMedium?.copyWith(color: color);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        for (final item in items)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '• ',
-                  style: textStyle?.copyWith(fontWeight: FontWeight.w700),
-                ),
-                Expanded(child: Text(item, style: textStyle)),
-              ],
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-class _ResearchStatusPill extends StatelessWidget {
-  const _ResearchStatusPill({required this.status});
-
-  final MarketingResearchStatus status;
-
-  @override
-  Widget build(BuildContext context) {
-    final (bg, fg) = switch (status) {
-      MarketingResearchStatus.draft => (
-        const Color(0xFFFFF3CD),
-        const Color(0xFF7A5A00),
-      ),
-      MarketingResearchStatus.approved => (
-        const Color(0xFFD9FBE5),
-        const Color(0xFF0E5F33),
-      ),
-      MarketingResearchStatus.rejected => (
-        const Color(0xFFFFE1E1),
-        const Color(0xFF7B1A1A),
-      ),
-      MarketingResearchStatus.used => (
-        const Color(0xFFE8EAF0),
-        const Color(0xFF334155),
-      ),
-    };
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        researchStatusLabel(status),
-        style: TextStyle(color: fg, fontWeight: FontWeight.w700, fontSize: 12),
-      ),
-    );
-  }
-}
-
-class _TextInputDialog extends StatefulWidget {
-  const _TextInputDialog({required this.title, required this.hint});
-
-  final String title;
-  final String hint;
-
-  @override
-  State<_TextInputDialog> createState() => _TextInputDialogState();
-}
-
-class _TextInputDialogState extends State<_TextInputDialog> {
-  late final TextEditingController _ctrl;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = TextEditingController();
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(widget.title),
-      content: TextField(
-        controller: _ctrl,
-        decoration: InputDecoration(hintText: widget.hint),
-        minLines: 2,
-        maxLines: 4,
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancelar'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.of(context).pop(_ctrl.text.trim()),
-          child: const Text('Confirmar'),
-        ),
-      ],
     );
   }
 }
@@ -1944,7 +1209,7 @@ class _EditStoryDialogState extends State<_EditStoryDialog> {
               children: [
                 TextFormField(
                   controller: _title,
-                  decoration: const InputDecoration(labelText: 'Título'),
+                  decoration: const InputDecoration(labelText: 'T├¡tulo'),
                 ),
                 const SizedBox(height: 8),
                 TextFormField(

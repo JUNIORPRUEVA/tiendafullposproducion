@@ -30,6 +30,8 @@ class RouteAccess {
         return AppPermission.viewOperations;
       case Routes.mediaGallery:
         return AppPermission.viewMediaGallery;
+      case Routes.galeriaPublicidad:
+        return AppPermission.viewGaleriaPublicidad;
       case Routes.documentFlows:
         return AppPermission.viewDocumentFlows;
       case Routes.cotizaciones:

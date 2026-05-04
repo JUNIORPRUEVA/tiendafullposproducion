@@ -131,6 +131,12 @@ List<AppNavigationSection> buildAppNavigationSections(
             title: 'Publicidad',
             route: Routes.publicidad,
           ),
+        if (can(AppPermission.viewGaleriaPublicidad))
+          const AppNavigationItem(
+            icon: Icons.collections_outlined,
+            title: 'Galería de Publicidad',
+            route: Routes.galeriaPublicidad,
+          ),
       ],
     ),
     AppNavigationSection(title: 'Administración', items: const []),
@@ -262,6 +268,7 @@ String resolveNavigationTitle(
   if (path == Routes.clienteNuevo) return 'Nuevo cliente';
   if (path == Routes.ai) return 'IA';
   if (path == Routes.publicidad) return 'Publicidad';
+  if (path == Routes.galeriaPublicidad) return 'Galería de Publicidad';
   if (path == Routes.whatsappCrm) return 'CRM WhatsApp';
   if (path == Routes.amonestaciones) return 'Amonestaciones';
   if (path == Routes.misAmonestacionesPendientes) {
@@ -296,6 +303,7 @@ bool desktopShellShouldShowOwnAppBar(String location) {
     Routes.serviceOrders,
     Routes.serviceOrderCommissions,
     Routes.mediaGallery,
+    Routes.galeriaPublicidad,
     Routes.documentFlows,
     Routes.cotizaciones,
     Routes.nomina,

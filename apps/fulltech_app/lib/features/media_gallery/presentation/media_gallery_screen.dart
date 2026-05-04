@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/auth/app_permissions.dart';
+import '../../../core/auth/app_role.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/auth/auth_repository.dart';
 import '../../../core/utils/media_file_actions.dart';
@@ -234,12 +235,93 @@ class _MediaGalleryScreenState extends ConsumerState<MediaGalleryScreen> {
     return bytes;
   }
 
+  Future<void> _confirmDelete(MediaGalleryItem item) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Eliminar evidencia'),
+        content: const Text(
+          '¿Estás seguro de que deseas eliminar esta evidencia?\n'
+          'Esta acción no se puede deshacer.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFDC2626),
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    await ref.read(mediaGalleryControllerProvider.notifier).deleteItem(item.id);
+    if (!mounted) return;
+    final errorState = ref.read(mediaGalleryControllerProvider).error;
+    if ((errorState ?? '').isEmpty) {
+      messenger?.showSnackBar(
+        const SnackBar(content: Text('Evidencia eliminada correctamente.')),
+      );
+    } else {
+      messenger?.showSnackBar(
+        SnackBar(content: Text(errorState!)),
+      );
+    }
+  }
+
+  Future<void> _confirmMarkPublicidad(MediaGalleryItem item) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Pasar a publicidad'),
+        content: const Text(
+          '¿Estás seguro de pasar esta evidencia a la Galería de Publicidad?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Confirmar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    await ref
+        .read(mediaGalleryControllerProvider.notifier)
+        .markForPublicidad(item.id);
+    if (!mounted) return;
+    final errorState = ref.read(mediaGalleryControllerProvider).error;
+    if ((errorState ?? '').isEmpty) {
+      messenger?.showSnackBar(
+        const SnackBar(
+          content: Text('Evidencia marcada para publicidad.'),
+        ),
+      );
+    } else {
+      messenger?.showSnackBar(
+        SnackBar(content: Text(errorState!)),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = ref.watch(authStateProvider);
     final canView = auth.isAuthenticated &&
         auth.user != null &&
         hasPermission(auth.user!.appRole, AppPermission.viewMediaGallery);
+    final isAdmin = auth.user?.appRole == AppRole.admin;
     final state = ref.watch(mediaGalleryControllerProvider);
     final controller = ref.read(mediaGalleryControllerProvider.notifier);
 
@@ -416,6 +498,7 @@ class _MediaGalleryScreenState extends ConsumerState<MediaGalleryScreen> {
                           final item = visibleItems[index];
                           return MediaGalleryCard(
                             item: item,
+                            isAdmin: isAdmin,
                             onTap: () => showMediaGalleryViewer(
                               context,
                               visibleItems,
@@ -423,6 +506,12 @@ class _MediaGalleryScreenState extends ConsumerState<MediaGalleryScreen> {
                               _downloadItem,
                             ),
                             onDownload: () => _downloadItem(item),
+                            onDelete: isAdmin
+                                ? () => _confirmDelete(item)
+                                : null,
+                            onMarkPublicidad: isAdmin && !item.forPublicidad
+                                ? () => _confirmMarkPublicidad(item)
+                                : null,
                           );
                         },
                         childCount: visibleItems.length,
