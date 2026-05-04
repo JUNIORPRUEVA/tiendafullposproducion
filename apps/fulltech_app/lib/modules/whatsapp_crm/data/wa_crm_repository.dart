@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http_parser/http_parser.dart';
 import 'dart:typed_data';
 
 import '../../../core/auth/auth_repository.dart';
@@ -124,6 +125,26 @@ class WaCrmRepository {
     await _dio.post<void>(
       '/whatsapp-inbox/conversations/$conversationId/reply',
       data: {'text': text},
+    );
+  }
+
+  Future<void> replyMedia({
+    required String conversationId,
+    required Uint8List bytes,
+    required String fileName,
+    required String mimeType,
+    String? caption,
+  }) async {
+    await _dio.post<void>(
+      '/whatsapp-inbox/conversations/$conversationId/media',
+      data: FormData.fromMap({
+        'file': MultipartFile.fromBytes(
+          bytes,
+          filename: fileName,
+          contentType: MediaType.parse(mimeType),
+        ),
+        if (caption?.trim().isNotEmpty == true) 'caption': caption!.trim(),
+      }),
     );
   }
 

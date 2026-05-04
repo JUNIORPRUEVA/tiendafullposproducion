@@ -1062,6 +1062,32 @@ export class WhatsappService {
     );
   }
 
+  async sendMediaMessage(params: {
+    instanceName: string;
+    remoteJid: string;
+    bytes: Buffer | Uint8Array;
+    mediaType: 'image' | 'video' | 'audio' | 'document';
+    mimeType: string;
+    fileName: string;
+    caption?: string | null;
+  }): Promise<unknown> {
+    const mediaBase64 = Buffer.from(params.bytes).toString('base64');
+    return this.fetchEvolution(
+      `/message/sendMedia/${encodeURIComponent(params.instanceName)}`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          number: params.remoteJid,
+          mediatype: params.mediaType,
+          mimetype: params.mimeType,
+          media: mediaBase64,
+          fileName: params.fileName,
+          ...(params.caption?.trim() ? { caption: params.caption.trim() } : {}),
+        }),
+      },
+    );
+  }
+
   async findChatMessages(
     instanceName: string,
     remoteJid: string,

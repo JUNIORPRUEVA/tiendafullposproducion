@@ -51,6 +51,8 @@ type PreparedWhatsappMedia = {
   mediaError: string | null;
 };
 
+type OutgoingWhatsappMediaType = 'image' | 'video' | 'audio' | 'document';
+
 function asRecord(value: unknown): JsonRecord | undefined {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as JsonRecord)
@@ -75,6 +77,21 @@ function asBoolean(value: unknown): boolean | undefined {
     if (value === 0) return false;
   }
   return undefined;
+}
+
+function whatsappMessageTypeFromMediaType(
+  value: OutgoingWhatsappMediaType,
+): WhatsappMessageType {
+  switch (value) {
+    case 'image':
+      return WhatsappMessageType.IMAGE;
+    case 'video':
+      return WhatsappMessageType.VIDEO;
+    case 'audio':
+      return WhatsappMessageType.AUDIO;
+    case 'document':
+      return WhatsappMessageType.DOCUMENT;
+  }
 }
 
 function normalizeEventName(value: unknown): string | null {
@@ -783,6 +800,76 @@ export class WhatsappInboxService {
       createdAt: true,
       rawPayload: true,
     };
+  }
+
+  private emitWhatsappMessageRealtime(params: {
+    instanceId: string;
+    conversation: {
+      id: string;
+      instanceId: string;
+      remoteJid: string;
+      remotePhone: string | null;
+      remoteName: string | null;
+      lastMessageAt: Date | null;
+      unreadCount: number;
+    };
+    message: {
+      id: string;
+      sentAt: Date;
+      createdAt?: Date;
+      direction: WhatsappMessageDirection;
+      messageType: WhatsappMessageType;
+      body: string | null;
+      mediaUrl: string | null;
+      mediaMimeType: string | null;
+      caption: string | null;
+      senderName: string | null;
+      evolutionId: string | null;
+      mediaStorageKey?: string | null;
+      mediaFileSize?: number | null;
+      mediaStatus?: string | null;
+      mediaError?: string | null;
+      originalFileName?: string | null;
+    };
+  }) {
+    const { instanceId, conversation, message } = params;
+    this.realtime.emitTo('ops:role:admin', 'whatsapp.message', {
+      eventId: message.id,
+      conversationId: conversation.id,
+      instanceId,
+      message: {
+        id: message.id,
+        direction: message.direction,
+        createdAt: message.sentAt,
+        messageType: message.messageType,
+        text: message.body,
+        body: message.body,
+        mediaUrl: message.mediaStorageKey
+          ? this.buildApiMediaUrl(message.id)
+          : message.mediaUrl,
+        mediaMimeType: message.mediaMimeType,
+        mediaStorageKey: message.mediaStorageKey ?? null,
+        mediaFileSize: message.mediaFileSize ?? null,
+        mediaStatus: message.mediaStorageKey
+          ? 'ready'
+          : message.mediaStatus ?? null,
+        mediaError: message.mediaError ?? null,
+        originalFileName: message.originalFileName ?? null,
+        caption: message.caption,
+        senderName: message.senderName,
+        sentAt: message.sentAt,
+        evolutionId: message.evolutionId,
+      },
+      conversation: {
+        id: conversation.id,
+        instanceId,
+        remoteJid: conversation.remoteJid,
+        remotePhone: conversation.remotePhone,
+        remoteName: conversation.remoteName,
+        lastMessageAt: conversation.lastMessageAt,
+        unreadCount: conversation.unreadCount,
+      },
+    });
   }
 
   private buildApiMediaUrl(messageId: string): string {
@@ -2008,6 +2095,17 @@ export class WhatsappInboxService {
               parsed,
             )
           : updatedExisting;
+        this.emitWhatsappMessageRealtime({
+          instanceId,
+          conversation,
+          message: readyExisting as typeof readyExisting & {
+            mediaStorageKey?: string | null;
+            mediaFileSize?: number | null;
+            mediaStatus?: string | null;
+            mediaError?: string | null;
+            originalFileName?: string | null;
+          },
+        });
         return {
           conversation,
           message: readyExisting,
@@ -2048,6 +2146,17 @@ export class WhatsappInboxService {
                 parsed,
               )
             : updated;
+          this.emitWhatsappMessageRealtime({
+            instanceId,
+            conversation,
+            message: readyUpdated as typeof readyUpdated & {
+              mediaStorageKey?: string | null;
+              mediaFileSize?: number | null;
+              mediaStatus?: string | null;
+              mediaError?: string | null;
+              originalFileName?: string | null;
+            },
+          });
           return {
             conversation,
             message: readyUpdated,
@@ -2109,39 +2218,10 @@ export class WhatsappInboxService {
       originalFileName?: string | null;
     };
 
-    // Emit realtime event to all admin sockets
-    this.realtime.emitTo('ops:role:admin', 'whatsapp.message', {
-      eventId: message.id,
-      conversationId: conversation.id,
+    this.emitWhatsappMessageRealtime({
       instanceId,
-      message: {
-        id: message.id,
-        direction,
-        createdAt: message.sentAt,
-        messageType: message.messageType,
-        text: message.body,
-        body: message.body,
-        mediaUrl: message.mediaUrl,
-        mediaMimeType: message.mediaMimeType,
-        mediaStorageKey: messageWithOptionalMedia.mediaStorageKey ?? null,
-        mediaFileSize: messageWithOptionalMedia.mediaFileSize ?? null,
-        mediaStatus: messageWithOptionalMedia.mediaStatus ?? null,
-        mediaError: messageWithOptionalMedia.mediaError ?? null,
-        originalFileName: messageWithOptionalMedia.originalFileName ?? null,
-        caption: message.caption,
-        senderName: message.senderName,
-        sentAt: message.sentAt,
-        evolutionId: message.evolutionId,
-      },
-      conversation: {
-        id: conversation.id,
-        instanceId,
-        remoteJid: conversation.remoteJid,
-        remotePhone: conversation.remotePhone,
-        remoteName: conversation.remoteName,
-        lastMessageAt: conversation.lastMessageAt,
-        unreadCount: conversation.unreadCount,
-      },
+      conversation,
+      message: messageWithOptionalMedia,
     });
 
     return {
@@ -2555,6 +2635,67 @@ export class WhatsappInboxService {
       rawPayload: null,
     };
     return this.saveMessage(instanceId, parsed);
+  }
+
+  async recordOutgoingMediaMessage(params: {
+    instanceId: string;
+    remoteJid: string;
+    bytes: Buffer | Uint8Array;
+    mediaType: OutgoingWhatsappMediaType;
+    mimeType: string;
+    fileName: string;
+    caption?: string | null;
+    evolutionId?: string | null;
+    evolutionResult?: unknown;
+  }) {
+    const instance = await this.prisma.userWhatsappInstance.findUnique({
+      where: { id: params.instanceId },
+      select: { instanceName: true },
+    });
+    const bytes = Buffer.from(params.bytes);
+    const mimeType =
+      normalizeMimeType(params.mimeType) ?? 'application/octet-stream';
+    const caption = params.caption?.trim() || null;
+    const fileName = params.fileName.trim() || `media-${Date.now()}`;
+    const parsed: ParsedWhatsappMessage = {
+      evolutionId: params.evolutionId?.trim() ?? '',
+      externalMessageId: params.evolutionId?.trim() ?? '',
+      instanceName: instance?.instanceName ?? null,
+      eventName: 'APP_SEND_MEDIA',
+      remoteJid: params.remoteJid,
+      remotePhone: phoneFromIdentifier(params.remoteJid),
+      fromMe: true,
+      messageType: whatsappMessageTypeFromMediaType(params.mediaType),
+      body: caption ?? fileName,
+      mediaUrl: `data:${mimeType};base64,${bytes.toString('base64')}`,
+      mediaMimeType: mimeType,
+      caption,
+      senderName: instance?.instanceName ?? null,
+      sentAt: new Date(),
+      rawPayload: {
+        event: 'APP_SEND_MEDIA',
+        data: {
+          key: {
+            id: params.evolutionId ?? null,
+            fromMe: true,
+            remoteJid: params.remoteJid,
+          },
+          messageType: `${params.mediaType}Message`,
+          message: {
+            [`${params.mediaType}Message`]: {
+              mimetype: mimeType,
+              fileName,
+              caption,
+            },
+          },
+          fileName,
+          mimetype: mimeType,
+          caption,
+          evolutionResult: params.evolutionResult ?? null,
+        },
+      },
+    };
+    return this.saveMessage(params.instanceId, parsed);
   }
 
   async attachEvolutionIdToMessage(

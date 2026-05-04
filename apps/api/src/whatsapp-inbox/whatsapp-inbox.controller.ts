@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Controller,
   Get,
   Post,
@@ -10,7 +11,10 @@ import {
   Req,
   Res,
   Headers,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthGuard } from '@nestjs/passport';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -21,6 +25,7 @@ import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { Request } from 'express';
 import type { Response } from 'express';
+import { memoryStorage } from 'multer';
 
 class SendMessageDto {
   @IsString()
@@ -40,6 +45,12 @@ class ReplyDto {
   @IsString()
   @IsNotEmpty()
   text!: string;
+}
+
+class ReplyMediaDto {
+  @IsOptional()
+  @IsString()
+  caption?: string;
 }
 
 class DailySummaryDto {
@@ -82,6 +93,14 @@ function extractEvolutionMessageId(result: unknown): string | undefined {
     (root.id as string | undefined) ??
     (root.messageId as string | undefined)
   );
+}
+
+function mediaTypeFromMime(mimeType: string): 'image' | 'video' | 'audio' | 'document' {
+  const normalized = mimeType.toLowerCase();
+  if (normalized.startsWith('image/')) return 'image';
+  if (normalized.startsWith('video/')) return 'video';
+  if (normalized.startsWith('audio/')) return 'audio';
+  return 'document';
 }
 
 /** Admin-only REST endpoints for the WhatsApp CRM inbox */
@@ -195,6 +214,57 @@ export class WhatsappInboxController {
       saved.message.id,
       extractEvolutionMessageId(result),
     );
+
+    return { ok: true, messageId: saved.message.id };
+  }
+
+  @Post('conversations/:id/media')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 25 * 1024 * 1024 },
+    }),
+  )
+  async replyConversationMedia(
+    @Param('id', ParseUUIDPipe) conversationId: string,
+    @Body() dto: ReplyMediaDto,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    if (!file?.buffer?.length) {
+      throw new BadRequestException('Debes adjuntar un archivo valido.');
+    }
+    const conversation = await this.prisma.whatsappConversation.findUnique({
+      where: { id: conversationId },
+      include: { instance: true },
+    });
+    if (!conversation) {
+      return { ok: false, error: 'Conversation not found' };
+    }
+
+    const mimeType = file.mimetype || 'application/octet-stream';
+    const mediaType = mediaTypeFromMime(mimeType);
+    const fileName = file.originalname || `whatsapp-${mediaType}`;
+    const caption = dto.caption?.trim() || null;
+    const result = await this.whatsappService.sendMediaMessage({
+      instanceName: conversation.instance.instanceName,
+      remoteJid: conversation.remoteJid,
+      bytes: file.buffer,
+      mediaType,
+      mimeType,
+      fileName,
+      caption,
+    });
+    const saved = await this.inboxService.recordOutgoingMediaMessage({
+      instanceId: conversation.instanceId,
+      remoteJid: conversation.remoteJid,
+      bytes: file.buffer,
+      mediaType,
+      mimeType,
+      fileName,
+      caption,
+      evolutionId: extractEvolutionMessageId(result),
+      evolutionResult: result,
+    });
 
     return { ok: true, messageId: saved.message.id };
   }

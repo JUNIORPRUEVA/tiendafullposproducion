@@ -654,6 +654,39 @@ class WaCrmController extends StateNotifier<WaCrmState> {
     }
   }
 
+  Future<void> sendMediaReply({
+    required Uint8List bytes,
+    required String fileName,
+    required String mimeType,
+    String? caption,
+  }) async {
+    final conv = state.selectedConversation;
+    final canWrite =
+        conv != null &&
+        state.composerUnlocked &&
+        state.composerUnlockedConversationKey == conv.mergeKey;
+    if (conv == null || bytes.isEmpty || !canWrite) return;
+
+    state = state.copyWith(sending: true, error: () => null);
+    try {
+      await _repo.replyMedia(
+        conversationId: conv.id,
+        bytes: bytes,
+        fileName: fileName,
+        mimeType: mimeType,
+        caption: caption,
+      );
+      state = state.copyWith(sending: false);
+      _silentRefreshMessages(conv.id);
+    } catch (e, st) {
+      debugPrint('[WaCrm] sendMediaReply error: $e\n$st');
+      state = state.copyWith(
+        sending: false,
+        error: () => 'Error enviando archivo: $e',
+      );
+    }
+  }
+
   Future<bool> unlockComposer(String password) async {
     try {
       await _repo.unlockCompose(password);

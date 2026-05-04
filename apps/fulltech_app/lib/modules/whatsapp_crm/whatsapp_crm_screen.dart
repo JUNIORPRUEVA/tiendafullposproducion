@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -59,6 +60,51 @@ String _resolveChatAvatarUrl(String? rawUrl) {
       ? value
       : (value.startsWith('uploads/') ? '/$value' : '/uploads/$value');
   return '$normalizedBase$normalizedPath';
+}
+
+String _mimeFromPickedFile(String name, String? extension) {
+  final ext = (extension ?? name.split('.').last).toLowerCase();
+  switch (ext) {
+    case 'jpg':
+    case 'jpeg':
+      return 'image/jpeg';
+    case 'png':
+      return 'image/png';
+    case 'webp':
+      return 'image/webp';
+    case 'gif':
+      return 'image/gif';
+    case 'mp4':
+    case 'm4v':
+      return 'video/mp4';
+    case 'mov':
+      return 'video/quicktime';
+    case 'webm':
+      return 'video/webm';
+    case 'mp3':
+      return 'audio/mpeg';
+    case 'm4a':
+      return 'audio/mp4';
+    case 'ogg':
+    case 'opus':
+      return 'audio/ogg';
+    case 'wav':
+      return 'audio/wav';
+    case 'pdf':
+      return 'application/pdf';
+    case 'doc':
+      return 'application/msword';
+    case 'docx':
+      return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    case 'xls':
+      return 'application/vnd.ms-excel';
+    case 'xlsx':
+      return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    case 'txt':
+      return 'text/plain';
+    default:
+      return 'application/octet-stream';
+  }
 }
 
 Future<void> _showChatAvatarPreview(
@@ -370,6 +416,7 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
             msgController: _msgController,
             scrollController: _scrollController,
             onSend: () => _sendReply(),
+            onAttach: () => _sendAttachment(),
             onUnlock: _unlockComposer,
             agentName: state.selectedUser?.name,
           ),
@@ -426,6 +473,7 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
             msgController: _msgController,
             scrollController: _scrollController,
             onSend: () => _sendReply(),
+            onAttach: () => _sendAttachment(),
             onUnlock: _unlockComposer,
             agentName: state.selectedUser?.name,
           ),
@@ -478,6 +526,7 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
               msgController: _msgController,
               scrollController: _scrollController,
               onSend: () => _sendReply(),
+              onAttach: () => _sendAttachment(),
               onUnlock: _unlockComposer,
               agentName: state.selectedUser?.name,
             ),
@@ -517,6 +566,67 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
     if (text.isEmpty) return;
     _msgController.clear();
     await ref.read(waCrmControllerProvider.notifier).sendReply(text);
+  }
+
+  Future<void> _sendAttachment() async {
+    final state = ref.read(waCrmControllerProvider);
+    final conv = state.selectedConversation;
+    final canWrite =
+        conv != null &&
+        state.composerUnlocked &&
+        state.composerUnlockedConversationKey == conv.mergeKey;
+    if (!canWrite) {
+      await _unlockComposer();
+      final latest = ref.read(waCrmControllerProvider);
+      final latestConv = latest.selectedConversation;
+      final latestCanWrite =
+          latestConv != null &&
+          latest.composerUnlocked &&
+          latest.composerUnlockedConversationKey == latestConv.mergeKey;
+      if (!latestCanWrite) return;
+    }
+
+    final picked = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const [
+        'jpg',
+        'jpeg',
+        'png',
+        'webp',
+        'gif',
+        'mp4',
+        'mov',
+        'm4v',
+        'webm',
+        'mp3',
+        'm4a',
+        'ogg',
+        'opus',
+        'wav',
+        'pdf',
+        'doc',
+        'docx',
+        'xls',
+        'xlsx',
+        'txt',
+      ],
+      withData: true,
+    );
+    final file = picked?.files.single;
+    if (file == null) return;
+
+    final bytes = file.bytes ??
+        (file.path != null ? await File(file.path!).readAsBytes() : null);
+    if (bytes == null || bytes.isEmpty) return;
+
+    final caption = _msgController.text.trim();
+    _msgController.clear();
+    await ref.read(waCrmControllerProvider.notifier).sendMediaReply(
+          bytes: bytes,
+          fileName: file.name,
+          mimeType: _mimeFromPickedFile(file.name, file.extension),
+          caption: caption.isEmpty ? null : caption,
+        );
   }
 
   Future<void> _unlockComposer() async {
@@ -1652,6 +1762,7 @@ class _ChatPanel extends StatelessWidget {
     required this.msgController,
     required this.scrollController,
     required this.onSend,
+    required this.onAttach,
     required this.onUnlock,
     this.agentName,
   });
@@ -1660,6 +1771,7 @@ class _ChatPanel extends StatelessWidget {
   final TextEditingController msgController;
   final ScrollController scrollController;
   final VoidCallback onSend;
+  final VoidCallback onAttach;
   final VoidCallback onUnlock;
   final String? agentName;
 
@@ -1810,6 +1922,7 @@ class _ChatPanel extends StatelessWidget {
               unlocked: inputUnlocked,
               onUnlock: onUnlock,
               onSend: onSend,
+              onAttach: onAttach,
             );
           },
         ),
@@ -2646,6 +2759,7 @@ class _ChatInput extends StatelessWidget {
     required this.unlocked,
     required this.onUnlock,
     required this.onSend,
+    required this.onAttach,
   });
 
   final TextEditingController controller;
@@ -2653,6 +2767,7 @@ class _ChatInput extends StatelessWidget {
   final bool unlocked;
   final VoidCallback onUnlock;
   final VoidCallback onSend;
+  final VoidCallback onAttach;
 
   @override
   Widget build(BuildContext context) {
@@ -2710,6 +2825,15 @@ class _ChatInput extends StatelessWidget {
                   ),
           ),
           const SizedBox(width: 8),
+          IconButton(
+            tooltip: 'Adjuntar archivo',
+            onPressed: unlocked && !sending ? onAttach : onUnlock,
+            icon: Icon(
+              unlocked ? Icons.attach_file_rounded : Icons.lock_open_rounded,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 4),
           sending
               ? const SizedBox(
                   width: 44,
