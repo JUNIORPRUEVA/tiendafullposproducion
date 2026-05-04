@@ -258,6 +258,22 @@ enum NotificationStatus {
   FAILED
 }
 
+enum MarketingResearchStatus {
+  DRAFT
+  APPROVED
+  REJECTED
+  USED
+
+  @@map("marketing_research_status")
+}
+
+enum MarketingLearningStatus {
+  ACTIVE
+  DISCARDED
+
+  @@map("marketing_learning_status")
+}
+
 enum MarketingStoryType {
   SALES
   TRUST
@@ -466,6 +482,9 @@ model User {
   marketingStoriesApproved MarketingDailyStory[] @relation("MarketingStoryApprovedByUser")
   marketingActivityLogs MarketingActivityLog[] @relation("MarketingActivityLogActorUser")
   marketingFlowConfigsUpdated MarketingFlowConfig[] @relation("MarketingFlowUpdatedByUser")
+  marketingResearchConfigs MarketingResearchConfig[] @relation("MarketingResearchConfigUpdatedByUser")
+  marketingResearchesForced MarketingResearch[]      @relation("MarketingResearchForcedByUser")
+  marketingResearchesApproved MarketingResearch[]    @relation("MarketingResearchApprovedByUser")
   payrollEmployeePeriodStatuses PayrollEmployeePeriodStatus[]
   payrollServiceCommissionRequestsOwned PayrollServiceCommissionRequest[] @relation("PayrollServiceCommissionOwner")
   payrollServiceCommissionRequests PayrollServiceCommissionRequest[] @relation("PayrollServiceCommissionTechnicianUser")
@@ -652,7 +671,10 @@ model MarketingDailyStory {
   createdAt        DateTime             @default(now()) @map("created_at")
   updatedAt        DateTime             @updatedAt @map("updated_at")
 
+  researchId       String?              @map("research_id") @db.Uuid
+
   approvedByUser User? @relation("MarketingStoryApprovedByUser", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+  research         MarketingResearch?   @relation(fields: [researchId], references: [id], onDelete: SetNull)
 
   @@unique([companyId, date, type])
   @@index([companyId, date, status])
@@ -674,6 +696,92 @@ model MarketingActivityLog {
   @@index([companyId, createdAt])
   @@index([companyId, action])
   @@map("marketing_activity_logs")
+}
+
+model MarketingResearchConfig {
+  id                     String   @id @default(uuid()) @db.Uuid
+  companyId              String   @unique @map("company_id") @db.Uuid
+  defaultResearchPrompt  String   @db.Text @map("default_research_prompt")
+  businessName           String   @default("FULLTECH SRL") @map("business_name")
+  businessLocation       String   @default("Higüey, La Altagracia, República Dominicana") @map("business_location")
+  businessDescription    String?  @db.Text @map("business_description")
+  mainServices           String[] @default([]) @map("main_services")
+  priorityServices       String[] @default([]) @map("priority_services")
+  targetMarket           String?  @db.Text @map("target_market")
+  brandTone              String   @default("Profesional, confiable, claro, dominicano, directo, moderno, orientado a ventas.") @map("brand_tone")
+  learningEnabled        Boolean  @default(true) @map("learning_enabled")
+  researchFrequencyDays  Int      @default(2) @map("research_frequency_days")
+  requireApproval        Boolean  @default(false) @map("require_approval")
+  updatedByUserId        String?  @map("updated_by_user_id") @db.Uuid
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  updatedByUser User? @relation("MarketingResearchConfigUpdatedByUser", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@map("marketing_research_configs")
+}
+
+model MarketingResearch {
+  id                           String                  @id @default(uuid()) @db.Uuid
+  companyId                    String                  @map("company_id") @db.Uuid
+  date                         DateTime                @db.Date
+  researchPrompt               String                  @db.Text @map("research_prompt")
+  businessSnapshot             Json?                   @map("business_snapshot")
+  country                      String                  @default("República Dominicana")
+  city                         String                  @default("Higüey")
+  mainFocus                    String?                 @db.Text @map("main_focus")
+  servicesAnalyzed             Json?                   @map("services_analyzed")
+  marketSummary                String?                 @db.Text @map("market_summary")
+  competitorPublishingPatterns String?                 @db.Text @map("competitor_publishing_patterns")
+  commonOffers                 String?                 @db.Text @map("common_offers")
+  observedPriceRanges          String?                 @db.Text @map("observed_price_ranges")
+  strongAngles                 Json?                   @map("strong_angles")
+  weakAngles                   Json?                   @map("weak_angles")
+  contentOpportunities         String?                 @db.Text @map("content_opportunities")
+  recommendedProducts          Json?                   @map("recommended_products")
+  recommendedContentTypes      Json?                   @map("recommended_content_types")
+  recommendedOffers            Json?                   @map("recommended_offers")
+  recommendedHooks             Json?                   @map("recommended_hooks")
+  recommendedCTAs              Json?                   @map("recommended_ctas")
+  doMoreOfThis                 Json?                   @map("do_more_of_this")
+  avoidThis                    Json?                   @map("avoid_this")
+  confidenceScore              Float                   @default(0.5) @map("confidence_score")
+  dataSources                  Json?                   @map("data_sources")
+  status                       MarketingResearchStatus @default(DRAFT)
+  forcedByUserId               String?                 @map("forced_by_user_id") @db.Uuid
+  approvedByUserId             String?                 @map("approved_by_user_id") @db.Uuid
+  approvedAt                   DateTime?               @map("approved_at")
+  rejectedAt                   DateTime?               @map("rejected_at")
+  createdAt                    DateTime                @default(now()) @map("created_at")
+  updatedAt                    DateTime                @updatedAt @map("updated_at")
+
+  forcedByUser     User?                     @relation("MarketingResearchForcedByUser", fields: [forcedByUserId], references: [id], onDelete: SetNull)
+  approvedByUser   User?                     @relation("MarketingResearchApprovedByUser", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+  learningMemories MarketingLearningMemory[]
+  dailyStories     MarketingDailyStory[]
+
+  @@index([companyId, date, status])
+  @@index([companyId, status, createdAt])
+  @@map("marketing_researches")
+}
+
+model MarketingLearningMemory {
+  id               String                  @id @default(uuid()) @db.Uuid
+  companyId        String                  @map("company_id") @db.Uuid
+  category         String
+  insight          String                  @db.Text
+  sourceResearchId String?                 @map("source_research_id") @db.Uuid
+  score            Float                   @default(1.0)
+  status           MarketingLearningStatus @default(ACTIVE)
+  reason           String?                 @db.Text
+  createdAt        DateTime                @default(now()) @map("created_at")
+  updatedAt        DateTime                @updatedAt @map("updated_at")
+
+  sourceResearch MarketingResearch? @relation(fields: [sourceResearchId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, category, status])
+  @@index([companyId, score(sort: Desc)])
+  @@map("marketing_learning_memories")
 }
 
 model UserWhatsappInstance {

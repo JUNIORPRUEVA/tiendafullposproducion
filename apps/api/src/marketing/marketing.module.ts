@@ -4,6 +4,9 @@ import { MarketingAutomationScheduler } from './marketing-automation.scheduler';
 import { MarketingConfigService } from './marketing-config.service';
 import { MarketingController } from './marketing.controller';
 import { MarketingGenerationService } from './marketing-generation.service';
+import { MarketingLearningService } from './marketing-learning.service';
+import { MarketingResearchService } from './marketing-research.service';
+import { MarketingResearchSourceService } from './marketing-research-source.service';
 import { MarketingService } from './marketing.service';
 
 @Module({
@@ -14,6 +17,9 @@ import { MarketingService } from './marketing.service';
     MarketingApprovalService,
     MarketingConfigService,
     MarketingAutomationScheduler,
+    MarketingResearchService,
+    MarketingResearchSourceService,
+    MarketingLearningService,
   ],
 })
 export class MarketingModule {}

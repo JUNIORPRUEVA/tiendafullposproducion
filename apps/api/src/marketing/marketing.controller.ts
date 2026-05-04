@@ -5,11 +5,13 @@ import { Role } from '@prisma/client';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import { MarketingService } from './marketing.service';
+import { MarketingResearchService } from './marketing-research.service';
 import { GenerateMarketingStoriesDto } from './dto/generate-marketing-stories.dto';
 import { MarketingActionDto } from './dto/marketing-action.dto';
 import { MarketingHistoryQueryDto, MarketingQueryDto } from './dto/marketing-query.dto';
 import { UpdateMarketingConfigDto } from './dto/update-marketing-config.dto';
 import { UpdateMarketingStoryDto } from './dto/update-marketing-story.dto';
+import { GenerateResearchDto, UpdateMarketingResearchConfigDto } from './dto/marketing-research.dto';
 
 type RequestUser = {
   id?: string;
@@ -20,7 +22,10 @@ type RequestUser = {
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 @Roles(Role.ADMIN)
 export class MarketingController {
-  constructor(private readonly marketing: MarketingService) {}
+  constructor(
+    private readonly marketing: MarketingService,
+    private readonly research: MarketingResearchService,
+  ) {}
 
   @Get('dashboard')
   async dashboard(@Query() query: MarketingQueryDto) {
@@ -121,5 +126,65 @@ export class MarketingController {
     const user = req.user as RequestUser;
     const companyId = this.marketing.resolveCompanyId();
     return this.marketing.resetFlow(companyId, user.id ?? '');
+  }
+
+  // Research endpoints
+  @Get('research/config')
+  async getResearchConfig() {
+    const companyId = this.marketing.resolveCompanyId();
+    return this.research.getOrCreateConfig(companyId);
+  }
+
+  @Patch('research/config')
+  async updateResearchConfig(@Req() req: Request, @Body() dto: UpdateMarketingResearchConfigDto) {
+    const user = req.user as RequestUser;
+    const companyId = this.marketing.resolveCompanyId();
+    return this.research.updateConfig(companyId, dto, user.id ?? '');
+  }
+
+  @Get('research/latest')
+  async getLatestResearch() {
+    const companyId = this.marketing.resolveCompanyId();
+    return this.research.getLatestResearch(companyId);
+  }
+
+  @Get('research/list')
+  async listResearches() {
+    const companyId = this.marketing.resolveCompanyId();
+    return this.research.getList(companyId);
+  }
+
+  @Post('research/generate')
+  async generateResearch(@Req() req: Request, @Body() dto: GenerateResearchDto) {
+    const user = req.user as RequestUser;
+    const companyId = this.marketing.resolveCompanyId();
+    return this.research.generate(companyId, dto, user.id ?? '');
+  }
+
+  @Post('research/force')
+  async forceResearch(@Req() req: Request, @Body() dto: GenerateResearchDto) {
+    const user = req.user as RequestUser;
+    const companyId = this.marketing.resolveCompanyId();
+    return this.research.generate(companyId, dto, user.id ?? '', true);
+  }
+
+  @Post('research/:id/approve')
+  async approveResearch(@Req() req: Request, @Param('id') researchId: string) {
+    const user = req.user as RequestUser;
+    const companyId = this.marketing.resolveCompanyId();
+    return this.research.approve(companyId, researchId, user.id ?? '');
+  }
+
+  @Post('research/:id/reject')
+  async rejectResearch(@Req() req: Request, @Param('id') researchId: string, @Body() dto: MarketingActionDto) {
+    const user = req.user as RequestUser;
+    const companyId = this.marketing.resolveCompanyId();
+    return this.research.reject(companyId, researchId, user.id ?? '', dto.reason);
+  }
+
+  @Get('research/learning-stats')
+  async getLearningStats() {
+    const companyId = this.marketing.resolveCompanyId();
+    return this.research.getLearningStats(companyId);
   }
 }

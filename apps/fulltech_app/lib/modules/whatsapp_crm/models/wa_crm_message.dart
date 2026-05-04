@@ -84,9 +84,9 @@ class WaCrmMessage {
       case WaMessageType.audio:
         return 'Audio';
       case WaMessageType.video:
-        return 'Video';
+        return caption?.isNotEmpty == true ? 'Video: ${caption!}' : 'Video';
       case WaMessageType.document:
-        return body ?? 'Documento';
+        return body?.isNotEmpty == true ? 'Documento: $body' : 'Documento';
       case WaMessageType.sticker:
         return 'Sticker';
       default:

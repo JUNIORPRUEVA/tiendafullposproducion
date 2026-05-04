@@ -2255,9 +2255,10 @@ export class WhatsappInboxService {
           instanceId,
           NOT: [{ remoteJid: { contains: '@g.us' } }],
         },
-        orderBy: { lastMessageAt: 'desc' },
+        orderBy: [{ lastMessageAt: 'desc' }, { updatedAt: 'desc' }],
         take: limit,
         include: {
+          _count: { select: { messages: true } },
           messages: {
             orderBy: { sentAt: 'desc' },
             take: 1,
@@ -2280,6 +2281,10 @@ export class WhatsappInboxService {
             .find((value) => value != null && value.trim().length > 0) ?? null;
         return {
           ...normalized,
+          messageCount:
+            '_count' in conversation
+              ? (conversation._count as { messages?: number }).messages ?? 0
+              : 0,
           remoteAvatarUrl: avatarUrl,
         };
       });

@@ -417,6 +417,12 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
             scrollController: _scrollController,
             onSend: () => _sendReply(),
             onAttach: () => _sendAttachment(),
+            onDateFilterChanged: (filter, {customDate}) => ref
+                .read(waCrmControllerProvider.notifier)
+                .setMessageDateFilter(filter, customDate: customDate),
+            onClearDateFilter: () => ref
+                .read(waCrmControllerProvider.notifier)
+                .clearMessageDateFilter(),
             onUnlock: _unlockComposer,
             agentName: state.selectedUser?.name,
           ),
@@ -474,6 +480,12 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
             scrollController: _scrollController,
             onSend: () => _sendReply(),
             onAttach: () => _sendAttachment(),
+            onDateFilterChanged: (filter, {customDate}) => ref
+                .read(waCrmControllerProvider.notifier)
+                .setMessageDateFilter(filter, customDate: customDate),
+            onClearDateFilter: () => ref
+                .read(waCrmControllerProvider.notifier)
+                .clearMessageDateFilter(),
             onUnlock: _unlockComposer,
             agentName: state.selectedUser?.name,
           ),
@@ -527,6 +539,12 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
               scrollController: _scrollController,
               onSend: () => _sendReply(),
               onAttach: () => _sendAttachment(),
+              onDateFilterChanged: (filter, {customDate}) => ref
+                  .read(waCrmControllerProvider.notifier)
+                  .setMessageDateFilter(filter, customDate: customDate),
+              onClearDateFilter: () => ref
+                  .read(waCrmControllerProvider.notifier)
+                  .clearMessageDateFilter(),
               onUnlock: _unlockComposer,
               agentName: state.selectedUser?.name,
             ),
@@ -615,13 +633,16 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
     final file = picked?.files.single;
     if (file == null) return;
 
-    final bytes = file.bytes ??
+    final bytes =
+        file.bytes ??
         (file.path != null ? await File(file.path!).readAsBytes() : null);
     if (bytes == null || bytes.isEmpty) return;
 
     final caption = _msgController.text.trim();
     _msgController.clear();
-    await ref.read(waCrmControllerProvider.notifier).sendMediaReply(
+    await ref
+        .read(waCrmControllerProvider.notifier)
+        .sendMediaReply(
           bytes: bytes,
           fileName: file.name,
           mimeType: _mimeFromPickedFile(file.name, file.extension),
@@ -821,6 +842,9 @@ class _ConversationsPanelState extends State<_ConversationsPanel> {
                     return _ConversationTile(
                       conv: conv,
                       isSelected: isSelected,
+                      isHighlighted: state.highlightedConversationIds.contains(
+                        conv.id,
+                      ),
                       onTap: () => widget.onSelectConversation(conv),
                     );
                   },
@@ -1448,11 +1472,13 @@ class _ConversationTile extends StatelessWidget {
   const _ConversationTile({
     required this.conv,
     required this.isSelected,
+    required this.isHighlighted,
     required this.onTap,
   });
 
   final WaCrmConversation conv;
   final bool isSelected;
+  final bool isHighlighted;
   final VoidCallback onTap;
 
   @override
@@ -1462,16 +1488,53 @@ class _ConversationTile extends StatelessWidget {
     final timeStr = conv.lastMessageAt != null
         ? _formatTime(conv.lastMessageAt!)
         : '';
+    final mediaIcon = _previewIcon(last?.messageType);
+    final preview = last == null
+        ? 'Sin mensajes'
+        : '${last.isOutgoing ? 'Tu: ' : ''}${last.previewText}'.trim();
+    final unread = conv.unreadCount > 0;
 
     return InkWell(
       onTap: onTap,
-      child: Container(
-        color: isSelected
-            ? theme.colorScheme.primaryContainer.withValues(alpha: 0.35)
-            : null,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOutCubic,
+        decoration: BoxDecoration(
+          color: isSelected
+              ? theme.colorScheme.primaryContainer.withValues(alpha: 0.35)
+              : isHighlighted
+              ? theme.colorScheme.primary.withValues(alpha: 0.08)
+              : null,
+          border: Border(
+            left: BorderSide(
+              width: isHighlighted || unread ? 3 : 0,
+              color: isHighlighted
+                  ? theme.colorScheme.primary
+                  : unread
+                  ? theme.colorScheme.primary.withValues(alpha: 0.65)
+                  : Colors.transparent,
+            ),
+          ),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         child: Row(
           children: [
+            if (isHighlighted)
+              TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0.82, end: 1),
+                duration: const Duration(milliseconds: 700),
+                curve: Curves.easeOutBack,
+                builder: (context, value, child) =>
+                    Transform.scale(scale: value, child: child),
+                child: Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: Icon(
+                    Icons.fiber_manual_record_rounded,
+                    size: 10,
+                    color: theme.colorScheme.primary,
+                  ),
+                ),
+              ),
             Material(
               color: Colors.transparent,
               shape: const CircleBorder(),
@@ -1505,9 +1568,9 @@ class _ConversationTile extends StatelessWidget {
                         child: Text(
                           _waText(conv.displayName),
                           style: theme.textTheme.bodyMedium?.copyWith(
-                            fontWeight: conv.unreadCount > 0
+                            fontWeight: unread
                                 ? FontWeight.bold
-                                : FontWeight.normal,
+                                : FontWeight.w600,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -1528,13 +1591,24 @@ class _ConversationTile extends StatelessWidget {
                   const SizedBox(height: 2),
                   Row(
                     children: [
+                      if (mediaIcon != null) ...[
+                        Icon(
+                          mediaIcon,
+                          size: 14,
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: unread ? 0.75 : 0.52,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                      ],
                       Expanded(
                         child: Text(
-                          _waText(last?.previewText),
+                          _waText(preview),
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: theme.colorScheme.onSurface.withValues(
-                              alpha: 0.6,
+                              alpha: unread ? 0.82 : 0.58,
                             ),
+                            fontWeight: unread ? FontWeight.w600 : null,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -1549,7 +1623,15 @@ class _ConversationTile extends StatelessWidget {
                           ),
                           decoration: BoxDecoration(
                             color: theme.colorScheme.primary,
-                            borderRadius: BorderRadius.circular(10),
+                            borderRadius: BorderRadius.circular(999),
+                            boxShadow: [
+                              BoxShadow(
+                                color: theme.colorScheme.primary.withValues(
+                                  alpha: 0.24,
+                                ),
+                                blurRadius: 8,
+                              ),
+                            ],
                           ),
                           child: Text(
                             conv.unreadCount > 99
@@ -1571,6 +1653,17 @@ class _ConversationTile extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  static IconData? _previewIcon(WaMessageType? type) {
+    return switch (type) {
+      WaMessageType.image => Icons.photo_camera_outlined,
+      WaMessageType.video => Icons.videocam_outlined,
+      WaMessageType.audio => Icons.headphones_outlined,
+      WaMessageType.document => Icons.description_outlined,
+      WaMessageType.sticker => Icons.sticky_note_2_outlined,
+      _ => null,
+    };
   }
 
   static String _formatTime(DateTime dt) {
@@ -1754,6 +1847,206 @@ Future<String> _mediaSourceForPlayback(
   return Uri.file(file.path).toString();
 }
 
+DateTime _dayOnly(DateTime value) {
+  final local = value.toLocal();
+  return DateTime(local.year, local.month, local.day);
+}
+
+bool _sameDay(DateTime a, DateTime b) => _dayOnly(a) == _dayOnly(b);
+
+List<WaCrmMessage> _filterMessagesByDate(
+  List<WaCrmMessage> messages,
+  WaCrmMessageDateFilter filter,
+  DateTime? customDate,
+) {
+  if (filter == WaCrmMessageDateFilter.all) return messages;
+  final today = _dayOnly(DateTime.now());
+  bool matches(WaCrmMessage msg) {
+    final day = _dayOnly(msg.sentAt);
+    switch (filter) {
+      case WaCrmMessageDateFilter.today:
+        return day == today;
+      case WaCrmMessageDateFilter.yesterday:
+        return day == today.subtract(const Duration(days: 1));
+      case WaCrmMessageDateFilter.last7Days:
+        return !day.isBefore(today.subtract(const Duration(days: 6))) &&
+            !day.isAfter(today);
+      case WaCrmMessageDateFilter.thisMonth:
+        return day.year == today.year && day.month == today.month;
+      case WaCrmMessageDateFilter.custom:
+        return customDate != null && day == _dayOnly(customDate);
+      case WaCrmMessageDateFilter.all:
+        return true;
+    }
+  }
+
+  return messages.where(matches).toList();
+}
+
+String _dateSeparatorLabel(DateTime value) {
+  final day = _dayOnly(value);
+  final today = _dayOnly(DateTime.now());
+  if (day == today) return 'Hoy';
+  if (day == today.subtract(const Duration(days: 1))) return 'Ayer';
+  return DateFormat('dd/MM/yyyy').format(day);
+}
+
+class _DateFilterBar extends StatelessWidget {
+  const _DateFilterBar({
+    required this.selected,
+    required this.customDate,
+    required this.onChanged,
+    required this.onClear,
+  });
+
+  final WaCrmMessageDateFilter selected;
+  final DateTime? customDate;
+  final void Function(WaCrmMessageDateFilter filter, {DateTime? customDate})
+  onChanged;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SizedBox(
+      height: 34,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        children: [
+          _FilterChipButton(
+            label: 'Hoy',
+            selected: selected == WaCrmMessageDateFilter.today,
+            onTap: () => onChanged(WaCrmMessageDateFilter.today),
+          ),
+          _FilterChipButton(
+            label: 'Ayer',
+            selected: selected == WaCrmMessageDateFilter.yesterday,
+            onTap: () => onChanged(WaCrmMessageDateFilter.yesterday),
+          ),
+          _FilterChipButton(
+            label: '7 dias',
+            selected: selected == WaCrmMessageDateFilter.last7Days,
+            onTap: () => onChanged(WaCrmMessageDateFilter.last7Days),
+          ),
+          _FilterChipButton(
+            label: 'Este mes',
+            selected: selected == WaCrmMessageDateFilter.thisMonth,
+            onTap: () => onChanged(WaCrmMessageDateFilter.thisMonth),
+          ),
+          _FilterChipButton(
+            label: customDate == null
+                ? 'Fecha'
+                : DateFormat('dd/MM').format(customDate!),
+            selected: selected == WaCrmMessageDateFilter.custom,
+            icon: Icons.calendar_today_outlined,
+            onTap: () async {
+              final picked = await showDatePicker(
+                context: context,
+                initialDate: customDate ?? DateTime.now(),
+                firstDate: DateTime.now().subtract(const Duration(days: 730)),
+                lastDate: DateTime.now(),
+                helpText: 'Filtrar mensajes por fecha',
+              );
+              if (picked != null) {
+                onChanged(WaCrmMessageDateFilter.custom, customDate: picked);
+              }
+            },
+          ),
+          Padding(
+            padding: const EdgeInsets.only(left: 4),
+            child: TextButton.icon(
+              onPressed: selected == WaCrmMessageDateFilter.all
+                  ? null
+                  : onClear,
+              icon: const Icon(Icons.filter_alt_off_outlined, size: 16),
+              label: const Text('Limpiar'),
+              style: TextButton.styleFrom(
+                foregroundColor: theme.colorScheme.onSurfaceVariant,
+                visualDensity: VisualDensity.compact,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FilterChipButton extends StatelessWidget {
+  const _FilterChipButton({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.icon,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  final IconData? icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(right: 6),
+      child: ChoiceChip(
+        selected: selected,
+        label: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 13),
+              const SizedBox(width: 4),
+            ],
+            Text(label),
+          ],
+        ),
+        onSelected: (_) => onTap(),
+        labelStyle: theme.textTheme.labelSmall?.copyWith(
+          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+        ),
+        visualDensity: VisualDensity.compact,
+      ),
+    );
+  }
+}
+
+class _DateSeparator extends StatelessWidget {
+  const _DateSeparator({required this.date});
+
+  final DateTime date;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surfaceContainerHighest.withValues(
+              alpha: 0.72,
+            ),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
+            ),
+          ),
+          child: Text(
+            _dateSeparatorLabel(date),
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 // ─── Chat Panel ───────────────────────────────────────────────────────────────
 
 class _ChatPanel extends StatelessWidget {
@@ -1763,6 +2056,8 @@ class _ChatPanel extends StatelessWidget {
     required this.scrollController,
     required this.onSend,
     required this.onAttach,
+    required this.onDateFilterChanged,
+    required this.onClearDateFilter,
     required this.onUnlock,
     this.agentName,
   });
@@ -1772,6 +2067,9 @@ class _ChatPanel extends StatelessWidget {
   final ScrollController scrollController;
   final VoidCallback onSend;
   final VoidCallback onAttach;
+  final void Function(WaCrmMessageDateFilter filter, {DateTime? customDate})
+  onDateFilterChanged;
+  final VoidCallback onClearDateFilter;
   final VoidCallback onUnlock;
   final String? agentName;
 
@@ -1779,6 +2077,11 @@ class _ChatPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final conv = state.selectedConversation;
+    final filteredMessages = _filterMessagesByDate(
+      state.messages,
+      state.messageDateFilter,
+      state.customMessageDate,
+    );
 
     if (conv == null) {
       return Center(
@@ -1806,7 +2109,7 @@ class _ChatPanel extends StatelessWidget {
       children: [
         // Header
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
           decoration: BoxDecoration(
             color: theme.colorScheme.surface,
             boxShadow: [
@@ -1817,52 +2120,72 @@ class _ChatPanel extends StatelessWidget {
               ),
             ],
           ),
-          child: Row(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Material(
-                color: Colors.transparent,
-                shape: const CircleBorder(),
-                child: InkWell(
-                  customBorder: const CircleBorder(),
-                  onTap: () => _showChatAvatarPreview(context, conv),
-                  child: UserAvatar(
-                    imageUrl: conv.remoteAvatarUrl,
-                    radius: 18,
-                    backgroundColor: theme.colorScheme.primary.withValues(
-                      alpha: 0.15,
-                    ),
-                    child: Text(
-                      _waInitial(conv.displayName),
-                      style: TextStyle(
-                        color: theme.colorScheme.primary,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      _waText(conv.displayName),
-                      style: theme.textTheme.titleSmall,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    if (conv.displayPhone != null)
-                      Text(
-                        _waText(conv.displayPhone),
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurface.withValues(
-                            alpha: 0.5,
+              Row(
+                children: [
+                  Material(
+                    color: Colors.transparent,
+                    shape: const CircleBorder(),
+                    child: InkWell(
+                      customBorder: const CircleBorder(),
+                      onTap: () => _showChatAvatarPreview(context, conv),
+                      child: UserAvatar(
+                        imageUrl: conv.remoteAvatarUrl,
+                        radius: 18,
+                        backgroundColor: theme.colorScheme.primary.withValues(
+                          alpha: 0.15,
+                        ),
+                        child: Text(
+                          _waInitial(conv.displayName),
+                          style: TextStyle(
+                            color: theme.colorScheme.primary,
+                            fontWeight: FontWeight.bold,
                           ),
                         ),
                       ),
-                  ],
-                ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _waText(conv.displayName),
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        Text(
+                          [
+                            if (conv.displayPhone != null) conv.displayPhone!,
+                            '${state.messages.length} mensajes',
+                            if (conv.lastMessageAt != null)
+                              'Ultimo ${DateFormat('dd/MM HH:mm').format(conv.lastMessageAt!.toLocal())}',
+                          ].join(' · '),
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurface.withValues(
+                              alpha: 0.55,
+                            ),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              _DateFilterBar(
+                selected: state.messageDateFilter,
+                customDate: state.customMessageDate,
+                onChanged: onDateFilterChanged,
+                onClear: onClearDateFilter,
               ),
             ],
           ),
@@ -1871,10 +2194,12 @@ class _ChatPanel extends StatelessWidget {
         Expanded(
           child: state.loadingMessages
               ? const Center(child: CircularProgressIndicator())
-              : state.messages.isEmpty
+              : filteredMessages.isEmpty
               ? Center(
                   child: Text(
-                    'Sin mensajes aún',
+                    state.messages.isEmpty
+                        ? 'Sin mensajes aún'
+                        : 'Sin mensajes para este filtro',
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
                     ),
@@ -1886,11 +2211,16 @@ class _ChatPanel extends StatelessWidget {
                     horizontal: 12,
                     vertical: 8,
                   ),
-                  itemCount: state.messages.length,
+                  itemCount: filteredMessages.length,
                   itemBuilder: (context, i) {
+                    final msg = filteredMessages[i];
+                    final showSeparator =
+                        i == 0 ||
+                        !_sameDay(filteredMessages[i - 1].sentAt, msg.sentAt);
                     return _MessageBubble(
-                      msg: state.messages[i],
+                      msg: msg,
                       agentName: agentName,
+                      showDateSeparator: showSeparator,
                     );
                   },
                 ),
@@ -1934,9 +2264,14 @@ class _ChatPanel extends StatelessWidget {
 // ─── Message Bubble ───────────────────────────────────────────────────────────
 
 class _MessageBubble extends StatelessWidget {
-  const _MessageBubble({required this.msg, this.agentName});
+  const _MessageBubble({
+    required this.msg,
+    required this.showDateSeparator,
+    this.agentName,
+  });
 
   final WaCrmMessage msg;
+  final bool showDateSeparator;
   final String? agentName;
 
   @override
@@ -1951,74 +2286,83 @@ class _MessageBubble extends StatelessWidget {
         ? theme.colorScheme.onPrimary
         : theme.colorScheme.onSurface;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Column(
-        crossAxisAlignment: align,
-        children: [
-          if (!isOut && msg.senderName != null)
-            Padding(
-              padding: const EdgeInsets.only(left: 8, bottom: 2),
-              child: Text(
-                _waText(msg.senderName),
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: theme.colorScheme.primary,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          if (isOut)
-            Padding(
-              padding: const EdgeInsets.only(right: 8, bottom: 2),
-              child: Text(
-                agentName?.trim().isNotEmpty == true
-                    ? 'Enviado por ${_waText(agentName!.trim())}'
-                    : 'Enviado desde la instancia',
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: theme.colorScheme.primary.withValues(alpha: 0.7),
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          Container(
-            constraints: BoxConstraints(
-              maxWidth: MediaQuery.of(context).size.width * 0.65,
-            ),
-            decoration: BoxDecoration(
-              color: bubbleColor,
-              borderRadius: BorderRadius.only(
-                topLeft: const Radius.circular(16),
-                topRight: const Radius.circular(16),
-                bottomLeft: Radius.circular(isOut ? 16 : 4),
-                bottomRight: Radius.circular(isOut ? 4 : 16),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.07),
-                  blurRadius: 4,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _MessageContent(msg: msg, textColor: textColor),
-                const SizedBox(height: 3),
-                Text(
-                  DateFormat('HH:mm').format(msg.sentAt.toLocal()),
-                  style: TextStyle(
-                    color: textColor.withValues(alpha: 0.55),
-                    fontSize: 10,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (showDateSeparator) _DateSeparator(date: msg.sentAt),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 3),
+          child: Column(
+            crossAxisAlignment: align,
+            children: [
+              if (!isOut && msg.senderName != null)
+                Padding(
+                  padding: const EdgeInsets.only(left: 8, bottom: 2),
+                  child: Text(
+                    _waText(msg.senderName),
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.primary,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                  textAlign: TextAlign.right,
                 ),
-              ],
-            ),
+              if (isOut)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8, bottom: 2),
+                  child: Text(
+                    agentName?.trim().isNotEmpty == true
+                        ? 'Enviado por ${_waText(agentName!.trim())}'
+                        : 'Enviado desde la instancia',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.primary.withValues(alpha: 0.7),
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              Container(
+                constraints: BoxConstraints(
+                  maxWidth: MediaQuery.of(context).size.width * 0.65,
+                ),
+                decoration: BoxDecoration(
+                  color: bubbleColor,
+                  borderRadius: BorderRadius.only(
+                    topLeft: const Radius.circular(16),
+                    topRight: const Radius.circular(16),
+                    bottomLeft: Radius.circular(isOut ? 16 : 4),
+                    bottomRight: Radius.circular(isOut ? 4 : 16),
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.07),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _MessageContent(msg: msg, textColor: textColor),
+                    const SizedBox(height: 3),
+                    Text(
+                      DateFormat('HH:mm').format(msg.sentAt.toLocal()),
+                      style: TextStyle(
+                        color: textColor.withValues(alpha: 0.55),
+                        fontSize: 10,
+                      ),
+                      textAlign: TextAlign.right,
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
@@ -3454,6 +3798,12 @@ class _ActionsPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final conv = state.selectedConversation;
+    final last =
+        conv?.lastMessage ??
+        (state.messages.isNotEmpty ? state.messages.last : null);
+    final totalMessages = conv == null
+        ? 0
+        : (conv.messageCount > 0 ? conv.messageCount : state.messages.length);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -3487,6 +3837,12 @@ class _ActionsPanel extends StatelessWidget {
                   'dd/MM HH:mm',
                 ).format(conv.lastMessageAt!.toLocal()),
               ),
+            if (last != null)
+              _InfoRow(
+                icon: Icons.short_text_rounded,
+                label: 'Vista previa',
+                value: '${last.isOutgoing ? 'Tu: ' : ''}${last.previewText}',
+              ),
             const SizedBox(height: 20),
             Divider(color: theme.colorScheme.outlineVariant),
             const SizedBox(height: 12),
@@ -3505,7 +3861,13 @@ class _ActionsPanel extends StatelessWidget {
             _InfoRow(
               icon: Icons.chat_bubble_outline_rounded,
               label: 'Mensajes',
-              value: '${state.messages.length}',
+              value: '$totalMessages',
+            ),
+            _InfoRow(
+              icon: Icons.perm_media_outlined,
+              label: 'Media cargada',
+              value:
+                  '${state.messages.where((m) => m.messageType != WaMessageType.text).length}',
             ),
           ] else
             Text(

@@ -225,3 +225,194 @@ class MarketingHistoryResponse {
     );
   }
 }
+
+// ── Research models ──────────────────────────────────────────────────────────
+
+enum MarketingResearchStatus { draft, approved, rejected, used }
+
+MarketingResearchStatus parseResearchStatus(String? value) {
+  final normalized = (value ?? '').trim().toUpperCase();
+  switch (normalized) {
+    case 'APPROVED':
+      return MarketingResearchStatus.approved;
+    case 'REJECTED':
+      return MarketingResearchStatus.rejected;
+    case 'USED':
+      return MarketingResearchStatus.used;
+    case 'DRAFT':
+    default:
+      return MarketingResearchStatus.draft;
+  }
+}
+
+String researchStatusLabel(MarketingResearchStatus s) {
+  switch (s) {
+    case MarketingResearchStatus.draft:
+      return 'Borrador';
+    case MarketingResearchStatus.approved:
+      return 'Aprobada';
+    case MarketingResearchStatus.rejected:
+      return 'Rechazada';
+    case MarketingResearchStatus.used:
+      return 'Usada';
+  }
+}
+
+class MarketingResearchConfig {
+  const MarketingResearchConfig({
+    required this.id,
+    required this.defaultResearchPrompt,
+    required this.businessName,
+    required this.businessLocation,
+    required this.businessDescription,
+    required this.mainServices,
+    required this.priorityServices,
+    required this.targetMarket,
+    required this.brandTone,
+    required this.learningEnabled,
+    required this.researchFrequencyDays,
+    required this.requireApproval,
+  });
+
+  final String id;
+  final String defaultResearchPrompt;
+  final String businessName;
+  final String businessLocation;
+  final String businessDescription;
+  final List<String> mainServices;
+  final List<String> priorityServices;
+  final String targetMarket;
+  final String brandTone;
+  final bool learningEnabled;
+  final int researchFrequencyDays;
+  final bool requireApproval;
+
+  factory MarketingResearchConfig.fromJson(Map<String, dynamic> json) {
+    return MarketingResearchConfig(
+      id: '${json['id'] ?? ''}',
+      defaultResearchPrompt: '${json['defaultResearchPrompt'] ?? ''}',
+      businessName: '${json['businessName'] ?? 'FULLTECH SRL'}',
+      businessLocation: '${json['businessLocation'] ?? 'Higüey, La Altagracia, República Dominicana'}',
+      businessDescription: '${json['businessDescription'] ?? ''}',
+      mainServices: _parseStringList(json['mainServices']),
+      priorityServices: _parseStringList(json['priorityServices']),
+      targetMarket: '${json['targetMarket'] ?? ''}',
+      brandTone: '${json['brandTone'] ?? ''}',
+      learningEnabled: json['learningEnabled'] == true,
+      researchFrequencyDays: (json['researchFrequencyDays'] as num?)?.toInt() ?? 2,
+      requireApproval: json['requireApproval'] == true,
+    );
+  }
+}
+
+List<String> _parseStringList(dynamic value) {
+  if (value is List) {
+    return value.map((item) => '$item'.trim()).where((item) => item.isNotEmpty).toList(growable: false);
+  }
+  return const [];
+}
+
+class MarketingResearch {
+  const MarketingResearch({
+    required this.id,
+    required this.date,
+    required this.researchPrompt,
+    required this.marketSummary,
+    required this.competitorPublishingPatterns,
+    required this.commonOffers,
+    required this.observedPriceRanges,
+    required this.strongAngles,
+    required this.weakAngles,
+    required this.contentOpportunities,
+    required this.recommendedProducts,
+    required this.recommendedContentTypes,
+    required this.recommendedOffers,
+    required this.recommendedHooks,
+    required this.recommendedCTAs,
+    required this.doMoreOfThis,
+    required this.avoidThis,
+    required this.confidenceScore,
+    required this.dataSources,
+    required this.status,
+    required this.createdAt,
+    required this.approvedAt,
+    required this.rejectedAt,
+  });
+
+  final String id;
+  final DateTime date;
+  final String researchPrompt;
+  final String marketSummary;
+  final String competitorPublishingPatterns;
+  final String commonOffers;
+  final String observedPriceRanges;
+  final List<String> strongAngles;
+  final List<String> weakAngles;
+  final String contentOpportunities;
+  final List<String> recommendedProducts;
+  final List<String> recommendedContentTypes;
+  final List<String> recommendedOffers;
+  final List<String> recommendedHooks;
+  final List<String> recommendedCTAs;
+  final List<String> doMoreOfThis;
+  final List<String> avoidThis;
+  final double confidenceScore;
+  final List<String> dataSources;
+  final MarketingResearchStatus status;
+  final DateTime? createdAt;
+  final DateTime? approvedAt;
+  final DateTime? rejectedAt;
+
+  factory MarketingResearch.fromJson(Map<String, dynamic> json) {
+    return MarketingResearch(
+      id: '${json['id'] ?? ''}',
+      date: DateTime.tryParse('${json['date'] ?? ''}') ?? DateTime.now(),
+      researchPrompt: '${json['researchPrompt'] ?? ''}',
+      marketSummary: '${json['marketSummary'] ?? ''}',
+      competitorPublishingPatterns: '${json['competitorPublishingPatterns'] ?? ''}',
+      commonOffers: '${json['commonOffers'] ?? ''}',
+      observedPriceRanges: '${json['observedPriceRanges'] ?? ''}',
+      strongAngles: _parseStringList(json['strongAngles']),
+      weakAngles: _parseStringList(json['weakAngles']),
+      contentOpportunities: '${json['contentOpportunities'] ?? ''}',
+      recommendedProducts: _parseStringList(json['recommendedProducts']),
+      recommendedContentTypes: _parseStringList(json['recommendedContentTypes']),
+      recommendedOffers: _parseStringList(json['recommendedOffers']),
+      recommendedHooks: _parseStringList(json['recommendedHooks']),
+      recommendedCTAs: _parseStringList(json['recommendedCTAs']),
+      doMoreOfThis: _parseStringList(json['doMoreOfThis']),
+      avoidThis: _parseStringList(json['avoidThis']),
+      confidenceScore: (json['confidenceScore'] as num?)?.toDouble() ?? 0.5,
+      dataSources: _parseStringList(json['dataSources']),
+      status: parseResearchStatus('${json['status'] ?? ''}'),
+      createdAt: DateTime.tryParse('${json['createdAt'] ?? ''}'),
+      approvedAt: DateTime.tryParse('${json['approvedAt'] ?? ''}'),
+      rejectedAt: DateTime.tryParse('${json['rejectedAt'] ?? ''}'),
+    );
+  }
+}
+
+class MarketingLearningStats {
+  const MarketingLearningStats({
+    required this.activeCount,
+    required this.discardedCount,
+    required this.topInsights,
+  });
+
+  final int activeCount;
+  final int discardedCount;
+  final List<String> topInsights;
+
+  factory MarketingLearningStats.fromJson(Map<String, dynamic> json) {
+    final raw = (json['topInsights'] as List?) ?? const [];
+    return MarketingLearningStats(
+      activeCount: (json['activeCount'] as num?)?.toInt() ?? 0,
+      discardedCount: (json['discardedCount'] as num?)?.toInt() ?? 0,
+      topInsights: raw
+          .whereType<Map>()
+          .map((item) => '${item['insight'] ?? ''}')
+          .where((item) => item.isNotEmpty)
+          .toList(growable: false),
+    );
+  }
+}

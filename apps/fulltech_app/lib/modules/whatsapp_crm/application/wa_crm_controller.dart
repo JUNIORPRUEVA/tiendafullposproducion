@@ -153,6 +153,15 @@ class WaCrmDailyAiSummary {
   }
 }
 
+enum WaCrmMessageDateFilter {
+  all,
+  today,
+  yesterday,
+  last7Days,
+  thisMonth,
+  custom,
+}
+
 class WaCrmUser {
   const WaCrmUser({
     required this.id,
@@ -205,6 +214,9 @@ class WaCrmState {
     this.loadingAiSummary = false,
     this.aiSummaryError,
     this.aiSummaryDate,
+    this.messageDateFilter = WaCrmMessageDateFilter.all,
+    this.customMessageDate,
+    this.highlightedConversationIds = const <String>{},
   });
 
   final List<WaCrmUser> users;
@@ -225,6 +237,9 @@ class WaCrmState {
   final bool loadingAiSummary;
   final String? aiSummaryError;
   final DateTime? aiSummaryDate;
+  final WaCrmMessageDateFilter messageDateFilter;
+  final DateTime? customMessageDate;
+  final Set<String> highlightedConversationIds;
 
   WaCrmState copyWith({
     List<WaCrmUser>? users,
@@ -245,6 +260,9 @@ class WaCrmState {
     bool? loadingAiSummary,
     String? Function()? aiSummaryError,
     DateTime? Function()? aiSummaryDate,
+    WaCrmMessageDateFilter? messageDateFilter,
+    DateTime? Function()? customMessageDate,
+    Set<String>? highlightedConversationIds,
   }) {
     return WaCrmState(
       users: users ?? this.users,
@@ -273,6 +291,12 @@ class WaCrmState {
       aiSummaryDate: aiSummaryDate != null
           ? aiSummaryDate()
           : this.aiSummaryDate,
+      messageDateFilter: messageDateFilter ?? this.messageDateFilter,
+      customMessageDate: customMessageDate != null
+          ? customMessageDate()
+          : this.customMessageDate,
+      highlightedConversationIds:
+          highlightedConversationIds ?? this.highlightedConversationIds,
     );
   }
 }
@@ -289,11 +313,61 @@ class WaCrmController extends StateNotifier<WaCrmState> {
 
   final WaCrmRepository _repo;
   bool _autoSyncedWebhookEvents = false;
+  final Map<String, Timer> _highlightTimers = {};
+
+  @override
+  void dispose() {
+    for (final timer in _highlightTimers.values) {
+      timer.cancel();
+    }
+    super.dispose();
+  }
 
   // ─── Clear selection (mobile back) ──────────────────────────────────
 
   void clearSelection() {
     state = state.copyWith(selectedConversation: () => null, messages: []);
+  }
+
+  void setMessageDateFilter(
+    WaCrmMessageDateFilter filter, {
+    DateTime? customDate,
+  }) {
+    state = state.copyWith(
+      messageDateFilter: filter,
+      customMessageDate: () => customDate,
+    );
+  }
+
+  void clearMessageDateFilter() {
+    state = state.copyWith(
+      messageDateFilter: WaCrmMessageDateFilter.all,
+      customMessageDate: () => null,
+    );
+  }
+
+  void _pulseConversation(String conversationId) {
+    final current = {...state.highlightedConversationIds, conversationId};
+    state = state.copyWith(highlightedConversationIds: current);
+    _highlightTimers[conversationId]?.cancel();
+    _highlightTimers[conversationId] = Timer(const Duration(seconds: 4), () {
+      final updated = {...state.highlightedConversationIds}
+        ..remove(conversationId);
+      state = state.copyWith(highlightedConversationIds: updated);
+      _highlightTimers.remove(conversationId);
+    });
+  }
+
+  List<WaCrmConversation> _sortConversations(
+    List<WaCrmConversation> conversations,
+  ) {
+    final sorted = [...conversations];
+    sorted.sort((a, b) {
+      final timeCompare = b.activityAt.compareTo(a.activityAt);
+      if (timeCompare != 0) return timeCompare;
+      return a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase());
+    });
+    return sorted;
   }
 
   // ─── Load all instances with webhook status ──────────────────────────
@@ -519,8 +593,8 @@ class WaCrmController extends StateNotifier<WaCrmState> {
   Future<void> loadConversations(String userId) async {
     state = state.copyWith(loadingConversations: true, error: () => null);
     try {
-      final convs = _mergeConversationsByPhone(
-        await _repo.getConversations(userId),
+      final convs = _sortConversations(
+        _mergeConversationsByPhone(await _repo.getConversations(userId)),
       );
       final selected = state.selectedConversation;
       final selectedReplacement = selected == null
@@ -571,10 +645,12 @@ class WaCrmController extends StateNotifier<WaCrmState> {
                 remoteAvatarUrl: c.remoteAvatarUrl,
                 lastMessageAt: c.lastMessageAt,
                 unreadCount: 0,
+                messageCount: c.messageCount,
+                lastMessage: c.lastMessage,
               )
             : c;
       }).toList();
-      state = state.copyWith(conversations: updated);
+      state = state.copyWith(conversations: _sortConversations(updated));
     } catch (_) {}
   }
 
@@ -600,8 +676,8 @@ class WaCrmController extends StateNotifier<WaCrmState> {
     final user = state.selectedUser;
     if (user == null) return;
     try {
-      final convs = _mergeConversationsByPhone(
-        await _repo.getConversations(user.id),
+      final convs = _sortConversations(
+        _mergeConversationsByPhone(await _repo.getConversations(user.id)),
       );
       final selected = state.selectedConversation;
       WaCrmConversation? selectedReplacement;
@@ -754,8 +830,8 @@ class WaCrmController extends StateNotifier<WaCrmState> {
         byKey[key] = conv;
         continue;
       }
-      final existingTime = existing.lastMessageAt ?? DateTime(0);
-      final convTime = conv.lastMessageAt ?? DateTime(0);
+      final existingTime = existing.activityAt;
+      final convTime = conv.activityAt;
       final newest = convTime.isAfter(existingTime) ? conv : existing;
       final oldest = convTime.isAfter(existingTime) ? existing : conv;
       byKey[key] = WaCrmConversation(
@@ -777,16 +853,11 @@ class WaCrmController extends StateNotifier<WaCrmState> {
             : oldest.remoteAvatarUrl,
         lastMessageAt: newest.lastMessageAt ?? oldest.lastMessageAt,
         unreadCount: newest.unreadCount + oldest.unreadCount,
+        messageCount: newest.messageCount + oldest.messageCount,
         lastMessage: newest.lastMessage ?? oldest.lastMessage,
       );
     }
-    final merged = byKey.values.toList();
-    merged.sort((a, b) {
-      final tA = a.lastMessageAt ?? DateTime(0);
-      final tB = b.lastMessageAt ?? DateTime(0);
-      return tB.compareTo(tA);
-    });
-    return merged;
+    return _sortConversations(byKey.values.toList());
   }
 
   // ─── Real-time message push ───────────────────────────────────────────
@@ -839,55 +910,79 @@ class WaCrmController extends StateNotifier<WaCrmState> {
               selectedPhone == incomingPhone);
 
       // If this conversation is currently open, append message
+      var messageWasAlreadyOpen = false;
       if (sameSelectedConversation) {
         final alreadyExists = state.messages.any((m) => m.id == msg.id);
+        messageWasAlreadyOpen = alreadyExists;
         if (!alreadyExists) {
           state = state.copyWith(messages: [...state.messages, msg]);
         }
         if (selected?.id != targetConversationId && incomingConv != null) {
           state = state.copyWith(
-            selectedConversation: () => WaCrmConversation(
+            selectedConversation: () => incomingConv.copyWith(
               id: targetConversationId,
-              instanceId: incomingConv.instanceId,
-              remoteJid: incomingConv.remoteJid,
-              remotePhone: incomingConv.remotePhone,
-              remoteName: incomingConv.remoteName,
-              remoteAvatarUrl: incomingConv.remoteAvatarUrl,
-              lastMessageAt: incomingConv.lastMessageAt,
-              unreadCount: incomingConv.unreadCount,
-              lastMessage: incomingConv.lastMessage,
+              lastMessageAt: () => incomingConv.lastMessageAt ?? msg.sentAt,
+              unreadCount: 0,
+              messageCount: incomingConv.messageCount + (alreadyExists ? 0 : 1),
+              lastMessage: () => msg,
             ),
           );
         }
       }
 
       // Update conversation list (bump lastMessageAt + unreadCount)
-      if (incomingConv != null) {
-        final updatedConv = WaCrmConversation(
+      final existingConv = state.conversations
+          .cast<WaCrmConversation?>()
+          .firstWhere(
+            (c) => c?.id == targetConversationId,
+            orElse: () => byPhone,
+          );
+      final preferredBase = existingConv ?? incomingConv;
+      final incomingRawPhone = incomingConv?.remotePhone;
+      final incomingName = incomingConv?.remoteName;
+      final incomingAvatar = incomingConv?.remoteAvatarUrl;
+      final baseConv = preferredBase?.copyWith(
+        instanceId: incomingConv?.instanceId,
+        remoteJid: incomingConv?.remoteJid,
+        remotePhone: incomingRawPhone?.trim().isNotEmpty == true
+            ? () => incomingRawPhone
+            : null,
+        remoteName: incomingName?.trim().isNotEmpty == true
+            ? () => incomingName
+            : null,
+        remoteAvatarUrl: incomingAvatar?.trim().isNotEmpty == true
+            ? () => incomingAvatar
+            : null,
+      );
+      if (baseConv != null) {
+        final alreadyLastMessage = baseConv.lastMessage?.id == msg.id;
+        final isDuplicateMessage = messageWasAlreadyOpen || alreadyLastMessage;
+        final shouldIncrementUnread =
+            msg.isIncoming && !sameSelectedConversation && !isDuplicateMessage;
+        final updatedConv = baseConv.copyWith(
           id: targetConversationId,
-          instanceId: incomingConv.instanceId,
-          remoteJid: incomingConv.remoteJid,
-          remotePhone: incomingConv.remotePhone,
-          remoteName: incomingConv.remoteName,
-          remoteAvatarUrl: incomingConv.remoteAvatarUrl,
-          lastMessageAt: incomingConv.lastMessageAt,
-          unreadCount: incomingConv.unreadCount,
-          lastMessage: incomingConv.lastMessage,
+          lastMessageAt: () => msg.sentAt,
+          unreadCount: shouldIncrementUnread
+              ? baseConv.unreadCount + 1
+              : sameSelectedConversation
+              ? 0
+              : baseConv.unreadCount,
+          messageCount: baseConv.messageCount + (isDuplicateMessage ? 0 : 1),
+          lastMessage: () => msg,
         );
-        final existing = state.conversations.any(
-          (c) => c.id == targetConversationId,
-        );
-        List<WaCrmConversation> updatedList;
-        if (existing) {
-          updatedList = state.conversations.map((c) {
-            return c.id == targetConversationId ? updatedConv : c;
-          }).toList();
-        } else {
-          updatedList = [updatedConv, ...state.conversations];
-        }
+        final withoutTarget = state.conversations
+            .where((c) => c.id != targetConversationId)
+            .toList();
         state = state.copyWith(
-          conversations: _mergeConversationsByPhone(updatedList),
+          conversations: _mergeConversationsByPhone([
+            updatedConv,
+            ...withoutTarget,
+          ]),
+          selectedConversation: sameSelectedConversation
+              ? () => updatedConv.copyWith(unreadCount: 0)
+              : null,
         );
+        _pulseConversation(targetConversationId);
       }
 
       if (requiresConversationRefresh && state.selectedUser != null) {

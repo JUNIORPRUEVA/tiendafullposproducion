@@ -224,4 +224,143 @@ class MarketingApi {
       _rethrow(error, 'No se pudo reiniciar el flujo');
     }
   }
+
+  // ── Research API ────────────────────────────────────────────────────────────
+
+  Future<MarketingResearchConfig> loadResearchConfig() async {
+    try {
+      final res = await _dio.get(
+        ApiRoutes.marketingResearchConfig,
+        options: _backgroundOptions,
+      );
+      final raw = (res.data as Map?)?.cast<String, dynamic>() ?? const <String, dynamic>{};
+      return MarketingResearchConfig.fromJson(raw);
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo cargar la configuracion de investigacion');
+    }
+  }
+
+  Future<void> saveResearchConfig({
+    required String defaultPrompt,
+    required String businessName,
+    required String businessLocation,
+    required String businessDescription,
+    required List<String> mainServices,
+    required List<String> priorityServices,
+    required String targetMarket,
+    required String brandTone,
+    required bool learningEnabled,
+    required int researchFrequencyDays,
+    required bool requireApproval,
+  }) async {
+    try {
+      await _dio.patch(
+        ApiRoutes.marketingResearchConfig,
+        data: {
+          'default_research_prompt': defaultPrompt.trim(),
+          'business_name': businessName.trim(),
+          'business_location': businessLocation.trim(),
+          'business_description': businessDescription.trim(),
+          'main_services': mainServices,
+          'priority_services': priorityServices,
+          'target_market': targetMarket.trim(),
+          'brand_tone': brandTone.trim(),
+          'learning_enabled': learningEnabled,
+          'research_frequency_days': researchFrequencyDays,
+          'require_approval': requireApproval,
+        },
+      );
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo guardar la configuracion de investigacion');
+    }
+  }
+
+  Future<MarketingResearch?> loadLatestResearch() async {
+    try {
+      final res = await _dio.get(
+        ApiRoutes.marketingResearchLatest,
+        options: _backgroundOptions,
+      );
+      if (res.data == null) return null;
+      final raw = (res.data as Map?)?.cast<String, dynamic>();
+      if (raw == null || raw.isEmpty) return null;
+      return MarketingResearch.fromJson(raw);
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo cargar la investigacion');
+    }
+  }
+
+  Future<List<MarketingResearch>> loadResearchList() async {
+    try {
+      final res = await _dio.get(
+        ApiRoutes.marketingResearchList,
+        options: _backgroundOptions,
+      );
+      final rows = (res.data is List) ? (res.data as List) : const [];
+      return rows
+          .whereType<Map>()
+          .map((item) => MarketingResearch.fromJson(item.cast<String, dynamic>()))
+          .toList(growable: false);
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo cargar las investigaciones');
+    }
+  }
+
+  Future<MarketingResearch> generateResearch({String? customPrompt}) async {
+    try {
+      final res = await _dio.post(
+        ApiRoutes.marketingResearchGenerate,
+        data: customPrompt != null ? {'custom_prompt': customPrompt.trim()} : <String, dynamic>{},
+      );
+      final raw = (res.data as Map?)?.cast<String, dynamic>() ?? const <String, dynamic>{};
+      return MarketingResearch.fromJson(raw);
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo generar la investigacion');
+    }
+  }
+
+  Future<MarketingResearch> forceResearch({String? customPrompt}) async {
+    try {
+      final res = await _dio.post(
+        ApiRoutes.marketingResearchForce,
+        data: customPrompt != null ? {'custom_prompt': customPrompt.trim()} : <String, dynamic>{},
+      );
+      final raw = (res.data as Map?)?.cast<String, dynamic>() ?? const <String, dynamic>{};
+      return MarketingResearch.fromJson(raw);
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo forzar la investigacion');
+    }
+  }
+
+  Future<void> approveResearch(String researchId) async {
+    try {
+      await _dio.post(ApiRoutes.marketingResearchApprove(researchId));
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo aprobar la investigacion');
+    }
+  }
+
+  Future<void> rejectResearch(String researchId, {String reason = ''}) async {
+    try {
+      await _dio.post(
+        ApiRoutes.marketingResearchReject(researchId),
+        data: {'reason': reason.trim()},
+      );
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo rechazar la investigacion');
+    }
+  }
+
+  Future<MarketingLearningStats> loadLearningStats() async {
+    try {
+      final res = await _dio.get(
+        ApiRoutes.marketingResearchLearningStats,
+        options: _backgroundOptions,
+      );
+      final raw = (res.data as Map?)?.cast<String, dynamic>() ?? const <String, dynamic>{};
+      return MarketingLearningStats.fromJson(raw);
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudieron cargar las estadisticas de aprendizaje');
+    }
+  }
 }

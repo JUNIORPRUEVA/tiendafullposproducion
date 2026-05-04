@@ -1,0 +1,247 @@
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+import { MarketingLearningService } from './marketing-learning.service';
+import { MarketingResearchSourceService } from './marketing-research-source.service';
+import { GenerateResearchDto, UpdateMarketingResearchConfigDto } from './dto/marketing-research.dto';
+
+@Injectable()
+export class MarketingResearchService {
+  private readonly logger = new Logger(MarketingResearchService.name);
+
+  private readonly defaultPrompt = `Investigar el mercado de publicidad en República Dominicana para servicios de seguridad e instalación, dando prioridad a automatización de motores de portones eléctricos. Analizar también sistemas de cámaras de seguridad, cercos eléctricos, intercoms, alarmas y soluciones tecnológicas para negocios y residencias. Revisar cómo están publicando los competidores, qué ofertas usan, qué precios comunican, qué textos llaman más la atención, qué formatos parecen más efectivos, qué ángulos de venta se repiten, qué objeciones tienen los clientes y qué oportunidades puede aprovechar FULLTECH SRL en Higüey y República Dominicana.`;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly source: MarketingResearchSourceService,
+    private readonly learning: MarketingLearningService,
+  ) {}
+
+  async getOrCreateConfig(companyId: string) {
+    const existing = await this.prisma.marketingResearchConfig.findUnique({ where: { companyId } });
+    if (existing) return existing;
+    return this.prisma.marketingResearchConfig.create({
+      data: {
+        companyId,
+        defaultResearchPrompt: this.defaultPrompt,
+        businessName: 'FULLTECH SRL',
+        businessLocation: 'Higüey, La Altagracia, República Dominicana',
+        businessDescription: 'Empresa dominicana especializada en seguridad e instalación tecnológica para hogares y negocios.',
+        mainServices: [
+          'Instalación de cámaras de seguridad',
+          'Automatización de motores para portones eléctricos',
+          'Cercos eléctricos',
+          'Intercoms',
+          'Alarmas',
+          'Sistemas POS',
+          'Tecnología para negocios',
+        ],
+        priorityServices: [
+          'Motores de portones eléctricos',
+          'Cámaras de seguridad',
+          'Cercos eléctricos',
+          'Intercoms',
+          'Alarmas',
+        ],
+        targetMarket: 'Negocios y residencias en Higüey, La Altagracia y República Dominicana.',
+        brandTone: 'Profesional, confiable, claro, dominicano, directo, moderno, orientado a ventas.',
+        learningEnabled: true,
+        researchFrequencyDays: 2,
+        requireApproval: false,
+      },
+    });
+  }
+
+  async updateConfig(companyId: string, dto: UpdateMarketingResearchConfigDto, userId: string) {
+    const config = await this.getOrCreateConfig(companyId);
+    return this.prisma.marketingResearchConfig.update({
+      where: { id: config.id },
+      data: {
+        ...(dto.default_research_prompt != null ? { defaultResearchPrompt: dto.default_research_prompt.trim() } : {}),
+        ...(dto.business_name != null ? { businessName: dto.business_name.trim() } : {}),
+        ...(dto.business_location != null ? { businessLocation: dto.business_location.trim() } : {}),
+        ...(dto.business_description != null ? { businessDescription: dto.business_description.trim() } : {}),
+        ...(dto.main_services != null ? { mainServices: dto.main_services.map((s) => s.trim()).filter((s) => s.length > 0) } : {}),
+        ...(dto.priority_services != null ? { priorityServices: dto.priority_services.map((s) => s.trim()).filter((s) => s.length > 0) } : {}),
+        ...(dto.target_market != null ? { targetMarket: dto.target_market.trim() } : {}),
+        ...(dto.brand_tone != null ? { brandTone: dto.brand_tone.trim() } : {}),
+        ...(dto.learning_enabled != null ? { learningEnabled: dto.learning_enabled } : {}),
+        ...(dto.research_frequency_days != null ? { researchFrequencyDays: dto.research_frequency_days } : {}),
+        ...(dto.require_approval != null ? { requireApproval: dto.require_approval } : {}),
+        updatedByUserId: userId,
+      },
+    });
+  }
+
+  async getLatestResearch(companyId: string) {
+    return this.prisma.marketingResearch.findFirst({
+      where: { companyId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async getUsableResearch(companyId: string) {
+    const config = await this.getOrCreateConfig(companyId);
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - config.researchFrequencyDays);
+
+    return this.prisma.marketingResearch.findFirst({
+      where: {
+        companyId,
+        status: { in: ['APPROVED', 'DRAFT'] },
+        createdAt: { gte: cutoff },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async generate(companyId: string, dto: GenerateResearchDto, userId: string, forced = false) {
+    const config = await this.getOrCreateConfig(companyId);
+    const insights = await this.learning.getActiveInsights(companyId, 15);
+    const insightTexts = insights.map((i) => `[${i.category}] ${i.insight}`);
+
+    const prompt = dto.custom_prompt?.trim() || config.defaultResearchPrompt;
+
+    this.logger.log(`Generando investigacion de mercado para companyId=${companyId} forced=${forced}`);
+
+    const result = await this.source.generateResearch({
+      researchPrompt: prompt,
+      businessName: config.businessName,
+      businessLocation: config.businessLocation,
+      businessDescription: config.businessDescription ?? '',
+      mainServices: config.mainServices,
+      priorityServices: config.priorityServices,
+      targetMarket: config.targetMarket ?? '',
+      brandTone: config.brandTone,
+      learningInsights: insightTexts,
+    });
+
+    const now = new Date();
+    const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+
+    const research = await this.prisma.marketingResearch.create({
+      data: {
+        companyId,
+        date: today,
+        researchPrompt: prompt,
+        businessSnapshot: {
+          name: config.businessName,
+          location: config.businessLocation,
+          services: config.mainServices,
+          priority: config.priorityServices,
+          tone: config.brandTone,
+        },
+        country: 'República Dominicana',
+        city: 'Higüey',
+        mainFocus: config.priorityServices[0] ?? 'Seguridad e instalación',
+        servicesAnalyzed: config.mainServices,
+        marketSummary: result.marketSummary,
+        competitorPublishingPatterns: result.competitorPublishingPatterns,
+        commonOffers: result.commonOffers,
+        observedPriceRanges: result.observedPriceRanges,
+        strongAngles: result.strongAngles,
+        weakAngles: result.weakAngles,
+        contentOpportunities: result.contentOpportunities,
+        recommendedProducts: result.recommendedProducts,
+        recommendedContentTypes: result.recommendedContentTypes,
+        recommendedOffers: result.recommendedOffers,
+        recommendedHooks: result.recommendedHooks,
+        recommendedCTAs: result.recommendedCTAs,
+        doMoreOfThis: result.doMoreOfThis,
+        avoidThis: result.avoidThis,
+        confidenceScore: result.confidenceScore,
+        dataSources: result.dataSources,
+        status: config.requireApproval ? 'DRAFT' : 'APPROVED',
+        forcedByUserId: forced ? userId : null,
+      },
+    });
+
+    if (config.learningEnabled) {
+      await this.learning.extractAndSave(
+        companyId,
+        research.id,
+        result.strongAngles,
+        result.avoidThis,
+        result.recommendedOffers,
+      );
+    }
+
+    await this.prisma.marketingActivityLog.create({
+      data: {
+        companyId,
+        action: forced ? 'MARKETING_RESEARCH_FORCED' : 'MARKETING_RESEARCH_GENERATED',
+        description: `Investigacion de mercado ${forced ? 'forzada' : 'generada'} para ${config.businessName}`,
+        userId,
+        metadata: { researchId: research.id, confidenceScore: result.confidenceScore },
+      },
+    });
+
+    return research;
+  }
+
+  async approve(companyId: string, researchId: string, userId: string) {
+    const research = await this.prisma.marketingResearch.findFirst({ where: { id: researchId, companyId } });
+    if (!research) throw new NotFoundException('Investigacion no encontrada');
+
+    const updated = await this.prisma.marketingResearch.update({
+      where: { id: researchId },
+      data: { status: 'APPROVED', approvedByUserId: userId, approvedAt: new Date() },
+    });
+
+    await this.prisma.marketingActivityLog.create({
+      data: {
+        companyId,
+        action: 'MARKETING_RESEARCH_APPROVED',
+        description: 'Investigacion de mercado aprobada',
+        userId,
+        metadata: { researchId },
+      },
+    });
+
+    return updated;
+  }
+
+  async reject(companyId: string, researchId: string, userId: string, reason?: string) {
+    const research = await this.prisma.marketingResearch.findFirst({ where: { id: researchId, companyId } });
+    if (!research) throw new NotFoundException('Investigacion no encontrada');
+
+    const updated = await this.prisma.marketingResearch.update({
+      where: { id: researchId },
+      data: { status: 'REJECTED', rejectedAt: new Date() },
+    });
+
+    await this.prisma.marketingActivityLog.create({
+      data: {
+        companyId,
+        action: 'MARKETING_RESEARCH_REJECTED',
+        description: `Investigacion rechazada: ${reason ?? ''}`,
+        userId,
+        metadata: { researchId, reason },
+      },
+    });
+
+    if (reason && research.strongAngles && Array.isArray(research.strongAngles)) {
+      for (const angle of research.strongAngles as string[]) {
+        await this.learning.penalizeInsight(companyId, angle);
+      }
+    }
+
+    return updated;
+  }
+
+  async getList(companyId: string) {
+    return this.prisma.marketingResearch.findMany({
+      where: { companyId },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+    });
+  }
+
+  async getLearningStats(companyId: string) {
+    const [activeCount, discardedCount] = await Promise.all([
+      this.prisma.marketingLearningMemory.count({ where: { companyId, status: 'ACTIVE' } }),
+      this.prisma.marketingLearningMemory.count({ where: { companyId, status: 'DISCARDED' } }),
+    ]);
+    const topInsights = await this.learning.getActiveInsights(companyId, 5);
+    return { activeCount, discardedCount, topInsights };
+  }
+}

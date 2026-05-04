@@ -195,6 +195,14 @@ class ApiRoutes {
   static String marketingStoryEdit(String id) => '/marketing/stories/$id';
   static const marketingHistory = '/marketing/history';
   static const marketingConfig = '/marketing/config';
+  static const marketingResearchConfig = '/marketing/research/config';
+  static const marketingResearchLatest = '/marketing/research/latest';
+  static const marketingResearchList = '/marketing/research/list';
+  static const marketingResearchGenerate = '/marketing/research/generate';
+  static const marketingResearchForce = '/marketing/research/force';
+  static const marketingResearchLearningStats = '/marketing/research/learning-stats';
+  static String marketingResearchApprove(String id) => '/marketing/research/$id/approve';
+  static String marketingResearchReject(String id) => '/marketing/research/$id/reject';
   static const marketingFlowActivate = '/marketing/flow/activate';
   static const marketingFlowPause = '/marketing/flow/pause';
   static const marketingFlowReset = '/marketing/flow/reset';

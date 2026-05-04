@@ -14,6 +14,7 @@ class WaCrmConversation {
     this.remoteAvatarUrl,
     this.lastMessageAt,
     this.unreadCount = 0,
+    this.messageCount = 0,
     this.lastMessage,
   });
 
@@ -25,6 +26,7 @@ class WaCrmConversation {
   final String? remoteAvatarUrl;
   final DateTime? lastMessageAt;
   final int unreadCount;
+  final int messageCount;
   final WaCrmMessage? lastMessage;
 
   bool get isGroup {
@@ -71,6 +73,41 @@ class WaCrmConversation {
     return 'Contacto WhatsApp';
   }
 
+  DateTime get activityAt =>
+      lastMessageAt ??
+      lastMessage?.sentAt ??
+      DateTime.fromMillisecondsSinceEpoch(0);
+
+  WaCrmConversation copyWith({
+    String? id,
+    String? instanceId,
+    String? remoteJid,
+    String? Function()? remotePhone,
+    String? Function()? remoteName,
+    String? Function()? remoteAvatarUrl,
+    DateTime? Function()? lastMessageAt,
+    int? unreadCount,
+    int? messageCount,
+    WaCrmMessage? Function()? lastMessage,
+  }) {
+    return WaCrmConversation(
+      id: id ?? this.id,
+      instanceId: instanceId ?? this.instanceId,
+      remoteJid: remoteJid ?? this.remoteJid,
+      remotePhone: remotePhone != null ? remotePhone() : this.remotePhone,
+      remoteName: remoteName != null ? remoteName() : this.remoteName,
+      remoteAvatarUrl: remoteAvatarUrl != null
+          ? remoteAvatarUrl()
+          : this.remoteAvatarUrl,
+      lastMessageAt: lastMessageAt != null
+          ? lastMessageAt()
+          : this.lastMessageAt,
+      unreadCount: unreadCount ?? this.unreadCount,
+      messageCount: messageCount ?? this.messageCount,
+      lastMessage: lastMessage != null ? lastMessage() : this.lastMessage,
+    );
+  }
+
   factory WaCrmConversation.fromJson(Map<String, dynamic> json) {
     final msgs = json['messages'] as List<dynamic>?;
     WaCrmMessage? lastMsg;
@@ -106,6 +143,13 @@ class WaCrmConversation {
       unreadCount:
           (json['unreadCount'] as num?)?.toInt() ??
           (json['unread_count'] as num?)?.toInt() ??
+          0,
+      messageCount:
+          (json['messageCount'] as num?)?.toInt() ??
+          (json['message_count'] as num?)?.toInt() ??
+          (json['_count'] is Map
+              ? ((json['_count'] as Map)['messages'] as num?)?.toInt()
+              : null) ??
           0,
       lastMessage: lastMsg,
     );
