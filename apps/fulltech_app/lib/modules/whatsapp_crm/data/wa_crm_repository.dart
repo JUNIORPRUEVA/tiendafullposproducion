@@ -307,4 +307,27 @@ class WaCrmRepository {
     );
     return res.data ?? const {};
   }
+
+  Future<Map<String, dynamic>> askAiAnalysis({
+    required String analysisReportId,
+    required String question,
+    String? conversationId,
+    Map<String, dynamic>? dateRange,
+  }) async {
+    final res = await _dio.post<Map<String, dynamic>>(
+      '/whatsapp-inbox/ai-analysis/ask',
+      data: {
+        'analysisReportId': analysisReportId,
+        'question': question,
+        if (conversationId != null) 'conversationId': conversationId,
+        if (dateRange != null) 'dateRange': dateRange,
+      },
+      options: Options(
+        receiveTimeout: const Duration(seconds: 30),
+        sendTimeout: const Duration(seconds: 10),
+        extra: const {'skipLoader': true},
+      ),
+    );
+    return res.data ?? const {};
+  }
 }

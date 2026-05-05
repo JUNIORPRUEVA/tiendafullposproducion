@@ -130,6 +130,7 @@ class WaCrmExecutiveAiReport {
     required this.clientesSinRespuesta,
     required this.recomendacionesConcretas,
     required this.conversacionesProblematicas,
+    this.responsabilidadDetectada = const [],
   });
 
   final String estadoGeneral;
@@ -143,6 +144,7 @@ class WaCrmExecutiveAiReport {
   final int clientesSinRespuesta;
   final List<String> recomendacionesConcretas;
   final List<Map<String, dynamic>> conversacionesProblematicas;
+  final List<Map<String, dynamic>> responsabilidadDetectada;
 
   factory WaCrmExecutiveAiReport.fromJson(Map<String, dynamic> json) {
     return WaCrmExecutiveAiReport(
@@ -167,6 +169,12 @@ class WaCrmExecutiveAiReport {
           const [],
       conversacionesProblematicas:
           (json['conversacionesProblematicas'] as List<dynamic>?)
+              ?.whereType<Map>()
+              .map((e) => e.cast<String, dynamic>())
+              .toList() ??
+          const [],
+      responsabilidadDetectada:
+          (json['responsabilidadDetectada'] as List<dynamic>?)
               ?.whereType<Map>()
               .map((e) => e.cast<String, dynamic>())
               .toList() ??
@@ -200,8 +208,28 @@ class WaCrmExecutiveAiReport {
         );
       }
     }
+    if (responsabilidadDetectada.isNotEmpty) {
+      lines.addAll(['', 'Responsabilidad detectada:']);
+      for (final item in responsabilidadDetectada) {
+        lines.add(
+          '- ${sanitizeWaText(item['cliente']) ?? 'Cliente no identificado'} | ${sanitizeWaText(item['atendidoPor']) ?? 'Atendido por N/A'} | ${sanitizeWaText(item['estado']) ?? 'No hay evidencia suficiente'} | ${sanitizeWaText(item['evidencia']) ?? 'No hay evidencia suficiente'}',
+        );
+      }
+    }
     return lines.join('\n');
   }
+}
+
+class WaCrmAiQuestionAnswer {
+  const WaCrmAiQuestionAnswer({
+    required this.question,
+    required this.answer,
+    required this.generatedAt,
+  });
+
+  final String question;
+  final String answer;
+  final DateTime generatedAt;
 }
 
 class WaCrmDailyAiSummary {
@@ -214,6 +242,8 @@ class WaCrmDailyAiSummary {
     this.report,
     this.cached = false,
     this.generatedAt,
+    this.analysisReportId,
+    this.dateRange = const {},
   });
 
   final String source;
@@ -224,6 +254,8 @@ class WaCrmDailyAiSummary {
   final WaCrmExecutiveAiReport? report;
   final bool cached;
   final String? generatedAt;
+  final String? analysisReportId;
+  final Map<String, dynamic> dateRange;
 
   factory WaCrmDailyAiSummary.fromJson(Map<String, dynamic> json) {
     return WaCrmDailyAiSummary(
@@ -249,6 +281,9 @@ class WaCrmDailyAiSummary {
             ),
       cached: json['cached'] == true,
       generatedAt: sanitizeWaText(json['generatedAt']),
+      analysisReportId: sanitizeWaText(json['analysisReportId']),
+      dateRange:
+          (json['dateRange'] as Map?)?.cast<String, dynamic>() ?? const {},
     );
   }
 }
@@ -317,6 +352,8 @@ class WaCrmState {
     this.aiSummaryError,
     this.aiSummaryDate,
     this.aiAnalysisScope = WaCrmAiAnalysisScope.filter,
+    this.aiQuestionHistory = const [],
+    this.askingAiQuestion = false,
     this.messageDateFilter = WaCrmMessageDateFilter.all,
     this.customMessageDate,
     this.highlightedConversationIds = const <String>{},
@@ -343,6 +380,8 @@ class WaCrmState {
   final String? aiSummaryError;
   final DateTime? aiSummaryDate;
   final WaCrmAiAnalysisScope aiAnalysisScope;
+  final List<WaCrmAiQuestionAnswer> aiQuestionHistory;
+  final bool askingAiQuestion;
   final WaCrmMessageDateFilter messageDateFilter;
   final DateTime? customMessageDate;
   final Set<String> highlightedConversationIds;
@@ -369,6 +408,8 @@ class WaCrmState {
     String? Function()? aiSummaryError,
     DateTime? Function()? aiSummaryDate,
     WaCrmAiAnalysisScope? aiAnalysisScope,
+    List<WaCrmAiQuestionAnswer>? aiQuestionHistory,
+    bool? askingAiQuestion,
     WaCrmMessageDateFilter? messageDateFilter,
     DateTime? Function()? customMessageDate,
     Set<String>? highlightedConversationIds,
@@ -403,6 +444,8 @@ class WaCrmState {
           ? aiSummaryDate()
           : this.aiSummaryDate,
       aiAnalysisScope: aiAnalysisScope ?? this.aiAnalysisScope,
+      aiQuestionHistory: aiQuestionHistory ?? this.aiQuestionHistory,
+      askingAiQuestion: askingAiQuestion ?? this.askingAiQuestion,
       messageDateFilter: messageDateFilter ?? this.messageDateFilter,
       customMessageDate: customMessageDate != null
           ? customMessageDate()
@@ -613,6 +656,8 @@ class WaCrmController extends StateNotifier<WaCrmState> {
       composerUnlockedConversationKey: () => null,
       aiSummary: () => null,
       aiSummaryError: () => null,
+      aiQuestionHistory: const [],
+      askingAiQuestion: false,
     );
     unawaited(loadConversations(user.id));
   }
@@ -645,6 +690,7 @@ class WaCrmController extends StateNotifier<WaCrmState> {
       state = state.copyWith(
         aiSummary: () => WaCrmDailyAiSummary.fromJson(raw),
         loadingAiSummary: false,
+        aiQuestionHistory: const [],
       );
     } catch (e, st) {
       debugPrint('[WaCrm] generateDailyAiSummary error: $e\n$st');
@@ -712,12 +758,60 @@ class WaCrmController extends StateNotifier<WaCrmState> {
       state = state.copyWith(
         aiSummary: () => WaCrmDailyAiSummary.fromJson(raw),
         loadingAiSummary: false,
+        aiQuestionHistory: const [],
       );
     } catch (e, st) {
       debugPrint('[WaCrm] analyzeWithAi error: $e\n$st');
       state = state.copyWith(
         loadingAiSummary: false,
         aiSummaryError: () => 'No se pudo generar el análisis de IA: $e',
+      );
+    }
+  }
+
+  Future<void> askCurrentAiReport(String question) async {
+    final cleanQuestion = question.trim();
+    final summary = state.aiSummary;
+    final reportId = summary?.analysisReportId;
+    if (cleanQuestion.isEmpty) return;
+    if (reportId == null || reportId.isEmpty) {
+      state = state.copyWith(
+        aiSummaryError: () =>
+            'Genera primero un análisis avanzado para poder preguntar sobre el informe.',
+      );
+      return;
+    }
+
+    state = state.copyWith(askingAiQuestion: true, aiSummaryError: () => null);
+    try {
+      final raw = await _repo.askAiAnalysis(
+        analysisReportId: reportId,
+        question: cleanQuestion,
+        conversationId:
+            state.aiAnalysisScope == WaCrmAiAnalysisScope.conversation
+            ? state.selectedConversation?.id
+            : null,
+        dateRange: summary?.dateRange,
+      );
+      final answer =
+          sanitizeWaText(raw['answer']) ??
+          'No hay evidencia suficiente en el reporte para afirmar eso.';
+      state = state.copyWith(
+        askingAiQuestion: false,
+        aiQuestionHistory: [
+          ...state.aiQuestionHistory,
+          WaCrmAiQuestionAnswer(
+            question: cleanQuestion,
+            answer: answer,
+            generatedAt: DateTime.now(),
+          ),
+        ],
+      );
+    } catch (e, st) {
+      debugPrint('[WaCrm] askCurrentAiReport error: $e\n$st');
+      state = state.copyWith(
+        askingAiQuestion: false,
+        aiSummaryError: () => 'No se pudo responder la pregunta: $e',
       );
     }
   }

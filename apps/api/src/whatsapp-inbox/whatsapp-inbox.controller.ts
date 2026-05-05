@@ -87,6 +87,23 @@ class AiAnalysisDto {
   forceRefresh?: boolean;
 }
 
+class AiAnalysisAskDto {
+  @IsString()
+  @IsNotEmpty()
+  analysisReportId!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  question!: string;
+
+  @IsOptional()
+  @IsString()
+  conversationId?: string;
+
+  @IsOptional()
+  dateRange?: unknown;
+}
+
 class UnlockComposeDto {
   @IsString()
   @IsNotEmpty()
@@ -207,6 +224,19 @@ export class WhatsappInboxController {
       filter: dto.filter,
       customDate: dto.customDate,
       forceRefresh: dto.forceRefresh === true,
+      generatedBy: user.id ?? null,
+    });
+  }
+
+  /** Ask a follow-up question about a previously generated CRM AI report */
+  @Post('ai-analysis/ask')
+  askCrmAnalysis(@Body() dto: AiAnalysisAskDto, @Req() req: Request) {
+    const user = (req.user ?? {}) as { id?: string };
+    return this.inboxService.askWhatsappAiAnalysis({
+      analysisReportId: dto.analysisReportId,
+      question: dto.question,
+      conversationId: dto.conversationId,
+      dateRange: dto.dateRange,
       generatedBy: user.id ?? null,
     });
   }

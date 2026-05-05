@@ -933,10 +933,6 @@ export class WhatsappInboxService {
   }
 
   private whatsappMessageBaseSelect() {
-    const reportWithResponsibility = {
-      ...input.report,
-      responsabilidadDetectada,
-    };
     return {
       id: true,
       conversationId: true,
@@ -3309,6 +3305,168 @@ export class WhatsappInboxService {
     return { ...response, analysisReportId };
   }
 
+  async askWhatsappAiAnalysis(input: WhatsappAiAskInput) {
+    const question = input.question.trim();
+    if (!question) throw new BadRequestException('La pregunta es requerida.');
+
+    type Row = { id: string; report: Prisma.JsonValue; generated_at: Date };
+    const rows = input.generatedBy
+      ? await this.prisma.$queryRaw<Row[]>`
+          SELECT id, report, generated_at
+          FROM whatsapp_ai_analysis_reports
+          WHERE id = ${input.analysisReportId}::uuid
+            AND generated_by = ${input.generatedBy}::uuid
+          LIMIT 1
+        `.catch(() => [] as Row[])
+      : await this.prisma.$queryRaw<Row[]>`
+          SELECT id, report, generated_at
+          FROM whatsapp_ai_analysis_reports
+          WHERE id = ${input.analysisReportId}::uuid
+          LIMIT 1
+        `.catch(() => [] as Row[]);
+    const row = rows[0];
+    if (!row || !row.report || typeof row.report !== 'object' || Array.isArray(row.report)) {
+      throw new NotFoundException('Reporte de IA no encontrado.');
+    }
+
+    const report = row.report as Record<string, unknown>;
+    const scopedReport = this.scopeWhatsappAiReportForQuestion(
+      report,
+      input.conversationId,
+    );
+    const runtime = await this.getOpenAiRuntimeConfig();
+    const answer = runtime.apiKey
+      ? await this.requestWhatsappAiReportAnswer(runtime, {
+          question,
+          report: scopedReport,
+        }).catch(() => this.buildDeterministicWhatsappAiAnswer(question, scopedReport))
+      : this.buildDeterministicWhatsappAiAnswer(question, scopedReport);
+
+    return {
+      source: runtime.apiKey ? 'openai' : 'rules-only',
+      analysisReportId: input.analysisReportId,
+      question,
+      answer,
+      generatedAt: new Date().toISOString(),
+    };
+  }
+
+  private scopeWhatsappAiReportForQuestion(
+    report: Record<string, unknown>,
+    conversationId?: string,
+  ) {
+    if (!conversationId) return report;
+    const clone = JSON.parse(JSON.stringify(report)) as Record<string, unknown>;
+    const analyzed = Array.isArray(clone.analyzedConversations)
+      ? clone.analyzedConversations.filter((item: any) => item?.conversationId === conversationId)
+      : [];
+    clone.analyzedConversations = analyzed;
+    const rawReport = clone.report as Record<string, unknown> | undefined;
+    if (rawReport) {
+      if (Array.isArray(rawReport.conversacionesProblematicas)) {
+        rawReport.conversacionesProblematicas = rawReport.conversacionesProblematicas.filter(
+          (item: any) => item?.conversationId === conversationId,
+        );
+      }
+      if (Array.isArray(rawReport.responsabilidadDetectada)) {
+        rawReport.responsabilidadDetectada = rawReport.responsabilidadDetectada.filter(
+          (item: any) => item?.conversationId === conversationId,
+        );
+      }
+    }
+    return clone;
+  }
+
+  private async requestWhatsappAiReportAnswer(
+    runtime: { apiKey: string; model: string; companyName: string },
+    payload: { question: string; report: Record<string, unknown> },
+  ) {
+    const candidates = [runtime.model, 'gpt-5', 'gpt-4.1', 'gpt-4o', 'gpt-4o-mini'].filter(
+      (value, index, list) => value && list.indexOf(value) === index,
+    );
+    const systemPrompt =
+      `Responde preguntas sobre un reporte de CRM WhatsApp de ${runtime.companyName}. ` +
+      'Debes basarte SOLO en el reporte, los mensajes analizados, resumenes de media y metadatos incluidos. ' +
+      'fromMe=true/direction=outbound/senderRole=vendedor significa empresa o vendedor. fromMe=false/direction=inbound/senderRole=cliente significa cliente externo. Nunca inviertas roles. ' +
+      'Si el reporte no contiene evidencia suficiente, responde exactamente: No hay evidencia suficiente en el reporte para afirmar eso. ' +
+      'No reveles datos sensibles completos; resume evidencia.';
+
+    for (const model of candidates) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 12000);
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          signal: controller.signal,
+          headers: {
+            Authorization: `Bearer ${runtime.apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model,
+            temperature: 0.05,
+            max_tokens: 900,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              {
+                role: 'user',
+                content: `Pregunta: ${payload.question}\n\nReporte/contexto JSON:\n${JSON.stringify(payload.report).slice(0, 55000)}`,
+              },
+            ],
+          }),
+        }).finally(() => clearTimeout(timeout));
+        if (!response.ok) continue;
+        const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
+        const content = data.choices?.[0]?.message?.content?.trim();
+        if (content) return content;
+      } catch {
+        continue;
+      }
+    }
+    return this.buildDeterministicWhatsappAiAnswer(payload.question, payload.report);
+  }
+
+  private buildDeterministicWhatsappAiAnswer(
+    question: string,
+    report: Record<string, unknown>,
+  ) {
+    const text = question.toLowerCase();
+    const analyzed = Array.isArray(report.analyzedConversations)
+      ? (report.analyzedConversations as Array<any>)
+      : [];
+    const responsibilities = ((report.report as any)?.responsabilidadDetectada ?? report.responsabilidadDetectada ?? []) as Array<any>;
+    const problems = ((report.report as any)?.conversacionesProblematicas ?? []) as Array<any>;
+
+    if (text.includes('quien') || text.includes('quién') || text.includes('respond')) {
+      const evidence = responsibilities[0] ?? null;
+      if (!evidence) return 'No hay evidencia suficiente en el reporte para afirmar eso.';
+      return [
+        `Responsabilidad detectada: ${evidence.estado ?? 'No hay evidencia suficiente'}.`,
+        `Cliente: ${evidence.cliente ?? 'No identificado'}.`,
+        `Atendido por: ${evidence.atendidoPor ?? 'No identificado'}.`,
+        `Evidencia: ${evidence.evidencia ?? 'No hay evidencia suficiente'}.`,
+      ].join('\n');
+    }
+
+    if (text.includes('vendedor') || text.includes('atend')) {
+      const conv = analyzed[0];
+      if (!conv) return 'No hay evidencia suficiente en el reporte para afirmar eso.';
+      return `Atendido por: ${conv.atendidoPor?.usuario ?? 'Usuario no identificado'} / instancia ${conv.atendidoPor?.instancia ?? 'No identificada'}.`;
+    }
+
+    if (text.includes('fraude')) {
+      const fraud = problems.find((item) => `${item.clasificacion ?? ''} ${item.motivo ?? ''}`.toLowerCase().includes('fraude'));
+      if (!fraud) return 'No hay evidencia suficiente en el reporte para afirmar eso.';
+      return `Posible fraude: ${fraud.motivo}. Evidencia: ${fraud.evidencia}. Acción recomendada: ${fraud.accionRecomendada}.`;
+    }
+
+    const firstProblem = problems[0];
+    if (firstProblem) {
+      return `Motivo: ${firstProblem.motivo}. Evidencia: ${firstProblem.evidencia}. Acción recomendada: ${firstProblem.accionRecomendada}.`;
+    }
+    return 'No hay evidencia suficiente en el reporte para afirmar eso.';
+  }
+
   private resolveWhatsappAiDateRange(filter: WhatsappAiFilter, customDate?: string) {
     const now = new Date();
     const localDay = (value: Date) => value.toLocaleDateString('en-CA', {
@@ -3980,6 +4138,10 @@ export class WhatsappInboxService {
           : null,
       })),
     }));
+    const reportWithResponsibility = {
+      ...input.report,
+      responsabilidadDetectada,
+    };
     return {
       source: input.source,
       cached: input.cached,

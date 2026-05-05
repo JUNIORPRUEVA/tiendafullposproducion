@@ -504,6 +504,9 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
                     scope: state.aiAnalysisScope,
                     forceRefresh: true,
                   ),
+              onAskReport: (question) => ref
+                  .read(waCrmControllerProvider.notifier)
+                  .askCurrentAiReport(question),
             ),
           ),
         ],
@@ -3410,6 +3413,7 @@ class _DailyAiPanel extends StatelessWidget {
     required this.onAnalyzeConversation,
     required this.onAnalyzeFilter,
     required this.onRefreshAnalysis,
+    required this.onAskReport,
   });
 
   final WaCrmState state;
@@ -3418,6 +3422,7 @@ class _DailyAiPanel extends StatelessWidget {
   final VoidCallback onAnalyzeConversation;
   final VoidCallback onAnalyzeFilter;
   final VoidCallback onRefreshAnalysis;
+  final ValueChanged<String> onAskReport;
 
   static String _filterLabel(WaCrmState state) {
     switch (state.messageDateFilter) {
@@ -3963,6 +3968,71 @@ class _DailyAiPanel extends StatelessWidget {
                             ),
                           ),
                         ],
+                        if (executiveReport != null &&
+                            executiveReport
+                                .responsabilidadDetectada
+                                .isNotEmpty) ...[
+                          const SizedBox(height: 16),
+                          Text(
+                            'Responsabilidad detectada',
+                            style: theme.textTheme.labelMedium?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              color: scheme.onSurfaceVariant,
+                              letterSpacing: 0.4,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          ...executiveReport.responsabilidadDetectada.map(
+                            (item) => Container(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: scheme.surfaceContainerHighest
+                                    .withValues(alpha: 0.42),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: scheme.outlineVariant,
+                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _waText(
+                                      item['estado'],
+                                      'No hay evidencia suficiente',
+                                    ),
+                                    style: theme.textTheme.labelMedium
+                                        ?.copyWith(
+                                          fontWeight: FontWeight.w800,
+                                          color: scheme.primary,
+                                        ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Cliente: ${_waText(item['cliente'], 'No identificado')}',
+                                    style: theme.textTheme.bodySmall,
+                                  ),
+                                  Text(
+                                    'Atendido por: ${_waText(item['atendidoPor'], 'No identificado')}',
+                                    style: theme.textTheme.bodySmall,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    _waText(
+                                      item['evidencia'],
+                                      'No hay evidencia suficiente',
+                                    ),
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      height: 1.35,
+                                      color: scheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
                         // ── Per-conversation analysis ──────────────────
                         if (convAnalysis.isNotEmpty) ...[
                           const SizedBox(height: 18),
@@ -4089,6 +4159,14 @@ class _DailyAiPanel extends StatelessWidget {
                             ),
                           ),
                         ],
+                        if (summary.analysisReportId?.isNotEmpty == true) ...[
+                          const SizedBox(height: 18),
+                          _AiReportQuestionBox(
+                            history: state.aiQuestionHistory,
+                            asking: state.askingAiQuestion,
+                            onAsk: onAskReport,
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -4146,6 +4224,149 @@ class _AiStatPill extends StatelessWidget {
               color: isAlert ? alertColor : null,
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AiReportQuestionBox extends StatefulWidget {
+  const _AiReportQuestionBox({
+    required this.history,
+    required this.asking,
+    required this.onAsk,
+  });
+
+  final List<WaCrmAiQuestionAnswer> history;
+  final bool asking;
+  final ValueChanged<String> onAsk;
+
+  @override
+  State<_AiReportQuestionBox> createState() => _AiReportQuestionBoxState();
+}
+
+class _AiReportQuestionBoxState extends State<_AiReportQuestionBox> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final text = _controller.text.trim();
+    if (text.isEmpty || widget.asking) return;
+    widget.onAsk(text);
+    _controller.clear();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Preguntar sobre este informe',
+            style: theme.textTheme.labelMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _controller,
+                  minLines: 1,
+                  maxLines: 3,
+                  textInputAction: TextInputAction.send,
+                  onSubmitted: (_) => _submit(),
+                  decoration: const InputDecoration(
+                    hintText: 'Preguntar sobre este informe',
+                    isDense: true,
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton.filled(
+                tooltip: 'Enviar pregunta',
+                onPressed: widget.asking ? null : _submit,
+                icon: widget.asking
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.send_rounded, size: 18),
+              ),
+            ],
+          ),
+          if (widget.history.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            ...widget.history.reversed
+                .take(4)
+                .map(
+                  (item) => Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: scheme.surface.withValues(alpha: 0.78),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: scheme.outlineVariant),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _waText(item.question),
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: scheme.primary,
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                        SelectableText(
+                          _waText(item.answer),
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            height: 1.35,
+                          ),
+                        ),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton.icon(
+                            onPressed: () async {
+                              await Clipboard.setData(
+                                ClipboardData(text: item.answer),
+                              );
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Respuesta copiada'),
+                                  ),
+                                );
+                              }
+                            },
+                            icon: const Icon(Icons.copy_rounded, size: 15),
+                            label: const Text('Copiar'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+          ],
         ],
       ),
     );
