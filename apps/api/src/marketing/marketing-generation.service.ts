@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { MarketingImageGenerationService } from './marketing-image-generation.service';
 import { MarketingMediaAssetService } from './marketing-media-asset.service';
 import { MarketingMediaSelectorService } from './marketing-media-selector.service';
+import { MarketingStorageService } from './marketing-storage.service';
 
 type StoryTemplate = {
   title: string;
@@ -20,6 +21,7 @@ export class MarketingGenerationService {
     private readonly mediaSelector: MarketingMediaSelectorService,
     private readonly imageGeneration: MarketingImageGenerationService,
     private readonly mediaAssets: MarketingMediaAssetService,
+    private readonly marketingStorage: MarketingStorageService,
   ) {}
 
   private readonly orderedTypes: MarketingStoryType[] = [
@@ -427,13 +429,18 @@ export class MarketingGenerationService {
       throw new NotFoundException('Contenido no encontrado');
     }
     const asset = await this.mediaAssets.ensure(companyId, mediaAssetId);
+    const normalized = await this.marketingStorage.saveBaseImageReference({
+      companyId,
+      storyType: this.storyTypeSlug(story.type),
+      sourceUrl: asset.fileUrl,
+    });
 
     const updated = await this.prisma.marketingDailyStory.update({
       where: { id: storyId },
       data: {
         mediaAssetId: asset.id,
-        imageUrl: asset.fileUrl,
-        generatedImageUrl: asset.fileUrl,
+        imageUrl: normalized.url,
+        generatedImageUrl: normalized.url,
         imageStatus: 'PENDING',
       },
       include: {
@@ -624,11 +631,17 @@ export class MarketingGenerationService {
         throw new ConflictException('No se pudo generar imagen IA para el estado');
       }
 
+      const savedGenerated = await this.marketingStorage.saveGeneratedImage({
+        companyId: input.companyId,
+        storyType: this.storyTypeSlug(input.type),
+        sourceUrl: generatedUrl,
+      });
+
       selected = await this.prisma.marketingMediaAsset.create({
         data: {
           companyId: input.companyId,
-          fileUrl: generatedUrl,
-          thumbnailUrl: generatedUrl,
+          fileUrl: savedGenerated.url,
+          thumbnailUrl: savedGenerated.url,
           fileName: `ai-${this.storyTypeSlug(input.type)}-${Date.now()}.png`,
           mimeType: 'image/png',
           category: this.galleryCategoryForType(input.type),
@@ -663,7 +676,13 @@ export class MarketingGenerationService {
       usedResearchAngle,
     });
 
-    const finalImageUrl = (selected.fileUrl || '').trim();
+    const savedBase = await this.marketingStorage.saveBaseImageReference({
+      companyId: input.companyId,
+      storyType: this.storyTypeSlug(input.type),
+      sourceUrl: selected.fileUrl,
+    });
+
+    const finalImageUrl = (savedBase.url || '').trim();
     if (!finalImageUrl) {
       throw new ConflictException('El estado no tiene imagen final valida desde Galeria Publicitaria');
     }

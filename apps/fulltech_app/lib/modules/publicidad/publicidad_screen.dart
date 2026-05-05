@@ -33,6 +33,7 @@ class PublicidadState {
     required this.latestResearch,
     required this.researchHistory,
     required this.learningStats,
+    required this.publishedAssets,
     required this.error,
   });
 
@@ -47,6 +48,7 @@ class PublicidadState {
   final MarketingResearchDetail? latestResearch;
   final List<MarketingResearchDetail> researchHistory;
   final MarketingLearningStats? learningStats;
+  final List<MarketingPublishedAsset> publishedAssets;
   final String? error;
 
   factory PublicidadState.initial() {
@@ -63,6 +65,7 @@ class PublicidadState {
       latestResearch: null,
       researchHistory: const [],
       learningStats: null,
+      publishedAssets: const [],
       error: null,
     );
   }
@@ -79,6 +82,7 @@ class PublicidadState {
     MarketingResearchDetail? latestResearch,
     List<MarketingResearchDetail>? researchHistory,
     MarketingLearningStats? learningStats,
+    List<MarketingPublishedAsset>? publishedAssets,
     String? error,
     bool clearError = false,
   }) {
@@ -94,6 +98,7 @@ class PublicidadState {
       latestResearch: latestResearch ?? this.latestResearch,
       researchHistory: researchHistory ?? this.researchHistory,
       learningStats: learningStats ?? this.learningStats,
+      publishedAssets: publishedAssets ?? this.publishedAssets,
       error: clearError ? null : (error ?? this.error),
     );
   }
@@ -286,6 +291,95 @@ class PublicidadController extends StateNotifier<PublicidadState> {
     });
   }
 
+  Future<void> duplicatePublishedAsset(MarketingPublishedAsset item) async {
+    await _runBusy(() async {
+      final imageUrl = _resolvePublishedImageUrl(item);
+      if (imageUrl.isEmpty) {
+        throw StateError('No se pudo duplicar: el anuncio publicado no tiene imagen válida.');
+      }
+
+      final cleanType = _storyTypeLabelFromCode(item.storyType);
+      final baseName = item.headline.trim().isEmpty
+          ? 'anuncio-publicado'
+          : item.headline.trim().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '-');
+      final safeName = '$baseName-${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final tags = <String>{
+        ...item.hashtags.where((tag) => tag.trim().isNotEmpty).map((tag) => tag.trim()),
+        'publicado',
+        cleanType.toLowerCase(),
+      };
+
+      await _api.createMediaAsset(
+        fileUrl: imageUrl,
+        fileName: safeName,
+        mimeType: _inferMimeType(safeName),
+        category: 'Clientes / trabajos realizados',
+        relatedService: cleanType,
+        description: item.shortText,
+        tags: tags.toList(growable: false),
+      );
+
+      await _refresh(keepLoading: false);
+    });
+  }
+
+  Future<void> reusePublishedAssetInStory({
+    required MarketingPublishedAsset asset,
+    required String storyId,
+  }) async {
+    await _runBusy(() async {
+      if (asset.mediaAssetId != null && asset.mediaAssetId!.trim().isNotEmpty) {
+        await _api.changeBaseImage(storyId, asset.mediaAssetId!.trim());
+        await _refresh(keepLoading: false);
+        return;
+      }
+
+      final imageUrl = _resolvePublishedImageUrl(asset);
+      if (imageUrl.isEmpty) {
+        throw StateError('No se puede reutilizar este anuncio: no tiene imagen válida.');
+      }
+
+      final tempFileName = 'reuse-${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final created = await _api.createMediaAsset(
+        fileUrl: imageUrl,
+        fileName: tempFileName,
+        mimeType: _inferMimeType(tempFileName),
+        category: 'Instalaciones reales',
+        relatedService: _storyTypeLabelFromCode(asset.storyType),
+        description: asset.shortText,
+        tags: [
+          ...asset.hashtags,
+          'reutilizado',
+          'publicado',
+        ],
+      );
+
+      await _api.changeBaseImage(storyId, created.id);
+      await _refresh(keepLoading: false);
+    });
+  }
+
+  String _resolvePublishedImageUrl(MarketingPublishedAsset item) {
+    final generated = item.generatedImageUrl.trim();
+    if (generated.isNotEmpty) return generated;
+    final fromAsset = item.mediaAsset?.fileUrl.trim() ?? '';
+    if (fromAsset.isNotEmpty) return fromAsset;
+    return '';
+  }
+
+  String _storyTypeLabelFromCode(String rawType) {
+    switch (rawType.toUpperCase()) {
+      case 'SALES':
+        return 'Venta';
+      case 'TRUST':
+        return 'Confianza';
+      case 'EDUCATIONAL':
+        return 'Educativo';
+      default:
+        return rawType.trim().isEmpty ? 'General' : rawType.trim();
+    }
+  }
+
   Future<void> _refresh({required bool keepLoading}) async {
     try {
       state = state.copyWith(
@@ -305,6 +399,7 @@ class PublicidadController extends StateNotifier<PublicidadState> {
       MarketingResearchDetail? latestResearch;
       var researchHistory = const <MarketingResearchDetail>[];
       MarketingLearningStats? learningStats;
+      var publishedAssets = const <MarketingPublishedAsset>[];
       String? softError;
 
       try {
@@ -353,6 +448,15 @@ class PublicidadController extends StateNotifier<PublicidadState> {
         );
       }
 
+      try {
+        publishedAssets = await _api.loadPublishedAssets();
+      } catch (error) {
+        softError ??= _friendlyError(
+          error,
+          fallback: 'No se pudo cargar la sección de imágenes publicadas.',
+        );
+      }
+
       state = state.copyWith(
         loading: false,
         dashboard: dashboard,
@@ -363,6 +467,7 @@ class PublicidadController extends StateNotifier<PublicidadState> {
         latestResearch: latestResearch,
         researchHistory: researchHistory,
         learningStats: learningStats,
+        publishedAssets: publishedAssets,
         error: softError,
       );
     } catch (error) {
@@ -531,11 +636,15 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
                             if (_tab == _PublicidadTab.galeria)
                               _GalleryTab(
                                 assets: state.mediaAssets,
+                                publishedAssets: state.publishedAssets,
+                                stories: state.dailyStories,
                                 busy: state.busy,
                                 onCreate: controller.createMediaAsset,
                                 onToggleActive: controller.toggleAssetActive,
                                 onToggleFeatured: controller.toggleAssetFeatured,
                                 onUpdateMeta: controller.updateAssetMeta,
+                                onDuplicatePublished: controller.duplicatePublishedAsset,
+                                onReusePublishedInStory: controller.reusePublishedAssetInStory,
                               ),
                             if (_tab == _PublicidadTab.estados)
                               _DailyStoriesTab(
@@ -668,7 +777,7 @@ class _TopToolbar extends StatelessWidget {
               ),
               ButtonSegment(
                 value: _PublicidadTab.configuracion,
-                label: Text('Configuraci├│n'),
+                label: Text('Configuración'),
               ),
             ],
             selected: {tab},
@@ -733,11 +842,11 @@ class _DashboardTab extends StatelessWidget {
       .length;
     final cards = [
       ('Estado del flujo', dashboard?.flowStatus ?? 'INACTIVO'),
-      ('Pendientes de aprobaci├│n', '${dashboard?.pendingApprovalCount ?? 0}'),
+      ('Pendientes de aprobación', '${dashboard?.pendingApprovalCount ?? 0}'),
       ('Aprobados hoy', '${dashboard?.approvedTodayCount ?? 0}'),
-      ('├Ültima generaci├│n', _formatDateTime(dashboard?.lastGenerationAt)),
+      ('Última generación', _formatDateTime(dashboard?.lastGenerationAt)),
       (
-        'Pr├│xima generaci├│n sugerida',
+        'Próxima generación sugerida',
         _formatDateTime(dashboard?.nextSuggestedGeneration),
       ),
       (
@@ -833,6 +942,7 @@ class _DashboardTab extends StatelessWidget {
   bool _isCompleteStory(MarketingStory story) {
     final hasImage =
         _safeImageUrl(story.generatedImageUrl).isNotEmpty ||
+        _safeImageUrl(story.mediaAsset?.fileUrl).isNotEmpty ||
         _safeImageUrl(story.imageUrl).isNotEmpty;
     final hasCopy =
         story.title.trim().isNotEmpty &&
@@ -935,46 +1045,54 @@ class _DailyStoriesTab extends StatelessWidget {
                   'Validacion: hay estados usando la misma imagen base. Regenera o cambia imagen para mantener variedad.',
             ),
           ),
-        Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: [
-            for (final story in stories)
-              SizedBox(
-                width: 420,
-                child: _StoryCard(
-                  story: story,
-                  usedResearch: _findResearch(story.researchId),
-                  busy: busy,
-                  compactActions: compactActions,
-                  onApprove: () => onApprove(story.id),
-                  onReject: () => onReject(story.id),
-                  onRegenerate: () => onRegenerate(story.id),
-                  onRegenerateImage: () => onRegenerateImage(story.id),
-                  onChangeBaseImage: () async {
-                    final chosen = await showDialog<String>(
-                      context: context,
-                      builder: (_) => _PickMediaAssetDialog(
-                        assets: mediaAssets,
-                        selectedId: story.mediaAssetId,
-                      ),
-                    );
-                    if (chosen != null && chosen.isNotEmpty) {
-                      await onChangeBaseImage(story.id, chosen);
-                    }
-                  },
-                  onEdit: () async {
-                    final payload = await showDialog<_EditStoryPayload>(
-                      context: context,
-                      builder: (_) => _EditStoryDialog(story: story),
-                    );
-                    if (payload != null) {
-                      await onEdit(story, payload);
-                    }
-                  },
-                ),
-              ),
-          ],
+        LayoutBuilder(
+          builder: (context, constraints) {
+            const spacing = 12.0;
+            final width = constraints.maxWidth;
+            final columns = width >= 1380 ? 3 : width >= 860 ? 2 : 1;
+            final cardWidth = (width - (spacing * (columns - 1))) / columns;
+            return Wrap(
+              spacing: spacing,
+              runSpacing: spacing,
+              children: [
+                for (final story in stories)
+                  SizedBox(
+                    width: cardWidth,
+                    child: _StoryCard(
+                      story: story,
+                      usedResearch: _findResearch(story.researchId),
+                      busy: busy,
+                      compactActions: compactActions,
+                      onApprove: () => onApprove(story.id),
+                      onReject: () => onReject(story.id),
+                      onRegenerate: () => onRegenerate(story.id),
+                      onRegenerateImage: () => onRegenerateImage(story.id),
+                      onChangeBaseImage: () async {
+                        final chosen = await showDialog<String>(
+                          context: context,
+                          builder: (_) => _PickMediaAssetDialog(
+                            assets: mediaAssets,
+                            selectedId: story.mediaAssetId,
+                          ),
+                        );
+                        if (chosen != null && chosen.isNotEmpty) {
+                          await onChangeBaseImage(story.id, chosen);
+                        }
+                      },
+                      onEdit: () async {
+                        final payload = await showDialog<_EditStoryPayload>(
+                          context: context,
+                          builder: (_) => _EditStoryDialog(story: story),
+                        );
+                        if (payload != null) {
+                          await onEdit(story, payload);
+                        }
+                      },
+                    ),
+                  ),
+              ],
+            );
+          },
         ),
       ],
     );
@@ -1032,6 +1150,7 @@ class _StoryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final baseImage = _safeImageUrl(story.mediaAsset?.fileUrl ?? story.imageUrl);
     final generatedImage = _safeImageUrl(story.generatedImageUrl);
+    final finalImage = _resolveFinalImage(story);
     final relatedService = (story.mediaAsset?.relatedService ?? story.usedOffer).trim();
     final cta = story.usedCTA.trim().isEmpty
         ? 'Escribenos por WhatsApp para cotizar'
@@ -1068,14 +1187,30 @@ class _StoryCard extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 10),
-        _StoryPreviewFrame(
-          label: 'Preview final listo para publicar',
-          imageUrl: generatedImage.isNotEmpty ? generatedImage : baseImage,
-          story: story,
-          fallbackLabel: 'Sin imagen disponible',
-          showLabel: false,
-          showApprovedBadge: approved,
+        Center(
+          child: SizedBox(
+            width: 210,
+            child: _StoryPreviewFrame(
+              label: 'Preview final listo para publicar',
+              imageUrl: finalImage,
+              story: story,
+              fallbackLabel: 'Genera imagen para este anuncio',
+              showLabel: false,
+              showApprovedBadge: approved,
+            ),
+          ),
         ),
+        if (finalImage.isEmpty) ...[
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.center,
+            child: OutlinedButton.icon(
+              onPressed: busy ? null : onRegenerateImage,
+              icon: const Icon(Icons.auto_fix_high_rounded, size: 18),
+              label: const Text('Generar imagen'),
+            ),
+          ),
+        ],
         const SizedBox(height: 8),
         Row(
           children: [
@@ -1092,9 +1227,9 @@ class _StoryCard extends StatelessWidget {
             Expanded(
               child: _StoryPreviewFrame(
                 label: 'Imagen final',
-                imageUrl: generatedImage,
+                imageUrl: finalImage,
                 story: story,
-                fallbackLabel: 'Placeholder profesional 9:16',
+                fallbackLabel: 'Generar imagen',
                 compact: true,
                 showApprovedBadge: approved,
               ),
@@ -1180,10 +1315,19 @@ class _StoryCard extends StatelessWidget {
     String generatedImage,
     String baseImage,
   ) {
-    final image = generatedImage.isNotEmpty ? generatedImage : baseImage;
+    final image = generatedImage.isNotEmpty
+        ? generatedImage
+        : baseImage;
+    final missing = _missingFields(story);
+    final canApprove = missing.isEmpty && !busy;
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => _StoryFullscreenPreview(story: story, imageUrl: image),
+        builder: (_) => _StoryFullscreenPreview(
+          story: story,
+          imageUrl: image,
+          canApprove: canApprove,
+          onApprove: onApprove,
+        ),
       ),
     );
   }
@@ -1199,6 +1343,7 @@ class _StoryCard extends StatelessWidget {
     final missing = <String>[];
     final hasImage =
         _safeImageUrl(story.generatedImageUrl).isNotEmpty ||
+        _safeImageUrl(story.mediaAsset?.fileUrl).isNotEmpty ||
         _safeImageUrl(story.imageUrl).isNotEmpty;
     if (!hasImage) missing.add('imagen');
     if (story.imagePrompt.trim().isEmpty) missing.add('prompt');
@@ -1208,6 +1353,14 @@ class _StoryCard extends StatelessWidget {
         story.usedCTA.trim().isNotEmpty;
     if (!hasCopy) missing.add('copy');
     return missing;
+  }
+
+  String _resolveFinalImage(MarketingStory story) {
+    final generated = _safeImageUrl(story.generatedImageUrl);
+    if (generated.isNotEmpty) return generated;
+    final fromAsset = _safeImageUrl(story.mediaAsset?.fileUrl);
+    if (fromAsset.isNotEmpty) return fromAsset;
+    return '';
   }
 }
 
@@ -1340,7 +1493,7 @@ class _StoryVisualOverlay extends StatelessWidget {
           end: Alignment.bottomCenter,
           colors: [
             const Color(0x12000000),
-            Color.alphaBlend(accent.withValues(alpha: 0.14), const Color(0xCC000000)),
+            Color.alphaBlend(accent.withValues(alpha: 0.2), const Color(0x99000000)),
           ],
         ),
       ),
@@ -1436,10 +1589,17 @@ class _StoryVisualOverlay extends StatelessWidget {
 }
 
 class _StoryFullscreenPreview extends StatelessWidget {
-  const _StoryFullscreenPreview({required this.story, required this.imageUrl});
+  const _StoryFullscreenPreview({
+    required this.story,
+    required this.imageUrl,
+    required this.canApprove,
+    required this.onApprove,
+  });
 
   final MarketingStory story;
   final String imageUrl;
+  final bool canApprove;
+  final Future<void> Function() onApprove;
 
   @override
   Widget build(BuildContext context) {
@@ -1482,6 +1642,22 @@ class _StoryFullscreenPreview extends StatelessWidget {
                 icon: const Icon(Icons.close_rounded),
               ),
             ),
+            Positioned(
+              bottom: 16,
+              right: 16,
+              child: FilledButton.icon(
+                onPressed: canApprove
+                    ? () async {
+                        await onApprove();
+                        if (context.mounted) {
+                          Navigator.of(context).pop();
+                        }
+                      }
+                    : null,
+                icon: const Icon(Icons.check_circle_rounded),
+                label: const Text('Aprobar estado'),
+              ),
+            ),
           ],
         ),
       ),
@@ -1495,9 +1671,25 @@ class _BrokenImagePlaceholder extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      color: const Color(0xFF0F172A),
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFFF8FAFC), Color(0xFFE2E8F0)],
+        ),
+      ),
       alignment: Alignment.center,
-      child: const Icon(Icons.image_not_supported_outlined, color: Colors.white70),
+      child: const Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.image_not_supported_outlined, color: Color(0xFF64748B), size: 30),
+          SizedBox(height: 6),
+          Text(
+            'Sin imagen',
+            style: TextStyle(color: Color(0xFF475569), fontWeight: FontWeight.w600),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1829,14 +2021,20 @@ class _ResearchDetailDialog extends StatelessWidget {
 class _GalleryTab extends StatefulWidget {
   const _GalleryTab({
     required this.assets,
+    required this.publishedAssets,
+    required this.stories,
     required this.busy,
     required this.onCreate,
     required this.onToggleActive,
     required this.onToggleFeatured,
     required this.onUpdateMeta,
+    required this.onDuplicatePublished,
+    required this.onReusePublishedInStory,
   });
 
   final List<MarketingMediaAsset> assets;
+  final List<MarketingPublishedAsset> publishedAssets;
+  final List<MarketingStory> stories;
   final bool busy;
   final Future<void> Function({
     required String fileUrl,
@@ -1855,6 +2053,11 @@ class _GalleryTab extends StatefulWidget {
     required String tagsCsv,
     required String description,
   }) onUpdateMeta;
+  final Future<void> Function(MarketingPublishedAsset item) onDuplicatePublished;
+  final Future<void> Function({
+    required MarketingPublishedAsset asset,
+    required String storyId,
+  }) onReusePublishedInStory;
 
   @override
   State<_GalleryTab> createState() => _GalleryTabState();
@@ -1898,6 +2101,7 @@ class _GalleryTabState extends State<_GalleryTab> {
     final visible = _filterCategory == 'Todos'
         ? widget.assets
         : widget.assets.where((item) => item.category == _filterCategory).toList(growable: false);
+    final published = widget.publishedAssets;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1988,6 +2192,11 @@ class _GalleryTabState extends State<_GalleryTab> {
           onChanged: (v) => setState(() => _filterCategory = v ?? 'Todos'),
         ),
         const SizedBox(height: 10),
+        Text(
+          'Galería disponible',
+          style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 8),
         if (visible.isEmpty)
           const _EmptyState(text: 'No hay imágenes en la galería publicitaria.')
         else
@@ -2007,7 +2216,223 @@ class _GalleryTabState extends State<_GalleryTab> {
                 ),
             ],
           ),
+        const SizedBox(height: 14),
+        Text(
+          'Imágenes publicadas',
+          style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 8),
+        if (published.isEmpty)
+          const _EmptyState(text: 'Aún no hay anuncios aprobados para publicar en esta lista.')
+        else
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              for (final item in published)
+                SizedBox(
+                  width: 320,
+                  child: _PublishedAssetCard(
+                    item: item,
+                    busy: widget.busy,
+                    onDuplicate: () => widget.onDuplicatePublished(item),
+                    onReuse: () async {
+                      final storyId = await _pickStoryForReuse(context);
+                      if (storyId == null || storyId.isEmpty) return;
+                      await widget.onReusePublishedInStory(asset: item, storyId: storyId);
+                    },
+                  ),
+                ),
+            ],
+          ),
       ],
+    );
+  }
+
+  Future<String?> _pickStoryForReuse(BuildContext context) async {
+    final stories = widget.stories.where((item) {
+      final status = item.status.name.toUpperCase();
+      return status == 'PENDING_APPROVAL' || status == 'REGENERATED';
+    }).toList(growable: false);
+
+    if (stories.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No hay estados pendientes para reutilizar imagen.'),
+        ),
+      );
+      return null;
+    }
+
+    return showDialog<String>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Reutilizar imagen en estado'),
+        content: SizedBox(
+          width: 560,
+          child: ListView.separated(
+            shrinkWrap: true,
+            itemCount: stories.length,
+            separatorBuilder: (_, __) => const Divider(height: 1),
+            itemBuilder: (_, index) {
+              final story = stories[index];
+              return ListTile(
+                title: Text(story.title),
+                subtitle: Text('${_storyTypeLabel(story.type)} · ${story.status}'),
+                onTap: () => Navigator.of(context).pop(story.id),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancelar'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PublishedAssetCard extends StatelessWidget {
+  const _PublishedAssetCard({
+    required this.item,
+    required this.busy,
+    required this.onDuplicate,
+    required this.onReuse,
+  });
+
+  final MarketingPublishedAsset item;
+  final bool busy;
+  final Future<void> Function() onDuplicate;
+  final Future<void> Function() onReuse;
+
+  @override
+  Widget build(BuildContext context) {
+    final imageUrl = _resolveImageUrl(item);
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.35),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: AspectRatio(
+              aspectRatio: 9 / 16,
+              child: imageUrl.isEmpty
+                  ? const _BrokenImagePlaceholder()
+                  : Image.network(
+                      imageUrl,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => const _BrokenImagePlaceholder(),
+                    ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(item.headline, maxLines: 2, overflow: TextOverflow.ellipsis),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              _MetaChip(label: 'Tipo', value: _storyTypeLabelFromCode(item.storyType)),
+              _MetaChip(label: 'Estado', value: item.status),
+              _MetaChip(label: 'Aprobado', value: _formatDateTime(item.approvedAt)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              OutlinedButton.icon(
+                onPressed: () => _showStoryPreview(context, item),
+                icon: const Icon(Icons.open_in_full_rounded),
+                label: const Text('Ver anuncio'),
+              ),
+              OutlinedButton.icon(
+                onPressed: busy ? null : onReuse,
+                icon: const Icon(Icons.replay_rounded),
+                label: const Text('Reutilizar imagen'),
+              ),
+              FilledButton.icon(
+                onPressed: busy ? null : onDuplicate,
+                icon: const Icon(Icons.copy_all_rounded),
+                label: const Text('Duplicar para nuevo estado'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _resolveImageUrl(MarketingPublishedAsset item) {
+    final generated = item.generatedImageUrl.trim();
+    if (generated.isNotEmpty) return generated;
+    final fromAsset = item.mediaAsset?.fileUrl.trim() ?? '';
+    if (fromAsset.isNotEmpty) return fromAsset;
+    return '';
+  }
+
+  String _storyTypeLabelFromCode(String rawType) {
+    switch (rawType.toUpperCase()) {
+      case 'SALES':
+        return 'Venta';
+      case 'TRUST':
+        return 'Confianza';
+      case 'EDUCATIONAL':
+        return 'Educativo';
+      default:
+        return rawType.trim().isEmpty ? 'General' : rawType.trim();
+    }
+  }
+
+  void _showStoryPreview(BuildContext context, MarketingPublishedAsset item) {
+    showDialog<void>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Anuncio publicado'),
+        content: SizedBox(
+          width: 560,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              AspectRatio(
+                aspectRatio: 9 / 16,
+                child: _resolveImageUrl(item).isEmpty
+                    ? const _BrokenImagePlaceholder()
+                    : Image.network(
+                        _resolveImageUrl(item),
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => const _BrokenImagePlaceholder(),
+                      ),
+              ),
+              const SizedBox(height: 10),
+              Text(item.headline, style: const TextStyle(fontWeight: FontWeight.w700)),
+              const SizedBox(height: 6),
+              Text(item.shortText),
+              const SizedBox(height: 6),
+              Text(item.cta),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cerrar'),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -2153,7 +2578,7 @@ class _HistoryTab extends StatelessWidget {
               leading: _StatusPill(status: item.status),
               title: Text(item.title),
               subtitle: Text(
-                '${_formatDate(item.date)}  ┬À  ${_storyTypeLabel(item.type)}  ┬À  Regenerado: ${item.regeneratedCount}x',
+                '${_formatDate(item.date)} · ${_storyTypeLabel(item.type)} · Regenerado: ${item.regeneratedCount}x',
               ),
               trailing: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -2169,7 +2594,7 @@ class _HistoryTab extends StatelessWidget {
                         ? 'Aprobado: ${_formatDateTime(item.approvedAt)}'
                         : item.rejectedAt != null
                         ? 'Rechazado: ${_formatDateTime(item.rejectedAt)}'
-                        : 'Sin decisi├│n',
+                        : 'Sin decisión',
                     style: Theme.of(context).textTheme.labelSmall,
                   ),
                 ],
@@ -2259,7 +2684,7 @@ class _ConfigTabState extends State<_ConfigTab> {
     final scheme = Theme.of(context).colorScheme;
     final config = widget.config;
     if (config == null) {
-      return const _EmptyState(text: 'No se encontr├│ configuraci├│n del flujo.');
+      return const _EmptyState(text: 'No se encontró configuración del flujo.');
     }
 
     return Container(
@@ -2366,7 +2791,7 @@ class _ConfigTabState extends State<_ConfigTab> {
                       await widget.onSave(payload);
                     },
               icon: const Icon(Icons.save_rounded),
-              label: const Text('Guardar configuraci├│n'),
+              label: const Text('Guardar configuración'),
             ),
           ],
         ),
@@ -2560,7 +2985,7 @@ class _EditStoryDialogState extends State<_EditStoryDialog> {
               children: [
                 TextFormField(
                   controller: _title,
-                  decoration: const InputDecoration(labelText: 'T├¡tulo'),
+                  decoration: const InputDecoration(labelText: 'Título'),
                 ),
                 const SizedBox(height: 8),
                 TextFormField(

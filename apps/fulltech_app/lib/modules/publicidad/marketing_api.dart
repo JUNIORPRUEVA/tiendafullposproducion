@@ -282,7 +282,7 @@ class MarketingApi {
     }
   }
 
-  Future<void> createMediaAsset({
+  Future<MarketingMediaAsset> createMediaAsset({
     required String fileUrl,
     required String fileName,
     required String mimeType,
@@ -294,7 +294,7 @@ class MarketingApi {
     bool isFeatured = false,
   }) async {
     try {
-      await _dio.post(
+      final res = await _dio.post(
         ApiRoutes.marketingMediaAssets,
         data: {
           'file_url': fileUrl.trim(),
@@ -308,6 +308,13 @@ class MarketingApi {
           'is_featured': isFeatured,
         },
       );
+      final raw =
+          (res.data as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
+      if ('${raw['id'] ?? ''}'.trim().isNotEmpty) {
+        return MarketingMediaAsset.fromJson(raw);
+      }
+      throw StateError('Respuesta inválida al crear asset de galería');
     } on DioException catch (error) {
       _rethrow(error, 'No se pudo crear el asset de galería');
     }
@@ -395,6 +402,29 @@ class MarketingApi {
       return MarketingLearningStats.fromJson(raw);
     } on DioException catch (error) {
       _rethrow(error, 'No se pudo cargar memorias/aprendizajes activos');
+    }
+  }
+
+  Future<List<MarketingPublishedAsset>> loadPublishedAssets() async {
+    try {
+      final res = await _dio.get(
+        ApiRoutes.marketingPublishedAssets,
+        options: _backgroundOptions,
+      );
+      final raw =
+          (res.data as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
+      final rows = (raw['items'] is List) ? (raw['items'] as List) : const [];
+      return rows
+          .whereType<Map>()
+          .map(
+            (item) => MarketingPublishedAsset.fromJson(
+              item.cast<String, dynamic>(),
+            ),
+          )
+          .toList(growable: false);
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo cargar imágenes publicadas');
     }
   }
 }

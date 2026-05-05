@@ -44,6 +44,17 @@ export class MarketingApprovalService {
       },
     });
 
+    const mediaAssetId = `${(story as any).mediaAssetId ?? ''}`.trim();
+    if (mediaAssetId) {
+      await this.prisma.marketingMediaAsset.updateMany({
+        where: { id: mediaAssetId, companyId },
+        data: {
+          useCount: { increment: 1 },
+          lastUsedAt: new Date(),
+        },
+      });
+    }
+
     await this.prisma.marketingActivityLog.create({
       data: {
         companyId,

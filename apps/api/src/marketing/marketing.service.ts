@@ -300,6 +300,47 @@ export class MarketingService {
     return removed;
   }
 
+  async listPublishedAssets(companyId: string) {
+    const items = await this.prisma.marketingDailyStory.findMany({
+      where: {
+        companyId,
+        status: 'APPROVED',
+      },
+      orderBy: [{ approvedAt: 'desc' }, { updatedAt: 'desc' }],
+      include: {
+        mediaAsset: true,
+        approvedByUser: {
+          select: {
+            id: true,
+            nombreCompleto: true,
+          },
+        },
+      },
+    });
+
+    return {
+      items: items.map((item) => ({
+        id: item.id,
+        storyId: item.id,
+        mediaAssetId: item.mediaAssetId ?? null,
+        generatedImageUrl: item.generatedImageUrl ?? null,
+        headline: item.title,
+        shortText: item.shortText,
+        cta: item.usedCTA ?? null,
+        hashtags: item.hashtags,
+        storyType: item.type,
+        platform: 'PENDING_PLATFORM',
+        status: item.status,
+        approvedAt: item.approvedAt,
+        publishedAt: null,
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt,
+        date: item.date,
+        mediaAsset: item.mediaAsset ?? null,
+      })),
+    };
+  }
+
   private async log(
     companyId: string,
     action: string,

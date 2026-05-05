@@ -262,6 +262,7 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
   bool _showActionPanel = true;
   bool _showAiPanel = false;
   bool _showNewMessagesButton = false;
+  int _mobileTabIndex = 0;
 
   static const double _nearBottomThreshold = 140;
 
@@ -569,68 +570,150 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
     WaCrmState state,
     ThemeData theme,
   ) {
-    if (state.selectedConversation != null) {
-      return Column(
-        children: [
-          Material(
-            elevation: 1,
-            child: InkWell(
-              onTap: () {
-                ref.read(waCrmControllerProvider.notifier).clearSelection();
-              },
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
+    final showAi = _mobileTabIndex == 1;
+    final scheme = theme.colorScheme;
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+          decoration: BoxDecoration(
+            color: scheme.surface,
+            border: Border(bottom: BorderSide(color: scheme.outlineVariant)),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: _MobileCrmTabButton(
+                  selected: !showAi,
+                  icon: state.selectedConversation == null
+                      ? Icons.forum_outlined
+                      : Icons.chat_bubble_outline_rounded,
+                  label: state.selectedConversation == null ? 'Chats' : 'Chat',
+                  onPressed: () => setState(() => _mobileTabIndex = 0),
                 ),
-                child: Row(
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _MobileCrmTabButton(
+                  selected: showAi,
+                  icon: Icons.auto_awesome_outlined,
+                  label: 'IA',
+                  onPressed: () => setState(() => _mobileTabIndex = 1),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: showAi
+              ? _DailyAiPanel(
+                  state: state,
+                  onPickDate: _pickAiSummaryDate,
+                  onGenerate: () => ref
+                      .read(waCrmControllerProvider.notifier)
+                      .generateDailyAiSummary(),
+                  onAnalyzeConversation: () => ref
+                      .read(waCrmControllerProvider.notifier)
+                      .analyzeWithAi(scope: WaCrmAiAnalysisScope.conversation),
+                  onAnalyzeFilter: () => ref
+                      .read(waCrmControllerProvider.notifier)
+                      .analyzeWithAi(scope: WaCrmAiAnalysisScope.filter),
+                  onRefreshAnalysis: () => ref
+                      .read(waCrmControllerProvider.notifier)
+                      .analyzeWithAi(
+                        scope: state.aiAnalysisScope,
+                        forceRefresh: true,
+                      ),
+                  onAskReport: (question) => ref
+                      .read(waCrmControllerProvider.notifier)
+                      .askCurrentAiReport(question),
+                )
+              : state.selectedConversation != null
+              ? Column(
                   children: [
-                    const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
-                    const SizedBox(width: 8),
+                    Material(
+                      elevation: 1,
+                      child: InkWell(
+                        onTap: () {
+                          ref
+                              .read(waCrmControllerProvider.notifier)
+                              .clearSelection();
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.arrow_back_ios_new_rounded,
+                                size: 18,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  _waText(
+                                    state.selectedConversation!.displayName,
+                                  ),
+                                  style: theme.textTheme.titleMedium,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              IconButton(
+                                tooltip: 'Abrir IA',
+                                onPressed: () =>
+                                    setState(() => _mobileTabIndex = 1),
+                                icon: const Icon(
+                                  Icons.auto_awesome_outlined,
+                                  size: 20,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
                     Expanded(
-                      child: Text(
-                        _waText(state.selectedConversation!.displayName),
-                        style: theme.textTheme.titleMedium,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                      child: _ChatPanel(
+                        state: state,
+                        msgController: _msgController,
+                        scrollController: _scrollController,
+                        showNewMessagesButton: _showNewMessagesButton,
+                        onJumpToLatest: () => _scrollToBottom(force: true),
+                        onSend: () => _sendReply(),
+                        onAttach: () => _sendAttachment(),
+                        onDateFilterChanged: (filter, {customDate}) => ref
+                            .read(waCrmControllerProvider.notifier)
+                            .setMessageDateFilter(
+                              filter,
+                              customDate: customDate,
+                            ),
+                        onClearDateFilter: () => ref
+                            .read(waCrmControllerProvider.notifier)
+                            .clearMessageDateFilter(),
+                        onUnlock: _unlockComposer,
+                        agentName: state.selectedUser?.name,
                       ),
                     ),
                   ],
+                )
+              : _ConversationsPanel(
+                  state: state,
+                  scrollController: _conversationScrollController,
+                  onSelectConversation: (conv) {
+                    setState(() => _mobileTabIndex = 0);
+                    ref
+                        .read(waCrmControllerProvider.notifier)
+                        .selectConversation(conv);
+                  },
+                  onSelectUser: (u) {
+                    ref.read(waCrmControllerProvider.notifier).selectUser(u);
+                  },
                 ),
-              ),
-            ),
-          ),
-          Expanded(
-            child: _ChatPanel(
-              state: state,
-              msgController: _msgController,
-              scrollController: _scrollController,
-              showNewMessagesButton: _showNewMessagesButton,
-              onJumpToLatest: () => _scrollToBottom(force: true),
-              onSend: () => _sendReply(),
-              onAttach: () => _sendAttachment(),
-              onDateFilterChanged: (filter, {customDate}) => ref
-                  .read(waCrmControllerProvider.notifier)
-                  .setMessageDateFilter(filter, customDate: customDate),
-              onClearDateFilter: () => ref
-                  .read(waCrmControllerProvider.notifier)
-                  .clearMessageDateFilter(),
-              onUnlock: _unlockComposer,
-              agentName: state.selectedUser?.name,
-            ),
-          ),
-        ],
-      );
-    }
-    return _ConversationsPanel(
-      state: state,
-      scrollController: _conversationScrollController,
-      onSelectConversation: (conv) {
-        ref.read(waCrmControllerProvider.notifier).selectConversation(conv);
-      },
-      onSelectUser: (u) {
-        ref.read(waCrmControllerProvider.notifier).selectUser(u);
-      },
+        ),
+      ],
     );
   }
 
@@ -836,6 +919,70 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
     await ref
         .read(waCrmControllerProvider.notifier)
         .generateDailyAiSummary(date: picked);
+  }
+}
+
+class _MobileCrmTabButton extends StatelessWidget {
+  const _MobileCrmTabButton({
+    required this.selected,
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final bool selected;
+  final IconData icon;
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final background = selected
+        ? scheme.primaryContainer
+        : scheme.surfaceContainerHighest.withValues(alpha: 0.58);
+    final foreground = selected
+        ? scheme.onPrimaryContainer
+        : scheme.onSurfaceVariant;
+    return Material(
+      color: background,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onPressed,
+        child: Container(
+          height: 44,
+          alignment: Alignment.center,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: selected ? scheme.primary : scheme.outlineVariant,
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 18, color: foreground),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  _waText(label),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: foreground,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

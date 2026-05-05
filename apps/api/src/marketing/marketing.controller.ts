@@ -158,6 +158,12 @@ export class MarketingController {
     return this.marketing.listMediaAssets(companyId, query);
   }
 
+  @Get('published-assets')
+  async listPublishedAssets() {
+    const companyId = this.marketing.resolveCompanyId();
+    return this.marketing.listPublishedAssets(companyId);
+  }
+
   @Post('media-assets')
   async createMediaAsset(@Req() req: Request, @Body() dto: CreateMarketingMediaAssetDto) {
     const user = req.user as RequestUser;

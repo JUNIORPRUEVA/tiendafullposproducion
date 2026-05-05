@@ -11,8 +11,11 @@ import { MarketingMediaSelectorService } from './marketing-media-selector.servic
 import { MarketingResearchService } from './marketing-research.service';
 import { MarketingResearchSourceService } from './marketing-research-source.service';
 import { MarketingService } from './marketing.service';
+import { MarketingStorageService } from './marketing-storage.service';
+import { StorageModule } from '../storage/storage.module';
 
 @Module({
+  imports: [StorageModule],
   controllers: [MarketingController],
   providers: [
     MarketingService,
@@ -26,6 +29,7 @@ import { MarketingService } from './marketing.service';
     MarketingResearchService,
     MarketingResearchSourceService,
     MarketingLearningService,
+    MarketingStorageService,
   ],
 })
 export class MarketingModule {}

@@ -564,3 +564,77 @@ class MarketingHistoryResponse {
     );
   }
 }
+
+class MarketingPublishedAsset {
+  const MarketingPublishedAsset({
+    required this.id,
+    required this.storyId,
+    required this.mediaAssetId,
+    required this.generatedImageUrl,
+    required this.headline,
+    required this.shortText,
+    required this.cta,
+    required this.hashtags,
+    required this.storyType,
+    required this.platform,
+    required this.status,
+    required this.approvedAt,
+    required this.publishedAt,
+    required this.createdAt,
+    required this.updatedAt,
+    required this.date,
+    required this.mediaAsset,
+  });
+
+  final String id;
+  final String storyId;
+  final String? mediaAssetId;
+  final String generatedImageUrl;
+  final String headline;
+  final String shortText;
+  final String cta;
+  final List<String> hashtags;
+  final String storyType;
+  final String platform;
+  final String status;
+  final DateTime? approvedAt;
+  final DateTime? publishedAt;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+  final DateTime? date;
+  final MarketingMediaAsset? mediaAsset;
+
+  factory MarketingPublishedAsset.fromJson(Map<String, dynamic> json) {
+    final rawAsset = json['mediaAsset'];
+    final hashtagsRaw = json['hashtags'];
+    final hashtags = hashtagsRaw is List
+        ? hashtagsRaw
+              .map((item) => '$item'.trim())
+              .where((item) => item.isNotEmpty)
+              .toList(growable: false)
+        : const <String>[];
+    return MarketingPublishedAsset(
+      id: '${json['id'] ?? ''}',
+      storyId: '${json['storyId'] ?? ''}',
+      mediaAssetId: '${json['mediaAssetId'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${json['mediaAssetId']}',
+      generatedImageUrl: '${json['generatedImageUrl'] ?? ''}',
+      headline: '${json['headline'] ?? ''}',
+      shortText: '${json['shortText'] ?? ''}',
+      cta: '${json['cta'] ?? ''}',
+      hashtags: hashtags,
+      storyType: '${json['storyType'] ?? ''}',
+      platform: '${json['platform'] ?? 'PENDING_PLATFORM'}',
+      status: '${json['status'] ?? ''}',
+      approvedAt: DateTime.tryParse('${json['approvedAt'] ?? ''}'),
+      publishedAt: DateTime.tryParse('${json['publishedAt'] ?? ''}'),
+      createdAt: DateTime.tryParse('${json['createdAt'] ?? ''}'),
+      updatedAt: DateTime.tryParse('${json['updatedAt'] ?? ''}'),
+      date: DateTime.tryParse('${json['date'] ?? ''}'),
+      mediaAsset: rawAsset is Map
+          ? MarketingMediaAsset.fromJson(rawAsset.cast<String, dynamic>())
+          : null,
+    );
+  }
+}
