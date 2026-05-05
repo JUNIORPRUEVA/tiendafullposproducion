@@ -75,73 +75,31 @@ class PublicidadImagesRepository {
     }
   }
 
-  Future<UploadUrlResponse> generateUploadUrl(String filename) async {
+  /// Upload raw bytes as multipart/form-data directly to the API.
+  /// The server saves the file locally (and optionally mirrors to R2) and
+  /// creates the DB record in a single request.
+  Future<PublicidadImage> uploadFile({
+    required Uint8List bytes,
+    required String contentType,
+    required String filename,
+    String? caption,
+  }) async {
     try {
-      final response = await _dio.post(
-        '${ApiRoutes.publicidadImages}/upload-url',
-        data: {'filename': filename},
-      );
-      return UploadUrlResponse.fromJson(response.data as Map<String, dynamic>);
-    } on DioException catch (e) {
-      _rethrow(e, 'No se pudo obtener la URL de subida');
-    }
-  }
-
-  /// Upload bytes directly to presigned URL (S3/R2).
-  /// Uses a dedicated Dio instance so auth interceptors don't interfere.
-  Future<void> uploadBytes(
-    String presignedUrl,
-    Uint8List bytes,
-    String contentType,
-  ) async {
-    // Dedicated Dio — no auth headers, direct PUT to R2
-    final uploadDio = Dio(
-      BaseOptions(
-        connectTimeout: const Duration(seconds: 30),
-        sendTimeout: const Duration(minutes: 3),
-        receiveTimeout: const Duration(seconds: 30),
-      ),
-    );
-    try {
-      final response = await uploadDio.put(
-        presignedUrl,
-        data: bytes, // Dio accepts Uint8List directly
-        options: Options(
-          contentType: contentType,
-          headers: {
-            'Content-Type': contentType,
-            'Content-Length': bytes.length,
-          },
-          validateStatus: (status) => status != null && status < 400,
+      final formData = FormData.fromMap({
+        'file': MultipartFile.fromBytes(
+          bytes,
+          filename: filename,
+          contentType: DioMediaType.parse(contentType),
         ),
+        if (caption != null && caption.isNotEmpty) 'caption': caption,
+      });
+      final response = await _dio.post(
+        '${ApiRoutes.publicidadImages}/upload',
+        data: formData,
       );
-      if ((response.statusCode ?? 0) >= 400) {
-        throw Exception(
-          'Error subiendo al almacenamiento: ${response.statusCode}',
-        );
-      }
-    } finally {
-      uploadDio.close();
+      return PublicidadImage.fromJson(response.data as Map<String, dynamic>);
+    } on DioException catch (e) {
+      _rethrow(e, 'No se pudo subir la imagen');
     }
-  }
-}
-
-class UploadUrlResponse {
-  final String uploadUrl;
-  final String objectKey;
-  final String publicUrl;
-
-  UploadUrlResponse({
-    required this.uploadUrl,
-    required this.objectKey,
-    required this.publicUrl,
-  });
-
-  factory UploadUrlResponse.fromJson(Map<String, dynamic> json) {
-    return UploadUrlResponse(
-      uploadUrl: json['uploadUrl'] as String? ?? '',
-      objectKey: json['objectKey'] as String? ?? '',
-      publicUrl: json['publicUrl'] as String? ?? '',
-    );
   }
 }

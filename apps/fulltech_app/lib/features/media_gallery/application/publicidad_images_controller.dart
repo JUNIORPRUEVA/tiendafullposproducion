@@ -47,33 +47,23 @@ class PublicidadImagesController
     state = AsyncValue.data(items);
   }
 
-  Future<UploadUrlResponse> generateUploadUrl(String filename) async {
-    return _repository.generateUploadUrl(filename);
-  }
-
-  /// Upload image bytes (already read via XFile.readAsBytes()) to R2 and
-  /// save the record in the database.
+  /// Upload image bytes (already read via XFile.readAsBytes()) to the API via
+  /// multipart form-data. The server saves the file and creates the DB record.
   Future<void> uploadBytesAndSave({
     required Uint8List bytes,
     required String contentType,
     required String filename,
     String? caption,
   }) async {
-    // 1. Get a presigned R2 URL
-    final uploadUrl = await generateUploadUrl(filename);
-
-    // 2. PUT the bytes directly to R2 (no app server involved)
-    await _repository.uploadBytes(
-      uploadUrl.uploadUrl,
-      bytes,
-      contentType,
-    );
-
-    // 3. Save the public URL in the database
-    await create(
-      url: uploadUrl.publicUrl,
+    final image = await _repository.uploadFile(
+      bytes: bytes,
+      contentType: contentType,
+      filename: filename,
       caption: caption,
     );
+    final currentState = state;
+    final existing = currentState.hasValue ? currentState.value! : <PublicidadImage>[];
+    state = AsyncValue.data([image, ...existing]);
   }
 }
 
