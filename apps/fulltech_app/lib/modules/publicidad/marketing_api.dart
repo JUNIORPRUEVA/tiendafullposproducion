@@ -249,6 +249,33 @@ class MarketingApi {
     }
   }
 
+  Future<MarketingResetCleanSummary> resetClean({
+    bool includeResearch = false,
+    bool includeDraftMedia = true,
+    bool includeGeneratedImages = true,
+    bool includeApprovedStories = false,
+    DateTime? date,
+  }) async {
+    try {
+      final res = await _dio.post(
+        ApiRoutes.marketingResetClean,
+        data: {
+          'includeResearch': includeResearch,
+          'includeDraftMedia': includeDraftMedia,
+          'includeGeneratedImages': includeGeneratedImages,
+          'includeApprovedStories': includeApprovedStories,
+          if (date != null) 'date': _dateOnly(date),
+        },
+      );
+      final raw =
+          (res.data as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
+      return MarketingResetCleanSummary.fromJson(raw);
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo ejecutar el reset limpio de Publicidad');
+    }
+  }
+
   Future<List<MarketingMediaAsset>> loadMediaAssets({
     String? category,
     String? relatedService,

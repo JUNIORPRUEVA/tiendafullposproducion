@@ -222,6 +222,7 @@ class ApiRoutes {
   static const marketingFlowActivate = '/marketing/flow/activate';
   static const marketingFlowPause = '/marketing/flow/pause';
   static const marketingFlowReset = '/marketing/flow/reset';
+    static const marketingResetClean = '/marketing/reset-clean';
   static String serviceOrderDetail(String id) => '/service-orders/$id';
   static String serviceOrderUpdate(String id) => '/service-orders/$id';
   static String serviceOrderDelete(String id) => '/service-orders/$id';

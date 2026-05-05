@@ -8,6 +8,7 @@ import { MarketingMediaAssetService } from './marketing-media-asset.service';
 import { MarketingResearchService } from './marketing-research.service';
 import { CreateMarketingMediaAssetDto, MarketingMediaAssetQueryDto, UpdateMarketingMediaAssetDto } from './dto/marketing-media-asset.dto';
 import { MarketingHistoryQueryDto } from './dto/marketing-query.dto';
+import { MarketingResetCleanDto } from './dto/marketing-reset-clean.dto';
 import { UpdateMarketingConfigDto } from './dto/update-marketing-config.dto';
 import { UpdateMarketingStoryDto } from './dto/update-marketing-story.dto';
 
@@ -341,6 +342,239 @@ export class MarketingService {
     };
   }
 
+  async resetClean(companyId: string, userId: string, dto: MarketingResetCleanDto) {
+    const includeResearch = dto.includeResearch === true;
+    const includeGeneratedImages = dto.includeGeneratedImages !== false;
+    const includeDraftMedia = dto.includeMediaAssets ?? dto.includeDraftMedia ?? true;
+    const includeApprovedStories = dto.includeApprovedStories === true;
+    const date = dto.date ? this.parseDateOnly(dto.date) : null;
+
+    const storiesWhere: any = {
+      companyId,
+      ...(date ? { date } : {}),
+      ...(includeApprovedStories ? {} : { status: { not: 'APPROVED' } }),
+    };
+
+    const keptStoriesWhere: any = {
+      companyId,
+      ...(date ? { date } : {}),
+      ...(includeApprovedStories ? { id: '__none__' } : { status: 'APPROVED' }),
+    };
+
+    const candidateStories = await this.prisma.marketingDailyStory.findMany({
+      where: storiesWhere,
+      select: {
+        id: true,
+        status: true,
+        generatedImageUrl: true,
+        mediaAssetId: true,
+      },
+    });
+
+    const publishedDraftsDeleted = candidateStories.filter((item) => item.status === 'APPROVED').length;
+
+    const brokenMediaAssetIds = new Set<string>();
+    const activeMediaIds = new Set(
+      candidateStories
+        .map((item) => (item.mediaAssetId || '').trim())
+        .filter((id) => id.length > 0),
+    );
+
+    if (activeMediaIds.size > 0) {
+      const existing = await this.prisma.marketingMediaAsset.findMany({
+        where: {
+          companyId,
+          id: { in: [...activeMediaIds] },
+        },
+        select: { id: true },
+      });
+      const existingIds = new Set(existing.map((item) => item.id));
+      for (const id of activeMediaIds) {
+        if (!existingIds.has(id)) brokenMediaAssetIds.add(id);
+      }
+    }
+
+    const generatedImagesDeleted = includeGeneratedImages
+      ? candidateStories.filter((item) => (item.generatedImageUrl || '').trim().length > 0).length
+      : 0;
+
+    const [researchKeptCount, mediaAssetsTotalCount] = await Promise.all([
+      this.prisma.marketingResearch.count({
+        where: {
+          companyId,
+          ...(date ? { date } : {}),
+        },
+      }),
+      this.prisma.marketingMediaAsset.count({ where: { companyId } }),
+    ]);
+
+    const deletionResult = await this.prisma.$transaction(async (tx) => {
+      const activityLogsDeletedResult = await tx.marketingActivityLog.deleteMany({
+        where: {
+          companyId,
+          action: {
+            in: [
+              'MARKETING_STORIES_GENERATED',
+              'MARKETING_STORY_APPROVED',
+              'MARKETING_STORY_REJECTED',
+              'MARKETING_STORY_REGENERATED',
+              'MARKETING_STORY_IMAGE_REGENERATED',
+              'MARKETING_MEDIA_ASSET_USED',
+            ],
+          },
+          ...(date ? { metadata: { path: ['date'], equals: this.toDateOnly(date) } as any } : {}),
+        },
+      });
+
+      const storiesDeletedResult = await tx.marketingDailyStory.deleteMany({
+        where: storiesWhere,
+      });
+
+      const approvedStoriesKept = await tx.marketingDailyStory.findMany({
+        where: keptStoriesWhere,
+        select: {
+          id: true,
+          mediaAssetId: true,
+          generatedImageUrl: true,
+          imageUrl: true,
+        },
+      });
+
+      if (approvedStoriesKept.length > 0) {
+        const referenced = approvedStoriesKept
+          .map((item) => (item.mediaAssetId || '').trim())
+          .filter((id) => id.length > 0);
+        if (referenced.length > 0) {
+          const existing = await tx.marketingMediaAsset.findMany({
+            where: { companyId, id: { in: referenced } },
+            select: { id: true },
+          });
+          const existingSet = new Set(existing.map((item) => item.id));
+          const brokenStoryIds = approvedStoriesKept
+            .filter((item) => !!item.mediaAssetId && !existingSet.has(item.mediaAssetId))
+            .map((item) => item.id);
+          if (brokenStoryIds.length > 0) {
+            await tx.marketingDailyStory.updateMany({
+              where: { id: { in: brokenStoryIds } },
+              data: { mediaAssetId: null },
+            });
+          }
+        }
+      }
+
+      if (includeGeneratedImages && includeApprovedStories) {
+        await tx.marketingDailyStory.updateMany({
+          where: {
+            companyId,
+            ...(date ? { date } : {}),
+            OR: [
+              { generatedImageUrl: '' },
+              { generatedImageUrl: null },
+            ],
+          },
+          data: {
+            generatedImageUrl: null,
+          },
+        });
+      }
+
+      let draftGeneratedAssetsDeleted = 0;
+      if (includeDraftMedia && includeGeneratedImages) {
+        const candidates = await tx.marketingMediaAsset.findMany({
+          where: {
+            companyId,
+            OR: [
+              { fileName: { startsWith: 'ai-' } },
+              { description: { contains: 'Generada automaticamente para estado' } },
+            ],
+          },
+          select: { id: true },
+        });
+
+        if (candidates.length > 0) {
+          const candidateIds = candidates.map((item) => item.id);
+          const stillReferenced = await tx.marketingDailyStory.findMany({
+            where: {
+              companyId,
+              mediaAssetId: { in: candidateIds },
+            },
+            select: { mediaAssetId: true },
+          });
+          const referencedSet = new Set(
+            stillReferenced
+              .map((item) => (item.mediaAssetId || '').trim())
+              .filter((id) => id.length > 0),
+          );
+          const deletableIds = candidateIds.filter((id) => !referencedSet.has(id));
+          if (deletableIds.length > 0) {
+            const deleteAssetsResult = await tx.marketingMediaAsset.deleteMany({
+              where: {
+                companyId,
+                id: { in: deletableIds },
+              },
+            });
+            draftGeneratedAssetsDeleted = deleteAssetsResult.count;
+          }
+        }
+      }
+
+      let researchDeleted = 0;
+      if (includeResearch) {
+        const deleted = await tx.marketingResearch.deleteMany({
+          where: {
+            companyId,
+            ...(date ? { date } : {}),
+          },
+        });
+        researchDeleted = deleted.count;
+      }
+
+      await tx.marketingActivityLog.create({
+        data: {
+          companyId,
+          action: 'MARKETING_RESET_CLEAN',
+          description: 'Reset limpio de Publicidad ejecutado',
+          userId,
+          metadata: {
+            includeResearch,
+            includeDraftMedia,
+            includeGeneratedImages,
+            includeApprovedStories,
+            date: date ? this.toDateOnly(date) : null,
+            brokenMediaAssetRefsDetected: brokenMediaAssetIds.size,
+            storiesTargeted: candidateStories.length,
+            researchDeleted,
+            draftGeneratedAssetsDeleted,
+          },
+        },
+      });
+
+      return {
+        storiesDeleted: storiesDeletedResult.count,
+        activityLogsDeleted: activityLogsDeletedResult.count,
+        publishedDraftsDeleted,
+        draftGeneratedAssetsDeleted,
+        researchDeleted,
+      };
+    });
+
+    return {
+      storiesDeleted: deletionResult.storiesDeleted,
+      generatedImagesDeleted: generatedImagesDeleted + deletionResult.draftGeneratedAssetsDeleted,
+      activityLogsDeleted: deletionResult.activityLogsDeleted,
+      publishedDraftsDeleted: deletionResult.publishedDraftsDeleted,
+      researchKept: includeResearch ? Math.max(0, researchKeptCount - deletionResult.researchDeleted) : researchKeptCount,
+      mediaAssetsKept: Math.max(0, mediaAssetsTotalCount - deletionResult.draftGeneratedAssetsDeleted),
+      dateScope: date ? this.toDateOnly(date) : null,
+      options: {
+        includeResearch,
+        includeDraftMedia,
+        includeGeneratedImages,
+        includeApprovedStories,
+      },
+    };
+  }
+
   private async log(
     companyId: string,
     action: string,
@@ -374,5 +608,12 @@ export class MarketingService {
       scheduled.setDate(scheduled.getDate() + 1);
     }
     return scheduled;
+  }
+
+  private toDateOnly(value: Date) {
+    const year = value.getUTCFullYear();
+    const month = `${value.getUTCMonth() + 1}`.padStart(2, '0');
+    const day = `${value.getUTCDate()}`.padStart(2, '0');
+    return `${year}-${month}-${day}`;
   }
 }

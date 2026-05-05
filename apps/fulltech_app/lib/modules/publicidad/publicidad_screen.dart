@@ -215,6 +215,27 @@ class PublicidadController extends StateNotifier<PublicidadState> {
     });
   }
 
+  Future<MarketingResetCleanSummary> resetClean({
+    bool includeResearch = false,
+    bool includeDraftMedia = true,
+    bool includeGeneratedImages = true,
+    bool includeApprovedStories = false,
+    DateTime? date,
+  }) async {
+    late MarketingResetCleanSummary summary;
+    await _runBusy(() async {
+      summary = await _api.resetClean(
+        includeResearch: includeResearch,
+        includeDraftMedia: includeDraftMedia,
+        includeGeneratedImages: includeGeneratedImages,
+        includeApprovedStories: includeApprovedStories,
+        date: date,
+      );
+      await _refresh(keepLoading: false);
+    });
+    return summary;
+  }
+
   Future<void> saveConfig(MarketingFlowConfig config) async {
     await _runBusy(() async {
       await _api.updateConfig(
@@ -550,6 +571,44 @@ class PublicidadScreen extends ConsumerStatefulWidget {
 class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
   _PublicidadTab _tab = _PublicidadTab.dashboard;
 
+  Future<void> _handleResetClean(
+    BuildContext context,
+    PublicidadController controller,
+    DateTime selectedDate,
+  ) async {
+    final request = await showDialog<_ResetCleanRequest>(
+      context: context,
+      builder: (_) => _ResetCleanDialog(currentDate: selectedDate),
+    );
+    if (request == null) return;
+
+    try {
+      await controller.resetClean(
+        includeResearch: request.includeResearch,
+        includeDraftMedia: true,
+        includeGeneratedImages: request.includeGeneratedImages,
+        includeApprovedStories: request.cleanAllGenerated,
+        date: request.cleanAllGenerated ? null : selectedDate,
+      );
+
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Publicidad reiniciada correctamente. Puedes generar estados nuevamente.',
+          ),
+        ),
+      );
+    } on ApiException catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.message.trim().isEmpty ? 'No se pudo ejecutar el reset limpio.' : error.message),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = ref.watch(authStateProvider);
@@ -619,7 +678,7 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
                                 onActivate: controller.activateFlow,
                                 onPause: controller.pauseFlow,
                                 onGenerateNow: controller.generateNow,
-                                onReset: controller.resetFlow,
+                                onResetClean: () => _handleResetClean(context, controller, state.date),
                                 onApprove: controller.approve,
                                 onRegenerate: controller.regenerate,
                                 onRegenerateImage: controller.regenerateImage,
@@ -791,6 +850,99 @@ class _TopToolbar extends StatelessWidget {
   }
 }
 
+class _ResetCleanRequest {
+  const _ResetCleanRequest({
+    required this.cleanAllGenerated,
+    required this.includeResearch,
+    required this.includeGeneratedImages,
+  });
+
+  final bool cleanAllGenerated;
+  final bool includeResearch;
+  final bool includeGeneratedImages;
+}
+
+class _ResetCleanDialog extends StatefulWidget {
+  const _ResetCleanDialog({required this.currentDate});
+
+  final DateTime currentDate;
+
+  @override
+  State<_ResetCleanDialog> createState() => _ResetCleanDialogState();
+}
+
+class _ResetCleanDialogState extends State<_ResetCleanDialog> {
+  bool _cleanAllGenerated = false;
+  bool _includeResearch = false;
+  bool _includeGeneratedImages = true;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Reset limpio de publicidad'),
+      content: SizedBox(
+        width: 620,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Esto limpiará los estados generados y permitirá regenerar todo desde cero. No borrará imágenes publicitarias subidas manualmente ni investigaciones aprobadas.',
+            ),
+            const SizedBox(height: 12),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              value: !_cleanAllGenerated,
+              title: const Text('Limpiar estados de hoy'),
+              subtitle: Text(
+                '${widget.currentDate.day.toString().padLeft(2, '0')}/${widget.currentDate.month.toString().padLeft(2, '0')}/${widget.currentDate.year}',
+              ),
+              onChanged: (v) => setState(() => _cleanAllGenerated = !v),
+            ),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              value: _cleanAllGenerated,
+              title: const Text('Limpiar todos los estados generados'),
+              onChanged: (v) => setState(() => _cleanAllGenerated = v),
+            ),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              value: _includeResearch,
+              title: const Text('Limpiar también investigaciones'),
+              onChanged: (v) => setState(() => _includeResearch = v),
+            ),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              value: _includeGeneratedImages,
+              title: const Text('Limpiar también imágenes generadas temporales'),
+              onChanged: (v) => setState(() => _includeGeneratedImages = v),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton.icon(
+          onPressed: () {
+            Navigator.of(context).pop(
+              _ResetCleanRequest(
+                cleanAllGenerated: _cleanAllGenerated,
+                includeResearch: _includeResearch,
+                includeGeneratedImages: _includeGeneratedImages,
+              ),
+            );
+          },
+          icon: const Icon(Icons.cleaning_services_rounded),
+          label: const Text('Ejecutar reset limpio'),
+        ),
+      ],
+    );
+  }
+}
+
 class _DashboardTab extends StatelessWidget {
   const _DashboardTab({
     required this.state,
@@ -800,7 +952,7 @@ class _DashboardTab extends StatelessWidget {
     required this.onActivate,
     required this.onPause,
     required this.onGenerateNow,
-    required this.onReset,
+    required this.onResetClean,
     required this.onApprove,
     required this.onRegenerate,
     required this.onRegenerateImage,
@@ -815,7 +967,7 @@ class _DashboardTab extends StatelessWidget {
   final Future<void> Function() onActivate;
   final Future<void> Function() onPause;
   final Future<void> Function() onGenerateNow;
-  final Future<void> Function() onReset;
+  final Future<void> Function() onResetClean;
   final Future<void> Function(String storyId) onApprove;
   final Future<void> Function(String storyId) onRegenerate;
   final Future<void> Function(String storyId, {String? customPrompt})
@@ -908,9 +1060,9 @@ class _DashboardTab extends StatelessWidget {
               label: const Text('Generar estados ahora'),
             ),
             OutlinedButton.icon(
-              onPressed: busy ? null : onReset,
+              onPressed: busy ? null : onResetClean,
               icon: const Icon(Icons.restart_alt_rounded),
-              label: const Text('Eliminar/Reiniciar flujo'),
+              label: const Text('Reset limpio de publicidad'),
             ),
           ],
         ),
@@ -1212,30 +1364,6 @@ class _StoryCard extends StatelessWidget {
           ),
         ],
         const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              child: _StoryPreviewFrame(
-                label: 'Imagen base seleccionada',
-                imageUrl: baseImage,
-                story: story,
-                fallbackLabel: 'Sin imagen disponible',
-                compact: true,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _StoryPreviewFrame(
-                label: 'Imagen final',
-                imageUrl: finalImage,
-                story: story,
-                fallbackLabel: 'Generar imagen',
-                compact: true,
-                showApprovedBadge: approved,
-              ),
-            ),
-          ],
-        ),
         const SizedBox(height: 10),
         Wrap(
           spacing: 8,
@@ -1371,7 +1499,6 @@ class _StoryPreviewFrame extends StatelessWidget {
     required this.story,
     required this.fallbackLabel,
     this.showLabel = true,
-    this.compact = false,
     this.showApprovedBadge = false,
   });
 
@@ -1380,7 +1507,6 @@ class _StoryPreviewFrame extends StatelessWidget {
   final MarketingStory story;
   final String fallbackLabel;
   final bool showLabel;
-  final bool compact;
   final bool showApprovedBadge;
 
   @override
@@ -1399,7 +1525,7 @@ class _StoryPreviewFrame extends StatelessWidget {
           ),
         if (showLabel) const SizedBox(height: 6),
         ClipRRect(
-          borderRadius: BorderRadius.circular(compact ? 10 : 18),
+          borderRadius: BorderRadius.circular(18),
           child: AspectRatio(
             aspectRatio: 9 / 16,
             child: Stack(
@@ -1415,7 +1541,7 @@ class _StoryPreviewFrame extends StatelessWidget {
                   subtitle: story.shortText,
                   cta: story.usedCTA,
                   fallbackLabel: imageUrl.isEmpty ? fallbackLabel : null,
-                  compact: compact,
+                  compact: false,
                   approved: showApprovedBadge,
                 ),
               ],

@@ -638,3 +638,32 @@ class MarketingPublishedAsset {
     );
   }
 }
+
+class MarketingResetCleanSummary {
+  const MarketingResetCleanSummary({
+    required this.storiesDeleted,
+    required this.generatedImagesDeleted,
+    required this.activityLogsDeleted,
+    required this.publishedDraftsDeleted,
+    required this.researchKept,
+    required this.mediaAssetsKept,
+  });
+
+  final int storiesDeleted;
+  final int generatedImagesDeleted;
+  final int activityLogsDeleted;
+  final int publishedDraftsDeleted;
+  final int researchKept;
+  final int mediaAssetsKept;
+
+  factory MarketingResetCleanSummary.fromJson(Map<String, dynamic> json) {
+    return MarketingResetCleanSummary(
+      storiesDeleted: (json['storiesDeleted'] as num?)?.toInt() ?? 0,
+      generatedImagesDeleted: (json['generatedImagesDeleted'] as num?)?.toInt() ?? 0,
+      activityLogsDeleted: (json['activityLogsDeleted'] as num?)?.toInt() ?? 0,
+      publishedDraftsDeleted: (json['publishedDraftsDeleted'] as num?)?.toInt() ?? 0,
+      researchKept: (json['researchKept'] as num?)?.toInt() ?? 0,
+      mediaAssetsKept: (json['mediaAssetsKept'] as num?)?.toInt() ?? 0,
+    );
+  }
+}

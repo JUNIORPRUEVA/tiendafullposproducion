@@ -13,6 +13,7 @@ import { CreateMarketingMediaAssetDto, MarketingMediaAssetQueryDto, UpdateMarket
 import { UpdateMarketingConfigDto } from './dto/update-marketing-config.dto';
 import { UpdateMarketingStoryDto } from './dto/update-marketing-story.dto';
 import { GenerateResearchDto, UpdateMarketingResearchConfigDto } from './dto/marketing-research.dto';
+import { MarketingResetCleanDto } from './dto/marketing-reset-clean.dto';
 
 type RequestUser = {
   id?: string;
@@ -149,6 +150,13 @@ export class MarketingController {
     const user = req.user as RequestUser;
     const companyId = this.marketing.resolveCompanyId();
     return this.marketing.resetFlow(companyId, user.id ?? '');
+  }
+
+  @Post('reset-clean')
+  async resetClean(@Req() req: Request, @Body() dto: MarketingResetCleanDto) {
+    const user = req.user as RequestUser;
+    const companyId = this.marketing.resolveCompanyId();
+    return this.marketing.resetClean(companyId, user.id ?? '', dto);
   }
 
   // Publicity media gallery

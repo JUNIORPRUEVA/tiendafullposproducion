@@ -609,54 +609,9 @@ export class MarketingGenerationService {
     const designNotes = this.buildDesignNotes(input.type, usedCTA);
 
     if (!selected) {
-      const generatedWithoutBase = await this.imageGeneration.generateOrPrepare({
-        companyName: input.researchConfig?.businessName ?? 'FULLTECH SRL',
-        city: input.researchConfig?.city ?? 'Higüey',
-        country: input.researchConfig?.country ?? 'República Dominicana',
-        brandTone: input.researchConfig?.brandTone ?? 'tecnológico, limpio y profesional',
-        brandColors: this.safeStringArray(input.researchConfig?.brandColors),
-        title: input.content.title,
-        cta: usedCTA,
-        offer: usedOffer,
-        visualConcept,
-        designNotes,
-        baseImageUrl: '',
-        imageCategory: this.galleryCategoryForType(input.type),
-        serviceOrProduct: primaryService,
-        usedResearchAngle,
-      });
-
-      const generatedUrl = (generatedWithoutBase.generatedImageUrl || '').trim();
-      if (!generatedUrl) {
-        throw new ConflictException('No se pudo generar imagen IA para el estado');
-      }
-
-      const savedGenerated = await this.marketingStorage.saveGeneratedImage({
-        companyId: input.companyId,
-        storyType: this.storyTypeSlug(input.type),
-        sourceUrl: generatedUrl,
-      });
-
-      selected = await this.prisma.marketingMediaAsset.create({
-        data: {
-          companyId: input.companyId,
-          fileUrl: savedGenerated.url,
-          thumbnailUrl: savedGenerated.url,
-          fileName: `ai-${this.storyTypeSlug(input.type)}-${Date.now()}.png`,
-          mimeType: 'image/png',
-          category: this.galleryCategoryForType(input.type),
-          relatedService: primaryService || null,
-          tags: [
-            'ai-generated',
-            'marketing',
-            this.storyTypeSlug(input.type),
-            ...(primaryService ? [primaryService.toLowerCase()] : []),
-          ],
-          description: `Generada automaticamente para estado ${this.storyTypeSlug(input.type)} en formato 9:16`,
-          isActive: true,
-          isFeatured: false,
-        },
-      });
+      throw new ConflictException(
+        'No hay imágenes publicitarias disponibles. Sube imágenes en Galería Publicitaria antes de generar estados reales.',
+      );
     }
 
     const generated = await this.imageGeneration.generateOrPrepare({
@@ -752,7 +707,7 @@ export class MarketingGenerationService {
       throw new ConflictException('No se puede guardar estado sin copy completo (headline, texto corto y CTA)');
     }
     if (!image || !visual.mediaAssetId) {
-      throw new ConflictException('No se puede guardar estado sin imagen final de Galeria Publicitaria');
+      throw new ConflictException('Faltan imágenes publicitarias válidas para generar estados.');
     }
   }
 
