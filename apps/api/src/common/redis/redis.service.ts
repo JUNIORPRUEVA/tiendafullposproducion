@@ -83,6 +83,18 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  async publish(channel: string, value: unknown): Promise<number> {
+    try {
+      const client = await this.getClient();
+      if (!client) return 0;
+
+      return await client.publish(this.buildKey(channel), JSON.stringify(value));
+    } catch (error) {
+      this.logError(`Redis PUBLISH failed for ${channel}`, error);
+      return 0;
+    }
+  }
+
   async del(key: string): Promise<number> {
     try {
       const client = await this.getClient();

@@ -14,7 +14,6 @@ import '../../../core/widgets/app_drawer.dart';
 import '../../../core/widgets/custom_app_bar.dart';
 import '../application/publicidad_images_controller.dart';
 import '../data/media_gallery_repository.dart';
-import '../data/publicidad_images_repository.dart';
 import '../media_gallery_models.dart';
 import '../models/publicidad_image_model.dart';
 import '../widgets/media_gallery_card.dart';
@@ -101,6 +100,7 @@ class GaleriaPublicidadScreen extends ConsumerStatefulWidget {
 class _GaleriaPublicidadScreenState
     extends ConsumerState<GaleriaPublicidadScreen> {
   String _searchQuery = '';
+  bool _isUploading = false;
 
   List<MediaGalleryItem> _applySearch(List<MediaGalleryItem> items) {
     final q = _searchQuery.trim().toLowerCase();
@@ -173,6 +173,44 @@ class _GaleriaPublicidadScreenState
     return bytes;
   }
 
+  Future<void> _showUploadDialog(BuildContext context) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final result = await showDialog<_UploadDialogResult>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const _UploadPublicidadDialog(),
+    );
+    if (result == null || !mounted) return;
+
+    setState(() => _isUploading = true);
+    try {
+      final ctrl = ref.read(publicidadImagesControllerProvider.notifier);
+
+      if (result.bytes != null) {
+        await ctrl.uploadBytesAndSave(
+          bytes: result.bytes!,
+          contentType: result.contentType ?? 'image/jpeg',
+          filename: result.filename ?? 'publicidad.jpg',
+          caption: result.caption,
+        );
+      } else if (result.url != null) {
+        await ctrl.create(url: result.url!, caption: result.caption);
+      }
+
+      if (!mounted) return;
+      messenger?.showSnackBar(
+        const SnackBar(content: Text('Imagen agregada correctamente.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      messenger?.showSnackBar(
+        SnackBar(content: Text('No se pudo agregar la imagen: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _isUploading = false);
+    }
+  }
+
   Future<void> _confirmRemove(MediaGalleryItem item) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -208,6 +246,40 @@ class _GaleriaPublicidadScreenState
     );
   }
 
+  Future<void> _confirmDeleteOwn(PublicidadImage img) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Eliminar imagen'),
+        content: const Text(
+          '¿Deseas eliminar esta imagen de publicidad?\nEsta acción no se puede deshacer.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFDC2626),
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    await ref
+        .read(publicidadImagesControllerProvider.notifier)
+        .delete(img.id);
+    if (!mounted) return;
+    messenger?.showSnackBar(
+      const SnackBar(content: Text('Imagen eliminada correctamente.')),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = ref.watch(authStateProvider);
@@ -217,6 +289,7 @@ class _GaleriaPublicidadScreenState
     final state = ref.watch(_galeriaPublicidadControllerProvider);
     final controller =
         ref.read(_galeriaPublicidadControllerProvider.notifier);
+    final ownImagesState = ref.watch(publicidadImagesControllerProvider);
 
     if (!canView) {
       return Scaffold(
@@ -277,7 +350,29 @@ class _GaleriaPublicidadScreenState
           ),
         ],
       ),
-      body: RefreshIndicator(
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: (state.loading || _isUploading)
+            ? null
+            : () => _showUploadDialog(context),
+        backgroundColor: _isUploading
+            ? const Color(0xFF9F67FF)
+            : const Color(0xFF7C3AED),
+        foregroundColor: Colors.white,
+        icon: _isUploading
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              )
+            : const Icon(Icons.add_photo_alternate_rounded),
+        label: Text(_isUploading ? 'Subiendo...' : 'Agregar imagen'),
+      ),
+      body: Stack(
+        children: [
+          RefreshIndicator(
         onRefresh: () => controller.load(),
         child: CustomScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
@@ -407,14 +502,238 @@ class _GaleriaPublicidadScreenState
                   },
                 ),
               ),
+
+            // ─── Section: Own Publicidad Images ──────────────────────────
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 10),
+                child: Row(
+                  children: [
+                    const Expanded(child: Divider()),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: Text(
+                        'Imágenes subidas directamente',
+                        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                              color: const Color(0xFF7C3AED),
+                              fontWeight: FontWeight.w700,
+                            ),
+                      ),
+                    ),
+                    const Expanded(child: Divider()),
+                  ],
+                ),
+              ),
+            ),
+            if (ownImagesState.isLoading)
+              const SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.all(32),
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+              )
+            else if (ownImagesState.hasError)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Center(
+                    child: Text(
+                      'No se pudo cargar las imágenes subidas.',
+                      style: const TextStyle(color: Color(0xFF64748B)),
+                    ),
+                  ),
+                ),
+              )
+            else if ((ownImagesState.value ?? []).isEmpty)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 16, 24, 48),
+                  child: Center(
+                    child: Column(
+                      children: [
+                        const Icon(
+                          Icons.add_photo_alternate_outlined,
+                          size: 40,
+                          color: Color(0xFFCBD5E1),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Sin imágenes subidas aún.',
+                          style: TextStyle(color: Color(0xFF94A3B8)),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Usa el botón + para agregar imágenes de publicidad.',
+                          style: TextStyle(
+                            color: Color(0xFF94A3B8),
+                            fontSize: 12,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              )
+            else
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 48),
+                sliver: SliverLayoutBuilder(
+                  builder: (context, constraints) {
+                    final width = constraints.crossAxisExtent;
+                    final crossAxisCount = width >= 1500
+                        ? 5
+                        : width >= 1200
+                            ? 4
+                            : width >= 860
+                                ? 3
+                                : 2;
+
+                    return SliverGrid(
+                      delegate: SliverChildBuilderDelegate(
+                        (context, index) {
+                          final img = ownImagesState.value![index];
+                          return _PublicidadImageCard(
+                            image: img,
+                            onDelete: () => _confirmDeleteOwn(img),
+                          );
+                        },
+                        childCount: ownImagesState.value!.length,
+                      ),
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: crossAxisCount,
+                        mainAxisSpacing: 16,
+                        crossAxisSpacing: 16,
+                        childAspectRatio: 0.8,
+                      ),
+                    );
+                  },
+                ),
+              ),
           ],
         ),
+      ),
+          // Upload loading overlay
+          if (_isUploading)
+            Positioned.fill(
+              child: Container(
+                color: Colors.black.withValues(alpha: 0.35),
+                child: const Center(
+                  child: Card(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 32,
+                        vertical: 24,
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          CircularProgressIndicator(
+                            color: Color(0xFF7C3AED),
+                          ),
+                          SizedBox(height: 16),
+                          Text(
+                            'Subiendo imagen...',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 15,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
 }
 
-// ─── Search Delegate ─────────────────────────────────────────────────────────
+// ─── Publicidad Image Card ───────────────────────────────────────────────────
+
+class _PublicidadImageCard extends StatelessWidget {
+  const _PublicidadImageCard({
+    required this.image,
+    required this.onDelete,
+  });
+
+  final PublicidadImage image;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      clipBehavior: Clip.hardEdge,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      elevation: 2,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                Image.network(
+                  image.url,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => const Center(
+                    child: Icon(
+                      Icons.broken_image_outlined,
+                      size: 40,
+                      color: Color(0xFFCBD5E1),
+                    ),
+                  ),
+                  loadingBuilder: (_, child, progress) {
+                    if (progress == null) return child;
+                    return const Center(child: CircularProgressIndicator());
+                  },
+                ),
+                Positioned(
+                  top: 4,
+                  right: 4,
+                  child: Material(
+                    color: Colors.transparent,
+                    child: Ink(
+                      decoration: const BoxDecoration(
+                        color: Color(0xCCDC2626),
+                        shape: BoxShape.circle,
+                      ),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(20),
+                        onTap: onDelete,
+                        child: const Padding(
+                          padding: EdgeInsets.all(6),
+                          child: Icon(
+                            Icons.delete_rounded,
+                            color: Colors.white,
+                            size: 16,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (image.caption != null && image.caption!.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
+              child: Text(
+                image.caption!,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12, color: Color(0xFF475569)),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
 
 class _PublicidadSearchDelegate extends SearchDelegate<String?> {
   _PublicidadSearchDelegate({required this.items, String initialQuery = ''}) {
@@ -524,6 +843,288 @@ class _EmptyState extends StatelessWidget {
                 child: Text(actionLabel!),
               ),
             ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Upload Dialog ───────────────────────────────────────────────────────────
+
+class _UploadDialogResult {
+  final Uint8List? bytes;
+  final String? url;
+  final String? caption;
+  final String? contentType;
+  final String? filename;
+
+  _UploadDialogResult({
+    this.bytes,
+    this.url,
+    this.caption,
+    this.contentType,
+    this.filename,
+  });
+}
+
+class _UploadPublicidadDialog extends StatefulWidget {
+  const _UploadPublicidadDialog();
+
+  @override
+  State<_UploadPublicidadDialog> createState() =>
+      _UploadPublicidadDialogState();
+}
+
+class _UploadPublicidadDialogState extends State<_UploadPublicidadDialog> {
+  final _captionController = TextEditingController();
+  final _urlController = TextEditingController();
+  XFile? _pickedFile;
+  bool _useUrl = false;
+  bool _isReadingFile = false;
+
+  @override
+  void dispose() {
+    _captionController.dispose();
+    _urlController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickImage() async {
+    // Disable while reading to prevent double-tap
+    if (_isReadingFile) return;
+    final picker = ImagePicker();
+    final result = await picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 85,
+    );
+    if (result != null && mounted) {
+      setState(() {
+        _pickedFile = result;
+        _useUrl = false;
+      });
+    }
+  }
+
+  Future<void> _submit() async {
+    if (!_canSubmit || _isReadingFile) return;
+
+    if (_useUrl) {
+      final url = _urlController.text.trim();
+      if (url.isEmpty) return;
+      Navigator.of(context).pop(
+        _UploadDialogResult(
+          url: url,
+          caption: _captionController.text.trim().isEmpty
+              ? null
+              : _captionController.text.trim(),
+        ),
+      );
+      return;
+    }
+
+    // Read file bytes using XFile.readAsBytes() — works with content:// URIs
+    // on Android and sandbox paths on iOS
+    setState(() => _isReadingFile = true);
+    try {
+      final bytes = await _pickedFile!.readAsBytes();
+      if (!mounted) return;
+
+      final ext = _pickedFile!.name.split('.').last.toLowerCase();
+      const contentTypeMap = {
+        'jpg': 'image/jpeg',
+        'jpeg': 'image/jpeg',
+        'png': 'image/png',
+        'webp': 'image/webp',
+        'gif': 'image/gif',
+      };
+      Navigator.of(context).pop(
+        _UploadDialogResult(
+          bytes: bytes,
+          caption: _captionController.text.trim().isEmpty
+              ? null
+              : _captionController.text.trim(),
+          contentType: contentTypeMap[ext] ?? 'image/jpeg',
+          filename: _pickedFile!.name,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isReadingFile = false);
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text('No se pudo leer la imagen: $e')),
+      );
+    }
+  }
+
+  bool get _canSubmit {
+    if (_useUrl) return _urlController.text.trim().isNotEmpty;
+    return _pickedFile != null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Agregar imagen a publicidad'),
+      content: SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: _ModeButton(
+                    label: 'Desde galería',
+                    icon: Icons.photo_library_rounded,
+                    selected: !_useUrl,
+                    onTap: () => setState(() => _useUrl = false),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _ModeButton(
+                    label: 'Por URL',
+                    icon: Icons.link_rounded,
+                    selected: _useUrl,
+                    onTap: () => setState(() => _useUrl = true),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            if (!_useUrl) ...[
+              if (_pickedFile == null)
+                OutlinedButton.icon(
+                  onPressed: _pickImage,
+                  icon: const Icon(Icons.add_photo_alternate_rounded),
+                  label: const Text('Seleccionar imagen'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                )
+              else
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.check_circle_rounded,
+                      color: Color(0xFF16A34A),
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _pickedFile!.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: _pickImage,
+                      child: const Text('Cambiar'),
+                    ),
+                  ],
+                ),
+            ] else ...[
+              TextField(
+                controller: _urlController,
+                decoration: const InputDecoration(
+                  labelText: 'URL de la imagen',
+                  hintText: 'https://ejemplo.com/imagen.jpg',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.link_rounded),
+                ),
+                keyboardType: TextInputType.url,
+                onChanged: (_) => setState(() {}),
+              ),
+            ],
+            const SizedBox(height: 12),
+            TextField(
+              controller: _captionController,
+              decoration: const InputDecoration(
+                labelText: 'Descripción (opcional)',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.text_fields_rounded),
+              ),
+              maxLines: 2,
+              maxLength: 200,
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _isReadingFile ? null : () => Navigator.of(context).pop(null),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton.icon(
+          onPressed: (_canSubmit && !_isReadingFile) ? _submit : null,
+          icon: _isReadingFile
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : const Icon(Icons.upload_rounded),
+          label: Text(_isReadingFile ? 'Preparando...' : 'Agregar'),
+          style: FilledButton.styleFrom(
+            backgroundColor: const Color(0xFF7C3AED),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ModeButton extends StatelessWidget {
+  const _ModeButton({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: selected ? const Color(0xFFF3E8FF) : Colors.transparent,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: selected ? const Color(0xFF7C3AED) : const Color(0xFFCBD5E1),
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              icon,
+              size: 18,
+              color: selected ? const Color(0xFF7C3AED) : const Color(0xFF64748B),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+                color: selected ? const Color(0xFF7C3AED) : const Color(0xFF475569),
+              ),
+            ),
           ],
         ),
       ),

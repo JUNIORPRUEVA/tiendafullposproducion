@@ -767,6 +767,17 @@ export class WhatsappInboxService {
     });
   }
 
+  private logRealtimeTiming(
+    label: string,
+    startedAt: number | undefined,
+    extra?: Record<string, unknown>,
+  ) {
+    console.log(label, {
+      elapsedMs: startedAt ? Date.now() - startedAt : null,
+      ...(extra ?? {}),
+    });
+  }
+
   private async hasWhatsappMediaColumns(): Promise<boolean> {
     if (this.whatsappMediaColumnsAvailableCache !== null) {
       return this.whatsappMediaColumnsAvailableCache;
@@ -848,8 +859,8 @@ export class WhatsappInboxService {
       direction: WhatsappMessageDirection;
       messageType: WhatsappMessageType;
       body: string | null;
-      mediaUrl: string | null;
-      mediaMimeType: string | null;
+      mediaUrl?: string | null;
+      mediaMimeType?: string | null;
       caption: string | null;
       senderName: string | null;
       evolutionId: string | null;
@@ -859,9 +870,10 @@ export class WhatsappInboxService {
       mediaError?: string | null;
       originalFileName?: string | null;
     };
+    realtimeStartedAt?: number;
   }) {
-    const { instanceId, conversation, message } = params;
-    this.realtime.emitTo('ops:role:admin', 'whatsapp.message', {
+    const { instanceId, conversation, message, realtimeStartedAt } = params;
+    const payload = {
       eventId: message.id,
       conversationId: conversation.id,
       instanceId,
@@ -874,8 +886,8 @@ export class WhatsappInboxService {
         body: message.body,
         mediaUrl: message.mediaStorageKey
           ? this.buildApiMediaUrl(message.id)
-          : message.mediaUrl,
-        mediaMimeType: message.mediaMimeType,
+          : message.mediaUrl ?? null,
+        mediaMimeType: message.mediaMimeType ?? null,
         mediaStorageKey: message.mediaStorageKey ?? null,
         mediaFileSize: message.mediaFileSize ?? null,
         mediaStatus: message.mediaStorageKey
@@ -897,6 +909,35 @@ export class WhatsappInboxService {
         lastMessageAt: conversation.lastMessageAt,
         unreadCount: conversation.unreadCount,
       },
+    };
+
+    void this.publishWhatsappRealtimeAccelerators(
+      instanceId,
+      conversation.id,
+      payload,
+      realtimeStartedAt,
+    );
+
+    this.realtime.emitTo('ops:role:admin', 'whatsapp.message', payload);
+    this.logRealtimeTiming('[WhatsAppRealtime][SocketEmitted]', realtimeStartedAt, {
+      messageId: message.id,
+      conversationId: conversation.id,
+    });
+  }
+
+  private async publishWhatsappRealtimeAccelerators(
+    instanceId: string,
+    conversationId: string,
+    payload: unknown,
+    startedAt?: number,
+  ) {
+    await Promise.all([
+      this.redis.publish('whatsapp-inbox:message', payload),
+      this.redis.set(`whatsapp-inbox:last-message:${conversationId}`, payload, 60),
+      this.redis.set(`whatsapp-inbox:last-conversation:${instanceId}`, payload, 60),
+    ]);
+    this.logRealtimeTiming('[WhatsAppRealtime][RedisPublished]', startedAt, {
+      conversationId,
     });
   }
 
@@ -1208,8 +1249,17 @@ export class WhatsappInboxService {
     instanceId: string;
     instanceName: string;
     instance?: { phoneNumber?: string | null; instanceName?: string | null } | null;
+    conversation?: {
+      id: string;
+      instanceId: string;
+      remoteJid: string;
+      remotePhone: string | null;
+      remoteName: string | null;
+      lastMessageAt: Date | null;
+      unreadCount: number;
+    };
   }) {
-    const { message, instanceId, instanceName, instance } = params;
+    const { message, instanceId, instanceName, instance, conversation } = params;
     if (
       message.messageType === WhatsappMessageType.TEXT ||
       message.mediaStorageKey ||
@@ -1226,7 +1276,27 @@ export class WhatsappInboxService {
           instance: instance ?? { instanceName },
         });
         if (!parsed) return;
-        await this.ensureMessageMediaStored(message, instanceId, parsed);
+        const ready = await this.ensureMessageMediaStored(message, instanceId, parsed);
+        if (conversation) {
+          this.emitWhatsappMessageRealtime({
+            instanceId,
+            conversation,
+            message: ready as typeof ready & {
+              sentAt: Date;
+              createdAt?: Date;
+              direction: WhatsappMessageDirection;
+              body: string | null;
+              mediaMimeType: string | null;
+              caption: string | null;
+              senderName: string | null;
+              evolutionId: string | null;
+              mediaFileSize?: number | null;
+              mediaStatus?: string | null;
+              mediaError?: string | null;
+              originalFileName?: string | null;
+            },
+          });
+        }
       } catch (error) {
         console.warn('[WhatsappInbox][MediaOptionalError]', {
           messageId: message.id,
@@ -1612,6 +1682,11 @@ export class WhatsappInboxService {
     payload: unknown,
     eventNameFromRoute?: string,
   ) {
+    const realtimeStartedAt = Date.now();
+    this.logRealtimeTiming('[WhatsAppRealtime][WebhookReceived]', realtimeStartedAt, {
+      instanceName,
+      eventName: eventNameFromRoute ?? null,
+    });
     const instance = await this.findInstanceByName(instanceName);
     if (!instance) {
       console.warn(
@@ -1699,7 +1774,9 @@ export class WhatsappInboxService {
           existingByPhone?.id ?? existingByJid?.id ?? null,
         willCreateNewConversation: !existingByPhone && !existingByJid,
       });
-      const result = await this.saveMessage(instance.id, parsed);
+      const result = await this.saveMessage(instance.id, parsed, {
+        realtimeStartedAt,
+      });
       const action = result.action;
       if (result.duplicate) {
         duplicates++;
@@ -2008,7 +2085,11 @@ export class WhatsappInboxService {
 
   // ─── Save incoming/outgoing message to DB ──────────────────────────────
 
-  async saveMessage(instanceId: string, parsed: ParsedWhatsappMessage) {
+  async saveMessage(
+    instanceId: string,
+    parsed: ParsedWhatsappMessage,
+    options?: { realtimeStartedAt?: number },
+  ) {
     const hasMediaColumns = await this.hasWhatsappMediaColumns();
     const messageSelect = hasMediaColumns
       ? {
@@ -2117,13 +2198,20 @@ export class WhatsappInboxService {
           },
           select: messageSelect,
         });
-        const readyExisting = hasMediaColumns
-          ? await this.ensureMessageMediaStored(
-              updatedExisting,
-              instanceId,
-              parsed,
-            )
-          : updatedExisting;
+        const readyExisting = updatedExisting;
+        if (hasMediaColumns) {
+          this.materializeMessageMediaInBackground({
+            message: updatedExisting,
+            instanceId,
+            instanceName: parsed.instanceName ?? '',
+            conversation,
+          });
+        }
+        this.logRealtimeTiming('[WhatsAppRealtime][MessageSaved]', options?.realtimeStartedAt, {
+          messageId: readyExisting.id,
+          conversationId: conversation.id,
+          duplicate: true,
+        });
         this.emitWhatsappMessageRealtime({
           instanceId,
           conversation,
@@ -2134,6 +2222,7 @@ export class WhatsappInboxService {
             mediaError?: string | null;
             originalFileName?: string | null;
           },
+          realtimeStartedAt: options?.realtimeStartedAt,
         });
         return {
           conversation,
@@ -2168,13 +2257,20 @@ export class WhatsappInboxService {
             },
             select: messageSelect,
           });
-          const readyUpdated = hasMediaColumns
-            ? await this.ensureMessageMediaStored(
-                updated,
-                instanceId,
-                parsed,
-              )
-            : updated;
+          const readyUpdated = updated;
+          if (hasMediaColumns) {
+            this.materializeMessageMediaInBackground({
+              message: updated,
+              instanceId,
+              instanceName: parsed.instanceName ?? '',
+              conversation,
+            });
+          }
+          this.logRealtimeTiming('[WhatsAppRealtime][MessageSaved]', options?.realtimeStartedAt, {
+            messageId: readyUpdated.id,
+            conversationId: conversation.id,
+            duplicate: false,
+          });
           this.emitWhatsappMessageRealtime({
             instanceId,
             conversation,
@@ -2185,6 +2281,7 @@ export class WhatsappInboxService {
               mediaError?: string | null;
               originalFileName?: string | null;
             },
+            realtimeStartedAt: options?.realtimeStartedAt,
           });
           return {
             conversation,
@@ -2228,6 +2325,9 @@ export class WhatsappInboxService {
         body: parsed.body,
         mediaUrl: parsed.mediaUrl,
         mediaMimeType: parsed.mediaMimeType,
+        ...(hasMediaColumns && parsed.messageType !== WhatsappMessageType.TEXT
+          ? { mediaStatus: 'pending' }
+          : {}),
         caption: parsed.caption,
         senderName: parsed.senderName,
         sentAt: parsed.sentAt,
@@ -2235,9 +2335,7 @@ export class WhatsappInboxService {
       },
       select: messageSelect,
     });
-    const message = hasMediaColumns
-      ? await this.ensureMessageMediaStored(createdMessage, instanceId, parsed)
-      : createdMessage;
+    const message = createdMessage;
 
     const messageWithOptionalMedia = message as typeof message & {
       mediaStorageKey?: string | null;
@@ -2247,11 +2345,26 @@ export class WhatsappInboxService {
       originalFileName?: string | null;
     };
 
+    this.logRealtimeTiming('[WhatsAppRealtime][MessageSaved]', options?.realtimeStartedAt, {
+      messageId: messageWithOptionalMedia.id,
+      conversationId: conversation.id,
+      duplicate: false,
+    });
     this.emitWhatsappMessageRealtime({
       instanceId,
       conversation,
       message: messageWithOptionalMedia,
+      realtimeStartedAt: options?.realtimeStartedAt,
     });
+
+    if (hasMediaColumns) {
+      this.materializeMessageMediaInBackground({
+        message: createdMessage,
+        instanceId,
+        instanceName: parsed.instanceName ?? '',
+        conversation,
+      });
+    }
 
     return {
       conversation,

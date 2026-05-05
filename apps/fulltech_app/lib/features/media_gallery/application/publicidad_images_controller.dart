@@ -1,17 +1,10 @@
+import 'dart:typed_data';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../data/publicidad_images_repository.dart';
 import '../models/publicidad_image_model.dart';
-import 'publicidad_images_repository.dart';
 
-// Provider for the repository
-final publicidadImagesRepositoryProvider =
-    Provider<PublicidadImagesRepository>((ref) {
-  throw UnimplementedError(
-    'publicidadImagesRepositoryProvider must be overridden',
-  );
-});
-
-// StateNotifier for managing publicidad images
 class PublicidadImagesController
     extends StateNotifier<AsyncValue<List<PublicidadImage>>> {
   final PublicidadImagesRepository _repository;
@@ -58,23 +51,25 @@ class PublicidadImagesController
     return _repository.generateUploadUrl(filename);
   }
 
-  Future<void> uploadFileAndSave({
-    required String filePath,
+  /// Upload image bytes (already read via XFile.readAsBytes()) to R2 and
+  /// save the record in the database.
+  Future<void> uploadBytesAndSave({
+    required Uint8List bytes,
     required String contentType,
     required String filename,
     String? caption,
   }) async {
-    // Get presigned URL
+    // 1. Get a presigned R2 URL
     final uploadUrl = await generateUploadUrl(filename);
 
-    // Upload file to S3/R2
-    await _repository.uploadFile(
+    // 2. PUT the bytes directly to R2 (no app server involved)
+    await _repository.uploadBytes(
       uploadUrl.uploadUrl,
-      filePath,
+      bytes,
       contentType,
     );
 
-    // Create record in database with public URL
+    // 3. Save the public URL in the database
     await create(
       url: uploadUrl.publicUrl,
       caption: caption,
@@ -82,7 +77,6 @@ class PublicidadImagesController
   }
 }
 
-// Provider for the controller
 final publicidadImagesControllerProvider = StateNotifierProvider<
     PublicidadImagesController,
     AsyncValue<List<PublicidadImage>>>((ref) {
