@@ -291,6 +291,22 @@ enum MarketingStoryStatus {
   @@map("marketing_story_status")
 }
 
+enum MarketingPlatformFormat {
+  STORY_9_16
+
+  @@map("marketing_platform_format")
+}
+
+enum MarketingImageStatus {
+  PENDING
+  PENDING_MEDIA
+  GENERATED
+  GENERATED_PLACEHOLDER
+  FAILED
+
+  @@map("marketing_image_status")
+}
+
 enum NotificationContentType {
   TEXT
   DOCUMENT
@@ -673,14 +689,54 @@ model MarketingDailyStory {
   updatedAt        DateTime             @updatedAt @map("updated_at")
 
   researchId       String?              @map("research_id") @db.Uuid
+  mediaAssetId     String?              @map("media_asset_id") @db.Uuid
+  visualConcept    String?              @db.Text @map("visual_concept")
+  designNotes      String?              @db.Text @map("design_notes")
+  platformFormat   MarketingPlatformFormat @default(STORY_9_16) @map("platform_format")
+  imageStatus      MarketingImageStatus @default(PENDING) @map("image_status")
+  generatedImageUrl String?             @db.Text @map("generated_image_url")
+  generatedImageProvider String?        @map("generated_image_provider")
+  imageGenerationMetadata Json?         @map("image_generation_metadata")
+  usedResearchAngle String?             @db.Text @map("used_research_angle")
+  usedOffer        String?              @db.Text @map("used_offer")
+  usedCTA          String?              @db.Text @map("used_cta")
 
   approvedByUser User? @relation("MarketingStoryApprovedByUser", fields: [approvedByUserId], references: [id], onDelete: SetNull)
   research         MarketingResearch?   @relation(fields: [researchId], references: [id], onDelete: SetNull)
+  mediaAsset       MarketingMediaAsset? @relation(fields: [mediaAssetId], references: [id], onDelete: SetNull)
 
   @@unique([companyId, date, type])
   @@index([companyId, date, status])
   @@index([companyId, status, updatedAt])
+  @@index([companyId, imageStatus, date])
+  @@index([companyId, mediaAssetId])
   @@map("marketing_daily_stories")
+}
+
+model MarketingMediaAsset {
+  id              String   @id @default(uuid()) @db.Uuid
+  companyId       String   @map("company_id") @db.Uuid
+  fileUrl         String   @db.Text @map("file_url")
+  thumbnailUrl    String?  @db.Text @map("thumbnail_url")
+  fileName        String   @map("file_name")
+  mimeType        String   @map("mime_type")
+  category        String
+  relatedService  String?  @map("related_service")
+  tags            Json?    
+  description     String?  @db.Text
+  isActive        Boolean  @default(true) @map("is_active")
+  isFeatured      Boolean  @default(false) @map("is_featured")
+  useCount        Int      @default(0) @map("use_count")
+  lastUsedAt      DateTime? @map("last_used_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  stories         MarketingDailyStory[]
+
+  @@index([companyId, isActive, isFeatured])
+  @@index([companyId, category, relatedService])
+  @@index([companyId, useCount, lastUsedAt])
+  @@map("marketing_media_assets")
 }
 
 model MarketingActivityLog {

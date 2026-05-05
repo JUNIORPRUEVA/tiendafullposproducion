@@ -201,7 +201,13 @@ class ApiRoutes {
       '/marketing/stories/$id/reject';
   static String marketingStoryRegenerate(String id) =>
       '/marketing/stories/$id/regenerate';
+  static String marketingStoryRegenerateImage(String id) =>
+      '/marketing/stories/$id/regenerate-image';
+  static String marketingStoryChangeBaseImage(String id, String mediaAssetId) =>
+      '/marketing/stories/$id/base-image/$mediaAssetId';
   static String marketingStoryEdit(String id) => '/marketing/stories/$id';
+  static const marketingMediaAssets = '/marketing/media-assets';
+  static String marketingMediaAssetById(String id) => '/marketing/media-assets/$id';
   static const marketingHistory = '/marketing/history';
   static const marketingConfig = '/marketing/config';
   static const marketingResearchConfig = '/marketing/research/config';

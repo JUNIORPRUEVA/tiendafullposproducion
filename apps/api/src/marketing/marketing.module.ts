@@ -4,7 +4,10 @@ import { MarketingAutomationScheduler } from './marketing-automation.scheduler';
 import { MarketingConfigService } from './marketing-config.service';
 import { MarketingController } from './marketing.controller';
 import { MarketingGenerationService } from './marketing-generation.service';
+import { MarketingImageGenerationService } from './marketing-image-generation.service';
 import { MarketingLearningService } from './marketing-learning.service';
+import { MarketingMediaAssetService } from './marketing-media-asset.service';
+import { MarketingMediaSelectorService } from './marketing-media-selector.service';
 import { MarketingResearchService } from './marketing-research.service';
 import { MarketingResearchSourceService } from './marketing-research-source.service';
 import { MarketingService } from './marketing.service';
@@ -14,6 +17,9 @@ import { MarketingService } from './marketing.service';
   providers: [
     MarketingService,
     MarketingGenerationService,
+    MarketingMediaSelectorService,
+    MarketingMediaAssetService,
+    MarketingImageGenerationService,
     MarketingApprovalService,
     MarketingConfigService,
     MarketingAutomationScheduler,

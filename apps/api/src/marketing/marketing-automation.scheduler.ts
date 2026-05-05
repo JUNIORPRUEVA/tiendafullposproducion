@@ -124,6 +124,9 @@ export class MarketingAutomationScheduler {
 
       this.logger.log('Generando investigacion de mercado automatica...');
       const research = await this.researchService.generate(companyId, {}, actorUserId ?? '', false);
+      if (research.status !== 'APPROVED') {
+        await this.researchService.approve(companyId, research.id, actorUserId ?? '');
+      }
       await this.logActivity(companyId, 'AUTO_RESEARCH_GENERATED', 'Investigacion de mercado generada automaticamente', {
         researchId: research.id,
         confidenceScore: research.confidenceScore,

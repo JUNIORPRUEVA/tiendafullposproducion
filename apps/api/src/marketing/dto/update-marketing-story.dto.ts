@@ -25,4 +25,28 @@ export class UpdateMarketingStoryDto {
   @IsOptional()
   @IsString()
   imageUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  mediaAssetId?: string;
+
+  @IsOptional()
+  @IsString()
+  visualConcept?: string;
+
+  @IsOptional()
+  @IsString()
+  designNotes?: string;
+
+  @IsOptional()
+  @IsString()
+  usedResearchAngle?: string;
+
+  @IsOptional()
+  @IsString()
+  usedOffer?: string;
+
+  @IsOptional()
+  @IsString()
+  usedCTA?: string;
 }

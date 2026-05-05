@@ -49,6 +49,14 @@ enum MarketingStoryType { sales, trust, educational }
 
 enum MarketingStoryStatus { pending, approved, rejected, regenerated }
 
+enum MarketingImageStatus {
+  pending,
+  pendingMedia,
+  generated,
+  generatedPlaceholder,
+  failed,
+}
+
 MarketingStoryType parseStoryType(String? value) {
   final normalized = (value ?? '').trim().toUpperCase();
   switch (normalized) {
@@ -74,6 +82,86 @@ MarketingStoryStatus parseStoryStatus(String? value) {
     case 'PENDING':
     default:
       return MarketingStoryStatus.pending;
+  }
+}
+
+MarketingImageStatus parseImageStatus(String? value) {
+  final normalized = (value ?? '').trim().toUpperCase();
+  switch (normalized) {
+    case 'PENDING_MEDIA':
+      return MarketingImageStatus.pendingMedia;
+    case 'GENERATED':
+      return MarketingImageStatus.generated;
+    case 'GENERATED_PLACEHOLDER':
+      return MarketingImageStatus.generatedPlaceholder;
+    case 'FAILED':
+      return MarketingImageStatus.failed;
+    case 'PENDING':
+    default:
+      return MarketingImageStatus.pending;
+  }
+}
+
+class MarketingMediaAsset {
+  const MarketingMediaAsset({
+    required this.id,
+    required this.fileUrl,
+    required this.thumbnailUrl,
+    required this.fileName,
+    required this.mimeType,
+    required this.category,
+    required this.relatedService,
+    required this.tags,
+    required this.description,
+    required this.isActive,
+    required this.isFeatured,
+    required this.useCount,
+    required this.lastUsedAt,
+  });
+
+  final String id;
+  final String fileUrl;
+  final String? thumbnailUrl;
+  final String fileName;
+  final String mimeType;
+  final String category;
+  final String? relatedService;
+  final List<String> tags;
+  final String? description;
+  final bool isActive;
+  final bool isFeatured;
+  final int useCount;
+  final DateTime? lastUsedAt;
+
+  factory MarketingMediaAsset.fromJson(Map<String, dynamic> json) {
+    final tagsRaw = json['tags'];
+    final tags = tagsRaw is List
+        ? tagsRaw
+              .map((item) => '$item'.trim())
+              .where((item) => item.isNotEmpty)
+              .toList(growable: false)
+        : const <String>[];
+    return MarketingMediaAsset(
+      id: '${json['id'] ?? ''}',
+      fileUrl: '${json['fileUrl'] ?? ''}',
+      thumbnailUrl: (json['thumbnailUrl'] ?? '').toString().trim().isEmpty
+          ? null
+          : '${json['thumbnailUrl']}',
+      fileName: '${json['fileName'] ?? ''}',
+      mimeType: '${json['mimeType'] ?? ''}',
+      category: '${json['category'] ?? ''}',
+      relatedService: (json['relatedService'] ?? '').toString().trim().isEmpty
+          ? null
+          : '${json['relatedService']}',
+      tags: tags,
+      description: (json['description'] ?? '').toString().trim().isEmpty
+          ? null
+          : '${json['description']}',
+      isActive: json['isActive'] != false,
+      isFeatured: json['isFeatured'] == true,
+      useCount: (json['useCount'] as num?)?.toInt() ?? 0,
+      lastUsedAt: DateTime.tryParse('${json['lastUsedAt'] ?? ''}'),
+    );
   }
 }
 
@@ -118,6 +206,17 @@ class MarketingStory {
     required this.approvedAt,
     required this.rejectedAt,
     required this.updatedAt,
+    required this.researchId,
+    required this.mediaAssetId,
+    required this.visualConcept,
+    required this.designNotes,
+    required this.imageStatus,
+    required this.generatedImageUrl,
+    required this.generatedImageProvider,
+    required this.usedResearchAngle,
+    required this.usedOffer,
+    required this.usedCTA,
+    required this.mediaAsset,
   });
 
   final String id;
@@ -135,12 +234,24 @@ class MarketingStory {
   final DateTime? approvedAt;
   final DateTime? rejectedAt;
   final DateTime? updatedAt;
+  final String? researchId;
+  final String? mediaAssetId;
+  final String visualConcept;
+  final String designNotes;
+  final MarketingImageStatus imageStatus;
+  final String generatedImageUrl;
+  final String generatedImageProvider;
+  final String usedResearchAngle;
+  final String usedOffer;
+  final String usedCTA;
+  final MarketingMediaAsset? mediaAsset;
 
   int get regeneratedCount =>
       generationAttempt <= 1 ? 0 : generationAttempt - 1;
 
   factory MarketingStory.fromJson(Map<String, dynamic> json) {
     final approvedBy = json['approvedByUser'];
+    final rawAsset = json['mediaAsset'];
     final approvedByName = approvedBy is Map
         ? '${approvedBy['nombreCompleto'] ?? ''}'.trim()
         : '';
@@ -166,6 +277,46 @@ class MarketingStory {
       approvedAt: DateTime.tryParse('${json['approvedAt'] ?? ''}'),
       rejectedAt: DateTime.tryParse('${json['rejectedAt'] ?? ''}'),
       updatedAt: DateTime.tryParse('${json['updatedAt'] ?? ''}'),
+      researchId: (json['researchId'] ?? '').toString().trim().isEmpty
+          ? null
+          : '${json['researchId']}',
+      mediaAssetId: (json['mediaAssetId'] ?? '').toString().trim().isEmpty
+          ? null
+          : '${json['mediaAssetId']}',
+      visualConcept: '${json['visualConcept'] ?? ''}',
+      designNotes: '${json['designNotes'] ?? ''}',
+      imageStatus: parseImageStatus('${json['imageStatus'] ?? ''}'),
+      generatedImageUrl: '${json['generatedImageUrl'] ?? ''}',
+      generatedImageProvider: '${json['generatedImageProvider'] ?? ''}',
+      usedResearchAngle: '${json['usedResearchAngle'] ?? ''}',
+      usedOffer: '${json['usedOffer'] ?? ''}',
+      usedCTA: '${json['usedCTA'] ?? ''}',
+      mediaAsset: rawAsset is Map
+          ? MarketingMediaAsset.fromJson(rawAsset.cast<String, dynamic>())
+          : null,
+    );
+  }
+}
+
+class MarketingDashboardResearch {
+  const MarketingDashboardResearch({
+    required this.id,
+    required this.status,
+    required this.confidenceScore,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String status;
+  final double confidenceScore;
+  final DateTime? createdAt;
+
+  factory MarketingDashboardResearch.fromJson(Map<String, dynamic> json) {
+    return MarketingDashboardResearch(
+      id: '${json['id'] ?? ''}',
+      status: '${json['status'] ?? ''}',
+      confidenceScore: (json['confidenceScore'] as num?)?.toDouble() ?? 0,
+      createdAt: DateTime.tryParse('${json['createdAt'] ?? ''}'),
     );
   }
 }
@@ -177,6 +328,13 @@ class MarketingDashboard {
     required this.approvedTodayCount,
     required this.lastGenerationAt,
     required this.nextSuggestedGeneration,
+    required this.latestResearch,
+    required this.researchUsable,
+    required this.nextAutoResearch,
+    required this.researchFrequencyDays,
+    required this.serviceRadiusKm,
+    required this.serviceZone,
+    required this.storiesFromCurrentResearch,
   });
 
   final String flowStatus;
@@ -184,6 +342,13 @@ class MarketingDashboard {
   final int approvedTodayCount;
   final DateTime? lastGenerationAt;
   final DateTime? nextSuggestedGeneration;
+  final MarketingDashboardResearch? latestResearch;
+  final bool researchUsable;
+  final DateTime? nextAutoResearch;
+  final int researchFrequencyDays;
+  final int serviceRadiusKm;
+  final String serviceZone;
+  final int storiesFromCurrentResearch;
 
   factory MarketingDashboard.fromJson(Map<String, dynamic> json) {
     return MarketingDashboard(
@@ -195,6 +360,19 @@ class MarketingDashboard {
       nextSuggestedGeneration: DateTime.tryParse(
         '${json['nextSuggestedGeneration'] ?? ''}',
       ),
+      latestResearch: json['latestResearch'] is Map
+          ? MarketingDashboardResearch.fromJson(
+              (json['latestResearch'] as Map).cast<String, dynamic>(),
+            )
+          : null,
+      researchUsable: json['researchUsable'] == true,
+      nextAutoResearch: DateTime.tryParse('${json['nextAutoResearch'] ?? ''}'),
+      researchFrequencyDays:
+          (json['researchFrequencyDays'] as num?)?.toInt() ?? 2,
+      serviceRadiusKm: (json['serviceRadiusKm'] as num?)?.toInt() ?? 25,
+      serviceZone: '${json['serviceZone'] ?? 'Higüey, La Altagracia'}',
+      storiesFromCurrentResearch:
+          (json['storiesFromCurrentResearch'] as num?)?.toInt() ?? 0,
     );
   }
 }

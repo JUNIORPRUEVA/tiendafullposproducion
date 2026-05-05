@@ -144,6 +144,30 @@ class MarketingApi {
     }
   }
 
+  Future<void> regenerateImage(String storyId, {String? customPrompt}) async {
+    try {
+      await _dio.post(
+        ApiRoutes.marketingStoryRegenerateImage(storyId),
+        data: {
+          if ((customPrompt ?? '').trim().isNotEmpty)
+            'reason': customPrompt!.trim(),
+        },
+      );
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo regenerar la imagen');
+    }
+  }
+
+  Future<void> changeBaseImage(String storyId, String mediaAssetId) async {
+    try {
+      await _dio.patch(
+        ApiRoutes.marketingStoryChangeBaseImage(storyId, mediaAssetId),
+      );
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo cambiar la imagen base');
+    }
+  }
+
   Future<void> editStory(
     String storyId, {
     required String title,
@@ -222,6 +246,104 @@ class MarketingApi {
       await _dio.post(ApiRoutes.marketingFlowReset);
     } on DioException catch (error) {
       _rethrow(error, 'No se pudo reiniciar el flujo');
+    }
+  }
+
+  Future<List<MarketingMediaAsset>> loadMediaAssets({
+    String? category,
+    String? relatedService,
+    bool activeOnly = false,
+  }) async {
+    try {
+      final res = await _dio.get(
+        ApiRoutes.marketingMediaAssets,
+        options: _backgroundOptions,
+        queryParameters: {
+          if ((category ?? '').trim().isNotEmpty) 'category': category!.trim(),
+          if ((relatedService ?? '').trim().isNotEmpty)
+            'related_service': relatedService!.trim(),
+          if (activeOnly) 'active_only': true,
+        },
+      );
+      final raw =
+          (res.data as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
+      final rows = (raw['items'] is List) ? (raw['items'] as List) : const [];
+      return rows
+          .whereType<Map>()
+          .map(
+            (item) => MarketingMediaAsset.fromJson(
+              item.cast<String, dynamic>(),
+            ),
+          )
+          .toList(growable: false);
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo cargar la galería publicitaria');
+    }
+  }
+
+  Future<void> createMediaAsset({
+    required String fileUrl,
+    required String fileName,
+    required String mimeType,
+    required String category,
+    String? relatedService,
+    List<String> tags = const [],
+    String? description,
+    bool isActive = true,
+    bool isFeatured = false,
+  }) async {
+    try {
+      await _dio.post(
+        ApiRoutes.marketingMediaAssets,
+        data: {
+          'file_url': fileUrl.trim(),
+          'file_name': fileName.trim(),
+          'mime_type': mimeType.trim(),
+          'category': category.trim(),
+          'related_service': relatedService?.trim(),
+          'tags': tags,
+          'description': description?.trim(),
+          'is_active': isActive,
+          'is_featured': isFeatured,
+        },
+      );
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo crear el asset de galería');
+    }
+  }
+
+  Future<void> updateMediaAsset(
+    String id, {
+    String? category,
+    String? relatedService,
+    List<String>? tags,
+    String? description,
+    bool? isActive,
+    bool? isFeatured,
+  }) async {
+    try {
+      await _dio.patch(
+        ApiRoutes.marketingMediaAssetById(id),
+        data: {
+          if (category != null) 'category': category.trim(),
+          if (relatedService != null) 'related_service': relatedService.trim(),
+          if (tags != null) 'tags': tags,
+          if (description != null) 'description': description.trim(),
+          if (isActive != null) 'is_active': isActive,
+          if (isFeatured != null) 'is_featured': isFeatured,
+        },
+      );
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo actualizar el asset');
+    }
+  }
+
+  Future<void> deleteMediaAsset(String id) async {
+    try {
+      await _dio.delete(ApiRoutes.marketingMediaAssetById(id));
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo eliminar el asset');
     }
   }
 }

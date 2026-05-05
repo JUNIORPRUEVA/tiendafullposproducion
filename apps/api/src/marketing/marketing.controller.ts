@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request } from 'express';
 import { Role } from '@prisma/client';
@@ -9,6 +9,7 @@ import { MarketingResearchService } from './marketing-research.service';
 import { GenerateMarketingStoriesDto } from './dto/generate-marketing-stories.dto';
 import { MarketingActionDto } from './dto/marketing-action.dto';
 import { MarketingHistoryQueryDto, MarketingQueryDto } from './dto/marketing-query.dto';
+import { CreateMarketingMediaAssetDto, MarketingMediaAssetQueryDto, UpdateMarketingMediaAssetDto } from './dto/marketing-media-asset.dto';
 import { UpdateMarketingConfigDto } from './dto/update-marketing-config.dto';
 import { UpdateMarketingStoryDto } from './dto/update-marketing-story.dto';
 import { GenerateResearchDto, UpdateMarketingResearchConfigDto } from './dto/marketing-research.dto';
@@ -77,6 +78,28 @@ export class MarketingController {
     return this.marketing.regenerateStory(companyId, storyId, user.id ?? '');
   }
 
+  @Post('stories/:id/regenerate-image')
+  async regenerateImage(
+    @Req() req: Request,
+    @Param('id') storyId: string,
+    @Body() dto: MarketingActionDto,
+  ) {
+    const user = req.user as RequestUser;
+    const companyId = this.marketing.resolveCompanyId();
+    return this.marketing.regenerateStoryImage(companyId, storyId, user.id ?? '', dto.reason);
+  }
+
+  @Patch('stories/:id/base-image/:mediaAssetId')
+  async changeBaseImage(
+    @Req() req: Request,
+    @Param('id') storyId: string,
+    @Param('mediaAssetId') mediaAssetId: string,
+  ) {
+    const user = req.user as RequestUser;
+    const companyId = this.marketing.resolveCompanyId();
+    return this.marketing.changeStoryBaseImage(companyId, storyId, mediaAssetId, user.id ?? '');
+  }
+
   @Patch('stories/:id')
   async edit(
     @Req() req: Request,
@@ -126,6 +149,34 @@ export class MarketingController {
     const user = req.user as RequestUser;
     const companyId = this.marketing.resolveCompanyId();
     return this.marketing.resetFlow(companyId, user.id ?? '');
+  }
+
+  // Publicity media gallery
+  @Get('media-assets')
+  async listMediaAssets(@Query() query: MarketingMediaAssetQueryDto) {
+    const companyId = this.marketing.resolveCompanyId();
+    return this.marketing.listMediaAssets(companyId, query);
+  }
+
+  @Post('media-assets')
+  async createMediaAsset(@Req() req: Request, @Body() dto: CreateMarketingMediaAssetDto) {
+    const user = req.user as RequestUser;
+    const companyId = this.marketing.resolveCompanyId();
+    return this.marketing.createMediaAsset(companyId, dto, user.id ?? '');
+  }
+
+  @Patch('media-assets/:id')
+  async updateMediaAsset(@Req() req: Request, @Param('id') id: string, @Body() dto: UpdateMarketingMediaAssetDto) {
+    const user = req.user as RequestUser;
+    const companyId = this.marketing.resolveCompanyId();
+    return this.marketing.updateMediaAsset(companyId, id, dto, user.id ?? '');
+  }
+
+  @Delete('media-assets/:id')
+  async deleteMediaAsset(@Req() req: Request, @Param('id') id: string) {
+    const user = req.user as RequestUser;
+    const companyId = this.marketing.resolveCompanyId();
+    return this.marketing.deleteMediaAsset(companyId, id, user.id ?? '');
   }
 
   // Research endpoints

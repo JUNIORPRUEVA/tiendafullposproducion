@@ -4,7 +4,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { MarketingApprovalService } from './marketing-approval.service';
 import { MarketingConfigService } from './marketing-config.service';
 import { MarketingGenerationService } from './marketing-generation.service';
+import { MarketingMediaAssetService } from './marketing-media-asset.service';
 import { MarketingResearchService } from './marketing-research.service';
+import { CreateMarketingMediaAssetDto, MarketingMediaAssetQueryDto, UpdateMarketingMediaAssetDto } from './dto/marketing-media-asset.dto';
 import { MarketingHistoryQueryDto } from './dto/marketing-query.dto';
 import { UpdateMarketingConfigDto } from './dto/update-marketing-config.dto';
 import { UpdateMarketingStoryDto } from './dto/update-marketing-story.dto';
@@ -17,6 +19,7 @@ export class MarketingService {
     private readonly approvals: MarketingApprovalService,
     private readonly configService: MarketingConfigService,
     private readonly researchService: MarketingResearchService,
+    private readonly mediaAssets: MarketingMediaAssetService,
   ) {}
 
   resolveCompanyId() {
@@ -116,6 +119,14 @@ export class MarketingService {
             nombreCompleto: true,
           },
         },
+        research: {
+          select: {
+            id: true,
+            status: true,
+            confidenceScore: true,
+          },
+        },
+        mediaAsset: true,
       },
       orderBy: { type: 'asc' },
     });
@@ -131,7 +142,20 @@ export class MarketingService {
     if (config.paused) {
       throw new ConflictException('El flujo de Publicidad esta pausado. Activalo para generar contenido.');
     }
-    return this.generation.generateMissingStories(companyId, date, userId);
+
+    let researchId: string | null = null;
+    const usable = await this.researchService.getUsableResearch(companyId);
+    if (usable) {
+      researchId = usable.id;
+    } else {
+      const generated = await this.researchService.generate(companyId, {}, userId, false);
+      if (generated.status !== 'APPROVED') {
+        await this.researchService.approve(companyId, generated.id, userId);
+      }
+      researchId = generated.id;
+    }
+
+    return this.generation.generateMissingStories(companyId, date, userId, researchId);
   }
 
   async approveStory(companyId: string, storyId: string, userId: string) {
@@ -144,6 +168,14 @@ export class MarketingService {
 
   async regenerateStory(companyId: string, storyId: string, userId: string) {
     return this.generation.regenerateStory(companyId, storyId, userId);
+  }
+
+  async regenerateStoryImage(companyId: string, storyId: string, userId: string, customPrompt?: string) {
+    return this.generation.regenerateStoryImage(companyId, storyId, userId, customPrompt);
+  }
+
+  async changeStoryBaseImage(companyId: string, storyId: string, mediaAssetId: string, userId: string) {
+    return this.generation.changeBaseImage(companyId, storyId, mediaAssetId, userId);
   }
 
   async editStory(companyId: string, storyId: string, dto: UpdateMarketingStoryDto, userId: string) {
@@ -194,6 +226,14 @@ export class MarketingService {
               nombreCompleto: true,
             },
           },
+          research: {
+            select: {
+              id: true,
+              status: true,
+              confidenceScore: true,
+            },
+          },
+          mediaAsset: true,
         },
       }),
       this.prisma.marketingDailyStory.count({ where }),
@@ -233,6 +273,31 @@ export class MarketingService {
     const updated = await this.configService.resetFlow(companyId, userId);
     await this.log(companyId, 'MARKETING_FLOW_RESET', 'Flujo de marketing reiniciado', userId, null);
     return updated;
+  }
+
+  async listMediaAssets(companyId: string, query: MarketingMediaAssetQueryDto) {
+    return this.mediaAssets.list(companyId, query);
+  }
+
+  async createMediaAsset(companyId: string, dto: CreateMarketingMediaAssetDto, userId: string) {
+    const created = await this.mediaAssets.create(companyId, dto);
+    await this.log(companyId, 'MARKETING_MEDIA_ASSET_CREATED', 'Nuevo asset agregado en galería publicitaria', userId, {
+      id: created.id,
+      category: created.category,
+    });
+    return created;
+  }
+
+  async updateMediaAsset(companyId: string, id: string, dto: UpdateMarketingMediaAssetDto, userId: string) {
+    const updated = await this.mediaAssets.update(companyId, id, dto);
+    await this.log(companyId, 'MARKETING_MEDIA_ASSET_UPDATED', `Asset actualizado ${id}`, userId, dto);
+    return updated;
+  }
+
+  async deleteMediaAsset(companyId: string, id: string, userId: string) {
+    const removed = await this.mediaAssets.remove(companyId, id);
+    await this.log(companyId, 'MARKETING_MEDIA_ASSET_DELETED', `Asset eliminado ${id}`, userId, null);
+    return removed;
   }
 
   private async log(

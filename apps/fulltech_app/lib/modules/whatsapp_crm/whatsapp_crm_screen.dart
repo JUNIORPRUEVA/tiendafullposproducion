@@ -255,21 +255,47 @@ class WhatsappCrmScreen extends ConsumerStatefulWidget {
 class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
   final _msgController = TextEditingController();
   final _scrollController = ScrollController();
+  final _conversationScrollController = ScrollController();
   ProviderSubscription<WaCrmState>? _waCrmSubscription;
   StreamSubscription<Map<String, dynamic>>? _whatsappSub;
   Timer? _autoRefreshTimer;
   bool _showActionPanel = true;
   bool _showAiPanel = false;
+  bool _showNewMessagesButton = false;
+
+  static const double _nearBottomThreshold = 140;
 
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_handleChatScroll);
     _waCrmSubscription = ref.listenManual<WaCrmState>(waCrmControllerProvider, (
       prev,
       next,
     ) {
-      if ((prev?.messages.length ?? 0) < next.messages.length) {
-        _scrollToBottom();
+      final previousConversationId = prev?.selectedConversation?.id;
+      final nextConversationId = next.selectedConversation?.id;
+      final conversationChanged = previousConversationId != nextConversationId;
+      final messageCountIncreased =
+          !conversationChanged &&
+          (prev?.messages.length ?? 0) < next.messages.length;
+
+      if (conversationChanged) {
+        if (_showNewMessagesButton) {
+          setState(() => _showNewMessagesButton = false);
+        }
+        if (next.messages.isNotEmpty) {
+          _scrollToBottom(force: true, animated: false);
+        }
+        return;
+      }
+
+      if (messageCountIncreased) {
+        if (_isChatNearBottom()) {
+          _scrollToBottom(force: true);
+        } else if (!_showNewMessagesButton) {
+          setState(() => _showNewMessagesButton = true);
+        }
       }
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -292,7 +318,6 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
     _whatsappSub = realtimeSvc.whatsappStream.listen((data) {
       if (!mounted) return;
       ref.read(waCrmControllerProvider.notifier).handleRealtimeMessage(data);
-      _scrollToBottom();
     });
   }
 
@@ -311,17 +336,39 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
     _waCrmSubscription?.close();
     _msgController.dispose();
     _scrollController.dispose();
+    _conversationScrollController.dispose();
     super.dispose();
   }
 
-  void _scrollToBottom() {
+  void _handleChatScroll() {
+    if (_showNewMessagesButton && _isChatNearBottom()) {
+      setState(() => _showNewMessagesButton = false);
+    }
+  }
+
+  bool _isChatNearBottom() {
+    if (!_scrollController.hasClients) return true;
+    final position = _scrollController.position;
+    if (!position.hasContentDimensions) return true;
+    return position.maxScrollExtent - position.pixels <= _nearBottomThreshold;
+  }
+
+  void _scrollToBottom({bool force = false, bool animated = true}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients) {
+      if (!_scrollController.hasClients) return;
+      if (!force && !_isChatNearBottom()) return;
+      final target = _scrollController.position.maxScrollExtent;
+      if (animated) {
         _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
+          target,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
         );
+      } else {
+        _scrollController.jumpTo(target);
+      }
+      if (_showNewMessagesButton && mounted) {
+        setState(() => _showNewMessagesButton = false);
       }
     });
   }
@@ -398,6 +445,7 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
           width: 280,
           child: _ConversationsPanel(
             state: state,
+            scrollController: _conversationScrollController,
             onSelectConversation: (conv) {
               ref
                   .read(waCrmControllerProvider.notifier)
@@ -415,6 +463,8 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
             state: state,
             msgController: _msgController,
             scrollController: _scrollController,
+            showNewMessagesButton: _showNewMessagesButton,
+            onJumpToLatest: () => _scrollToBottom(force: true),
             onSend: () => _sendReply(),
             onAttach: () => _sendAttachment(),
             onDateFilterChanged: (filter, {customDate}) => ref
@@ -462,6 +512,7 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
           width: 240,
           child: _ConversationsPanel(
             state: state,
+            scrollController: _conversationScrollController,
             onSelectConversation: (conv) {
               ref
                   .read(waCrmControllerProvider.notifier)
@@ -478,6 +529,8 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
             state: state,
             msgController: _msgController,
             scrollController: _scrollController,
+            showNewMessagesButton: _showNewMessagesButton,
+            onJumpToLatest: () => _scrollToBottom(force: true),
             onSend: () => _sendReply(),
             onAttach: () => _sendAttachment(),
             onDateFilterChanged: (filter, {customDate}) => ref
@@ -537,6 +590,8 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
               state: state,
               msgController: _msgController,
               scrollController: _scrollController,
+              showNewMessagesButton: _showNewMessagesButton,
+              onJumpToLatest: () => _scrollToBottom(force: true),
               onSend: () => _sendReply(),
               onAttach: () => _sendAttachment(),
               onDateFilterChanged: (filter, {customDate}) => ref
@@ -554,6 +609,7 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
     }
     return _ConversationsPanel(
       state: state,
+      scrollController: _conversationScrollController,
       onSelectConversation: (conv) {
         ref.read(waCrmControllerProvider.notifier).selectConversation(conv);
       },
@@ -773,11 +829,13 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
 class _ConversationsPanel extends StatefulWidget {
   const _ConversationsPanel({
     required this.state,
+    required this.scrollController,
     required this.onSelectConversation,
     required this.onSelectUser,
   });
 
   final WaCrmState state;
+  final ScrollController scrollController;
   final ValueChanged<WaCrmConversation> onSelectConversation;
   final ValueChanged<WaCrmUser> onSelectUser;
 
@@ -834,18 +892,22 @@ class _ConversationsPanelState extends State<_ConversationsPanel> {
               : state.conversations.isEmpty
               ? _EmptyConvState(loading: state.loadingUsers)
               : ListView.builder(
+                  key: const PageStorageKey<String>('wa-conversations-list'),
+                  controller: widget.scrollController,
                   itemCount: state.conversations.length,
                   itemBuilder: (context, i) {
                     final conv = state.conversations[i];
                     final isSelected =
                         state.selectedConversation?.id == conv.id;
-                    return _ConversationTile(
-                      conv: conv,
-                      isSelected: isSelected,
-                      isHighlighted: state.highlightedConversationIds.contains(
-                        conv.id,
+                    return KeyedSubtree(
+                      key: ValueKey<String>('wa-conv-${conv.id}'),
+                      child: _ConversationTile(
+                        conv: conv,
+                        isSelected: isSelected,
+                        isHighlighted: state.highlightedConversationIds
+                            .contains(conv.id),
+                        onTap: () => widget.onSelectConversation(conv),
                       ),
-                      onTap: () => widget.onSelectConversation(conv),
                     );
                   },
                 ),
@@ -1519,22 +1581,27 @@ class _ConversationTile extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         child: Row(
           children: [
-            if (isHighlighted)
-              TweenAnimationBuilder<double>(
-                tween: Tween(begin: 0.82, end: 1),
-                duration: const Duration(milliseconds: 700),
-                curve: Curves.easeOutBack,
-                builder: (context, value, child) =>
-                    Transform.scale(scale: value, child: child),
-                child: Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: Icon(
-                    Icons.fiber_manual_record_rounded,
-                    size: 10,
-                    color: theme.colorScheme.primary,
+            SizedBox(
+              width: 18,
+              child: TweenAnimationBuilder<double>(
+                tween: Tween(begin: isHighlighted ? 0.92 : 1, end: 1),
+                duration: const Duration(milliseconds: 420),
+                curve: Curves.easeOutCubic,
+                builder: (context, value, child) => Transform.scale(
+                  scale: value,
+                  child: AnimatedOpacity(
+                    opacity: isHighlighted ? 1 : 0,
+                    duration: const Duration(milliseconds: 180),
+                    child: child,
                   ),
                 ),
+                child: Icon(
+                  Icons.fiber_manual_record_rounded,
+                  size: 10,
+                  color: theme.colorScheme.primary,
+                ),
               ),
+            ),
             Material(
               color: Colors.transparent,
               shape: const CircleBorder(),
@@ -2047,6 +2114,56 @@ class _DateSeparator extends StatelessWidget {
   }
 }
 
+class _NewMessagesButton extends StatelessWidget {
+  const _NewMessagesButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: onTap,
+        child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.primary,
+            borderRadius: BorderRadius.circular(999),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.16),
+                blurRadius: 10,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.keyboard_arrow_down_rounded,
+                color: theme.colorScheme.onPrimary,
+                size: 18,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                'Nuevos mensajes',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: theme.colorScheme.onPrimary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 // ─── Chat Panel ───────────────────────────────────────────────────────────────
 
 class _ChatPanel extends StatelessWidget {
@@ -2054,6 +2171,8 @@ class _ChatPanel extends StatelessWidget {
     required this.state,
     required this.msgController,
     required this.scrollController,
+    required this.showNewMessagesButton,
+    required this.onJumpToLatest,
     required this.onSend,
     required this.onAttach,
     required this.onDateFilterChanged,
@@ -2065,6 +2184,8 @@ class _ChatPanel extends StatelessWidget {
   final WaCrmState state;
   final TextEditingController msgController;
   final ScrollController scrollController;
+  final bool showNewMessagesButton;
+  final VoidCallback onJumpToLatest;
   final VoidCallback onSend;
   final VoidCallback onAttach;
   final void Function(WaCrmMessageDateFilter filter, {DateTime? customDate})
@@ -2226,38 +2347,61 @@ class _ChatPanel extends StatelessWidget {
           ),
         // Messages
         Expanded(
-          child: state.loadingMessages && state.messages.isEmpty
-              ? const Center(child: CircularProgressIndicator())
-              : filteredMessages.isEmpty
-              ? Center(
-                  child: Text(
-                    state.messages.isEmpty
-                        ? 'Sin mensajes aún'
-                        : 'Sin mensajes para este filtro',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
-                    ),
-                  ),
-                )
-              : ListView.builder(
-                  controller: scrollController,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                  itemCount: filteredMessages.length,
-                  itemBuilder: (context, i) {
-                    final msg = filteredMessages[i];
-                    final showSeparator =
-                        i == 0 ||
-                        !_sameDay(filteredMessages[i - 1].sentAt, msg.sentAt);
-                    return _MessageBubble(
-                      msg: msg,
-                      agentName: agentName,
-                      showDateSeparator: showSeparator,
-                    );
-                  },
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: state.loadingMessages && state.messages.isEmpty
+                    ? const Center(child: CircularProgressIndicator())
+                    : filteredMessages.isEmpty
+                    ? Center(
+                        child: Text(
+                          state.messages.isEmpty
+                              ? 'Sin mensajes aún'
+                              : 'Sin mensajes para este filtro',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.onSurface.withValues(
+                              alpha: 0.4,
+                            ),
+                          ),
+                        ),
+                      )
+                    : ListView.builder(
+                        key: PageStorageKey<String>(
+                          'wa-chat-messages-${conv.id}-${state.messageDateFilter.name}-${state.customMessageDate?.toIso8601String() ?? ''}',
+                        ),
+                        controller: scrollController,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        itemCount: filteredMessages.length,
+                        itemBuilder: (context, i) {
+                          final msg = filteredMessages[i];
+                          final showSeparator =
+                              i == 0 ||
+                              !_sameDay(
+                                filteredMessages[i - 1].sentAt,
+                                msg.sentAt,
+                              );
+                          return KeyedSubtree(
+                            key: ValueKey<String>('wa-msg-${msg.id}'),
+                            child: _MessageBubble(
+                              msg: msg,
+                              agentName: agentName,
+                              showDateSeparator: showSeparator,
+                            ),
+                          );
+                        },
+                      ),
+              ),
+              if (showNewMessagesButton && filteredMessages.isNotEmpty)
+                Positioned(
+                  right: 16,
+                  bottom: 12,
+                  child: _NewMessagesButton(onTap: onJumpToLatest),
                 ),
+            ],
+          ),
         ),
         // Error banner
         if (state.error != null)
@@ -2536,6 +2680,7 @@ class _ImageContent extends ConsumerWidget {
         return Image.memory(
           bytes,
           width: 220,
+          height: 120,
           fit: BoxFit.cover,
           errorBuilder: (_, __, ___) => _brokenImage(),
         );
@@ -2707,6 +2852,7 @@ class _AudioContentState extends ConsumerState<_AudioContent> {
         onTap: _ensureInitialized,
         child: SizedBox(
           width: 220,
+          height: 40,
           child: Row(
             children: [
               _initializing
@@ -2768,6 +2914,7 @@ class _AudioContentState extends ConsumerState<_AudioContent> {
 
     return SizedBox(
       width: 230,
+      height: 48,
       child: Row(
         children: [
           GestureDetector(
