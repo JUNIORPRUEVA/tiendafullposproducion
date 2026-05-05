@@ -33,6 +33,7 @@
     "seed": "node prisma/seed.cjs"
   },
   "dependencies": {
+    "@aws-crypto/crc32c": "^5.2.0",
     "@aws-sdk/client-s3": "^3.864.0",
     "@aws-sdk/s3-request-presigner": "^3.864.0",
     "@nestjs/common": "^10.4.8",

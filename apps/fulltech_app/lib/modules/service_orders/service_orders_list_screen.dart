@@ -3790,10 +3790,10 @@ class _ServiceOrderListCard extends StatelessWidget {
             label: topLineText,
             bucket: serviceBucket,
             compact: false,
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(8, 4, 0, 6),
-            child: _AnimatedServiceOrderStatusBadge(status: order.status),
+            trailing: _AnimatedServiceOrderStatusBadge(
+              status: order.status,
+              compact: true,
+            ),
           ),
           _DesktopServiceOrderLine(
             order: order,
@@ -3830,10 +3830,10 @@ class _ServiceOrderListCard extends StatelessWidget {
           label: topLineText,
           bucket: serviceBucket,
           compact: true,
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(7, 5, 0, 7),
-          child: _AnimatedServiceOrderStatusBadge(status: order.status),
+          trailing: _AnimatedServiceOrderStatusBadge(
+            status: order.status,
+            compact: true,
+          ),
         ),
         Material(
           color: Colors.transparent,
@@ -4350,11 +4350,13 @@ class _ThinServiceScheduleLine extends StatelessWidget {
     required this.label,
     required this.bucket,
     required this.compact,
+    this.trailing,
   });
 
   final String label;
   final ServiceScheduleDayBucket bucket;
   final bool compact;
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -4362,7 +4364,6 @@ class _ThinServiceScheduleLine extends StatelessWidget {
     return Padding(
       padding: EdgeInsets.fromLTRB(compact ? 2 : 6, 0, compact ? 2 : 6, 2),
       child: Row(
-        mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
             Icons.schedule_rounded,
@@ -4370,7 +4371,7 @@ class _ThinServiceScheduleLine extends StatelessWidget {
             color: style.foreground.withValues(alpha: 0.72),
           ),
           const SizedBox(width: 4),
-          Flexible(
+          Expanded(
             child: Text(
               'Servicio: $label',
               maxLines: 1,
@@ -4384,6 +4385,10 @@ class _ThinServiceScheduleLine extends StatelessWidget {
               ),
             ),
           ),
+          if (trailing != null) ...[
+            const SizedBox(width: 8),
+            trailing!,
+          ],
         ],
       ),
     );
@@ -4513,12 +4518,23 @@ class _MobileOrderActionsButtonState
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final buttonBg = scheme.primary;
-    final buttonFg = scheme.onPrimary;
+    final isTechnician = widget.isTechnician;
+    final buttonBg = isTechnician
+        ? scheme.primary
+        : Color.alphaBlend(
+            scheme.primary.withValues(alpha: 0.035),
+            scheme.surface,
+          );
+    final buttonFg = isTechnician ? scheme.onPrimary : scheme.primary;
     final buttonBorder = Color.alphaBlend(
-      scheme.onPrimary.withValues(alpha: 0.16),
+      (isTechnician ? scheme.onPrimary : scheme.primary).withValues(
+        alpha: isTechnician ? 0.16 : 0.24,
+      ),
       buttonBg,
     );
+    final buttonShadow = isTechnician
+        ? scheme.shadow.withValues(alpha: 0.22)
+        : scheme.primary.withValues(alpha: 0.12);
     final buttonKey = GlobalKey();
     return GestureDetector(
       onTapDown: (_) => setState(() => _pressed = true),
@@ -4554,8 +4570,8 @@ class _MobileOrderActionsButtonState
             minimumSize: const Size(108, 40),
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            elevation: 1.2,
-            shadowColor: scheme.shadow.withValues(alpha: 0.22),
+            elevation: isTechnician ? 1.2 : 1.6,
+            shadowColor: buttonShadow,
             backgroundColor: buttonBg,
             foregroundColor: buttonFg,
             overlayColor: buttonFg.withValues(alpha: 0.12),
@@ -5211,9 +5227,13 @@ class _OrderActionsMenu extends StatelessWidget {
 }
 
 class _AnimatedServiceOrderStatusBadge extends StatefulWidget {
-  const _AnimatedServiceOrderStatusBadge({required this.status});
+  const _AnimatedServiceOrderStatusBadge({
+    required this.status,
+    this.compact = false,
+  });
 
   final ServiceOrderStatus status;
+  final bool compact;
 
   @override
   State<_AnimatedServiceOrderStatusBadge> createState() =>
@@ -5257,6 +5277,7 @@ class _AnimatedServiceOrderStatusBadgeState
     final theme = Theme.of(context);
     final status = widget.status;
     final style = _motionStyle;
+    final compact = widget.compact;
 
     return AnimatedBuilder(
       animation: _controller,
@@ -5279,34 +5300,39 @@ class _AnimatedServiceOrderStatusBadgeState
             boxShadow: [
               BoxShadow(
                 color: dotColor.withValues(alpha: glowAlpha),
-                blurRadius: style.glowRadius,
-                spreadRadius: style.spreadRadius * pulse,
+                blurRadius: compact ? style.glowRadius * 0.45 : style.glowRadius,
+                spreadRadius: compact
+                    ? style.spreadRadius * pulse * 0.35
+                    : style.spreadRadius * pulse,
                 offset: const Offset(0, 3),
               ),
             ],
           ),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
+            padding: EdgeInsets.symmetric(
+              horizontal: compact ? 8 : 13,
+              vertical: compact ? 4 : 8,
+            ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 SizedBox(
-                  width: 18,
-                  height: 18,
+                  width: compact ? 12 : 18,
+                  height: compact ? 12 : 18,
                   child: Center(
                     child: Transform.scale(
                       scale: dotScale,
                       child: Container(
-                        width: 10,
-                        height: 10,
+                        width: compact ? 6 : 10,
+                        height: compact ? 6 : 10,
                         decoration: BoxDecoration(
                           color: dotColor,
                           shape: BoxShape.circle,
                           boxShadow: [
                             BoxShadow(
                               color: dotColor.withValues(alpha: 0.42),
-                              blurRadius: 9,
-                              spreadRadius: 1.2,
+                              blurRadius: compact ? 4 : 9,
+                              spreadRadius: compact ? 0.4 : 1.2,
                             ),
                           ],
                         ),
@@ -5314,7 +5340,7 @@ class _AnimatedServiceOrderStatusBadgeState
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
+                SizedBox(width: compact ? 5 : 8),
                 Text(
                   status.label,
                   maxLines: 1,
@@ -5322,8 +5348,8 @@ class _AnimatedServiceOrderStatusBadgeState
                   style: theme.textTheme.labelLarge?.copyWith(
                     color: status.color,
                     fontWeight: FontWeight.w900,
-                    fontSize: 14.5,
-                    letterSpacing: 0.2,
+                    fontSize: compact ? 10.2 : 14.5,
+                    letterSpacing: compact ? 0.05 : 0.2,
                     height: 1,
                   ),
                 ),

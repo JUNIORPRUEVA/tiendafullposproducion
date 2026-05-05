@@ -137,12 +137,11 @@ class PublicidadController extends StateNotifier<PublicidadState> {
   }
 
   Future<MarketingRepairIncompleteSummary> repairIncompleteNow() async {
-    late MarketingRepairIncompleteSummary summary;
-    await _runBusy(() async {
-      summary = await _api.repairIncomplete(state.date);
+    return _runBusyValue(() async {
+      final summary = await _api.repairIncomplete(state.date);
       await _refresh(keepLoading: false);
+      return summary;
     });
-    return summary;
   }
 
   Future<void> approve(String storyId) async {
@@ -231,9 +230,8 @@ class PublicidadController extends StateNotifier<PublicidadState> {
     bool includeApprovedStories = false,
     DateTime? date,
   }) async {
-    late MarketingResetCleanSummary summary;
-    await _runBusy(() async {
-      summary = await _api.resetClean(
+    return _runBusyValue(() async {
+      final summary = await _api.resetClean(
         includeResearch: includeResearch,
         includeDraftMedia: includeDraftMedia,
         includeGeneratedImages: includeGeneratedImages,
@@ -241,8 +239,8 @@ class PublicidadController extends StateNotifier<PublicidadState> {
         date: date,
       );
       await _refresh(keepLoading: false);
+      return summary;
     });
-    return summary;
   }
 
   Future<void> saveConfig(MarketingFlowConfig config) async {
@@ -526,6 +524,28 @@ class PublicidadController extends StateNotifier<PublicidadState> {
           fallback: 'No se pudo completar la accion solicitada.',
         ),
       );
+    }
+  }
+
+  Future<T> _runBusyValue<T>(Future<T> Function() task) async {
+    if (state.busy) {
+      throw ApiException('Ya hay una accion en proceso. Intentalo nuevamente en unos segundos.');
+    }
+    try {
+      state = state.copyWith(busy: true, clearError: true);
+      final result = await task();
+      state = state.copyWith(busy: false);
+      return result;
+    } catch (error) {
+      final message = _friendlyError(
+        error,
+        fallback: 'No se pudo completar la accion solicitada.',
+      );
+      state = state.copyWith(busy: false, error: message);
+      if (error is ApiException) {
+        rethrow;
+      }
+      throw ApiException(message);
     }
   }
 
