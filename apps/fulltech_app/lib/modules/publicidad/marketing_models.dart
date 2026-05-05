@@ -121,6 +121,7 @@ class MarketingMediaAsset {
     required this.latestStoryTitle,
     required this.latestStoryDate,
     required this.latestStoryType,
+    required this.sourceType,
   });
 
   final String id;
@@ -140,6 +141,7 @@ class MarketingMediaAsset {
   final String? latestStoryTitle;
   final DateTime? latestStoryDate;
   final String? latestStoryType;
+  final String? sourceType;
 
   factory MarketingMediaAsset.fromJson(Map<String, dynamic> json) {
     final tagsRaw = json['tags'];
@@ -183,6 +185,9 @@ class MarketingMediaAsset {
       latestStoryType: '${latestStory['type'] ?? ''}'.trim().isEmpty
           ? null
           : '${latestStory['type']}',
+      sourceType: '${json['sourceType'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${json['sourceType']}',
     );
   }
 }
@@ -571,6 +576,7 @@ class MarketingPublishedAsset {
     required this.storyId,
     required this.mediaAssetId,
     required this.generatedImageUrl,
+    required this.imageUrl,
     required this.headline,
     required this.shortText,
     required this.cta,
@@ -590,6 +596,7 @@ class MarketingPublishedAsset {
   final String storyId;
   final String? mediaAssetId;
   final String generatedImageUrl;
+  final String imageUrl;
   final String headline;
   final String shortText;
   final String cta;
@@ -620,6 +627,7 @@ class MarketingPublishedAsset {
           ? null
           : '${json['mediaAssetId']}',
       generatedImageUrl: '${json['generatedImageUrl'] ?? ''}',
+        imageUrl: '${json['imageUrl'] ?? ''}',
       headline: '${json['headline'] ?? ''}',
       shortText: '${json['shortText'] ?? ''}',
       cta: '${json['cta'] ?? ''}',

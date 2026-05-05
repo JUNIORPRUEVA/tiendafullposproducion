@@ -699,11 +699,14 @@ export class MarketingService {
     mediaAssetId: string | null;
   }) {
     const missing: string[] = [];
-    const hasImage =
+    const hasFinalImage =
       `${story.generatedImageUrl ?? ''}`.trim().length > 0 ||
-      `${story.imageUrl ?? ''}`.trim().length > 0 ||
-      `${story.mediaAssetId ?? ''}`.trim().length > 0;
-    if (!hasImage) missing.push('imagen');
+      `${story.imageUrl ?? ''}`.trim().length > 0;
+    const hasBaseImage =
+      `${story.mediaAssetId ?? ''}`.trim().length > 0 ||
+      `${story.imageUrl ?? ''}`.trim().length > 0;
+    if (!hasFinalImage) missing.push('imagen final');
+    if (!hasBaseImage) missing.push('imagen base');
 
     if (`${story.imagePrompt ?? ''}`.trim().length == 0) missing.push('prompt');
 

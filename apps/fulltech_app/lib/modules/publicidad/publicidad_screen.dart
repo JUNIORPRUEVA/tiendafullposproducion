@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/auth/app_permissions.dart';
 import '../../core/auth/auth_provider.dart';
 import '../../core/errors/api_exception.dart';
+import '../../core/api/env.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
 import 'marketing_api.dart';
@@ -315,6 +316,13 @@ class PublicidadController extends StateNotifier<PublicidadState> {
             .toList(growable: false),
         description: description,
       );
+      await _refresh(keepLoading: false);
+    });
+  }
+
+  Future<void> deleteMediaAsset(MarketingMediaAsset asset) async {
+    await _runBusy(() async {
+      await _api.deleteMediaAsset(asset.id);
       await _refresh(keepLoading: false);
     });
   }
@@ -748,6 +756,11 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
                               _GalleryTab(
                                 assets: state.mediaAssets,
                                 publishedAssets: state.publishedAssets,
+                                busy: state.busy,
+                                onToggleActive: controller.toggleAssetActive,
+                                onToggleFeatured: controller.toggleAssetFeatured,
+                                onUpdateMeta: controller.updateAssetMeta,
+                                onDelete: controller.deleteMediaAsset,
                               ),
                             if (_tab == _PublicidadTab.estados)
                               _DailyStoriesTab(
@@ -1047,6 +1060,12 @@ class _DashboardTab extends StatelessWidget {
     final generatedImages = stories
       .where((s) => _safeImageUrl(s.generatedImageUrl).isNotEmpty)
       .length;
+    final imagesUsedToday = stories
+      .where((s) => _resolveBaseImageUrl(s).isNotEmpty)
+      .length;
+    final imagesWithoutLoad = stories
+      .where((s) => _resolveFinalImageUrl(s).isEmpty)
+      .length;
     final generatedCopies = stories
       .where(
         (s) =>
@@ -1061,7 +1080,10 @@ class _DashboardTab extends StatelessWidget {
       ('Aprobados hoy', '${dashboard?.approvedTodayCount ?? 0}'),
       ('Listos', '$completeStories'),
       ('Incompletos', '$incompleteStories'),
-      ('Imágenes', '$generatedImages'),
+      ('Imágenes usadas hoy', '$imagesUsedToday'),
+      ('Imágenes generadas', '$generatedImages'),
+      ('Imágenes sin cargar', '$imagesWithoutLoad'),
+      ('Pendientes aprobación', '${dashboard?.pendingApprovalCount ?? 0}'),
       ('Copys', '$generatedCopies'),
       ('Investigación', dashboard?.researchUsable == true ? 'Usable' : 'No usable'),
       ('Última', _formatDateTime(dashboard?.lastGenerationAt)),
@@ -1147,16 +1169,14 @@ class _DashboardTab extends StatelessWidget {
   }
 
   bool _isCompleteStory(MarketingStory story) {
-    final hasImage =
-        _safeImageUrl(story.generatedImageUrl).isNotEmpty ||
-        _safeImageUrl(story.mediaAsset?.fileUrl).isNotEmpty ||
-        _safeImageUrl(story.imageUrl).isNotEmpty;
+    final hasFinalImage = _resolveFinalImageUrl(story).isNotEmpty;
+    final hasBaseImage = _resolveBaseImageUrl(story).isNotEmpty;
     final hasCopy =
         story.title.trim().isNotEmpty &&
         story.shortText.trim().isNotEmpty &&
         story.usedCTA.trim().isNotEmpty;
     final hasPrompt = story.imagePrompt.trim().isNotEmpty;
-    return hasImage && hasCopy && hasPrompt;
+    return hasFinalImage && hasBaseImage && hasCopy && hasPrompt;
   }
 }
 
@@ -1325,7 +1345,7 @@ class _StoryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final baseImage = _safeImageUrl(story.mediaAsset?.fileUrl ?? story.imageUrl);
+    final baseImage = _resolveBaseImageUrl(story);
     final generatedImage = _safeImageUrl(story.generatedImageUrl);
     final finalImage = _resolveFinalImage(story);
     final compact = compactActions;
@@ -1394,6 +1414,32 @@ class _StoryCard extends StatelessWidget {
           ),
         ],
         const SizedBox(height: 8),
+        if (baseImage.isNotEmpty)
+          Row(
+            children: [
+              SizedBox(
+                width: compact ? 56 : 66,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: AspectRatio(
+                    aspectRatio: 1,
+                    child: Image.network(
+                      baseImage,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => const _BrokenImagePlaceholder(),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Imagen base usada',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
         const SizedBox(height: 10),
         Wrap(
           spacing: 6,
@@ -1425,6 +1471,17 @@ class _StoryCard extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
           style: Theme.of(context).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w700),
         ),
+        const SizedBox(height: 4),
+        Text(
+          story.hashtags.isEmpty ? '-' : story.hashtags.join(' '),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.labelSmall,
+        ),
+        const SizedBox(height: 4),
+        _InfoLine(label: 'Prompt imagen', value: story.imagePrompt, maxLines: 2),
+        _InfoLine(label: 'Concepto visual', value: story.visualConcept, maxLines: 2),
+        _InfoLine(label: 'Investigación usada', value: usedResearch?.mainFocus ?? '-', maxLines: 1),
         const SizedBox(height: 8),
         Wrap(
           spacing: 6,
@@ -1547,26 +1604,17 @@ class _StoryCard extends StatelessWidget {
 
   List<String> _missingFields(MarketingStory story) {
     final missing = <String>[];
-    final hasImage =
-        _safeImageUrl(story.generatedImageUrl).isNotEmpty ||
-        _safeImageUrl(story.mediaAsset?.fileUrl).isNotEmpty ||
-        _safeImageUrl(story.imageUrl).isNotEmpty;
-    if (!hasImage) missing.add('imagen');
+    if (_resolveFinalImage(story).isEmpty) missing.add('imagen final');
+    if (_resolveBaseImageUrl(story).isEmpty) missing.add('imagen base');
     if (story.imagePrompt.trim().isEmpty) missing.add('prompt');
-    final hasCopy =
-        story.title.trim().isNotEmpty &&
-        story.shortText.trim().isNotEmpty &&
-        story.usedCTA.trim().isNotEmpty;
-    if (!hasCopy) missing.add('copy');
+    if (story.title.trim().isEmpty) missing.add('headline');
+    if (story.shortText.trim().isEmpty) missing.add('texto corto');
+    if (story.usedCTA.trim().isEmpty) missing.add('cta');
     return missing;
   }
 
   String _resolveFinalImage(MarketingStory story) {
-    final generated = _safeImageUrl(story.generatedImageUrl);
-    if (generated.isNotEmpty) return generated;
-    final fromAsset = _safeImageUrl(story.mediaAsset?.fileUrl);
-    if (fromAsset.isNotEmpty) return fromAsset;
-    return '';
+    return _resolveFinalImageUrl(story);
   }
 }
 
@@ -1696,8 +1744,8 @@ class _StoryVisualOverlay extends StatelessWidget {
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            const Color(0x12000000),
-            Color.alphaBlend(accent.withValues(alpha: 0.2), const Color(0x99000000)),
+            const Color(0x08000000),
+            Color.alphaBlend(accent.withValues(alpha: 0.16), const Color(0x66000000)),
           ],
         ),
       ),
@@ -1849,17 +1897,29 @@ class _StoryFullscreenPreview extends StatelessWidget {
             Positioned(
               bottom: 16,
               right: 16,
-              child: FilledButton.icon(
-                onPressed: canApprove
-                    ? () async {
-                        await onApprove();
-                        if (context.mounted) {
-                          Navigator.of(context).pop();
-                        }
-                      }
-                    : null,
-                icon: const Icon(Icons.check_circle_rounded),
-                label: const Text('Aprobar estado'),
+              left: 16,
+              child: Row(
+                children: [
+                  if (!canApprove)
+                    const Expanded(
+                      child: _ErrorBanner(
+                        message: 'Anuncio incompleto: completa imagen final/base, headline, texto, CTA y prompt antes de aprobar.',
+                      ),
+                    ),
+                  if (!canApprove) const SizedBox(width: 10),
+                  FilledButton.icon(
+                    onPressed: canApprove
+                        ? () async {
+                            await onApprove();
+                            if (context.mounted) {
+                              Navigator.of(context).pop();
+                            }
+                          }
+                        : null,
+                    icon: const Icon(Icons.check_circle_rounded),
+                    label: const Text('Aprobar estado'),
+                  ),
+                ],
               ),
             ),
           ],
@@ -2229,10 +2289,27 @@ class _GalleryTab extends StatefulWidget {
   const _GalleryTab({
     required this.assets,
     required this.publishedAssets,
+    required this.busy,
+    required this.onToggleActive,
+    required this.onToggleFeatured,
+    required this.onUpdateMeta,
+    required this.onDelete,
   });
 
   final List<MarketingMediaAsset> assets;
   final List<MarketingPublishedAsset> publishedAssets;
+  final bool busy;
+  final Future<void> Function(MarketingMediaAsset asset) onToggleActive;
+  final Future<void> Function(MarketingMediaAsset asset) onToggleFeatured;
+  final Future<void> Function(
+    MarketingMediaAsset asset, {
+    required String category,
+    required String relatedService,
+    required String tagsCsv,
+    required String description,
+  })
+  onUpdateMeta;
+  final Future<void> Function(MarketingMediaAsset asset) onDelete;
 
   @override
   State<_GalleryTab> createState() => _GalleryTabState();
@@ -2240,6 +2317,7 @@ class _GalleryTab extends StatefulWidget {
 
 class _GalleryTabState extends State<_GalleryTab> {
   String _filterCategory = 'Todos';
+  String _segment = 'ALL';
 
   static const _categories = [
     'Motores de portones',
@@ -2257,10 +2335,26 @@ class _GalleryTabState extends State<_GalleryTab> {
 
   @override
   Widget build(BuildContext context) {
-    final visible = _filterCategory == 'Todos'
+    final categoryFiltered = _filterCategory == 'Todos'
         ? widget.assets
         : widget.assets.where((item) => item.category == _filterCategory).toList(growable: false);
+
+    final visible = categoryFiltered.where((item) {
+      if (_segment == 'ALL') return true;
+      if (_segment == 'ACTIVE') return item.isActive;
+      if (_segment == 'INACTIVE') return !item.isActive;
+      if (_segment == 'FEATURED') return item.isFeatured;
+      if (_segment == 'GENERATED') return _isGenerated(item);
+      if (_segment == 'MANUAL') return !_isGenerated(item);
+      if (_segment == 'SELECTED_MANUAL') return !_isGenerated(item) && item.useCount > 0;
+      return true;
+    }).toList(growable: false);
+
     final published = widget.publishedAssets;
+    final total = widget.assets.length;
+    final active = widget.assets.where((item) => item.isActive).length;
+    final generated = widget.assets.where(_isGenerated).length;
+    final withoutImage = widget.assets.where((item) => _resolveAssetPreviewUrl(item).isEmpty).length;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2291,9 +2385,27 @@ class _GalleryTabState extends State<_GalleryTab> {
                 ),
                 _MetaChip(label: 'Disponibles', value: '${visible.length}'),
                 _MetaChip(label: 'Publicadas', value: '${published.length}'),
+                _MetaChip(label: 'Total', value: '$total'),
+                _MetaChip(label: 'Activas', value: '$active'),
+                _MetaChip(label: 'Generadas', value: '$generated'),
+                _MetaChip(label: 'Sin preview', value: '$withoutImage'),
               ],
             );
           },
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            _segmentButton('ALL', 'Todas'),
+            _segmentButton('ACTIVE', 'Activas'),
+            _segmentButton('INACTIVE', 'Inactivas'),
+            _segmentButton('FEATURED', 'Destacadas'),
+            _segmentButton('GENERATED', 'Generadas'),
+            _segmentButton('MANUAL', 'Manuales'),
+            _segmentButton('SELECTED_MANUAL', 'Seleccionadas manual'),
+          ],
         ),
         const SizedBox(height: 10),
         Text(
@@ -2311,7 +2423,27 @@ class _GalleryTabState extends State<_GalleryTab> {
               for (final item in visible)
                 SizedBox(
                   width: 260,
-                  child: _GalleryAssetCard(asset: item),
+                  child: _GalleryAssetCard(
+                    asset: item,
+                    busy: widget.busy,
+                    onToggleActive: () => widget.onToggleActive(item),
+                    onToggleFeatured: () => widget.onToggleFeatured(item),
+                    onEditMeta: () async {
+                      final payload = await showDialog<_EditAssetMetaPayload>(
+                        context: context,
+                        builder: (_) => _EditAssetMetaDialog(asset: item),
+                      );
+                      if (payload == null) return;
+                      await widget.onUpdateMeta(
+                        item,
+                        category: payload.category,
+                        relatedService: payload.relatedService,
+                        tagsCsv: payload.tagsCsv,
+                        description: payload.description,
+                      );
+                    },
+                    onDelete: () => widget.onDelete(item),
+                  ),
                 ),
             ],
           ),
@@ -2336,6 +2468,32 @@ class _GalleryTabState extends State<_GalleryTab> {
             ],
           ),
       ],
+    );
+  }
+
+  bool _isGenerated(MarketingMediaAsset asset) {
+    final sourceType = '${asset.sourceType ?? ''}'.toUpperCase();
+    if (sourceType == 'GENERATED_AI') return true;
+    final url = asset.fileUrl.toLowerCase();
+    final name = asset.fileName.toLowerCase();
+    final tags = asset.tags.map((item) => item.toLowerCase());
+    return url.contains('/marketing/generated/') ||
+        name.startsWith('ai-') ||
+        tags.any((item) => item == 'ia' || item == 'ai' || item == 'generada' || item == 'generated');
+  }
+
+  String _resolveAssetPreviewUrl(MarketingMediaAsset asset) {
+    final file = _safeImageUrl(asset.fileUrl);
+    if (file.isNotEmpty) return file;
+    return _safeImageUrl(asset.thumbnailUrl);
+  }
+
+  Widget _segmentButton(String value, String label) {
+    final selected = _segment == value;
+    return ChoiceChip(
+      selected: selected,
+      label: Text(label),
+      onSelected: (_) => setState(() => _segment = value),
     );
   }
 }
@@ -2403,10 +2561,14 @@ class _PublishedAssetCard extends StatelessWidget {
   }
 
   String _resolveImageUrl(MarketingPublishedAsset item) {
-    final generated = item.generatedImageUrl.trim();
+    final generated = _safeImageUrl(item.generatedImageUrl);
     if (generated.isNotEmpty) return generated;
-    final fromAsset = item.mediaAsset?.fileUrl.trim() ?? '';
+    final storyImage = _safeImageUrl(item.imageUrl);
+    if (storyImage.isNotEmpty) return storyImage;
+    final fromAsset = _safeImageUrl(item.mediaAsset?.fileUrl);
     if (fromAsset.isNotEmpty) return fromAsset;
+    final thumb = _safeImageUrl(item.mediaAsset?.thumbnailUrl);
+    if (thumb.isNotEmpty) return thumb;
     return '';
   }
 
@@ -2465,12 +2627,28 @@ class _PublishedAssetCard extends StatelessWidget {
 }
 
 class _GalleryAssetCard extends StatelessWidget {
-  const _GalleryAssetCard({required this.asset});
+  const _GalleryAssetCard({
+    required this.asset,
+    required this.busy,
+    required this.onToggleActive,
+    required this.onToggleFeatured,
+    required this.onEditMeta,
+    required this.onDelete,
+  });
 
   final MarketingMediaAsset asset;
+  final bool busy;
+  final Future<void> Function() onToggleActive;
+  final Future<void> Function() onToggleFeatured;
+  final Future<void> Function() onEditMeta;
+  final Future<void> Function() onDelete;
 
   @override
   Widget build(BuildContext context) {
+    final previewUrl = _safeImageUrl(asset.fileUrl).isNotEmpty
+        ? _safeImageUrl(asset.fileUrl)
+        : _safeImageUrl(asset.thumbnailUrl);
+
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
@@ -2487,10 +2665,10 @@ class _GalleryAssetCard extends StatelessWidget {
             borderRadius: BorderRadius.circular(10),
             child: AspectRatio(
               aspectRatio: 9 / 16,
-              child: asset.fileUrl.trim().isEmpty
+              child: previewUrl.isEmpty
                   ? const _BrokenImagePlaceholder()
                   : Image.network(
-                      asset.fileUrl,
+                      previewUrl,
                       fit: BoxFit.cover,
                       errorBuilder: (_, __, ___) => const _BrokenImagePlaceholder(),
                     ),
@@ -2509,6 +2687,8 @@ class _GalleryAssetCard extends StatelessWidget {
             runSpacing: 6,
             children: [
               _MetaChip(label: 'Categoría', value: asset.category),
+              _MetaChip(label: 'Estado', value: asset.isActive ? 'Activa' : 'Inactiva'),
+              _MetaChip(label: 'Origen', value: (asset.sourceType ?? 'MANUAL_UPLOAD') == 'GENERATED_AI' ? 'IA' : 'Manual'),
               _MetaChip(label: 'Servicio', value: asset.relatedService ?? '-'),
               _MetaChip(
                 label: 'Tags',
@@ -2526,8 +2706,148 @@ class _GalleryAssetCard extends StatelessWidget {
               ),
             ],
           ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              OutlinedButton(
+                onPressed: busy ? null : onToggleActive,
+                child: Text(asset.isActive ? 'Desactivar' : 'Activar'),
+              ),
+              OutlinedButton(
+                onPressed: busy ? null : onToggleFeatured,
+                child: Text(asset.isFeatured ? 'Quitar destacada' : 'Destacar'),
+              ),
+              OutlinedButton(
+                onPressed: busy ? null : onEditMeta,
+                child: const Text('Editar metadata'),
+              ),
+              OutlinedButton(
+                onPressed: busy
+                    ? null
+                    : () async {
+                        final confirmed = await showDialog<bool>(
+                          context: context,
+                          builder: (_) => AlertDialog(
+                            title: const Text('Eliminar imagen'),
+                            content: const Text(
+                              'Solo se eliminará si no está en uso por anuncios históricos.',
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.of(context).pop(false),
+                                child: const Text('Cancelar'),
+                              ),
+                              FilledButton(
+                                onPressed: () => Navigator.of(context).pop(true),
+                                child: const Text('Eliminar'),
+                              ),
+                            ],
+                          ),
+                        );
+                        if (confirmed == true) {
+                          await onDelete();
+                        }
+                      },
+                child: const Text('Eliminar'),
+              ),
+            ],
+          ),
         ],
       ),
+    );
+  }
+}
+
+class _EditAssetMetaPayload {
+  const _EditAssetMetaPayload({
+    required this.category,
+    required this.relatedService,
+    required this.tagsCsv,
+    required this.description,
+  });
+
+  final String category;
+  final String relatedService;
+  final String tagsCsv;
+  final String description;
+}
+
+class _EditAssetMetaDialog extends StatefulWidget {
+  const _EditAssetMetaDialog({required this.asset});
+
+  final MarketingMediaAsset asset;
+
+  @override
+  State<_EditAssetMetaDialog> createState() => _EditAssetMetaDialogState();
+}
+
+class _EditAssetMetaDialogState extends State<_EditAssetMetaDialog> {
+  late final TextEditingController _category;
+  late final TextEditingController _relatedService;
+  late final TextEditingController _tags;
+  late final TextEditingController _description;
+
+  @override
+  void initState() {
+    super.initState();
+    _category = TextEditingController(text: widget.asset.category);
+    _relatedService = TextEditingController(text: widget.asset.relatedService ?? '');
+    _tags = TextEditingController(text: widget.asset.tags.join(', '));
+    _description = TextEditingController(text: widget.asset.description ?? '');
+  }
+
+  @override
+  void dispose() {
+    _category.dispose();
+    _relatedService.dispose();
+    _tags.dispose();
+    _description.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Editar metadata de imagen'),
+      content: SizedBox(
+        width: 520,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: _category, decoration: const InputDecoration(labelText: 'Categoría')),
+            const SizedBox(height: 8),
+            TextField(controller: _relatedService, decoration: const InputDecoration(labelText: 'Servicio relacionado')),
+            const SizedBox(height: 8),
+            TextField(controller: _tags, decoration: const InputDecoration(labelText: 'Tags (coma separada)')),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _description,
+              minLines: 2,
+              maxLines: 4,
+              decoration: const InputDecoration(labelText: 'Descripción'),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(
+            _EditAssetMetaPayload(
+              category: _category.text.trim(),
+              relatedService: _relatedService.text.trim(),
+              tagsCsv: _tags.text.trim(),
+              description: _description.text.trim(),
+            ),
+          ),
+          child: const Text('Guardar'),
+        ),
+      ],
     );
   }
 }
@@ -3109,8 +3429,40 @@ String _safeImageUrl(String? raw) {
   if (value.isEmpty) return '';
   if (value.startsWith('http://') || value.startsWith('https://')) return value;
   if (value.startsWith('data:image/')) return value;
+  if (value.startsWith('//')) return 'https:$value';
   if (value.startsWith('image_placeholder')) return '';
-  return value;
+  final base = Env.apiBaseUrl;
+  if (value.startsWith('/')) {
+    return '${base.replaceFirst(RegExp(r'/+$'), '')}$value';
+  }
+  final clean = value.replaceFirst(RegExp(r'^\./'), '');
+  return '${base.replaceFirst(RegExp(r'/+$'), '')}/${clean.replaceFirst(RegExp(r'^/+'), '')}';
+}
+
+String _resolveFinalImageUrl(MarketingStory story) {
+  final generated = _safeImageUrl(story.generatedImageUrl);
+  if (generated.isNotEmpty) return generated;
+
+  final storyImage = _safeImageUrl(story.imageUrl);
+  if (storyImage.isNotEmpty) return storyImage;
+
+  final assetFile = _safeImageUrl(story.mediaAsset?.fileUrl);
+  if (assetFile.isNotEmpty) return assetFile;
+
+  final assetThumb = _safeImageUrl(story.mediaAsset?.thumbnailUrl);
+  if (assetThumb.isNotEmpty) return assetThumb;
+
+  return '';
+}
+
+String _resolveBaseImageUrl(MarketingStory story) {
+  final assetFile = _safeImageUrl(story.mediaAsset?.fileUrl);
+  if (assetFile.isNotEmpty) return assetFile;
+
+  final assetThumb = _safeImageUrl(story.mediaAsset?.thumbnailUrl);
+  if (assetThumb.isNotEmpty) return assetThumb;
+
+  return _safeImageUrl(story.imageUrl);
 }
 
 String _formatDate(DateTime? value) {

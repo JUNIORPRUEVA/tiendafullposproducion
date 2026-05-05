@@ -18,7 +18,7 @@ export class MarketingMediaAssetService {
         ...(query.active_only === true ? { isActive: true } : {}),
         ...(query.featured_only === true ? { isFeatured: true } : {}),
       },
-      orderBy: [{ isFeatured: 'desc' }, { useCount: 'asc' }, { createdAt: 'desc' }],
+      orderBy: [{ isFeatured: 'desc' }, { useCount: 'desc' }, { createdAt: 'desc' }],
       include: {
         stories: {
           select: {
