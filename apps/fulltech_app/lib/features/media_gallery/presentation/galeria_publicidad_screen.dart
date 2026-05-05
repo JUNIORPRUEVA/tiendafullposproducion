@@ -101,6 +101,8 @@ class _GaleriaPublicidadScreenState
     extends ConsumerState<GaleriaPublicidadScreen> {
   String _searchQuery = '';
   bool _isUploading = false;
+  int _uploadCurrent = 0;
+  int _uploadTotal = 0;
 
   List<MediaGalleryItem> _applySearch(List<MediaGalleryItem> items) {
     final q = _searchQuery.trim().toLowerCase();
@@ -175,39 +177,74 @@ class _GaleriaPublicidadScreenState
 
   Future<void> _showUploadDialog(BuildContext context) async {
     final messenger = ScaffoldMessenger.maybeOf(context);
-    final result = await showDialog<_UploadDialogResult>(
+    final results = await showDialog<List<_UploadDialogResult>>(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => const _UploadPublicidadDialog(),
     );
-    if (result == null || !mounted) return;
+    if (results == null || results.isEmpty || !mounted) return;
 
-    setState(() => _isUploading = true);
-    try {
-      final ctrl = ref.read(publicidadImagesControllerProvider.notifier);
+    setState(() {
+      _isUploading = true;
+      _uploadTotal = results.length;
+      _uploadCurrent = 0;
+    });
 
-      if (result.bytes != null) {
-        await ctrl.uploadBytesAndSave(
-          bytes: result.bytes!,
-          contentType: result.contentType ?? 'image/jpeg',
-          filename: result.filename ?? 'publicidad.jpg',
-          caption: result.caption,
-        );
-      } else if (result.url != null) {
-        await ctrl.create(url: result.url!, caption: result.caption);
+    final ctrl = ref.read(publicidadImagesControllerProvider.notifier);
+    int successCount = 0;
+    final List<String> failedNames = [];
+
+    for (int i = 0; i < results.length; i++) {
+      if (!mounted) break;
+      setState(() => _uploadCurrent = i + 1);
+      final result = results[i];
+      try {
+        if (result.bytes != null) {
+          await ctrl.uploadBytesAndSave(
+            bytes: result.bytes!,
+            contentType: result.contentType ?? 'image/jpeg',
+            filename: result.filename ?? 'publicidad.jpg',
+            caption: result.caption,
+          );
+        } else if (result.url != null) {
+          await ctrl.create(url: result.url!, caption: result.caption);
+        }
+        successCount++;
+      } catch (e) {
+        failedNames.add(result.filename ?? 'imagen');
       }
+    }
 
-      if (!mounted) return;
+    if (!mounted) return;
+    if (failedNames.isEmpty) {
+      final label = successCount == 1
+          ? 'Imagen agregada correctamente.'
+          : '$successCount imágenes agregadas correctamente.';
+      messenger?.showSnackBar(SnackBar(content: Text(label)));
+    } else if (successCount == 0) {
       messenger?.showSnackBar(
-        const SnackBar(content: Text('Imagen agregada correctamente.')),
+        SnackBar(
+          content: Text(
+            'No se pudo agregar ninguna imagen: ${failedNames.join(', ')}',
+          ),
+        ),
       );
-    } catch (e) {
-      if (!mounted) return;
+    } else {
       messenger?.showSnackBar(
-        SnackBar(content: Text('No se pudo agregar la imagen: $e')),
+        SnackBar(
+          content: Text(
+            '$successCount subida(s) correctas. Falló: ${failedNames.join(', ')}',
+          ),
+          duration: const Duration(seconds: 5),
+        ),
       );
-    } finally {
-      if (mounted) setState(() => _isUploading = false);
+    }
+    if (mounted) {
+      setState(() {
+        _isUploading = false;
+        _uploadCurrent = 0;
+        _uploadTotal = 0;
+      });
     }
   }
 
@@ -368,7 +405,13 @@ class _GaleriaPublicidadScreenState
                 ),
               )
             : const Icon(Icons.add_photo_alternate_rounded),
-        label: Text(_isUploading ? 'Subiendo...' : 'Agregar imagen'),
+        label: Text(
+          _isUploading
+            ? (_uploadTotal > 1
+              ? 'Subiendo $_uploadCurrent/$_uploadTotal...'
+              : 'Subiendo...')
+            : 'Agregar imagen',
+        ),
       ),
       body: Stack(
         children: [
@@ -618,22 +661,24 @@ class _GaleriaPublicidadScreenState
             Positioned.fill(
               child: Container(
                 color: Colors.black.withValues(alpha: 0.35),
-                child: const Center(
+                child: Center(
                   child: Card(
                     child: Padding(
-                      padding: EdgeInsets.symmetric(
+                      padding: const EdgeInsets.symmetric(
                         horizontal: 32,
                         vertical: 24,
                       ),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          CircularProgressIndicator(
+                          const CircularProgressIndicator(
                             color: Color(0xFF7C3AED),
                           ),
-                          SizedBox(height: 16),
+                          const SizedBox(height: 16),
                           Text(
-                            'Subiendo imagen...',
+                            _uploadTotal > 1
+                                ? 'Subiendo imagen $_uploadCurrent de $_uploadTotal...'
+                                : 'Subiendo imagen...',
                             style: TextStyle(
                               fontWeight: FontWeight.w600,
                               fontSize: 15,
@@ -879,7 +924,7 @@ class _UploadPublicidadDialog extends StatefulWidget {
 class _UploadPublicidadDialogState extends State<_UploadPublicidadDialog> {
   final _captionController = TextEditingController();
   final _urlController = TextEditingController();
-  XFile? _pickedFile;
+  List<XFile> _pickedFiles = [];
   bool _useUrl = false;
   bool _isReadingFile = false;
 
@@ -890,17 +935,13 @@ class _UploadPublicidadDialogState extends State<_UploadPublicidadDialog> {
     super.dispose();
   }
 
-  Future<void> _pickImage() async {
-    // Disable while reading to prevent double-tap
+  Future<void> _pickImages() async {
     if (_isReadingFile) return;
     final picker = ImagePicker();
-    final result = await picker.pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 85,
-    );
-    if (result != null && mounted) {
+    final picked = await picker.pickMultiImage(imageQuality: 85);
+    if (picked.isNotEmpty && mounted) {
       setState(() {
-        _pickedFile = result;
+        _pickedFiles = picked;
         _useUrl = false;
       });
     }
@@ -912,25 +953,21 @@ class _UploadPublicidadDialogState extends State<_UploadPublicidadDialog> {
     if (_useUrl) {
       final url = _urlController.text.trim();
       if (url.isEmpty) return;
-      Navigator.of(context).pop(
+      Navigator.of(context).pop(<_UploadDialogResult>[
         _UploadDialogResult(
           url: url,
           caption: _captionController.text.trim().isEmpty
               ? null
               : _captionController.text.trim(),
         ),
-      );
+      ]);
       return;
     }
 
-    // Read file bytes using XFile.readAsBytes() — works with content:// URIs
-    // on Android and sandbox paths on iOS
+    // Read bytes for ALL picked files using XFile.readAsBytes() — works with
+    // content:// URIs on Android and sandbox paths on iOS.
     setState(() => _isReadingFile = true);
     try {
-      final bytes = await _pickedFile!.readAsBytes();
-      if (!mounted) return;
-
-      final ext = _pickedFile!.name.split('.').last.toLowerCase();
       const contentTypeMap = {
         'jpg': 'image/jpeg',
         'jpeg': 'image/jpeg',
@@ -938,16 +975,21 @@ class _UploadPublicidadDialogState extends State<_UploadPublicidadDialog> {
         'webp': 'image/webp',
         'gif': 'image/gif',
       };
-      Navigator.of(context).pop(
-        _UploadDialogResult(
+      final results = <_UploadDialogResult>[];
+      for (final file in _pickedFiles) {
+        final bytes = await file.readAsBytes();
+        final ext = file.name.split('.').last.toLowerCase();
+        results.add(_UploadDialogResult(
           bytes: bytes,
           caption: _captionController.text.trim().isEmpty
               ? null
               : _captionController.text.trim(),
           contentType: contentTypeMap[ext] ?? 'image/jpeg',
-          filename: _pickedFile!.name,
-        ),
-      );
+          filename: file.name,
+        ));
+      }
+      if (!mounted) return;
+      Navigator.of(context).pop(results);
     } catch (e) {
       if (!mounted) return;
       setState(() => _isReadingFile = false);
@@ -959,7 +1001,7 @@ class _UploadPublicidadDialogState extends State<_UploadPublicidadDialog> {
 
   bool get _canSubmit {
     if (_useUrl) return _urlController.text.trim().isNotEmpty;
-    return _pickedFile != null;
+    return _pickedFiles.isNotEmpty;
   }
 
   @override
@@ -995,11 +1037,11 @@ class _UploadPublicidadDialogState extends State<_UploadPublicidadDialog> {
             ),
             const SizedBox(height: 16),
             if (!_useUrl) ...[
-              if (_pickedFile == null)
+              if (_pickedFiles.isEmpty)
                 OutlinedButton.icon(
-                  onPressed: _pickImage,
+                  onPressed: _pickImages,
                   icon: const Icon(Icons.add_photo_alternate_rounded),
-                  label: const Text('Seleccionar imagen'),
+                  label: const Text('Seleccionar imagen(es)'),
                   style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 12),
                   ),
@@ -1015,14 +1057,16 @@ class _UploadPublicidadDialogState extends State<_UploadPublicidadDialog> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        _pickedFile!.name,
+                        _pickedFiles.length == 1
+                            ? _pickedFiles.first.name
+                            : '${_pickedFiles.length} imágenes seleccionadas',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(fontSize: 13),
                       ),
                     ),
                     TextButton(
-                      onPressed: _pickImage,
+                      onPressed: _pickImages,
                       child: const Text('Cambiar'),
                     ),
                   ],

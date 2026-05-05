@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateMarketingMediaAssetDto, MarketingMediaAssetQueryDto, UpdateMarketingMediaAssetDto } from './dto/marketing-media-asset.dto';
 
@@ -89,6 +89,16 @@ export class MarketingMediaAssetService {
 
   async remove(companyId: string, id: string) {
     await this.ensure(companyId, id);
+
+    const references = await this.prisma.marketingDailyStory.count({
+      where: { companyId, mediaAssetId: id },
+    });
+    if (references > 0) {
+      throw new ConflictException(
+        'No se puede eliminar esta imagen porque ya fue usada en anuncios. Desactívala en lugar de borrarla.',
+      );
+    }
+
     await this.prisma.marketingMediaAsset.delete({ where: { id } });
     return { id };
   }

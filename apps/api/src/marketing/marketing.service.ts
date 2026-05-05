@@ -6,6 +6,7 @@ import { MarketingConfigService } from './marketing-config.service';
 import { MarketingGenerationService } from './marketing-generation.service';
 import { MarketingMediaAssetService } from './marketing-media-asset.service';
 import { MarketingResearchService } from './marketing-research.service';
+import { MarketingStorageService } from './marketing-storage.service';
 import { CreateMarketingMediaAssetDto, MarketingMediaAssetQueryDto, UpdateMarketingMediaAssetDto } from './dto/marketing-media-asset.dto';
 import { MarketingHistoryQueryDto } from './dto/marketing-query.dto';
 import { MarketingResetCleanDto } from './dto/marketing-reset-clean.dto';
@@ -21,6 +22,7 @@ export class MarketingService {
     private readonly configService: MarketingConfigService,
     private readonly researchService: MarketingResearchService,
     private readonly mediaAssets: MarketingMediaAssetService,
+    private readonly marketingStorage: MarketingStorageService,
   ) {}
 
   resolveCompanyId() {
@@ -137,7 +139,7 @@ export class MarketingService {
 
     return {
       date,
-      items: stories,
+      items: stories.map((item) => this.normalizeStoryUrls(item)),
     };
   }
 
@@ -294,7 +296,7 @@ export class MarketingService {
     ]);
 
     return {
-      items,
+      items: items.map((item) => this.normalizeStoryUrls(item)),
       total,
       page,
       limit,
@@ -330,7 +332,11 @@ export class MarketingService {
   }
 
   async listMediaAssets(companyId: string, query: MarketingMediaAssetQueryDto) {
-    return this.mediaAssets.list(companyId, query);
+    const data = await this.mediaAssets.list(companyId, query);
+    return {
+      ...data,
+      items: (data.items ?? []).map((item: any) => this.normalizeMediaAssetUrls(item)),
+    };
   }
 
   async createMediaAsset(companyId: string, dto: CreateMarketingMediaAssetDto, userId: string) {
@@ -339,13 +345,13 @@ export class MarketingService {
       id: created.id,
       category: created.category,
     });
-    return created;
+    return this.normalizeMediaAssetUrls(created);
   }
 
   async updateMediaAsset(companyId: string, id: string, dto: UpdateMarketingMediaAssetDto, userId: string) {
     const updated = await this.mediaAssets.update(companyId, id, dto);
     await this.log(companyId, 'MARKETING_MEDIA_ASSET_UPDATED', `Asset actualizado ${id}`, userId, dto);
-    return updated;
+    return this.normalizeMediaAssetUrls(updated);
   }
 
   async deleteMediaAsset(companyId: string, id: string, userId: string) {
@@ -377,7 +383,8 @@ export class MarketingService {
         id: item.id,
         storyId: item.id,
         mediaAssetId: item.mediaAssetId ?? null,
-        generatedImageUrl: item.generatedImageUrl ?? null,
+        generatedImageUrl: this.normalizeImageUrl(item.generatedImageUrl),
+        imageUrl: this.normalizeImageUrl(item.imageUrl),
         headline: item.title,
         shortText: item.shortText,
         cta: item.usedCTA ?? null,
@@ -390,7 +397,7 @@ export class MarketingService {
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
         date: item.date,
-        mediaAsset: item.mediaAsset ?? null,
+        mediaAsset: item.mediaAsset ? this.normalizeMediaAssetUrls(item.mediaAsset) : null,
       })),
     };
   }
@@ -714,5 +721,46 @@ export class MarketingService {
     const month = `${value.getUTCMonth() + 1}`.padStart(2, '0');
     const day = `${value.getUTCDate()}`.padStart(2, '0');
     return `${year}-${month}-${day}`;
+  }
+
+  private normalizeImageUrl(value: string | null | undefined) {
+    const raw = `${value ?? ''}`.trim();
+    if (!raw) return '';
+    if (raw.startsWith('data:image/')) return raw;
+    return this.marketingStorage.getPublicUrl(raw);
+  }
+
+  private normalizeMediaAssetUrls<T extends Record<string, any>>(asset: T): T {
+    const normalizedFileUrl = this.normalizeImageUrl(asset.fileUrl);
+    const normalizedThumb = this.normalizeImageUrl(asset.thumbnailUrl);
+    return {
+      ...asset,
+      fileUrl: normalizedFileUrl,
+      thumbnailUrl: normalizedThumb || null,
+      sourceType: this.inferAssetSourceType(normalizedFileUrl, asset.fileName, asset.tags),
+    };
+  }
+
+  private normalizeStoryUrls<T extends Record<string, any>>(story: T): T {
+    return {
+      ...story,
+      imageUrl: this.normalizeImageUrl(story.imageUrl),
+      generatedImageUrl: this.normalizeImageUrl(story.generatedImageUrl),
+      mediaAsset: story.mediaAsset ? this.normalizeMediaAssetUrls(story.mediaAsset) : null,
+    };
+  }
+
+  private inferAssetSourceType(fileUrl: string, fileName?: string | null, tags?: unknown) {
+    const url = (fileUrl || '').toLowerCase();
+    const name = `${fileName ?? ''}`.toLowerCase();
+    const tagList = Array.isArray(tags)
+      ? tags.map((tag) => `${tag}`.toLowerCase())
+      : [];
+    const generatedByUrl =
+      url.includes('/marketing/generated/') ||
+      url.includes('/generated/') ||
+      name.startsWith('ai-');
+    const generatedByTags = tagList.some((tag) => ['ia', 'ai', 'generada', 'generated'].includes(tag));
+    return generatedByUrl || generatedByTags ? 'GENERATED_AI' : 'MANUAL_UPLOAD';
   }
 }

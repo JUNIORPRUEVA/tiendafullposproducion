@@ -641,21 +641,37 @@ export class MarketingGenerationService {
       sourceUrl: selected.fileUrl,
     });
 
-    const finalImageUrl = (savedBase.url || '').trim();
-    if (!finalImageUrl) {
-      throw new BadRequestException('El estado no tiene imagen final válida desde la Galería Publicitaria.');
+    const savedGenerated = (generated.generatedImageUrl || '').trim()
+      ? await this.marketingStorage.saveGeneratedImage({
+          companyId: input.companyId,
+          storyType: this.storyTypeSlug(input.type),
+          sourceUrl: generated.generatedImageUrl || '',
+        })
+      : null;
+
+    const baseImageUrl = (savedBase.url || '').trim();
+    const finalGeneratedUrl = (savedGenerated?.url || '').trim();
+    const finalImageUrl = finalGeneratedUrl || baseImageUrl;
+    if (!finalImageUrl || !baseImageUrl) {
+      throw new BadRequestException('El estado no tiene imagen válida (base y/o final) desde la Galería Publicitaria.');
     }
 
     return {
       mediaAssetId: selected.id,
       imagePrompt: input.forcedPrompt || generated.prompt,
-      imageUrl: finalImageUrl,
+      // imageUrl keeps the selected base media from the gallery.
+      imageUrl: baseImageUrl,
       visualConcept: generated.visualConcept,
       designNotes: generated.designNotes,
       imageStatus: generated.imageStatus,
-      generatedImageUrl: finalImageUrl,
+      // generatedImageUrl is only the final generated output (if available).
+      generatedImageUrl: finalGeneratedUrl || null,
       generatedImageProvider: generated.generatedImageProvider,
-      imageGenerationMetadata: generated.metadata,
+      imageGenerationMetadata: {
+        ...generated.metadata,
+        baseImageSavedUrl: baseImageUrl,
+        generatedImageSavedUrl: finalGeneratedUrl || null,
+      },
       usedResearchAngle,
       usedOffer,
       usedCTA,
