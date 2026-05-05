@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { MarketingStoryType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MarketingImageGenerationService } from './marketing-image-generation.service';
@@ -613,8 +613,8 @@ export class MarketingGenerationService {
     const designNotes = this.buildDesignNotes(input.type, usedCTA);
 
     if (!selected) {
-      throw new ConflictException(
-        'No hay imágenes publicitarias disponibles. Sube imágenes en Galería Publicitaria antes de generar estados reales.',
+      throw new BadRequestException(
+        'No hay imágenes publicitarias válidas. Marca imágenes como publicidad desde la galería de contenido.',
       );
     }
 
@@ -643,7 +643,7 @@ export class MarketingGenerationService {
 
     const finalImageUrl = (savedBase.url || '').trim();
     if (!finalImageUrl) {
-      throw new ConflictException('El estado no tiene imagen final valida desde Galeria Publicitaria');
+      throw new BadRequestException('El estado no tiene imagen final válida desde la Galería Publicitaria.');
     }
 
     return {
@@ -708,10 +708,12 @@ export class MarketingGenerationService {
     const cta = (visual.usedCTA || '').trim();
     const image = (visual.imageUrl || visual.generatedImageUrl || '').trim();
     if (!title || !shortText || !cta) {
-      throw new ConflictException('No se puede guardar estado sin copy completo (headline, texto corto y CTA)');
+      throw new BadRequestException('No se puede guardar estado sin copy completo (headline, shortText y CTA).');
     }
     if (!image || !visual.mediaAssetId) {
-      throw new ConflictException('Faltan imágenes publicitarias válidas para generar estados.');
+      throw new BadRequestException(
+        'No hay imágenes publicitarias válidas. Marca imágenes como publicidad desde la galería de contenido.',
+      );
     }
   }
 

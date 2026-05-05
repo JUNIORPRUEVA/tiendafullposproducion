@@ -731,6 +731,77 @@
 			],
 			"isBackground": false,
 			"group": "build"
+		},
+		{
+			"label": "audit-publicidad-endpoints-http",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH\\apps\\api && node scripts\\audit-publicidad-http.cjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "audit-publicidad-endpoints-http",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH\\apps\\api && node scripts\\audit-publicidad-http.cjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "inspect-backend-log-snapshot",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"$p='c:\\Users\\pc\\AppData\\Roaming\\Code\\User\\workspaceStorage\\65a06b3fae04490faae16e2962af2984\\GitHub.copilot-chat\\chat-session-resources\\9834c224-1a19-4f67-931c-993b2368d3d1\\call_2tBgTI6XXoYILnn4hjRbZlnV__vscode-1777904697311\\content.txt'; (Get-Content -LiteralPath $p | Measure-Object -Line).Lines; Get-Content -LiteralPath $p | Select-Object -Last 120"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "inspect-backend-log-snapshot",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"powershell -NoProfile -Command \"Get-Content -LiteralPath 'c:\\Users\\pc\\AppData\\Roaming\\Code\\User\\workspaceStorage\\65a06b3fae04490faae16e2962af2984\\GitHub.copilot-chat\\chat-session-resources\\9834c224-1a19-4f67-931c-993b2368d3d1\\call_2tBgTI6XXoYILnn4hjRbZlnV__vscode-1777904697311\\content.txt' | Select-Object -Last 160\""
+			],
+			"isBackground": false
+		},
+		{
+			"label": "inspect-backend-log-snapshot-2",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"powershell -NoProfile -Command \"Get-Content -LiteralPath 'c:\\Users\\pc\\AppData\\Roaming\\Code\\User\\workspaceStorage\\65a06b3fae04490faae16e2962af2984\\GitHub.copilot-chat\\chat-session-resources\\9834c224-1a19-4f67-931c-993b2368d3d1\\call_2tBgTI6XXoYILnn4hjRbZlnV__vscode-1777904697311\\content.txt' | Select-Object -Last 160\""
+			],
+			"isBackground": false
+		},
+		{
+			"label": "audit-publicidad-endpoints-flow",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH\\apps\\api && node scripts\\audit-publicidad-http-flow.cjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "audit-publicidad-missing-images",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH\\apps\\api && node scripts\\audit-publicidad-missing-images.cjs"
+			],
+			"isBackground": false
 		}
 	]
 }

@@ -411,7 +411,7 @@ export class MarketingService {
     const keptStoriesWhere: any = {
       companyId,
       ...(date ? { date } : {}),
-      ...(includeApprovedStories ? { id: '__none__' } : { status: 'APPROVED' }),
+      ...(includeApprovedStories ? { id: { in: [] } } : { status: 'APPROVED' }),
     };
 
     const candidateStories = await this.prisma.marketingDailyStory.findMany({
