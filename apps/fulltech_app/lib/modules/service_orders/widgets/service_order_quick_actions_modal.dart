@@ -1,15 +1,18 @@
+import 'dart:async';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
-import '../../../core/ai_assistant/domain/models/ai_chat_context.dart';
-import '../../../core/ai_assistant/domain/services/ai_assistant_service.dart';
 import '../../../core/utils/app_feedback.dart';
 import '../../../core/utils/safe_url_launcher.dart';
 import '../service_order_models.dart';
 import '../application/service_order_card_actions_controller.dart';
+import 'evidence_item_widget.dart';
 import 'service_order_status_confirmation_dialog.dart';
 
 enum _EvidencePickType { image, video }
@@ -51,7 +54,7 @@ Future<void> showServiceOrderQuickActionsModal({
       barrierDismissible: true,
       barrierLabel: 'Panel de gestión',
       barrierColor: Colors.black.withValues(alpha: 0.45),
-      transitionDuration: const Duration(milliseconds: 240),
+      transitionDuration: const Duration(milliseconds: 170),
       pageBuilder: (sheetContext, animation, secondaryAnimation) {
         return _ServiceOrderQuickActionsSheet(
           orderId: orderId,
@@ -65,30 +68,17 @@ Future<void> showServiceOrderQuickActionsModal({
       transitionBuilder: (context, animation, secondaryAnimation, child) {
         final curved = CurvedAnimation(
           parent: animation,
-          curve: Curves.easeOutQuart,
-          reverseCurve: Curves.easeInQuart,
-        );
-        final scale = Tween<double>(
-          begin: 0.965,
-          end: 1,
-        ).animate(
-          CurvedAnimation(
-            parent: animation,
-            curve: Curves.easeOutBack,
-            reverseCurve: Curves.easeInCubic,
-          ),
+          curve: Curves.easeOutCubic,
+          reverseCurve: Curves.easeInCubic,
         );
         return FadeTransition(
           opacity: curved,
-          child: ScaleTransition(
-            scale: scale,
-            child: SlideTransition(
-              position: Tween<Offset>(
-                begin: const Offset(0.24, 0),
-                end: Offset.zero,
-              ).animate(curved),
-              child: child,
-            ),
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0.12, 0),
+              end: Offset.zero,
+            ).animate(curved),
+            child: child,
           ),
         );
       },
@@ -145,6 +135,7 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
         : screenSize.width >= 600
         ? 322.0
         : (screenSize.width * 0.82).clamp(286.0, 332.0);
+    final isPhoneWidth = screenSize.width < 600;
     final isTechnicianMobilePanel = isMobileRightPanel;
     final allowedStatuses = order.status.nextStatusesForRole(
       canFinalizeDirectly: true,
@@ -163,53 +154,49 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
             ServiceOrderStatus.pospuesta,
             ServiceOrderStatus.cancelado,
           ];
-    final visibleStatusOptions = statusSequence.where((status) {
-      return status == order.status || allowedStatuses.contains(status);
-    }).toList(growable: false);
-    final quickActionCards = <_ActionButton>[
-      _ActionButton(
-        icon: Icons.description_outlined,
-        label: 'Reporte final',
-        tone: _ActionTone.secondary,
-        isLoading: state.loading,
-        minHeight: 56,
-        onTap: state.loading ? null : () => _addFinalReport(context, ref),
-      ),
-      _ActionButton(
-        icon: Icons.videocam_outlined,
-        label: 'Video',
-        tone: _ActionTone.secondary,
-        isLoading: state.loading,
-        minHeight: 56,
-        onTap: state.loading
-            ? null
-            : () => _addEvidence(context, ref, _EvidencePickType.video),
-      ),
-      _ActionButton(
-        icon: Icons.image_outlined,
-        label: 'Imagen',
-        tone: _ActionTone.secondary,
-        isLoading: state.loading,
-        minHeight: 56,
-        onTap: state.loading
-            ? null
-            : () => _addEvidence(context, ref, _EvidencePickType.image),
-      ),
+    final visibleStatusOptions = statusSequence
+        .where((status) {
+          return status == order.status || allowedStatuses.contains(status);
+        })
+        .toList(growable: false);
+    final reportActionCards = <_ActionButton>[
       if (isTechnicianMobilePanel)
         _ActionButton(
           icon: Icons.notes_rounded,
           label: 'Texto',
           tone: _ActionTone.secondary,
           isLoading: state.loading,
-          minHeight: 56,
+          minHeight: 44,
+          compact: true,
           onTap: state.loading ? null : () => _addTextEvidence(context, ref),
+        )
+      else
+        _ActionButton(
+          icon: Icons.description_outlined,
+          label: 'Reporte final',
+          tone: _ActionTone.secondary,
+          isLoading: state.loading,
+          minHeight: 52,
+          onTap: state.loading ? null : () => _addFinalReport(context, ref),
         ),
+      _ActionButton(
+        icon: Icons.perm_media_outlined,
+        label: 'Medias',
+        tone: _ActionTone.secondary,
+        isLoading: state.loading,
+        minHeight: isTechnicianMobilePanel ? 44 : 52,
+        compact: isTechnicianMobilePanel,
+        onTap: state.loading ? null : () => _openMediaManager(context, ref),
+      ),
+    ];
+    final contactActionCards = <_ActionButton>[
       if (actionConfig.clientCallUri != null)
         _ActionButton(
           icon: Icons.call_outlined,
           label: 'Llamar cliente',
           isLoading: state.loading,
-          minHeight: 56,
+          minHeight: isTechnicianMobilePanel ? 44 : 52,
+          compact: isTechnicianMobilePanel,
           onTap: () => _openExternalAction(
             context,
             actionConfig.clientCallUri!,
@@ -221,7 +208,8 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
           icon: Icons.chat_bubble_outline_rounded,
           label: 'WhatsApp cliente',
           isLoading: state.loading,
-          minHeight: 56,
+          minHeight: isTechnicianMobilePanel ? 44 : 52,
+          compact: isTechnicianMobilePanel,
           onTap: () => _openExternalAction(
             context,
             actionConfig.clientWhatsAppUri!,
@@ -234,7 +222,8 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
           icon: Icons.location_searching_rounded,
           label: 'Ir al GPS',
           isLoading: state.loading,
-          minHeight: 56,
+          minHeight: isTechnicianMobilePanel ? 44 : 52,
+          compact: isTechnicianMobilePanel,
           onTap: () => _openExternalAction(
             context,
             actionConfig.locationUri!,
@@ -246,7 +235,8 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
           icon: Icons.support_agent_rounded,
           label: 'Vendedor',
           isLoading: state.loading,
-          minHeight: 56,
+          minHeight: isTechnicianMobilePanel ? 44 : 52,
+          compact: isTechnicianMobilePanel,
           onTap: () => _openExternalAction(
             context,
             actionConfig.sellerConversationUri!,
@@ -259,7 +249,8 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
           icon: Icons.headset_mic_outlined,
           label: 'Servicio al cliente',
           isLoading: state.loading,
-          minHeight: 56,
+          minHeight: isTechnicianMobilePanel ? 44 : 52,
+          compact: isTechnicianMobilePanel,
           onTap: () => _openExternalAction(
             context,
             actionConfig.supportConversationUri!,
@@ -277,10 +268,7 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
     final statusSection = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SectionTitle(
-          icon: Icons.sync_alt_rounded,
-          title: 'Cambiar estado',
-        ),
+        _SectionTitle(icon: Icons.sync_alt_rounded, title: 'Cambiar estado'),
         const SizedBox(height: 8),
         for (var index = 0; index < visibleStatusOptions.length; index++) ...[
           _ActionButton(
@@ -298,8 +286,8 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
                     visibleStatusOptions[index],
                     successMessage:
                         'Orden marcada ${visibleStatusOptions[index].confirmationLabel}',
-                requireDetailedConfirmation: isTechnicianMobilePanel,
-                clientName: clientName,
+                    requireDetailedConfirmation: isTechnicianMobilePanel,
+                    clientName: clientName,
                   ),
           ),
           if (index < visibleStatusOptions.length - 1)
@@ -319,17 +307,21 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _SectionTitle(
-          icon: Icons.flash_on_rounded,
-          title: isTechnicianMobilePanel ? 'Compromiso' : 'Acciones rápidas',
+          icon: isTechnicianMobilePanel
+              ? Icons.assignment_outlined
+              : Icons.flash_on_rounded,
+          title: isTechnicianMobilePanel ? 'Reportes' : 'Acciones rápidas',
         ),
         const SizedBox(height: 8),
         if (isTechnicianMobilePanel)
           Container(
             width: double.infinity,
             margin: const EdgeInsets.only(bottom: 10),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             decoration: BoxDecoration(
-              color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.52),
+              color: colorScheme.surfaceContainerHighest.withValues(
+                alpha: 0.52,
+              ),
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
                 color: colorScheme.outlineVariant.withValues(alpha: 0.75),
@@ -350,40 +342,94 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: colorScheme.onSurfaceVariant,
                       fontWeight: FontWeight.w700,
-                      height: 1.25,
+                      fontSize: 11.5,
+                      height: 1.2,
                     ),
                   ),
                 ),
               ],
             ),
           ),
-        LayoutBuilder(
-          builder: (context, constraints) {
-            const spacing = 8.0;
-            final tileWidth = (constraints.maxWidth - spacing) / 2;
-            return Wrap(
-              spacing: spacing,
-              runSpacing: spacing,
-              children: quickActionCards
-                  .map(
-                    (card) => SizedBox(
-                      width: tileWidth,
-                      child: card,
-                    ),
-                  )
-                  .toList(growable: false),
-            );
-          },
+        Container(
+          decoration: BoxDecoration(
+            color: colorScheme.surface.withValues(alpha: 0.86),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: colorScheme.outlineVariant.withValues(alpha: 0.58),
+            ),
+          ),
+          child: Column(
+            children: [
+              for (
+                var index = 0;
+                index < reportActionCards.length;
+                index++
+              ) ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+                  child: reportActionCards[index],
+                ),
+                if (index < reportActionCards.length - 1)
+                  Divider(
+                    height: 1,
+                    thickness: 0.8,
+                    indent: 12,
+                    endIndent: 12,
+                    color: colorScheme.outlineVariant.withValues(alpha: 0.24),
+                  ),
+              ],
+            ],
+          ),
         ),
+        if (contactActionCards.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          _SectionTitle(icon: Icons.hub_outlined, title: 'Soporte'),
+          const SizedBox(height: 8),
+          Container(
+            decoration: BoxDecoration(
+              color: colorScheme.surface.withValues(alpha: 0.86),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: colorScheme.outlineVariant.withValues(alpha: 0.58),
+              ),
+            ),
+            child: Column(
+              children: [
+                for (
+                  var index = 0;
+                  index < contactActionCards.length;
+                  index++
+                ) ...[
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+                    child: contactActionCards[index],
+                  ),
+                  if (index < contactActionCards.length - 1)
+                    Divider(
+                      height: 1,
+                      thickness: 0.8,
+                      indent: 12,
+                      endIndent: 12,
+                      color: colorScheme.outlineVariant.withValues(alpha: 0.24),
+                    ),
+                ],
+              ],
+            ),
+          ),
+        ],
       ],
     );
 
     if (isMobileRightPanel) {
-      final panelWidth = (screenSize.width * 0.82).clamp(
-        screenSize.width * 0.78,
-        screenSize.width * 0.86,
-      );
+      final panelWidth = isPhoneWidth
+          ? (screenSize.width * 0.56).clamp(220.0, 320.0)
+          : (screenSize.width * 0.82).clamp(
+              screenSize.width * 0.78,
+              screenSize.width * 0.86,
+            );
       return SafeArea(
+        top: false,
+        bottom: false,
         child: Align(
           alignment: Alignment.centerRight,
           child: SizedBox(
@@ -416,23 +462,63 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
                 child: Column(
                   children: [
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(14, 14, 10, 12),
+                      padding: EdgeInsets.fromLTRB(
+                        12,
+                        isPhoneWidth
+                            ? MediaQuery.paddingOf(context).top + 8
+                            : 12,
+                        8,
+                        8,
+                      ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
                             children: [
                               Expanded(
-                                child: Text(
-                                  clientName.isEmpty
-                                      ? 'Cliente sin nombre'
-                                      : clientName,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.titleMedium?.copyWith(
-                                    fontWeight: FontWeight.w800,
-                                    letterSpacing: -0.15,
-                                  ),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        clientName.isEmpty
+                                            ? 'Cliente sin nombre'
+                                            : clientName,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: theme.textTheme.titleMedium
+                                            ?.copyWith(
+                                              fontSize: 15.5,
+                                              fontWeight: FontWeight.w800,
+                                              letterSpacing: -0.15,
+                                            ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 4,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: order.status.color.withValues(
+                                          alpha: 0.16,
+                                        ),
+                                        borderRadius: BorderRadius.circular(
+                                          999,
+                                        ),
+                                      ),
+                                      child: Text(
+                                        order.status.label,
+                                        style: theme.textTheme.labelMedium
+                                            ?.copyWith(
+                                              fontSize: 10.8,
+                                              color: order.status.color,
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                               IconButton(
@@ -440,65 +526,45 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
                                 onPressed: () => Navigator.of(context).pop(),
                                 icon: const Icon(Icons.close_rounded),
                                 visualDensity: VisualDensity.compact,
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(
+                                  minWidth: 28,
+                                  minHeight: 28,
+                                ),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 6),
-                          Text(
-                            serviceSummary,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.labelLarge?.copyWith(
-                              color: colorScheme.onSurfaceVariant,
-                              fontWeight: FontWeight.w700,
+                          const SizedBox(height: 3),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 9,
+                              vertical: 5,
                             ),
-                          ),
-                          const SizedBox(height: 8),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            crossAxisAlignment: WrapCrossAlignment.center,
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 6,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: order.status.color.withValues(
-                                    alpha: 0.16,
-                                  ),
-                                  borderRadius: BorderRadius.circular(999),
-                                ),
-                                child: Text(
-                                  order.status.label,
-                                  style: theme.textTheme.labelMedium?.copyWith(
-                                    color: order.status.color,
-                                    fontWeight: FontWeight.w800,
+                            decoration: BoxDecoration(
+                              color: colorScheme.surfaceContainerHighest
+                                  .withValues(alpha: 0.48),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    scheduledAtLabel == null
+                                        ? serviceSummary
+                                        : "$serviceSummary · $scheduledAtLabel",
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.labelMedium
+                                        ?.copyWith(
+                                          fontSize: 11.4,
+                                          color: colorScheme.onSurfaceVariant,
+                                          fontWeight: FontWeight.w700,
+                                        ),
                                   ),
                                 ),
-                              ),
-                              if (scheduledAtLabel != null)
-                                Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                      Icons.schedule_rounded,
-                                      size: 15,
-                                      color: colorScheme.onSurfaceVariant,
-                                    ),
-                                    const SizedBox(width: 5),
-                                    Text(
-                                      scheduledAtLabel,
-                                      style: theme.textTheme.labelMedium
-                                          ?.copyWith(
-                                            color: colorScheme.onSurfaceVariant,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                    ),
-                                  ],
-                                ),
-                            ],
+                              ],
+                            ),
                           ),
                         ],
                       ),
@@ -533,6 +599,7 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
                       ),
                     Expanded(
                       child: SingleChildScrollView(
+                        primary: false,
                         padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -651,7 +718,8 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
       return;
     }
 
-    if (requireDetailedConfirmation && selected == ServiceOrderStatus.finalizado) {
+    if (requireDetailedConfirmation &&
+        selected == ServiceOrderStatus.finalizado) {
       final validationMessage = _validateTechnicianCommitmentBeforeFinalize();
       if (validationMessage != null) {
         if (!sheetContext.mounted) return;
@@ -773,120 +841,388 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
     return confirmed;
   }
 
-  Future<void> _addEvidence(
+  Future<void> _openMediaManager(
     BuildContext sheetContext,
     WidgetRef ref,
-    _EvidencePickType selectedType,
   ) async {
-    final isVideo = selectedType == _EvidencePickType.video;
-    final result = await FilePicker.platform.pickFiles(
-      allowMultiple: !isVideo,
-      type: isVideo ? FileType.video : FileType.image,
-      withData: true,
-    );
+    var selectedType = _EvidencePickType.image;
+    var isUploading = false;
+    var feedbackMessage =
+        'Aquí verás al instante las imágenes y videos que subas.';
+    var feedbackIsError = false;
+    var mediaItems =
+        order.evidences
+            .where(
+              (item) =>
+                  item.type.isTechnicalEvidence &&
+                  (item.type.isImage || item.type.isVideo),
+            )
+            .toList(growable: true)
+          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
-    final selectedFiles = result?.files ?? const <PlatformFile>[];
-    if (selectedFiles.isEmpty) {
-      return;
-    }
+    await showModalBottomSheet<void>(
+      context: sheetContext,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (mediaContext) {
+        final theme = Theme.of(mediaContext);
+        final colorScheme = theme.colorScheme;
+        final bottomInset = MediaQuery.viewInsetsOf(mediaContext).bottom;
 
-    try {
-      if (isVideo) {
-        final file = selectedFiles.first;
-        final bytes = file.bytes;
-        final path = kIsWeb ? null : file.path;
-
-        if ((bytes == null || bytes.isEmpty) &&
-            (path == null || path.trim().isEmpty)) {
-          if (!sheetContext.mounted) return;
-          await AppFeedback.showError(
-            sheetContext,
-            'No se pudo leer el archivo',
-          );
-          return;
-        }
-
-        await ref
-            .read(serviceOrderCardActionsProvider(orderId).notifier)
-            .addVideoEvidence(
-              fileName: file.name,
-              bytes: bytes ?? const <int>[],
-              path: path,
-            );
-      } else {
-        var uploadedCount = 0;
-        String? lastError;
-
-        for (final file in selectedFiles) {
-          final bytes = file.bytes;
-          final path = kIsWeb ? null : file.path;
-
-          if ((bytes == null || bytes.isEmpty) &&
-              (path == null || path.trim().isEmpty)) {
-            lastError = 'No se pudo leer uno de los archivos seleccionados';
-            continue;
+        Future<void> uploadSelectedFiles(StateSetter setModalState) async {
+          if (isUploading) {
+            return;
           }
 
-          try {
-            await ref
-                .read(serviceOrderCardActionsProvider(orderId).notifier)
-                .addImageEvidence(
+          final isVideo = selectedType == _EvidencePickType.video;
+          final result = await FilePicker.platform.pickFiles(
+            allowMultiple: !isVideo,
+            type: isVideo ? FileType.video : FileType.image,
+            withData: true,
+          );
+
+          final selectedFiles = result?.files ?? const <PlatformFile>[];
+          if (selectedFiles.isEmpty) {
+            return;
+          }
+
+          setModalState(() {
+            isUploading = true;
+            feedbackIsError = false;
+            feedbackMessage = isVideo
+                ? 'Subiendo video...'
+                : 'Subiendo imágenes...';
+          });
+
+          final uploadedItems = <ServiceOrderEvidenceModel>[];
+          var failedCount = 0;
+          String? lastError;
+          final controller = ref.read(
+            serviceOrderCardActionsProvider(orderId).notifier,
+          );
+
+          for (final file in selectedFiles) {
+            final bytes = file.bytes;
+            final path = kIsWeb ? null : file.path;
+
+            if ((bytes == null || bytes.isEmpty) &&
+                (path == null || path.trim().isEmpty)) {
+              failedCount++;
+              lastError = 'No se pudo leer uno de los archivos seleccionados';
+              continue;
+            }
+
+            try {
+              final uploadedEvidence = isVideo
+                  ? await controller.addVideoEvidence(
+                      fileName: file.name,
+                      bytes: bytes ?? const <int>[],
+                      path: path,
+                    )
+                  : await controller.addImageEvidence(
+                      fileName: file.name,
+                      bytes: bytes ?? const <int>[],
+                      path: path,
+                    );
+
+              uploadedItems.add(
+                uploadedEvidence.copyWith(
+                  localPath: (path ?? '').trim().isEmpty ? null : path,
+                  previewBytes: bytes == null || bytes.isEmpty
+                      ? null
+                      : Uint8List.fromList(bytes),
                   fileName: file.name,
-                  bytes: bytes ?? const <int>[],
-                  path: path,
-                );
-            uploadedCount++;
-          } catch (_) {
-            lastError =
-                ref.read(serviceOrderCardActionsProvider(orderId)).error ??
-                'No se pudo subir una de las imagenes';
+                ),
+              );
+            } catch (_) {
+              failedCount++;
+              lastError =
+                  ref.read(serviceOrderCardActionsProvider(orderId)).error ??
+                  (isVideo
+                      ? 'No se pudo subir el video'
+                      : 'No se pudo subir una de las imágenes');
+            }
           }
+
+          if (uploadedItems.isNotEmpty) {
+            onOrderUpdated();
+          }
+
+          setModalState(() {
+            isUploading = false;
+            if (uploadedItems.isNotEmpty) {
+              mediaItems = [...uploadedItems.reversed, ...mediaItems];
+              final uploadedCount = uploadedItems.length;
+              feedbackIsError = false;
+              feedbackMessage = isVideo
+                  ? 'Video subido y mostrado correctamente.'
+                  : uploadedCount == 1
+                  ? 'Imagen subida y mostrada correctamente.'
+                  : '$uploadedCount imágenes subidas y mostradas correctamente.';
+              if (failedCount > 0) {
+                feedbackMessage =
+                    '$feedbackMessage $failedCount archivo(s) no se pudieron subir.';
+              }
+            } else {
+              feedbackIsError = true;
+              feedbackMessage =
+                  lastError ??
+                  (isVideo
+                      ? 'No se pudo subir el video.'
+                      : 'No se pudo subir ninguna imagen.');
+            }
+          });
         }
 
-        if (uploadedCount == 0) {
-          if (!sheetContext.mounted) return;
-          await AppFeedback.showError(
-            sheetContext,
-            lastError ?? 'No se pudo subir ninguna imagen',
-          );
-          return;
-        }
+        return SafeArea(
+          child: AnimatedPadding(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOut,
+            padding: EdgeInsets.only(bottom: bottomInset),
+            child: SizedBox(
+              height: MediaQuery.sizeOf(mediaContext).height * 0.88,
+              child: StatefulBuilder(
+                builder: (context, setModalState) {
+                  final imageCount = mediaItems
+                      .where((item) => item.type.isImage)
+                      .length;
+                  final videoCount = mediaItems
+                      .where((item) => item.type.isVideo)
+                      .length;
 
-        if (!sheetContext.mounted) return;
-        Navigator.pop(sheetContext);
-
-        if (!parentContext.mounted) return;
-        final totalSelected = selectedFiles.length;
-        final uploadedMessage = uploadedCount == 1
-            ? '1 imagen agregada correctamente'
-            : '$uploadedCount imagenes agregadas correctamente';
-        final summary = uploadedCount == totalSelected
-            ? uploadedMessage
-            : '$uploadedMessage. ${totalSelected - uploadedCount} no se pudieron subir.';
-        await AppFeedback.showInfo(parentContext, summary);
-        onOrderUpdated();
-        return;
-      }
-
-      if (!sheetContext.mounted) return;
-      Navigator.pop(sheetContext);
-
-      if (!parentContext.mounted) return;
-      await AppFeedback.showInfo(
-        parentContext,
-        isVideo
-            ? 'Video agregado correctamente'
-            : 'Imagen agregada correctamente',
-      );
-      onOrderUpdated();
-    } catch (_) {
-      if (!sheetContext.mounted) return;
-      final error = ref.read(serviceOrderCardActionsProvider(orderId)).error;
-      await AppFeedback.showError(
-        sheetContext,
-        error ?? 'No se pudo subir el archivo',
-      );
-    }
+                  return Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Subir imágenes o videos',
+                                    style: theme.textTheme.titleLarge?.copyWith(
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'Selecciona el tipo de media, súbela y aquí mismo se mostrará al instante.',
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: 'Cerrar',
+                              onPressed: () => Navigator.pop(mediaContext),
+                              icon: const Icon(Icons.close_rounded),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _MediaTypeChip(
+                                label: 'Imágenes',
+                                icon: Icons.image_outlined,
+                                selected:
+                                    selectedType == _EvidencePickType.image,
+                                onTap: isUploading
+                                    ? null
+                                    : () {
+                                        setModalState(() {
+                                          selectedType =
+                                              _EvidencePickType.image;
+                                        });
+                                      },
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: _MediaTypeChip(
+                                label: 'Videos',
+                                icon: Icons.videocam_outlined,
+                                selected:
+                                    selectedType == _EvidencePickType.video,
+                                onTap: isUploading
+                                    ? null
+                                    : () {
+                                        setModalState(() {
+                                          selectedType =
+                                              _EvidencePickType.video;
+                                        });
+                                      },
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: feedbackIsError
+                                ? colorScheme.errorContainer.withValues(
+                                    alpha: 0.92,
+                                  )
+                                : colorScheme.surfaceContainerHighest
+                                      .withValues(alpha: 0.58),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: feedbackIsError
+                                  ? colorScheme.error.withValues(alpha: 0.28)
+                                  : colorScheme.outlineVariant.withValues(
+                                      alpha: 0.7,
+                                    ),
+                            ),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(
+                                feedbackIsError
+                                    ? Icons.error_outline_rounded
+                                    : Icons.cloud_done_outlined,
+                                size: 18,
+                                color: feedbackIsError
+                                    ? colorScheme.onErrorContainer
+                                    : colorScheme.primary,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  feedbackMessage,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: feedbackIsError
+                                        ? colorScheme.onErrorContainer
+                                        : colorScheme.onSurfaceVariant,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            _MediaCountPill(
+                              icon: Icons.image_outlined,
+                              label: '$imageCount imágenes',
+                            ),
+                            const SizedBox(width: 8),
+                            _MediaCountPill(
+                              icon: Icons.videocam_outlined,
+                              label: '$videoCount videos',
+                            ),
+                            const Spacer(),
+                            FilledButton.icon(
+                              onPressed: isUploading
+                                  ? null
+                                  : () async {
+                                      await uploadSelectedFiles(setModalState);
+                                    },
+                              icon: isUploading
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : Icon(
+                                      selectedType == _EvidencePickType.video
+                                          ? Icons.upload_file_rounded
+                                          : Icons.add_photo_alternate_outlined,
+                                      size: 18,
+                                    ),
+                              label: Text(
+                                selectedType == _EvidencePickType.video
+                                    ? 'Subir video'
+                                    : 'Subir imágenes',
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        Expanded(
+                          child: mediaItems.isEmpty
+                              ? Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.all(24),
+                                  decoration: BoxDecoration(
+                                    color: colorScheme.surfaceContainerLow,
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(
+                                      color: colorScheme.outlineVariant
+                                          .withValues(alpha: 0.5),
+                                    ),
+                                  ),
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        Icons.collections_outlined,
+                                        size: 40,
+                                        color: colorScheme.primary,
+                                      ),
+                                      const SizedBox(height: 12),
+                                      Text(
+                                        'Todavía no has subido medias',
+                                        style: theme.textTheme.titleMedium
+                                            ?.copyWith(
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        'Sube una imagen o un video y se mostrará aquí mismo para que el técnico confirme lo que agregó.',
+                                        textAlign: TextAlign.center,
+                                        style: theme.textTheme.bodyMedium
+                                            ?.copyWith(
+                                              color:
+                                                  colorScheme.onSurfaceVariant,
+                                            ),
+                                      ),
+                                    ],
+                                  ),
+                                )
+                              : ListView.separated(
+                                  itemCount: mediaItems.length,
+                                  separatorBuilder: (_, __) =>
+                                      const SizedBox(height: 12),
+                                  itemBuilder: (context, index) {
+                                    final item = mediaItems[index];
+                                    return EvidenceItemWidget(
+                                      type: item.type,
+                                      url: item.content,
+                                      text: item.content,
+                                      createdAt: item.createdAt,
+                                      previewBytes: item.previewBytes,
+                                      localPath: item.localPath,
+                                      fileName: item.fileName,
+                                      compact: true,
+                                      surfaceColor: colorScheme.surface,
+                                    );
+                                  },
+                                ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _addFinalReport(BuildContext sheetContext, WidgetRef ref) async {
@@ -906,14 +1242,9 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
     }
 
     try {
-      final normalizedReport = await _normalizeReportWithAi(
-        ref,
-        reportText,
-      );
-
       await ref
           .read(serviceOrderCardActionsProvider(orderId).notifier)
-          .addTechnicalReport(reportType, normalizedReport);
+          .addTechnicalReport(reportType, reportText.trim());
 
       if (!sheetContext.mounted) return;
       Navigator.pop(sheetContext);
@@ -931,14 +1262,18 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
     }
   }
 
-  Future<void> _addTextEvidence(BuildContext sheetContext, WidgetRef ref) async {
+  Future<void> _addTextEvidence(
+    BuildContext sheetContext,
+    WidgetRef ref,
+  ) async {
     if (!sheetContext.mounted) return;
 
     final textValue = await _promptMultilineInput(
       sheetContext,
       ref: ref,
       title: 'Texto de compromiso',
-      hintText: 'Escribe la evidencia en texto obligatoria para completar la orden.',
+      hintText:
+          'Escribe la evidencia en texto obligatoria para completar la orden.',
       confirmLabel: 'Guardar texto',
     );
 
@@ -947,11 +1282,9 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
     }
 
     try {
-        final normalizedText = await _normalizeReportWithAi(ref, textValue);
-
-        await ref
+      await ref
           .read(serviceOrderCardActionsProvider(orderId).notifier)
-          .addTextEvidence(normalizedText);
+          .addTextEvidence(textValue.trim());
 
       if (!sheetContext.mounted) return;
       Navigator.pop(sheetContext);
@@ -992,38 +1325,6 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
     }
   }
 
-  Future<String> _normalizeReportWithAi(WidgetRef ref, String rawInput) async {
-    final normalizedInput = rawInput.trim();
-    if (normalizedInput.isEmpty) {
-      return normalizedInput;
-    }
-
-    try {
-      final aiService = ref.read(aiAssistantServiceProvider);
-      final result = await aiService.chat(
-        context: AiChatContext(
-          module: 'service_orders',
-          screenName: 'service_order_quick_actions',
-          entityType: 'service_order',
-          entityId: orderId,
-        ),
-        message:
-            'Convierte este borrador en un reporte tecnico breve, claro y profesional en espanol. '
-            'Mantiene solo hechos del texto, ordenalo por: Trabajo realizado, Hallazgos, Materiales/Pendientes, Resultado final. '
-            'No inventes datos ni agregues saludos.\n\n'
-            'Texto base:\n$normalizedInput',
-        history: const [],
-      );
-
-      final aiText = result.content.trim();
-      return aiText.isEmpty ? normalizedInput : aiText;
-    } catch (error, stackTrace) {
-      debugPrint('No se pudo normalizar reporte con IA: $error');
-      debugPrint('$stackTrace');
-      return normalizedInput;
-    }
-  }
-
   Future<String?> _promptMultilineInput(
     BuildContext context, {
     required WidgetRef ref,
@@ -1033,11 +1334,16 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
   }) async {
     final formKey = GlobalKey<FormState>();
     final textController = TextEditingController();
+    final textFocusNode = FocusNode();
     final speech = stt.SpeechToText();
     var isListening = false;
-    var isAiProcessing = false;
     var voiceSeedText = '';
+    var voiceSessionText = '';
+    var voiceSessionClosed = false;
+    var voiceStopRequested = false;
     var voiceCaption = 'Toca el microfono para dictar por voz';
+    String? voiceLocaleId;
+    var heardAudioDuringSession = false;
 
     final result = await showModalBottomSheet<String>(
       context: context,
@@ -1049,73 +1355,334 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
         final screenHeight = MediaQuery.sizeOf(modalContext).height;
         final bottomInset = MediaQuery.viewInsetsOf(modalContext).bottom;
 
-        Future<void> stopVoice(StateSetter setModalState) async {
-          if (!isListening) {
+        Future<void> applyVoiceTranscript(
+          StateSetter setModalState, {
+          String? sourceText,
+          String successCaption = 'Texto colocado en el campo',
+        }) async {
+          final currentValue = (sourceText ?? textController.text).trim();
+          if (currentValue.isEmpty) {
             return;
           }
-          await speech.stop();
+          textController.value = TextEditingValue(
+            text: currentValue,
+            selection: TextSelection.collapsed(offset: currentValue.length),
+          );
+          voiceSeedText = currentValue;
+          setModalState(() {
+            voiceCaption = successCaption;
+          });
+          await Future<void>.delayed(const Duration(milliseconds: 32));
+          if (!modalContext.mounted) return;
+          textFocusNode.requestFocus();
+        }
+
+        String mergeVoiceText(String sessionTranscript) {
+          return [
+            voiceSeedText,
+            sessionTranscript.trim(),
+          ].where((item) => item.isNotEmpty).join('\n');
+        }
+
+        Future<String?> resolveVoiceLocaleId() async {
+          if (voiceLocaleId != null) {
+            return voiceLocaleId;
+          }
+
+          final systemLocale = await speech.systemLocale();
+          final locales = await speech.locales();
+
+          stt.LocaleName? preferredLocale;
+          final normalizedSystemLocale = systemLocale?.localeId.toLowerCase();
+
+          if (normalizedSystemLocale != null &&
+              normalizedSystemLocale.startsWith('es')) {
+            for (final locale in locales) {
+              if (locale.localeId.toLowerCase() == normalizedSystemLocale) {
+                preferredLocale = locale;
+                break;
+              }
+            }
+          }
+
+          if (preferredLocale == null && normalizedSystemLocale != null) {
+            final systemLanguage = normalizedSystemLocale.split('_').first;
+            for (final locale in locales) {
+              if (locale.localeId.toLowerCase().split('_').first ==
+                  systemLanguage) {
+                preferredLocale = locale;
+                break;
+              }
+            }
+          }
+
+          if (preferredLocale == null) {
+            for (final locale in locales) {
+              if (locale.localeId.toLowerCase().startsWith('es')) {
+                preferredLocale = locale;
+                break;
+              }
+            }
+          }
+
+          voiceLocaleId = systemLocale?.localeId ?? preferredLocale?.localeId;
+          return voiceLocaleId;
+        }
+
+        Future<bool> ensureMicrophonePermission(
+          StateSetter setModalState,
+        ) async {
+          var status = await Permission.microphone.status;
+          if (!status.isGranted) {
+            status = await Permission.microphone.request();
+          }
+
+          if (status.isGranted) {
+            return true;
+          }
+
+          if (!modalContext.mounted) {
+            return false;
+          }
+
+          setModalState(() {
+            voiceCaption = status.isPermanentlyDenied
+                ? 'El microfono esta bloqueado en Android. Habilitalo en ajustes de la app.'
+                : 'No se otorgo permiso al microfono. Sin ese permiso no se puede escuchar el audio.';
+          });
+          return false;
+        }
+
+        Future<void> finalizeVoiceSession(
+          StateSetter setModalState, {
+          String completedCaption = 'Dictado finalizado',
+        }) async {
+          if (voiceSessionClosed) {
+            return;
+          }
+          voiceSessionClosed = true;
+
           if (!modalContext.mounted) {
             return;
           }
+
+          final transcriptToApply = voiceSessionText.trim();
+
+          if (transcriptToApply.isEmpty) {
+            setModalState(() {
+              isListening = false;
+              voiceCaption = heardAudioDuringSession
+                  ? 'Se detecto audio, pero no se reconocio texto. Habla mas cerca y mas claro.'
+                  : 'No se detecto audio del microfono. Revisa el permiso del microfono y vuelve a intentarlo.';
+            });
+            return;
+          }
+
           setModalState(() {
             isListening = false;
-            voiceCaption = 'Dictado finalizado';
+            voiceCaption = completedCaption;
           });
+
+          await applyVoiceTranscript(
+            setModalState,
+            sourceText: mergeVoiceText(transcriptToApply),
+            successCaption: 'Texto dictado convertido y colocado en el campo',
+          );
+        }
+
+        Future<void> discardDraftAndClose() async {
+          voiceSessionClosed = true;
+          if (speech.isListening) {
+            try {
+              await speech.cancel();
+            } catch (_) {}
+          }
+          textFocusNode.unfocus();
+          if (!modalContext.mounted) {
+            return;
+          }
+          Navigator.pop(modalContext);
+        }
+
+        Future<void> requestClose() async {
+          final hasDraft = textController.text.trim().isNotEmpty;
+          if (!hasDraft) {
+            await discardDraftAndClose();
+            return;
+          }
+
+          final shouldDiscard = await showDialog<bool>(
+            context: modalContext,
+            builder: (dialogContext) {
+              return AlertDialog(
+                title: const Text('Descartar reporte'),
+                content: const Text(
+                  '¿Estas seguro? Esto borrara el texto que ya agregaste.',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogContext, false),
+                    child: const Text('Seguir editando'),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.pop(dialogContext, true),
+                    child: const Text('Borrar y cerrar'),
+                  ),
+                ],
+              );
+            },
+          );
+
+          if (shouldDiscard == true) {
+            await discardDraftAndClose();
+          }
+        }
+
+        Future<void> stopVoice(StateSetter setModalState) async {
+          if (!isListening && !speech.isListening) {
+            debugPrint(
+              '[service-order-voice] stopVoice ignored; isListening=$isListening speech.isListening=${speech.isListening}',
+            );
+            return;
+          }
+          debugPrint('[service-order-voice] stopVoice requested');
+          voiceStopRequested = true;
+          setModalState(() {
+            voiceCaption = 'Deteniendo grabacion...';
+          });
+          try {
+            await speech.stop();
+          } catch (_) {}
+          await finalizeVoiceSession(setModalState);
+          voiceStopRequested = false;
         }
 
         Future<void> startVoice(StateSetter setModalState) async {
+          debugPrint('[service-order-voice] startVoice tapped');
+          FocusScope.of(modalContext).unfocus();
+          textFocusNode.unfocus();
+          await SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+          await Future<void>.delayed(const Duration(milliseconds: 160));
+          if (speech.isListening) {
+            try {
+              await speech.stop();
+            } catch (_) {}
+          }
+
+          final hasMicrophonePermission = await ensureMicrophonePermission(
+            setModalState,
+          );
+          debugPrint(
+            '[service-order-voice] microphone permission granted=$hasMicrophonePermission',
+          );
+          if (!hasMicrophonePermission) {
+            return;
+          }
+
           final available = await speech.initialize(
             onStatus: (status) {
+              debugPrint('[service-order-voice] onStatus=$status');
               if (!modalContext.mounted) return;
               if (status == 'done' || status == 'notListening') {
+                if (voiceStopRequested) {
+                  return;
+                }
+                if (!isListening) {
+                  return;
+                }
                 setModalState(() {
                   isListening = false;
-                  voiceCaption = 'Dictado finalizado';
+                  voiceCaption = voiceSessionText.trim().isNotEmpty
+                      ? 'La grabacion se detuvo. Ya puedes detener y procesar o guardar.'
+                      : 'La grabacion se detuvo sin texto reconocido. Intenta hablar mas cerca del microfono.';
                 });
               }
             },
             onError: (error) {
+              debugPrint(
+                '[service-order-voice] onError errorMsg=${error.errorMsg} permanent=${error.permanent}',
+              );
               if (!modalContext.mounted) return;
+              voiceSessionClosed = true;
               setModalState(() {
                 isListening = false;
                 voiceCaption =
-                    'No se pudo usar microfono. Puedes escribir manualmente.';
+                    'No se pudo usar el reconocimiento de voz (${error.errorMsg}).';
               });
             },
+            debugLogging: kDebugMode,
           );
 
-          if (!available) {
+          final speechHasPermission = await speech.hasPermission;
+          debugPrint(
+            '[service-order-voice] initialize available=$available isAvailable=${speech.isAvailable} hasPermission=$speechHasPermission',
+          );
+          if (!available || !speech.isAvailable || !speechHasPermission) {
             if (!modalContext.mounted) return;
             setModalState(() {
               voiceCaption =
-                  'No hay reconocimiento de voz disponible en este dispositivo';
+                  'El reconocimiento de voz no esta disponible o no tiene permiso en este dispositivo.';
             });
             return;
           }
 
           voiceSeedText = textController.text.trim();
+          voiceSessionText = '';
+          voiceSessionClosed = false;
+          voiceStopRequested = false;
+          heardAudioDuringSession = false;
+
+          final localeId = await resolveVoiceLocaleId();
+          debugPrint('[service-order-voice] resolved localeId=$localeId');
+          if (!modalContext.mounted) return;
+
           setModalState(() {
             isListening = true;
-            voiceCaption = 'Escuchando... habla normal y toca de nuevo para parar';
+            voiceCaption =
+                'Grabando... usa detener y procesar cuando termines';
           });
+          debugPrint('[service-order-voice] invoking listen');
 
           await speech.listen(
-            partialResults: true,
+            localeId: localeId,
+            pauseFor: const Duration(minutes: 5),
+            listenFor: const Duration(minutes: 5),
+            listenOptions: stt.SpeechListenOptions(
+              partialResults: true,
+              cancelOnError: true,
+            ),
+            onSoundLevelChange: (level) {
+              debugPrint('[service-order-voice] onSoundLevelChange level=$level');
+              if (!modalContext.mounted) return;
+              if (level > 0) {
+                heardAudioDuringSession = true;
+              }
+              setModalState(() {
+                if (voiceSessionText.trim().isNotEmpty) {
+                  voiceCaption = 'Grabando... audio detectado y texto reconocido';
+                } else if (level > 0) {
+                  voiceCaption = 'Grabando... audio detectado, sigue hablando';
+                } else {
+                  voiceCaption = 'Grabando... esperando audio del microfono';
+                }
+              });
+            },
             onResult: (result) {
+              debugPrint(
+                '[service-order-voice] onResult final=${result.finalResult} words="${result.recognizedWords}"',
+              );
               if (!modalContext.mounted) return;
               final recognized = result.recognizedWords.trim();
               if (recognized.isEmpty) {
                 return;
               }
 
-              final merged = [
-                voiceSeedText,
-                recognized,
-              ].where((item) => item.isNotEmpty).join('\n');
-              textController.value = TextEditingValue(
-                text: merged,
-                selection: TextSelection.collapsed(offset: merged.length),
-              );
+              voiceSessionText = recognized;
+              setModalState(() {
+                voiceCaption = result.finalResult
+                    ? 'Texto reconocido. Pulsa detener y procesar.'
+                    : 'Grabando... texto reconocido, sigue hablando';
+              });
             },
           );
         }
@@ -1136,86 +1703,25 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            title,
-                            style: theme.textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Habla o escribe; al guardar, la IA organiza el reporte automaticamente.',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
                           Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Expanded(
-                                child: OutlinedButton.icon(
-                                  onPressed: isAiProcessing
-                                      ? null
-                                      : () async {
-                                          if (isListening) {
-                                            await stopVoice(setModalState);
-                                          } else {
-                                            await startVoice(setModalState);
-                                          }
-                                        },
-                                  icon: Icon(
-                                    isListening
-                                        ? Icons.stop_circle_outlined
-                                        : Icons.mic_none_rounded,
-                                  ),
-                                  label: Text(
-                                    isListening ? 'Detener voz' : 'Grabar voz',
+                                child: Text(
+                                  'Escribe o dicta tu reporte',
+                                  style: theme.textTheme.titleLarge?.copyWith(
+                                    fontWeight: FontWeight.w800,
                                   ),
                                 ),
                               ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: FilledButton.tonalIcon(
-                                  onPressed: isAiProcessing
-                                      ? null
-                                      : () async {
-                                          final currentValue =
-                                              textController.text.trim();
-                                          if (currentValue.isEmpty) {
-                                            return;
-                                          }
-                                          setModalState(() {
-                                            isAiProcessing = true;
-                                          });
-                                          final polished =
-                                              await _normalizeReportWithAi(
-                                                ref,
-                                                currentValue,
-                                              );
-                                          if (!modalContext.mounted) return;
-                                          textController.value =
-                                              TextEditingValue(
-                                                text: polished,
-                                                selection:
-                                                    TextSelection.collapsed(
-                                                      offset: polished.length,
-                                                    ),
-                                              );
-                                          setModalState(() {
-                                            isAiProcessing = false;
-                                          });
-                                        },
-                                  icon: isAiProcessing
-                                      ? const SizedBox(
-                                          width: 16,
-                                          height: 16,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                          ),
-                                        )
-                                      : const Icon(Icons.auto_awesome_rounded),
-                                  label: const Text('Ordenar IA'),
-                                ),
+                              const SizedBox(width: 8),
+                              IconButton(
+                                tooltip: 'Cerrar',
+                                visualDensity: VisualDensity.compact,
+                                onPressed: () async {
+                                  await requestClose();
+                                },
+                                icon: const Icon(Icons.close_rounded),
                               ),
                             ],
                           ),
@@ -1230,14 +1736,19 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
                           Expanded(
                             child: TextFormField(
                               controller: textController,
+                              focusNode: textFocusNode,
                               minLines: null,
                               maxLines: null,
                               expands: true,
-                              autofocus: true,
+                              autofocus: false,
+                              readOnly: isListening,
+                              canRequestFocus: !isListening,
+                              keyboardType: TextInputType.multiline,
                               textAlignVertical: TextAlignVertical.top,
                               decoration: InputDecoration(
                                 hintText: hintText,
                                 alignLabelWithHint: true,
+                                contentPadding: const EdgeInsets.fromLTRB(14, 16, 14, 16),
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(14),
                                 ),
@@ -1252,15 +1763,41 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
                               },
                             ),
                           ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: isListening
+                                      ? null
+                                      : () async {
+                                          await startVoice(setModalState);
+                                        },
+                                  icon: const Icon(Icons.mic_rounded),
+                                  label: const Text('Iniciar grabacion'),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: FilledButton.icon(
+                                  onPressed: !isListening
+                                      ? null
+                                      : () async {
+                                          await stopVoice(setModalState);
+                                        },
+                                  icon: const Icon(Icons.stop_circle_rounded),
+                                  label: const Text('Detener y procesar'),
+                                ),
+                              ),
+                            ],
+                          ),
                           const SizedBox(height: 14),
                           Row(
                             children: [
                               Expanded(
                                 child: OutlinedButton(
                                   onPressed: () async {
-                                    await stopVoice(setModalState);
-                                    if (!modalContext.mounted) return;
-                                    Navigator.pop(modalContext);
+                                    await requestClose();
                                   },
                                   child: const Text('Cancelar'),
                                 ),
@@ -1268,28 +1805,20 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
                               const SizedBox(width: 12),
                               Expanded(
                                 child: FilledButton(
-                                  onPressed: isAiProcessing
-                                      ? null
-                                      : () async {
-                                          if (!formKey.currentState!
-                                              .validate()) {
-                                            return;
-                                          }
-                                          await stopVoice(setModalState);
-                                          setModalState(() {
-                                            isAiProcessing = true;
-                                          });
-                                          final polished =
-                                              await _normalizeReportWithAi(
-                                                ref,
-                                                textController.text,
-                                              );
-                                          if (!modalContext.mounted) return;
-                                          Navigator.pop(
-                                            modalContext,
-                                            polished.trim(),
-                                          );
-                                        },
+                                  onPressed: () async {
+                                    if (!formKey.currentState!.validate()) {
+                                      return;
+                                    }
+                                    if (isListening) {
+                                      await stopVoice(setModalState);
+                                    }
+                                    textFocusNode.unfocus();
+                                    if (!modalContext.mounted) return;
+                                    Navigator.pop(
+                                      modalContext,
+                                      textController.text.trim(),
+                                    );
+                                  },
                                   child: Text(confirmLabel),
                                 ),
                               ),
@@ -1307,6 +1836,8 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
       },
     );
 
+    await Future<void>.delayed(const Duration(milliseconds: 32));
+    textFocusNode.dispose();
     textController.dispose();
 
     return result;
@@ -1359,12 +1890,18 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
     final technicalEvidences = order.evidences
         .where((item) => item.type.isTechnicalEvidence)
         .toList(growable: false);
-    final imageCount = technicalEvidences.where((item) => item.type.isImage).length;
-    final videoCount = technicalEvidences.where((item) => item.type.isVideo).length;
+    final imageCount = technicalEvidences
+        .where((item) => item.type.isImage)
+        .length;
+    final videoCount = technicalEvidences
+        .where((item) => item.type.isVideo)
+        .length;
     final hasTextEvidence = technicalEvidences.any(
       (item) => item.type.isText && item.content.trim().isNotEmpty,
     );
-    final hasReportText = order.reports.any((item) => item.report.trim().isNotEmpty);
+    final hasReportText = order.reports.any(
+      (item) => item.report.trim().isNotEmpty,
+    );
 
     final textComplete = hasTextEvidence || hasReportText;
     final imagesComplete = imageCount >= 3 && imageCount <= 5;
@@ -1378,6 +1915,100 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
   }
 }
 
+class _MediaTypeChip extends StatelessWidget {
+  const _MediaTypeChip({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Ink(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: selected
+              ? colorScheme.primaryContainer
+              : colorScheme.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: selected
+                ? colorScheme.primary.withValues(alpha: 0.48)
+                : colorScheme.outlineVariant.withValues(alpha: 0.58),
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              icon,
+              size: 18,
+              color: selected
+                  ? colorScheme.onPrimaryContainer
+                  : colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: selected
+                      ? colorScheme.onPrimaryContainer
+                      : colorScheme.onSurface,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MediaCountPill extends StatelessWidget {
+  const _MediaCountPill({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 14, color: colorScheme.primary),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: Theme.of(
+              context,
+            ).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _ActionButton extends StatelessWidget {
   const _ActionButton({
     required this.icon,
@@ -1387,6 +2018,7 @@ class _ActionButton extends StatelessWidget {
     this.tone = _ActionTone.neutral,
     this.selected = false,
     this.minHeight = 52,
+    this.compact = false,
   });
 
   final IconData icon;
@@ -1396,6 +2028,7 @@ class _ActionButton extends StatelessWidget {
   final _ActionTone tone;
   final bool selected;
   final double minHeight;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -1420,6 +2053,13 @@ class _ActionButton extends StatelessWidget {
         ? const Color(0xFF4B7E98).withValues(alpha: 0.08)
         : colorScheme.primary.withValues(alpha: 0.08);
     final selectedColor = colorScheme.primary.withValues(alpha: 0.09);
+    final compactPadding = compact
+        ? const EdgeInsets.symmetric(horizontal: 8, vertical: 6)
+        : const EdgeInsets.symmetric(horizontal: 10, vertical: 8);
+    final compactIconSize = compact ? 28.0 : 30.0;
+    final compactGlyphSize = compact ? 15.0 : 16.0;
+    final compactFontSize = compact ? 13.0 : 15.0;
+    final compactChevronSize = compact ? 15.0 : 16.0;
 
     return Material(
       color: Colors.transparent,
@@ -1440,75 +2080,79 @@ class _ActionButton extends StatelessWidget {
                     )
                   : null,
             ),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            padding: compactPadding,
             child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Container(
-                width: 2.5,
-                height: minHeight - 24,
-                decoration: BoxDecoration(
-                  color: selected
-                      ? colorScheme.primary
-                      : isPrimary
-                      ? const Color(0xFF155E82)
-                      : isSecondary
-                      ? const Color(0xFFB7D0DE)
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                width: 30,
-                height: 30,
-                decoration: BoxDecoration(
-                  color: iconContainerColor,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Center(
-                  child: isLoading
-                      ? SizedBox(
-                          width: 14,
-                          height: 14,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation(leadingColor),
-                          ),
-                        )
-                      : Icon(icon, color: leadingColor, size: 16),
-                ),
-              ),
-              const SizedBox(width: 9),
-              Expanded(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 15,
-                    letterSpacing: -0.1,
-                    color: enabled
-                        ? colorScheme.onSurface
-                        : colorScheme.onSurfaceVariant,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Container(
+                  width: 2.5,
+                  height: minHeight - 24,
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? colorScheme.primary
+                        : isPrimary
+                        ? const Color(0xFF155E82)
+                        : isSecondary
+                        ? const Color(0xFFB7D0DE)
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(999),
                   ),
                 ),
-              ),
-              selected
-                  ? Icon(
-                      Icons.check_circle_rounded,
-                      size: 18,
-                      color: colorScheme.primary,
-                    )
-                  : Icon(
-                      Icons.chevron_right_rounded,
-                      size: 16,
-                      color: leadingColor.withValues(
-                        alpha: enabled ? 0.72 : 0.4,
-                      ),
+                const SizedBox(width: 8),
+                Container(
+                  width: compactIconSize,
+                  height: compactIconSize,
+                  decoration: BoxDecoration(
+                    color: iconContainerColor,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Center(
+                    child: isLoading
+                        ? SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation(leadingColor),
+                            ),
+                          )
+                        : Icon(
+                            icon,
+                            color: leadingColor,
+                            size: compactGlyphSize,
+                          ),
+                  ),
+                ),
+                SizedBox(width: compact ? 8 : 9),
+                Expanded(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      fontSize: compactFontSize,
+                      letterSpacing: -0.1,
+                      color: enabled
+                          ? colorScheme.onSurface
+                          : colorScheme.onSurfaceVariant,
                     ),
-            ],
+                  ),
+                ),
+                selected
+                    ? Icon(
+                        Icons.check_circle_rounded,
+                        size: compact ? 17 : 18,
+                        color: colorScheme.primary,
+                      )
+                    : Icon(
+                        Icons.chevron_right_rounded,
+                        size: compactChevronSize,
+                        color: leadingColor.withValues(
+                          alpha: enabled ? 0.72 : 0.4,
+                        ),
+                      ),
+              ],
             ),
           ),
         ),

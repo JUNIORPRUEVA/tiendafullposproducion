@@ -1332,15 +1332,7 @@ class WaCrmController extends StateNotifier<WaCrmState> {
       if (sameSelectedConversation) {
         final alreadyExists = state.messages.any((m) => m.id == msg.id);
         messageWasAlreadyOpen = alreadyExists;
-        if (!alreadyExists) {
-          state = state.copyWith(messages: [...state.messages, msg]);
-        } else {
-          state = state.copyWith(
-            messages: state.messages
-                .map((existing) => existing.id == msg.id ? msg : existing)
-                .toList(),
-          );
-        }
+        state = state.copyWith(messages: _mergeMessages(state.messages, [msg]));
         if (selected?.id != targetConversationId && incomingConv != null) {
           state = state.copyWith(
             selectedConversation: () => incomingConv.copyWith(

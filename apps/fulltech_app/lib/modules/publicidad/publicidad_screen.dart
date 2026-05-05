@@ -2472,7 +2472,7 @@ class _GalleryTabState extends State<_GalleryTab> {
   }
 
   bool _isGenerated(MarketingMediaAsset asset) {
-    final sourceType = '${asset.sourceType ?? ''}'.toUpperCase();
+    final sourceType = (asset.sourceType ?? '').toUpperCase();
     if (sourceType == 'GENERATED_AI') return true;
     final url = asset.fileUrl.toLowerCase();
     final name = asset.fileName.toLowerCase();

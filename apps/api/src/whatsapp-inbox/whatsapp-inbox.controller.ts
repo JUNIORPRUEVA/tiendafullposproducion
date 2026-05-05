@@ -241,6 +241,12 @@ export class WhatsappInboxController {
     });
   }
 
+  /** Compatibility alias for report Q&A clients */
+  @Post('ai/report/ask')
+  askCrmReport(@Body() dto: AiAnalysisAskDto, @Req() req: Request) {
+    return this.askCrmAnalysis(dto, req);
+  }
+
   @Post('compose/unlock')
   unlockCompose(@Body() dto: UnlockComposeDto, @Req() req: Request) {
     return this.inboxService.validateAdminComposePassword(

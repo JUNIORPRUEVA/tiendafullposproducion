@@ -2159,6 +2159,28 @@ export class WhatsappInboxService {
           data,
           mediaMimeType,
         );
+      } else if (
+        normalizedMessageType === 'reactionmessage' ||
+        messageObj.reactionMessage
+      ) {
+        messageType = WhatsappMessageType.TEXT;
+        const reaction = asRecord(messageObj.reactionMessage) ?? messageObj;
+        const reactionText = asString(reaction?.text);
+        body = reactionText
+          ? `Reacción: ${reactionText}`
+          : 'Reaccionó a un mensaje';
+      } else if (
+        normalizedMessageType === 'protocolmessage' ||
+        messageObj.protocolMessage
+      ) {
+        messageType = WhatsappMessageType.OTHER;
+        body = 'Actualización de WhatsApp';
+      } else if (
+        normalizedMessageType === 'senderkeydistributionmessage' ||
+        messageObj.senderKeyDistributionMessage
+      ) {
+        messageType = WhatsappMessageType.OTHER;
+        body = 'Mensaje de sistema WhatsApp';
       } else {
         const text =
           asString(messageObj.conversation) ??
@@ -2171,8 +2193,7 @@ export class WhatsappInboxService {
           messageType = WhatsappMessageType.TEXT;
           body = text;
         } else {
-          // Unknown type: store raw body if possible
-          body = JSON.stringify(messageObj).substring(0, 500);
+          body = 'Mensaje técnico de WhatsApp';
         }
       }
 

@@ -3879,16 +3879,113 @@ class _ServiceOrderListCard extends StatelessWidget {
                           ),
                         ),
                         Expanded(
-                          child: Text(
-                            'Técnico: ${technicianName.trim().isEmpty ? 'Sin asignar' : technicianName.trim()}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              fontSize: 11,
-                              color: theme.colorScheme.onSurfaceVariant,
-                              fontWeight: FontWeight.w700,
-                              height: 1,
-                            ),
+                          child: Row(
+                            children: [
+                              if (technicianName.trim().isNotEmpty) ...[
+                                Expanded(
+                                  child: Text(
+                                    'Técnico: ${technicianName.trim()}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.labelSmall?.copyWith(
+                                      fontSize: 11,
+                                      color: theme.colorScheme.onSurfaceVariant,
+                                      fontWeight: FontWeight.w600,
+                                      height: 1,
+                                    ),
+                                  ),
+                                ),
+                                if (hasCreatorName) ...[
+                                  const SizedBox(width: 6),
+                                  RichText(
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    text: TextSpan(
+                                      children: [
+                                        TextSpan(
+                                          text: 'V. ',
+                                          style: theme.textTheme.labelSmall
+                                              ?.copyWith(
+                                                fontSize: 10,
+                                                color: theme
+                                                    .colorScheme
+                                                    .onSurfaceVariant,
+                                                fontWeight: FontWeight.w500,
+                                                height: 1,
+                                              ),
+                                        ),
+                                        TextSpan(
+                                          text: creatorFirstName.toUpperCase(),
+                                          style: theme.textTheme.labelSmall
+                                              ?.copyWith(
+                                                fontSize: 10,
+                                                color:
+                                                    theme.colorScheme.primary,
+                                                fontWeight: FontWeight.w800,
+                                                height: 1,
+                                              ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ] else if (hasCreatorName)
+                                Expanded(
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.storefront_outlined,
+                                        size: 11,
+                                        color: theme.colorScheme.primary
+                                            .withValues(alpha: 0.85),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Flexible(
+                                        child: RichText(
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          text: TextSpan(
+                                            children: [
+                                              TextSpan(
+                                                text: 'Vendido por ',
+                                                style: theme
+                                                    .textTheme
+                                                    .labelSmall
+                                                    ?.copyWith(
+                                                      fontSize: 11,
+                                                      color: theme
+                                                          .colorScheme
+                                                          .onSurfaceVariant,
+                                                      fontWeight:
+                                                          FontWeight.w500,
+                                                      height: 1,
+                                                    ),
+                                              ),
+                                              TextSpan(
+                                                text: creatorFirstName
+                                                    .toUpperCase(),
+                                                style: theme
+                                                    .textTheme
+                                                    .labelSmall
+                                                    ?.copyWith(
+                                                      fontSize: 11,
+                                                      color: theme
+                                                          .colorScheme
+                                                          .primary,
+                                                      fontWeight:
+                                                          FontWeight.w800,
+                                                      height: 1,
+                                                    ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
                       ],
@@ -4053,9 +4150,7 @@ class _DesktopServiceOrderLine extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final assignedLabel = technicianName.trim().isEmpty
-        ? 'Sin asignar'
-        : technicianName.trim();
+    final assignedLabel = technicianName.trim();
     final detailSummary = _firstMeaningfulText(
       order.extraRequirements,
       order.technicalNote,
@@ -4136,10 +4231,12 @@ class _DesktopServiceOrderLine extends ConsumerWidget {
               Expanded(
                 flex: 3,
                 child: _DesktopLineTextBlock(
-                  title: 'Técnico: $assignedLabel',
+                  title: assignedLabel.isEmpty
+                      ? 'Sin técnico asignado'
+                      : 'Técnico: $assignedLabel',
                   subtitle: hasCreatorName
-                      ? 'Vendedor: $creatorFirstName'
-                      : 'Sin vendedor',
+                      ? 'V. ${creatorFirstName.toUpperCase()}'
+                      : '',
                   icon: Icons.engineering_rounded,
                 ),
               ),
@@ -4266,7 +4363,7 @@ class _DesktopLineTextBlock extends StatelessWidget {
               ),
               const SizedBox(height: 3),
               Text(
-                subtitle.isEmpty ? '—' : subtitle,
+                subtitle.isEmpty ? '' : subtitle,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.labelSmall?.copyWith(
@@ -4385,10 +4482,7 @@ class _ThinServiceScheduleLine extends StatelessWidget {
               ),
             ),
           ),
-          if (trailing != null) ...[
-            const SizedBox(width: 8),
-            trailing!,
-          ],
+          if (trailing != null) ...[const SizedBox(width: 8), trailing!],
         ],
       ),
     );
@@ -4512,82 +4606,65 @@ class _MobileOrderActionsButton extends ConsumerStatefulWidget {
 
 class _MobileOrderActionsButtonState
     extends ConsumerState<_MobileOrderActionsButton> {
-  bool _pressed = false;
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final isTechnician = widget.isTechnician;
     final buttonBg = isTechnician
-        ? scheme.primary
+        ? Colors.white
         : Color.alphaBlend(
             scheme.primary.withValues(alpha: 0.035),
             scheme.surface,
           );
-    final buttonFg = isTechnician ? scheme.onPrimary : scheme.primary;
-    final buttonBorder = Color.alphaBlend(
-      (isTechnician ? scheme.onPrimary : scheme.primary).withValues(
-        alpha: isTechnician ? 0.16 : 0.24,
-      ),
-      buttonBg,
-    );
+    final buttonFg = isTechnician ? const Color(0xFF111827) : scheme.primary;
+    final buttonBorder = isTechnician
+        ? const Color(0xFFD8E3EE)
+        : Color.alphaBlend(scheme.primary.withValues(alpha: 0.24), buttonBg);
     final buttonShadow = isTechnician
-        ? scheme.shadow.withValues(alpha: 0.22)
+        ? const Color(0x2A8FA9C0)
         : scheme.primary.withValues(alpha: 0.12);
     final buttonKey = GlobalKey();
-    return GestureDetector(
-      onTapDown: (_) => setState(() => _pressed = true),
-      onTapCancel: () => setState(() => _pressed = false),
-      onTapUp: (_) => setState(() => _pressed = false),
-      child: AnimatedScale(
-        duration: const Duration(milliseconds: 110),
-        curve: Curves.easeOutCubic,
-        scale: _pressed ? 0.97 : 1,
-        child: FilledButton.tonal(
-          key: buttonKey,
-          onPressed: () {
-            if (widget.isTechnician) {
-              showServiceOrderQuickActionsModal(
-                context: context,
-                ref: ref,
-                orderId: widget.order.id,
-                order: widget.order,
-                presentation:
-                    ServiceOrderQuickActionsPresentation.mobileRightPanel,
-                actionConfig: widget.technicianActionConfig,
-                onOrderUpdated: () {
-                  ref
-                      .read(serviceOrdersListControllerProvider.notifier)
-                      .refresh();
-                },
-              );
-              return;
-            }
-            _showActionsMenu(context, ref, buttonKey);
-          },
-          style: FilledButton.styleFrom(
-            minimumSize: const Size(108, 40),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            elevation: isTechnician ? 1.2 : 1.6,
-            shadowColor: buttonShadow,
-            backgroundColor: buttonBg,
-            foregroundColor: buttonFg,
-            overlayColor: buttonFg.withValues(alpha: 0.12),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(13),
-              side: BorderSide(color: buttonBorder, width: 1),
-            ),
-          ),
-          child: Text(
-            widget.isTechnician ? 'Gestionar' : 'Acciones',
-            style: theme.textTheme.labelLarge?.copyWith(
-              fontSize: 12.6,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.08,
-            ),
-          ),
+    return FilledButton.tonal(
+      key: buttonKey,
+      onPressed: () {
+        if (widget.isTechnician) {
+          showServiceOrderQuickActionsModal(
+            context: context,
+            ref: ref,
+            orderId: widget.order.id,
+            order: widget.order,
+            presentation: ServiceOrderQuickActionsPresentation.mobileRightPanel,
+            actionConfig: widget.technicianActionConfig,
+            onOrderUpdated: () {
+              ref.read(serviceOrdersListControllerProvider.notifier).refresh();
+            },
+          );
+          return;
+        }
+        _showActionsMenu(context, ref, buttonKey);
+      },
+      style: FilledButton.styleFrom(
+        minimumSize: const Size(108, 40),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        elevation: isTechnician ? 5 : 1.6,
+        shadowColor: buttonShadow,
+        backgroundColor: buttonBg,
+        foregroundColor: buttonFg,
+        overlayColor: buttonFg.withValues(alpha: 0.12),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(13),
+          side: BorderSide(color: buttonBorder, width: 1),
+        ),
+        surfaceTintColor: isTechnician ? Colors.white : null,
+      ),
+      child: Text(
+        widget.isTechnician ? 'Gestionar' : 'Acciones',
+        style: theme.textTheme.labelLarge?.copyWith(
+          fontSize: 12.6,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.08,
         ),
       ),
     );
@@ -5284,8 +5361,10 @@ class _AnimatedServiceOrderStatusBadgeState
       builder: (context, child) {
         final pulse = Curves.easeInOutCubic.transform(_controller.value);
         final dotColor = Color.lerp(style.dotStart, style.dotEnd, pulse)!;
-        final dotScale = style.minScale + (style.maxScale - style.minScale) * pulse;
-        final glowAlpha = style.minGlow + (style.maxGlow - style.minGlow) * pulse;
+        final dotScale =
+            style.minScale + (style.maxScale - style.minScale) * pulse;
+        final glowAlpha =
+            style.minGlow + (style.maxGlow - style.minGlow) * pulse;
 
         return DecoratedBox(
           decoration: BoxDecoration(
@@ -5300,7 +5379,9 @@ class _AnimatedServiceOrderStatusBadgeState
             boxShadow: [
               BoxShadow(
                 color: dotColor.withValues(alpha: glowAlpha),
-                blurRadius: compact ? style.glowRadius * 0.45 : style.glowRadius,
+                blurRadius: compact
+                    ? style.glowRadius * 0.45
+                    : style.glowRadius,
                 spreadRadius: compact
                     ? style.spreadRadius * pulse * 0.35
                     : style.spreadRadius * pulse,
@@ -5522,11 +5603,15 @@ class _TechnicianQuickActionButton extends ConsumerWidget {
       style: FilledButton.styleFrom(
         minimumSize: const Size.fromHeight(42),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        backgroundColor: const Color(0xFF1D4ED8),
-        foregroundColor: Colors.white,
-        elevation: 0,
-        shadowColor: const Color(0xFF1D4ED8).withValues(alpha: 0.28),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        backgroundColor: Colors.white,
+        foregroundColor: const Color(0xFF111827),
+        elevation: 5,
+        shadowColor: const Color(0x2A8FA9C0),
+        surfaceTintColor: Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: const BorderSide(color: Color(0xFFD8E3EE)),
+        ),
       ),
       icon: const Icon(Icons.tune_rounded, size: 18),
       label: const Text(
@@ -5540,6 +5625,7 @@ class _TechnicianQuickActionButton extends ConsumerWidget {
           ref: ref,
           orderId: order.id,
           order: order,
+          presentation: ServiceOrderQuickActionsPresentation.mobileRightPanel,
           actionConfig: actionConfig,
           onOrderUpdated: () {
             // Refresh the list when order is updated

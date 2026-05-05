@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/auth/auth_provider.dart';
+import '../../../core/auth/auth_session_events.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../../core/models/user_model.dart';
 import '../../../features/user/data/users_repository.dart';
@@ -186,6 +187,10 @@ class ServiceOrdersListController
           usersById: userMap,
         );
       } catch (error) {
+        if (error is ApiException && error.type == ApiErrorType.unauthorized) {
+          ref.read(authSessionEventsProvider).requestUnauthorizedLogout();
+          return;
+        }
         final message = _friendlyListMessage(error);
         state = state.copyWith(
           loading: false,

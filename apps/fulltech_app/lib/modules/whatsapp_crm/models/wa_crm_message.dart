@@ -4,6 +4,8 @@ enum WaMessageType { text, image, audio, video, document, sticker, other }
 
 String? sanitizeWaText(dynamic value) {
   if (value is! String) return null;
+  final technicalText = _readableEvolutionJsonText(value);
+  if (technicalText != null) return technicalText;
   final units = value.codeUnits;
   final out = StringBuffer();
   for (var i = 0; i < units.length; i++) {
@@ -38,6 +40,45 @@ String? sanitizeWaText(dynamic value) {
     out.writeCharCode(unit);
   }
   return out.toString();
+}
+
+String? _readableEvolutionJsonText(String value) {
+  final text = value.trim();
+  if (text.isEmpty || !text.startsWith('{')) return null;
+  final looksLikeEvolutionPayload =
+      text.contains('reactionMessage') ||
+      text.contains('protocolMessage') ||
+      text.contains('senderKeyDistributionMessage') ||
+      text.contains('messageContextInfo') ||
+      text.contains('deviceListMetadata');
+  if (!looksLikeEvolutionPayload) return null;
+
+  final reactionMatch = RegExp(
+    r'"reactionMessage"\s*:\s*\{[\s\S]*?"text"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"',
+  ).firstMatch(text);
+  if (reactionMatch != null) {
+    final reaction = _decodeJsonFragment(reactionMatch.group(1) ?? '').trim();
+    return reaction.isEmpty ? 'Reaccionó a un mensaje' : 'Reacción: $reaction';
+  }
+
+  if (text.contains('protocolMessage')) return 'Actualización de WhatsApp';
+  if (text.contains('senderKeyDistributionMessage')) {
+    return 'Mensaje de sistema WhatsApp';
+  }
+  if (text.contains('messageContextInfo') ||
+      text.contains('deviceListMetadata')) {
+    return 'Mensaje técnico de WhatsApp';
+  }
+  return null;
+}
+
+String _decodeJsonFragment(String value) {
+  return value
+      .replaceAll(r'\"', '"')
+      .replaceAll(r'\\', r'\')
+      .replaceAll(r'\n', '\n')
+      .replaceAll(r'\r', '\r')
+      .replaceAll(r'\t', '\t');
 }
 
 class WaCrmMessage {

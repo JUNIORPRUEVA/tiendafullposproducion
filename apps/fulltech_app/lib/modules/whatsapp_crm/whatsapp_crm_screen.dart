@@ -29,7 +29,7 @@ import '../whatsapp_crm/models/wa_crm_message.dart';
 // ─── Breakpoints ─────────────────────────────────────────────────────────────
 
 const double _kMobileBreak = 600;
-const double _kTabletBreak = 960;
+const double _kTabletBreak = 1180;
 final Map<String, Future<Uint8List>> _waMediaBytesCache = {};
 
 String _waText(dynamic value, [String fallback = '']) {
@@ -356,7 +356,9 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
 
   void _scrollToBottom({bool force = false, bool animated = true}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       if (!_scrollController.hasClients) return;
+      if (!_scrollController.position.hasContentDimensions) return;
       if (!force && !_isChatNearBottom()) return;
       final target = _scrollController.position.maxScrollExtent;
       if (animated) {
@@ -382,6 +384,7 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
     final size = MediaQuery.of(context).size;
     final isMobile = size.width < _kMobileBreak;
     final isTablet = size.width >= _kMobileBreak && size.width < _kTabletBreak;
+    final canShowSidePanels = size.width >= _kTabletBreak;
 
     // ── Listen for new messages to scroll ──────────────────────────────────
     Widget body;
@@ -399,7 +402,7 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
         showLogo: false,
         showDepartmentLabel: false,
         actions: [
-          if (!isMobile)
+          if (canShowSidePanels)
             IconButton(
               icon: Icon(
                 _showActionPanel
@@ -410,7 +413,7 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
               onPressed: () =>
                   setState(() => _showActionPanel = !_showActionPanel),
             ),
-          if (!isMobile)
+          if (canShowSidePanels)
             IconButton(
               icon: Icon(
                 _showAiPanel ? Icons.auto_awesome : Icons.auto_awesome_outlined,
@@ -439,79 +442,114 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
     WaCrmState state,
     ThemeData theme,
   ) {
-    return Row(
-      children: [
-        // Column 1: User + Conversations
-        SizedBox(
-          width: 280,
-          child: _ConversationsPanel(
-            state: state,
-            scrollController: _conversationScrollController,
-            onSelectConversation: (conv) {
-              ref
-                  .read(waCrmControllerProvider.notifier)
-                  .selectConversation(conv);
-            },
-            onSelectUser: (u) {
-              ref.read(waCrmControllerProvider.notifier).selectUser(u);
-            },
-          ),
-        ),
-        const VerticalDivider(width: 1),
-        // Column 2: Chat view
-        Expanded(
-          child: _ChatPanel(
-            state: state,
-            msgController: _msgController,
-            scrollController: _scrollController,
-            showNewMessagesButton: _showNewMessagesButton,
-            onJumpToLatest: () => _scrollToBottom(force: true),
-            onSend: () => _sendReply(),
-            onAttach: () => _sendAttachment(),
-            onDateFilterChanged: (filter, {customDate}) => ref
-                .read(waCrmControllerProvider.notifier)
-                .setMessageDateFilter(filter, customDate: customDate),
-            onClearDateFilter: () => ref
-                .read(waCrmControllerProvider.notifier)
-                .clearMessageDateFilter(),
-            onUnlock: _unlockComposer,
-            agentName: state.selectedUser?.name,
-          ),
-        ),
-        if (_showActionPanel) ...[
-          const VerticalDivider(width: 1),
-          // Column 3: Actions
-          SizedBox(width: 260, child: _ActionsPanel(state: state)),
-        ],
-        if (_showAiPanel) ...[
-          const VerticalDivider(width: 1),
-          SizedBox(
-            width: 360,
-            child: _DailyAiPanel(
-              state: state,
-              onPickDate: _pickAiSummaryDate,
-              onGenerate: () => ref
-                  .read(waCrmControllerProvider.notifier)
-                  .generateDailyAiSummary(),
-              onAnalyzeConversation: () => ref
-                  .read(waCrmControllerProvider.notifier)
-                  .analyzeWithAi(scope: WaCrmAiAnalysisScope.conversation),
-              onAnalyzeFilter: () => ref
-                  .read(waCrmControllerProvider.notifier)
-                  .analyzeWithAi(scope: WaCrmAiAnalysisScope.filter),
-              onRefreshAnalysis: () => ref
-                  .read(waCrmControllerProvider.notifier)
-                  .analyzeWithAi(
-                    scope: state.aiAnalysisScope,
-                    forceRefresh: true,
-                  ),
-              onAskReport: (question) => ref
-                  .read(waCrmControllerProvider.notifier)
-                  .askCurrentAiReport(question),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxWidth = constraints.maxWidth;
+        final conversationWidth = maxWidth < 1320 ? 252.0 : 280.0;
+        final actionWidth = maxWidth < 1320 ? 232.0 : 260.0;
+        final aiWidth = maxWidth < 1320 ? 320.0 : 360.0;
+        const minChatWidth = 430.0;
+
+        var showActionPanel = _showActionPanel;
+        var showAiPanel = _showAiPanel;
+
+        if (showActionPanel && showAiPanel) {
+          final chatWidth =
+              maxWidth - conversationWidth - actionWidth - aiWidth - 3;
+          if (chatWidth < minChatWidth) {
+            showActionPanel = false;
+          }
+        }
+
+        if (showAiPanel) {
+          final chatWidth = maxWidth - conversationWidth - aiWidth - 2;
+          if (chatWidth < minChatWidth) {
+            showAiPanel = false;
+          }
+        }
+
+        if (showActionPanel) {
+          final chatWidth = maxWidth - conversationWidth - actionWidth - 2;
+          if (chatWidth < minChatWidth) {
+            showActionPanel = false;
+          }
+        }
+
+        return Row(
+          children: [
+            SizedBox(
+              width: conversationWidth,
+              child: _ConversationsPanel(
+                state: state,
+                scrollController: _conversationScrollController,
+                onSelectConversation: (conv) {
+                  ref
+                      .read(waCrmControllerProvider.notifier)
+                      .selectConversation(conv);
+                },
+                onSelectUser: (u) {
+                  ref.read(waCrmControllerProvider.notifier).selectUser(u);
+                },
+              ),
             ),
-          ),
-        ],
-      ],
+            const VerticalDivider(width: 1),
+            Expanded(
+              child: _ChatPanel(
+                state: state,
+                msgController: _msgController,
+                scrollController: _scrollController,
+                showNewMessagesButton: _showNewMessagesButton,
+                onJumpToLatest: () => _scrollToBottom(force: true),
+                onSend: () => _sendReply(),
+                onAttach: () => _sendAttachment(),
+                onDateFilterChanged: (filter, {customDate}) => ref
+                    .read(waCrmControllerProvider.notifier)
+                    .setMessageDateFilter(filter, customDate: customDate),
+                onClearDateFilter: () => ref
+                    .read(waCrmControllerProvider.notifier)
+                    .clearMessageDateFilter(),
+                onUnlock: _unlockComposer,
+                agentName: state.selectedUser?.name,
+              ),
+            ),
+            if (showActionPanel) ...[
+              const VerticalDivider(width: 1),
+              SizedBox(
+                width: actionWidth,
+                child: _ActionsPanel(state: state),
+              ),
+            ],
+            if (showAiPanel) ...[
+              const VerticalDivider(width: 1),
+              SizedBox(
+                width: aiWidth,
+                child: _DailyAiPanel(
+                  state: state,
+                  onPickDate: _pickAiSummaryDate,
+                  onGenerate: () => ref
+                      .read(waCrmControllerProvider.notifier)
+                      .generateDailyAiSummary(),
+                  onAnalyzeConversation: () => ref
+                      .read(waCrmControllerProvider.notifier)
+                      .analyzeWithAi(scope: WaCrmAiAnalysisScope.conversation),
+                  onAnalyzeFilter: () => ref
+                      .read(waCrmControllerProvider.notifier)
+                      .analyzeWithAi(scope: WaCrmAiAnalysisScope.filter),
+                  onRefreshAnalysis: () => ref
+                      .read(waCrmControllerProvider.notifier)
+                      .analyzeWithAi(
+                        scope: state.aiAnalysisScope,
+                        forceRefresh: true,
+                      ),
+                  onAskReport: (question) => ref
+                      .read(waCrmControllerProvider.notifier)
+                      .askCurrentAiReport(question),
+                ),
+              ),
+            ],
+          ],
+        );
+      },
     );
   }
 
@@ -2529,7 +2567,7 @@ class _ChatPanel extends StatelessWidget {
                       )
                     : ListView.builder(
                         key: PageStorageKey<String>(
-                          'wa-chat-messages-${conv.id}-${state.messageDateFilter.name}-${state.customMessageDate?.toIso8601String() ?? ''}',
+                          'wa-chat-messages-${conv.id}',
                         ),
                         controller: scrollController,
                         padding: const EdgeInsets.symmetric(
@@ -3674,6 +3712,18 @@ class _DailyAiPanel extends StatelessWidget {
         summary?.conversationAnalysis ?? const <WaCrmConversationAnalysis>[];
     final highAlerts = alerts.where((a) => a.severity == 'high').toList();
     final executiveReport = summary?.report;
+    final compactFilledButtonStyle = FilledButton.styleFrom(
+      minimumSize: const Size(0, 38),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      textStyle: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800),
+    );
+    final compactOutlinedButtonStyle = OutlinedButton.styleFrom(
+      minimumSize: const Size(0, 38),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      textStyle: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800),
+    );
 
     return Container(
       color: scheme.surface,
@@ -3739,6 +3789,7 @@ class _DailyAiPanel extends StatelessWidget {
                   children: [
                     Expanded(
                       child: OutlinedButton.icon(
+                        style: compactOutlinedButtonStyle,
                         onPressed: onPickDate,
                         icon: const Icon(
                           Icons.calendar_month_outlined,
@@ -3792,6 +3843,7 @@ class _DailyAiPanel extends StatelessWidget {
                   children: [
                     Expanded(
                       child: FilledButton.icon(
+                        style: compactFilledButtonStyle,
                         onPressed:
                             state.loadingAiSummary || state.selectedUser == null
                             ? null
@@ -3811,6 +3863,7 @@ class _DailyAiPanel extends StatelessWidget {
                     const SizedBox(width: 8),
                     Expanded(
                       child: OutlinedButton.icon(
+                        style: compactOutlinedButtonStyle,
                         onPressed:
                             state.loadingAiSummary ||
                                 state.selectedConversation == null

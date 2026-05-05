@@ -640,666 +640,873 @@ class _UsersScreenState extends ConsumerState<_UsersScreenBody> {
     String? fotoLicenciaUrl = user?.fotoLicenciaUrl;
     String? fotoPersonalUrl = user?.fotoPersonalUrl;
     bool scanningCedula = false;
+    final formScrollController = ScrollController();
 
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setModalState) => AlertDialog(
-          title: Text(user == null ? 'Nuevo Usuario' : 'Editar Usuario'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: nameCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Nombre Completo',
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: emailCtrl,
-                  decoration: const InputDecoration(labelText: 'Email'),
-                  keyboardType: TextInputType.emailAddress,
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: phoneCtrl,
-                  decoration: const InputDecoration(labelText: 'Teléfono'),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: numeroFlotaCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Número de flota',
-                  ),
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: familiarPhoneCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Teléfono de familiar',
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: cedulaCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Número de cédula',
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: OutlinedButton.icon(
-                    icon: const Icon(Icons.document_scanner_outlined),
-                    label: Text(
-                      scanningCedula
-                          ? 'Escaneando cédula...'
-                          : 'Escanear cédula (IA)',
-                    ),
-                    onPressed: scanningCedula
-                        ? null
-                        : () async {
-                            final result = await FilePicker.platform.pickFiles(
-                              type: FileType.custom,
-                              allowedExtensions: const [
-                                'jpg',
-                                'jpeg',
-                                'png',
-                                'webp',
-                              ],
-                              withData: true,
-                            );
-
-                            if (result == null || result.files.isEmpty) return;
-                            final file = result.files.first;
-                            final bytes = file.bytes;
-                            if (bytes == null || bytes.isEmpty) {
-                              if (!context.mounted) return;
-                              showSnack(
-                                const SnackBar(
-                                  content: Text(
-                                    'No se pudo leer la imagen seleccionada',
-                                  ),
-                                ),
-                              );
-                              return;
-                            }
-
-                            setModalState(() => scanningCedula = true);
-                            try {
-                              // 1) Subir imagen automáticamente
-                              final uploadedUrl = await ref
-                                  .read(usersControllerProvider.notifier)
-                                  .uploadDocument(
-                                    bytes: bytes,
-                                    fileName: file.name,
-                                    kind: 'cedula',
-                                    userId: user?.id,
-                                  );
-                              setModalState(() => fotoCedulaUrl = uploadedUrl);
-
-                              // 2) OCR para autollenar campos
-                              final ocr = ref.read(cedulaOcrServiceProvider);
-                              final ocrResult = await ocr.scan(
-                                bytes: bytes,
-                                fileName: file.name,
-                              );
-
-                              final cedula = (ocrResult.cedula ?? '').trim();
-                              if (cedula.isNotEmpty &&
-                                  cedulaCtrl.text.trim().isEmpty) {
-                                cedulaCtrl.text = cedula;
-                              }
-
-                              final nombre = (ocrResult.nombreCompleto ?? '')
-                                  .trim();
-                              if (nombre.isNotEmpty &&
-                                  nameCtrl.text.trim().isEmpty) {
-                                nameCtrl.text = nombre;
-                              }
-
-                              if (ocrResult.fechaNacimiento != null &&
-                                  fechaNacimiento == null) {
-                                setModalState(
-                                  () => fechaNacimiento =
-                                      ocrResult.fechaNacimiento,
-                                );
-
-                                // Autocalcular edad si está vacía.
-                                if (edadCtrl.text.trim().isEmpty) {
-                                  final now = DateTime.now();
-                                  final dob = ocrResult.fechaNacimiento!;
-                                  var age = now.year - dob.year;
-                                  final hadBirthdayThisYear =
-                                      (now.month > dob.month) ||
-                                      (now.month == dob.month &&
-                                          now.day >= dob.day);
-                                  if (!hadBirthdayThisYear) age -= 1;
-                                  if (age >= 0 && age <= 120) {
-                                    edadCtrl.text = age.toString();
-                                  }
-                                }
-                              }
-
-                              if (!context.mounted) return;
-                              showSnack(
-                                const SnackBar(
-                                  content: Text(
-                                    'Cédula escaneada y datos autollenados',
-                                  ),
-                                ),
-                              );
-                            } catch (e) {
-                              if (!context.mounted) return;
-                              showSnack(
-                                SnackBar(
-                                  content: Text(
-                                    'No se pudo escanear la cédula: $e',
-                                  ),
-                                ),
-                              );
-                            } finally {
-                              if (context.mounted) {
-                                setModalState(() => scanningCedula = false);
-                              }
-                            }
-                          },
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: edadCtrl,
-                  decoration: const InputDecoration(labelText: 'Edad'),
-                  keyboardType: TextInputType.number,
-                ),
-                const SizedBox(height: 12),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Fecha de ingreso (opcional)'),
-                  subtitle: Text(
-                    fechaIngreso == null
-                        ? 'Seleccionar fecha'
-                        : DateFormat('dd/MM/yyyy').format(fechaIngreso!),
-                  ),
-                  trailing: const Icon(Icons.calendar_today_outlined),
-                  onTap: () async {
-                    final now = DateTime.now();
-                    final picked = await showDatePicker(
-                      context: context,
-                      initialDate: fechaIngreso ?? now,
-                      firstDate: DateTime(1990),
-                      lastDate: DateTime(now.year + 5),
-                    );
-                    if (picked != null) {
-                      setModalState(() => fechaIngreso = picked);
-                    }
-                  },
-                ),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Fecha de nacimiento (opcional)'),
-                  subtitle: Text(
-                    fechaNacimiento == null
-                        ? 'Seleccionar fecha'
-                        : DateFormat('dd/MM/yyyy').format(fechaNacimiento!),
-                  ),
-                  trailing: const Icon(Icons.cake_outlined),
-                  onTap: () async {
-                    final now = DateTime.now();
-                    final picked = await showDatePicker(
-                      context: context,
-                      initialDate: fechaNacimiento ?? DateTime(now.year - 18),
-                      firstDate: DateTime(1940),
-                      lastDate: now,
-                    );
-                    if (picked != null) {
-                      setModalState(() => fechaNacimiento = picked);
-                    }
-                  },
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: cuentaNominaCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Cuenta preferencial para nómina (opcional)',
-                    hintText: 'Ej: Banco, tipo, # cuenta o # IBAN',
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    'Personalización del contrato',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                const Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    'Si llenas estos campos, el contrato de este usuario usará estos valores en lugar de los automáticos.',
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: contractJobTitleCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Cargo contractual (opcional)',
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: contractSalaryCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Salario contractual (opcional)',
-                    hintText: 'Ej: RD\$ 25,000.00',
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: contractPaymentFrequencyCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Periodicidad de pago (opcional)',
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: contractPaymentMethodCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Método de pago (opcional)',
-                  ),
-                ),
-                const SizedBox(height: 12),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Fecha de inicio contractual (opcional)'),
-                  subtitle: Text(
-                    workContractStartDate == null
-                        ? 'Usar fecha de ingreso'
-                        : DateFormat(
-                            'dd/MM/yyyy',
-                          ).format(workContractStartDate!),
-                  ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (workContractStartDate != null)
-                        IconButton(
-                          tooltip: 'Quitar fecha',
-                          onPressed: () =>
-                              setModalState(() => workContractStartDate = null),
-                          icon: const Icon(Icons.delete_outline),
-                        ),
-                      const Icon(Icons.calendar_today_outlined),
-                    ],
-                  ),
-                  onTap: () async {
-                    final now = DateTime.now();
-                    final picked = await showDatePicker(
-                      context: context,
-                      initialDate: workContractStartDate ?? fechaIngreso ?? now,
-                      firstDate: DateTime(1990),
-                      lastDate: DateTime(now.year + 5),
-                    );
-                    if (picked != null) {
-                      setModalState(() => workContractStartDate = picked);
-                    }
-                  },
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: contractWorkScheduleCtrl,
-                  maxLines: 2,
-                  decoration: const InputDecoration(
-                    labelText: 'Horario contractual (opcional)',
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: contractWorkLocationCtrl,
-                  maxLines: 2,
-                  decoration: const InputDecoration(
-                    labelText: 'Lugar de trabajo contractual (opcional)',
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: contractCustomClausesCtrl,
-                  maxLines: 4,
-                  decoration: const InputDecoration(
-                    labelText: 'Cláusulas especiales (opcional)',
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    'Habilidades (opcional)',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                if (habilidades.isNotEmpty)
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: habilidades
-                          .map(
-                            (h) => Chip(
-                              label: Text(h),
-                              onDeleted: () =>
-                                  setModalState(() => habilidades.remove(h)),
-                            ),
-                          )
-                          .toList(growable: false),
-                    ),
-                  ),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: habilidadCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Agregar habilidad',
-                        ),
-                        textInputAction: TextInputAction.done,
-                        onSubmitted: (value) {
-                          final skill = value.trim();
-                          if (skill.isEmpty) return;
-                          if (habilidades.contains(skill)) {
-                            habilidadCtrl.clear();
-                            return;
-                          }
-                          setModalState(() {
-                            habilidades.add(skill);
-                            habilidadCtrl.clear();
-                          });
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    IconButton(
-                      onPressed: () {
-                        final skill = habilidadCtrl.text.trim();
-                        if (skill.isEmpty) return;
-                        if (habilidades.contains(skill)) {
-                          habilidadCtrl.clear();
-                          return;
-                        }
-                        setModalState(() {
-                          habilidades.add(skill);
-                          habilidadCtrl.clear();
-                        });
-                      },
-                      icon: const Icon(Icons.add_circle_outline),
-                      tooltip: 'Agregar',
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: passwordCtrl,
-                  decoration: InputDecoration(
-                    labelText: user == null
-                        ? 'Contraseña'
-                        : 'Contraseña (opcional)',
-                  ),
-                  obscureText: true,
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  initialValue: selectedRole,
-                  decoration: const InputDecoration(labelText: 'Rol'),
-                  items: const [
-                    DropdownMenuItem(
-                      value: 'ADMIN',
-                      child: Text('Administrador'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'ASISTENTE',
-                      child: Text('Asistente'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'VENDEDOR',
-                      child: Text('Vendedor'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'MARKETING',
-                      child: Text('Marketing'),
-                    ),
-                    DropdownMenuItem(value: 'TECNICO', child: Text('Técnico')),
-                  ],
-                  onChanged: (val) => selectedRole = val ?? 'ASISTENTE',
-                ),
-                const SizedBox(height: 12),
-                _UploadTile(
-                  title: 'Foto de cédula *',
-                  isUploaded:
-                      fotoCedulaUrl != null && fotoCedulaUrl!.isNotEmpty,
-                  onTap: () async {
-                    final uploaded = await _pickAndUploadImage(
-                      scaffoldContext,
-                      ref,
-                      kind: 'cedula',
-                      userId: user?.id,
-                    );
-                    if (uploaded != null) {
-                      setModalState(() => fotoCedulaUrl = uploaded);
-                    }
-                  },
-                ),
-                const SizedBox(height: 8),
-                _UploadTile(
-                  title: 'Foto de licencia (opcional)',
-                  isUploaded:
-                      fotoLicenciaUrl != null && fotoLicenciaUrl!.isNotEmpty,
-                  onTap: () async {
-                    final uploaded = await _pickAndUploadImage(
-                      scaffoldContext,
-                      ref,
-                      kind: 'licencia',
-                      userId: user?.id,
-                    );
-                    if (uploaded != null) {
-                      setModalState(() => fotoLicenciaUrl = uploaded);
-                    }
-                  },
-                ),
-                const SizedBox(height: 8),
-                _UploadTile(
-                  title: 'Foto personal (opcional)',
-                  isUploaded:
-                      fotoPersonalUrl != null && fotoPersonalUrl!.isNotEmpty,
-                  onTap: () async {
-                    final uploaded = await _pickAndUploadImage(
-                      scaffoldContext,
-                      ref,
-                      kind: 'personal',
-                      userId: user?.id,
-                    );
-                    if (uploaded != null) {
-                      setModalState(() => fotoPersonalUrl = uploaded);
-                    }
-                  },
-                ),
-                const SizedBox(height: 12),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Tiene hijos'),
-                  value: tieneHijos,
-                  onChanged: (v) => setModalState(() => tieneHijos = v),
-                ),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Está casado/a'),
-                  value: estaCasado,
-                  onChanged: (v) => setModalState(() => estaCasado = v),
-                ),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Casa propia'),
-                  value: casaPropia,
-                  onChanged: (v) => setModalState(() => casaPropia = v),
-                ),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Posee vehículo'),
-                  value: vehiculo,
-                  onChanged: (v) => setModalState(() => vehiculo = v),
-                ),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Licencia de conducir'),
-                  value: licenciaConducir,
-                  onChanged: (v) => setModalState(() => licenciaConducir = v),
-                ),
-                if (user != null)
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Bloqueado'),
-                    value: blocked,
-                    onChanged: (v) => setModalState(() => blocked = v),
-                  ),
-              ],
+    Widget sectionHeader(
+      BuildContext modalContext,
+      String title, {
+      String? subtitle,
+    }) {
+      final theme = Theme.of(modalContext);
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w800,
             ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancelar'),
+          if (subtitle != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              subtitle,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
-            ElevatedButton(
-              onPressed: () async {
-                final edad = int.tryParse(edadCtrl.text.trim());
-                if (edad == null) {
-                  showSnack(const SnackBar(content: Text('Edad inválida')));
-                  return;
-                }
+          ],
+          const SizedBox(height: 12),
+        ],
+      );
+    }
 
-                final payload = <String, dynamic>{
-                  'email': emailCtrl.text.trim(),
-                  'password': passwordCtrl.text.isEmpty
-                      ? null
-                      : passwordCtrl.text,
-                  'nombreCompleto': nameCtrl.text.trim(),
-                  'telefono': phoneCtrl.text.trim(),
-                  'numeroFlota': numeroFlotaCtrl.text.trim(),
-                  'telefonoFamiliar': familiarPhoneCtrl.text.trim(),
-                  'cedula': cedulaCtrl.text.trim(),
-                  'fotoCedulaUrl': fotoCedulaUrl,
-                  'fotoLicenciaUrl': fotoLicenciaUrl,
-                  'fotoPersonalUrl': fotoPersonalUrl,
-                  'edad': edad,
-                  'fechaIngreso': fechaIngreso?.toIso8601String(),
-                  'fechaNacimiento': fechaNacimiento?.toIso8601String(),
-                  'cuentaNominaPreferencial': cuentaNominaCtrl.text.trim(),
-                  'workContractJobTitle': contractJobTitleCtrl.text.trim(),
-                  'workContractSalary': contractSalaryCtrl.text.trim(),
-                  'workContractPaymentFrequency': contractPaymentFrequencyCtrl
-                      .text
-                      .trim(),
-                  'workContractPaymentMethod': contractPaymentMethodCtrl.text
-                      .trim(),
-                  'workContractWorkSchedule': contractWorkScheduleCtrl.text
-                      .trim(),
-                  'workContractWorkLocation': contractWorkLocationCtrl.text
-                      .trim(),
-                  'workContractCustomClauses': contractCustomClausesCtrl.text
-                      .trim(),
-                  'workContractStartDate': workContractStartDate
-                      ?.toIso8601String(),
-                  'habilidades': habilidades,
-                  'tieneHijos': tieneHijos,
-                  'estaCasado': estaCasado,
-                  'casaPropia': casaPropia,
-                  'vehiculo': vehiculo,
-                  'licenciaConducir': licenciaConducir,
-                  'role': selectedRole,
-                  'blocked': blocked,
-                };
-                payload.removeWhere(
-                  (key, value) =>
-                      value == null || (value is String && value.isEmpty),
+    Future<void> submitUser(BuildContext modalContext) async {
+      final edad = int.tryParse(edadCtrl.text.trim());
+      if (edad == null) {
+        showSnack(const SnackBar(content: Text('Edad inválida')));
+        return;
+      }
+
+      final payload = <String, dynamic>{
+        'email': emailCtrl.text.trim(),
+        'password': passwordCtrl.text.isEmpty ? null : passwordCtrl.text,
+        'nombreCompleto': nameCtrl.text.trim(),
+        'telefono': phoneCtrl.text.trim(),
+        'numeroFlota': numeroFlotaCtrl.text.trim(),
+        'telefonoFamiliar': familiarPhoneCtrl.text.trim(),
+        'cedula': cedulaCtrl.text.trim(),
+        'fotoCedulaUrl': fotoCedulaUrl,
+        'fotoLicenciaUrl': fotoLicenciaUrl,
+        'fotoPersonalUrl': fotoPersonalUrl,
+        'edad': edad,
+        'fechaIngreso': fechaIngreso?.toIso8601String(),
+        'fechaNacimiento': fechaNacimiento?.toIso8601String(),
+        'cuentaNominaPreferencial': cuentaNominaCtrl.text.trim(),
+        'workContractJobTitle': contractJobTitleCtrl.text.trim(),
+        'workContractSalary': contractSalaryCtrl.text.trim(),
+        'workContractPaymentFrequency': contractPaymentFrequencyCtrl.text
+            .trim(),
+        'workContractPaymentMethod': contractPaymentMethodCtrl.text.trim(),
+        'workContractWorkSchedule': contractWorkScheduleCtrl.text.trim(),
+        'workContractWorkLocation': contractWorkLocationCtrl.text.trim(),
+        'workContractCustomClauses': contractCustomClausesCtrl.text.trim(),
+        'workContractStartDate': workContractStartDate?.toIso8601String(),
+        'habilidades': habilidades,
+        'tieneHijos': tieneHijos,
+        'estaCasado': estaCasado,
+        'casaPropia': casaPropia,
+        'vehiculo': vehiculo,
+        'licenciaConducir': licenciaConducir,
+        'role': selectedRole,
+        'blocked': blocked,
+      };
+      payload.removeWhere(
+        (key, value) => value == null || (value is String && value.isEmpty),
+      );
+
+      if (user == null && !payload.containsKey('password')) {
+        showSnack(
+          const SnackBar(
+            content: Text('La contraseña es obligatoria al crear'),
+          ),
+        );
+        return;
+      }
+
+      if (!payload.containsKey('cedula')) {
+        showSnack(const SnackBar(content: Text('La cédula es obligatoria')));
+        return;
+      }
+
+      if (!payload.containsKey('numeroFlota')) {
+        showSnack(
+          const SnackBar(content: Text('El número de flota es obligatorio')),
+        );
+        return;
+      }
+
+      if (!payload.containsKey('telefonoFamiliar')) {
+        showSnack(
+          const SnackBar(
+            content: Text('El teléfono de familiar es obligatorio'),
+          ),
+        );
+        return;
+      }
+
+      if (user == null && !payload.containsKey('fotoCedulaUrl')) {
+        showSnack(
+          const SnackBar(content: Text('Debes subir la foto de la cédula')),
+        );
+        return;
+      }
+
+      try {
+        if (user == null) {
+          await ref.read(usersControllerProvider.notifier).create(payload);
+          if (!modalContext.mounted) return;
+          showSnack(const SnackBar(content: Text('Usuario creado')));
+        } else {
+          await ref
+              .read(usersControllerProvider.notifier)
+              .update(user.id, payload);
+          if (!modalContext.mounted) return;
+          showSnack(const SnackBar(content: Text('Usuario actualizado')));
+        }
+        if (!modalContext.mounted) return;
+        Navigator.of(modalContext).pop();
+      } catch (e) {
+        if (!modalContext.mounted) return;
+        showSnack(SnackBar(content: Text('Error: $e')));
+      }
+    }
+
+    Widget buildFormBody(
+      BuildContext modalContext,
+      void Function(VoidCallback fn) setModalState,
+    ) {
+      return Scrollbar(
+        controller: formScrollController,
+        thumbVisibility: true,
+        child: ListView(
+          controller: formScrollController,
+          primary: false,
+          padding: const EdgeInsets.fromLTRB(22, 20, 22, 22),
+          children: [
+            sectionHeader(
+              modalContext,
+              'Información principal',
+              subtitle:
+                  'Completa los datos básicos y de acceso del usuario en una sola columna.',
+            ),
+            TextField(
+              controller: nameCtrl,
+              decoration: const InputDecoration(labelText: 'Nombre completo'),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: emailCtrl,
+              decoration: const InputDecoration(labelText: 'Email'),
+              keyboardType: TextInputType.emailAddress,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: phoneCtrl,
+              decoration: const InputDecoration(labelText: 'Teléfono'),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: numeroFlotaCtrl,
+              decoration: const InputDecoration(labelText: 'Número de flota'),
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: familiarPhoneCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Teléfono de familiar',
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: cedulaCtrl,
+              decoration: const InputDecoration(labelText: 'Número de cédula'),
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.document_scanner_outlined),
+                label: Text(
+                  scanningCedula
+                      ? 'Escaneando cédula...'
+                      : 'Escanear cédula (IA)',
+                ),
+                onPressed: scanningCedula
+                    ? null
+                    : () async {
+                        final result = await FilePicker.platform.pickFiles(
+                          type: FileType.custom,
+                          allowedExtensions: const [
+                            'jpg',
+                            'jpeg',
+                            'png',
+                            'webp',
+                          ],
+                          withData: true,
+                        );
+
+                        if (result == null || result.files.isEmpty) return;
+                        final file = result.files.first;
+                        final bytes = file.bytes;
+                        if (bytes == null || bytes.isEmpty) {
+                          if (!modalContext.mounted) return;
+                          showSnack(
+                            const SnackBar(
+                              content: Text(
+                                'No se pudo leer la imagen seleccionada',
+                              ),
+                            ),
+                          );
+                          return;
+                        }
+
+                        setModalState(() => scanningCedula = true);
+                        try {
+                          final uploadedUrl = await ref
+                              .read(usersControllerProvider.notifier)
+                              .uploadDocument(
+                                bytes: bytes,
+                                fileName: file.name,
+                                kind: 'cedula',
+                                userId: user?.id,
+                              );
+                          setModalState(() => fotoCedulaUrl = uploadedUrl);
+
+                          final ocr = ref.read(cedulaOcrServiceProvider);
+                          final ocrResult = await ocr.scan(
+                            bytes: bytes,
+                            fileName: file.name,
+                          );
+
+                          final cedula = (ocrResult.cedula ?? '').trim();
+                          if (cedula.isNotEmpty &&
+                              cedulaCtrl.text.trim().isEmpty) {
+                            cedulaCtrl.text = cedula;
+                          }
+
+                          final nombre = (ocrResult.nombreCompleto ?? '')
+                              .trim();
+                          if (nombre.isNotEmpty &&
+                              nameCtrl.text.trim().isEmpty) {
+                            nameCtrl.text = nombre;
+                          }
+
+                          if (ocrResult.fechaNacimiento != null &&
+                              fechaNacimiento == null) {
+                            setModalState(
+                              () => fechaNacimiento = ocrResult.fechaNacimiento,
+                            );
+
+                            if (edadCtrl.text.trim().isEmpty) {
+                              final now = DateTime.now();
+                              final dob = ocrResult.fechaNacimiento!;
+                              var age = now.year - dob.year;
+                              final hadBirthdayThisYear =
+                                  (now.month > dob.month) ||
+                                  (now.month == dob.month &&
+                                      now.day >= dob.day);
+                              if (!hadBirthdayThisYear) age -= 1;
+                              if (age >= 0 && age <= 120) {
+                                edadCtrl.text = age.toString();
+                              }
+                            }
+                          }
+
+                          if (!modalContext.mounted) return;
+                          showSnack(
+                            const SnackBar(
+                              content: Text(
+                                'Cédula escaneada y datos autollenados',
+                              ),
+                            ),
+                          );
+                        } catch (e) {
+                          if (!modalContext.mounted) return;
+                          showSnack(
+                            SnackBar(
+                              content: Text(
+                                'No se pudo escanear la cédula: $e',
+                              ),
+                            ),
+                          );
+                        } finally {
+                          if (modalContext.mounted) {
+                            setModalState(() => scanningCedula = false);
+                          }
+                        }
+                      },
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: edadCtrl,
+              decoration: const InputDecoration(labelText: 'Edad'),
+              keyboardType: TextInputType.number,
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              initialValue: selectedRole,
+              decoration: const InputDecoration(labelText: 'Rol'),
+              items: const [
+                DropdownMenuItem(value: 'ADMIN', child: Text('Administrador')),
+                DropdownMenuItem(value: 'ASISTENTE', child: Text('Asistente')),
+                DropdownMenuItem(value: 'VENDEDOR', child: Text('Vendedor')),
+                DropdownMenuItem(value: 'MARKETING', child: Text('Marketing')),
+                DropdownMenuItem(value: 'TECNICO', child: Text('Técnico')),
+              ],
+              onChanged: (val) => selectedRole = val ?? 'ASISTENTE',
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: passwordCtrl,
+              decoration: InputDecoration(
+                labelText: user == null
+                    ? 'Contraseña'
+                    : 'Contraseña (opcional)',
+              ),
+              obscureText: true,
+            ),
+            const SizedBox(height: 24),
+            sectionHeader(
+              modalContext,
+              'Datos personales y laborales',
+              subtitle:
+                  'Mantén juntos los datos de nómina, fechas y configuración del contrato.',
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Fecha de ingreso (opcional)'),
+              subtitle: Text(
+                fechaIngreso == null
+                    ? 'Seleccionar fecha'
+                    : DateFormat('dd/MM/yyyy').format(fechaIngreso!),
+              ),
+              trailing: const Icon(Icons.calendar_today_outlined),
+              onTap: () async {
+                final now = DateTime.now();
+                final picked = await showDatePicker(
+                  context: modalContext,
+                  initialDate: fechaIngreso ?? now,
+                  firstDate: DateTime(1990),
+                  lastDate: DateTime(now.year + 5),
                 );
-
-                if (user == null && !payload.containsKey('password')) {
-                  showSnack(
-                    const SnackBar(
-                      content: Text('La contraseña es obligatoria al crear'),
-                    ),
-                  );
-                  return;
-                }
-
-                if (!payload.containsKey('cedula')) {
-                  showSnack(
-                    const SnackBar(content: Text('La cédula es obligatoria')),
-                  );
-                  return;
-                }
-
-                if (!payload.containsKey('numeroFlota')) {
-                  showSnack(
-                    const SnackBar(
-                      content: Text('El número de flota es obligatorio'),
-                    ),
-                  );
-                  return;
-                }
-
-                if (!payload.containsKey('telefonoFamiliar')) {
-                  showSnack(
-                    const SnackBar(
-                      content: Text('El teléfono de familiar es obligatorio'),
-                    ),
-                  );
-                  return;
-                }
-
-                if (user == null && !payload.containsKey('fotoCedulaUrl')) {
-                  showSnack(
-                    const SnackBar(
-                      content: Text('Debes subir la foto de la cédula'),
-                    ),
-                  );
-                  return;
-                }
-
-                try {
-                  if (user == null) {
-                    await ref
-                        .read(usersControllerProvider.notifier)
-                        .create(payload);
-                    if (!context.mounted) return;
-                    showSnack(const SnackBar(content: Text('Usuario creado')));
-                  } else {
-                    await ref
-                        .read(usersControllerProvider.notifier)
-                        .update(user.id, payload);
-                    if (!context.mounted) return;
-                    showSnack(
-                      const SnackBar(content: Text('Usuario actualizado')),
-                    );
-                  }
-                  if (!context.mounted) return;
-                  Navigator.pop(context);
-                } catch (e) {
-                  if (!context.mounted) return;
-                  showSnack(SnackBar(content: Text('Error: $e')));
+                if (picked != null) {
+                  setModalState(() => fechaIngreso = picked);
                 }
               },
-              child: Text(user == null ? 'Crear' : 'Guardar'),
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Fecha de nacimiento (opcional)'),
+              subtitle: Text(
+                fechaNacimiento == null
+                    ? 'Seleccionar fecha'
+                    : DateFormat('dd/MM/yyyy').format(fechaNacimiento!),
+              ),
+              trailing: const Icon(Icons.cake_outlined),
+              onTap: () async {
+                final now = DateTime.now();
+                final picked = await showDatePicker(
+                  context: modalContext,
+                  initialDate: fechaNacimiento ?? DateTime(now.year - 18),
+                  firstDate: DateTime(1940),
+                  lastDate: now,
+                );
+                if (picked != null) {
+                  setModalState(() => fechaNacimiento = picked);
+                }
+              },
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: cuentaNominaCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Cuenta preferencial para nómina (opcional)',
+                hintText: 'Ej: Banco, tipo, # cuenta o # IBAN',
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: contractJobTitleCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Cargo contractual (opcional)',
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: contractSalaryCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Salario contractual (opcional)',
+                hintText: 'Ej: RD\$ 25,000.00',
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: contractPaymentFrequencyCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Periodicidad de pago (opcional)',
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: contractPaymentMethodCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Método de pago (opcional)',
+              ),
+            ),
+            const SizedBox(height: 12),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Fecha de inicio contractual (opcional)'),
+              subtitle: Text(
+                workContractStartDate == null
+                    ? 'Usar fecha de ingreso'
+                    : DateFormat('dd/MM/yyyy').format(workContractStartDate!),
+              ),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (workContractStartDate != null)
+                    IconButton(
+                      tooltip: 'Quitar fecha',
+                      onPressed: () =>
+                          setModalState(() => workContractStartDate = null),
+                      icon: const Icon(Icons.delete_outline),
+                    ),
+                  const Icon(Icons.calendar_today_outlined),
+                ],
+              ),
+              onTap: () async {
+                final now = DateTime.now();
+                final picked = await showDatePicker(
+                  context: modalContext,
+                  initialDate: workContractStartDate ?? fechaIngreso ?? now,
+                  firstDate: DateTime(1990),
+                  lastDate: DateTime(now.year + 5),
+                );
+                if (picked != null) {
+                  setModalState(() => workContractStartDate = picked);
+                }
+              },
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: contractWorkScheduleCtrl,
+              maxLines: 2,
+              decoration: const InputDecoration(
+                labelText: 'Horario contractual (opcional)',
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: contractWorkLocationCtrl,
+              maxLines: 2,
+              decoration: const InputDecoration(
+                labelText: 'Lugar de trabajo contractual (opcional)',
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: contractCustomClausesCtrl,
+              maxLines: 4,
+              decoration: const InputDecoration(
+                labelText: 'Cláusulas especiales (opcional)',
+              ),
+            ),
+            const SizedBox(height: 24),
+            sectionHeader(
+              modalContext,
+              'Documentos y archivos',
+              subtitle:
+                  'Carga aquí toda la documentación requerida para completar el alta.',
+            ),
+            _UploadTile(
+              title: 'Foto de cédula *',
+              isUploaded: fotoCedulaUrl != null && fotoCedulaUrl!.isNotEmpty,
+              onTap: () async {
+                final uploaded = await _pickAndUploadImage(
+                  scaffoldContext,
+                  ref,
+                  kind: 'cedula',
+                  userId: user?.id,
+                );
+                if (uploaded != null) {
+                  setModalState(() => fotoCedulaUrl = uploaded);
+                }
+              },
+            ),
+            const SizedBox(height: 8),
+            _UploadTile(
+              title: 'Foto de licencia (opcional)',
+              isUploaded:
+                  fotoLicenciaUrl != null && fotoLicenciaUrl!.isNotEmpty,
+              onTap: () async {
+                final uploaded = await _pickAndUploadImage(
+                  scaffoldContext,
+                  ref,
+                  kind: 'licencia',
+                  userId: user?.id,
+                );
+                if (uploaded != null) {
+                  setModalState(() => fotoLicenciaUrl = uploaded);
+                }
+              },
+            ),
+            const SizedBox(height: 8),
+            _UploadTile(
+              title: 'Foto personal (opcional)',
+              isUploaded:
+                  fotoPersonalUrl != null && fotoPersonalUrl!.isNotEmpty,
+              onTap: () async {
+                final uploaded = await _pickAndUploadImage(
+                  scaffoldContext,
+                  ref,
+                  kind: 'personal',
+                  userId: user?.id,
+                );
+                if (uploaded != null) {
+                  setModalState(() => fotoPersonalUrl = uploaded);
+                }
+              },
+            ),
+            const SizedBox(height: 24),
+            sectionHeader(
+              modalContext,
+              'Perfil personal',
+              subtitle:
+                  'Agrupa las habilidades y el estado personal del usuario.',
+            ),
+            if (habilidades.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: habilidades
+                        .map(
+                          (h) => Chip(
+                            label: Text(h),
+                            onDeleted: () =>
+                                setModalState(() => habilidades.remove(h)),
+                          ),
+                        )
+                        .toList(growable: false),
+                  ),
+                ),
+              ),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: habilidadCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Agregar habilidad',
+                    ),
+                    textInputAction: TextInputAction.done,
+                    onSubmitted: (value) {
+                      final skill = value.trim();
+                      if (skill.isEmpty) return;
+                      if (habilidades.contains(skill)) {
+                        habilidadCtrl.clear();
+                        return;
+                      }
+                      setModalState(() {
+                        habilidades.add(skill);
+                        habilidadCtrl.clear();
+                      });
+                    },
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  onPressed: () {
+                    final skill = habilidadCtrl.text.trim();
+                    if (skill.isEmpty) return;
+                    if (habilidades.contains(skill)) {
+                      habilidadCtrl.clear();
+                      return;
+                    }
+                    setModalState(() {
+                      habilidades.add(skill);
+                      habilidadCtrl.clear();
+                    });
+                  },
+                  icon: const Icon(Icons.add_circle_outline),
+                  tooltip: 'Agregar',
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Tiene hijos'),
+              value: tieneHijos,
+              onChanged: (v) => setModalState(() => tieneHijos = v),
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Está casado/a'),
+              value: estaCasado,
+              onChanged: (v) => setModalState(() => estaCasado = v),
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Casa propia'),
+              value: casaPropia,
+              onChanged: (v) => setModalState(() => casaPropia = v),
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Posee vehículo'),
+              value: vehiculo,
+              onChanged: (v) => setModalState(() => vehiculo = v),
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Licencia de conducir'),
+              value: licenciaConducir,
+              onChanged: (v) => setModalState(() => licenciaConducir = v),
+            ),
+            if (user != null) ...[
+              const SizedBox(height: 24),
+              sectionHeader(modalContext, 'Estado de acceso'),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Bloqueado'),
+                value: blocked,
+                onChanged: (v) => setModalState(() => blocked = v),
+              ),
+            ],
+          ],
+        ),
+      );
+    }
+
+    Widget buildActionBar(BuildContext modalContext) {
+      return SafeArea(
+        top: false,
+        minimum: const EdgeInsets.fromLTRB(22, 10, 22, 18),
+        child: Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: () => Navigator.of(modalContext).pop(),
+                child: const Text('Cancelar'),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: FilledButton(
+                onPressed: () => submitUser(modalContext),
+                child: Text(user == null ? 'Crear usuario' : 'Guardar cambios'),
+              ),
             ),
           ],
         ),
-      ),
-    );
+      );
+    }
+
+    Widget buildSheet(
+      BuildContext modalContext,
+      void Function(VoidCallback fn) setModalState, {
+      required bool desktop,
+    }) {
+      final theme = Theme.of(modalContext);
+      final title = user == null ? 'Nuevo usuario' : 'Editar usuario';
+
+      return Material(
+        color: theme.colorScheme.surface,
+        child: Container(
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            borderRadius: desktop
+                ? const BorderRadius.horizontal(left: Radius.circular(28))
+                : BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.18),
+                blurRadius: 28,
+                offset: const Offset(0, 18),
+              ),
+            ],
+          ),
+          child: Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.fromLTRB(22, 18, 14, 18),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      theme.colorScheme.primary,
+                      theme.colorScheme.primary.withValues(alpha: 0.84),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                ),
+                child: SafeArea(
+                  bottom: false,
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              title,
+                              style: theme.textTheme.titleLarge?.copyWith(
+                                color: theme.colorScheme.onPrimary,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Organiza y completa todos los datos del usuario en este panel lateral.',
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: theme.colorScheme.onPrimary.withValues(
+                                  alpha: 0.84,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton.filledTonal(
+                        tooltip: 'Cerrar',
+                        onPressed: () => Navigator.of(modalContext).pop(),
+                        style: IconButton.styleFrom(
+                          backgroundColor: Colors.white.withValues(alpha: 0.18),
+                          foregroundColor: theme.colorScheme.onPrimary,
+                        ),
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              Expanded(child: buildFormBody(modalContext, setModalState)),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surface,
+                  border: Border(
+                    top: BorderSide(color: theme.colorScheme.outlineVariant),
+                  ),
+                ),
+                child: buildActionBar(modalContext),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final isDesktop = _isDesktop(context);
+    final dialogFuture = isDesktop
+        ? showGeneralDialog<void>(
+            context: context,
+            barrierDismissible: true,
+            barrierLabel: user == null ? 'Crear usuario' : 'Editar usuario',
+            barrierColor: Colors.black.withValues(alpha: 0.22),
+            transitionDuration: const Duration(milliseconds: 260),
+            pageBuilder: (dialogContext, animation, secondaryAnimation) {
+              final size = MediaQuery.sizeOf(dialogContext);
+              final panelWidth = size.width >= 1700
+                  ? 760.0
+                  : size.width >= 1440
+                  ? 700.0
+                  : size.width >= 1200
+                  ? 640.0
+                  : (size.width * 0.52).clamp(540.0, 700.0);
+
+              return Material(
+                color: Colors.transparent,
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: SizedBox(
+                    width: panelWidth,
+                    height: size.height,
+                    child: StatefulBuilder(
+                      builder: (dialogContext, setModalState) => buildSheet(
+                        dialogContext,
+                        setModalState,
+                        desktop: true,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+            transitionBuilder: (context, animation, secondaryAnimation, child) {
+              final curved = CurvedAnimation(
+                parent: animation,
+                curve: Curves.easeOutCubic,
+                reverseCurve: Curves.easeInCubic,
+              );
+              return FadeTransition(
+                opacity: Tween<double>(begin: 0, end: 1).animate(curved),
+                child: SlideTransition(
+                  position: Tween<Offset>(
+                    begin: const Offset(0.08, 0),
+                    end: Offset.zero,
+                  ).animate(curved),
+                  child: child,
+                ),
+              );
+            },
+          )
+        : showDialog<void>(
+            context: context,
+            builder: (dialogContext) {
+              final size = MediaQuery.sizeOf(dialogContext);
+              return Dialog(
+                insetPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 18,
+                ),
+                backgroundColor: Colors.transparent,
+                elevation: 0,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: 720,
+                    maxHeight: size.height * 0.94,
+                  ),
+                  child: StatefulBuilder(
+                    builder: (dialogContext, setModalState) => buildSheet(
+                      dialogContext,
+                      setModalState,
+                      desktop: false,
+                    ),
+                  ),
+                ),
+              );
+            },
+          );
+
+    dialogFuture.whenComplete(() {
+      nameCtrl.dispose();
+      emailCtrl.dispose();
+      phoneCtrl.dispose();
+      numeroFlotaCtrl.dispose();
+      cedulaCtrl.dispose();
+      familiarPhoneCtrl.dispose();
+      edadCtrl.dispose();
+      cuentaNominaCtrl.dispose();
+      contractJobTitleCtrl.dispose();
+      contractSalaryCtrl.dispose();
+      contractPaymentFrequencyCtrl.dispose();
+      contractPaymentMethodCtrl.dispose();
+      contractWorkScheduleCtrl.dispose();
+      contractWorkLocationCtrl.dispose();
+      contractCustomClausesCtrl.dispose();
+      passwordCtrl.dispose();
+      habilidadCtrl.dispose();
+      formScrollController.dispose();
+    });
   }
 
   void _showDeleteDialog(BuildContext context, WidgetRef ref, UserModel user) {
@@ -1396,7 +1603,9 @@ class _UserDetailsScreen extends StatelessWidget {
                     decoration: BoxDecoration(
                       color: theme.colorScheme.surface,
                       borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: theme.colorScheme.outlineVariant),
+                      border: Border.all(
+                        color: theme.colorScheme.outlineVariant,
+                      ),
                     ),
                     child: Row(
                       children: [
@@ -1434,7 +1643,10 @@ class _UserDetailsScreen extends StatelessWidget {
                       _DetailRow('Email', user.email),
                       _DetailRow('Rol', user.role ?? '—'),
                       _DetailRow('Teléfono', user.telefono),
-                      _DetailRow('Teléfono familiar', user.telefonoFamiliar ?? '—'),
+                      _DetailRow(
+                        'Teléfono familiar',
+                        user.telefonoFamiliar ?? '—',
+                      ),
                       _DetailRow('Cédula', user.cedula ?? '—'),
                       _DetailRow('Edad', user.edad?.toString() ?? '—'),
                     ],
@@ -1450,11 +1662,16 @@ class _UserDetailsScreen extends StatelessWidget {
                       ),
                       _DetailRow('Casa propia', user.casaPropia ? 'Sí' : 'No'),
                       _DetailRow('Vehículo', user.vehiculo ? 'Sí' : 'No'),
-                      _DetailRow('Licencia', user.licenciaConducir ? 'Sí' : 'No'),
+                      _DetailRow(
+                        'Licencia',
+                        user.licenciaConducir ? 'Sí' : 'No',
+                      ),
                       _DetailRow(
                         'Fecha de ingreso',
                         user.fechaIngreso != null
-                            ? DateFormat('dd/MM/yyyy').format(user.fechaIngreso!)
+                            ? DateFormat(
+                                'dd/MM/yyyy',
+                              ).format(user.fechaIngreso!)
                             : '—',
                       ),
                       _DetailRow(
@@ -1469,7 +1686,9 @@ class _UserDetailsScreen extends StatelessWidget {
                       ),
                       _DetailRow(
                         'Habilidades',
-                        user.habilidades.isEmpty ? '—' : user.habilidades.join(', '),
+                        user.habilidades.isEmpty
+                            ? '—'
+                            : user.habilidades.join(', '),
                       ),
                       _DetailRow(
                         'Creado',
