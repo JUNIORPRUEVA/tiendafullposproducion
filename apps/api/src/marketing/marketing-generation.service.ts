@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { MarketingStoryType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MarketingImageGenerationService } from './marketing-image-generation.service';
@@ -150,6 +150,7 @@ export class MarketingGenerationService {
           researchConfig,
           usedAssetIds,
         });
+        this.assertReadyToSave(content, visualData);
         await this.prisma.marketingDailyStory.create({
           data: {
             companyId,
@@ -202,6 +203,7 @@ export class MarketingGenerationService {
         researchConfig,
         usedAssetIds,
       });
+        this.assertReadyToSave(content, visualData);
       await this.prisma.marketingDailyStory.update({
         where: { id: current.id },
         data: {
@@ -291,6 +293,7 @@ export class MarketingGenerationService {
       researchConfig,
       usedAssetIds: new Set<string>(story.mediaAssetId ? [story.mediaAssetId] : []),
     });
+    this.assertReadyToSave(content, visualData);
 
     const updated = await this.prisma.marketingDailyStory.update({
       where: { id: story.id },
@@ -580,10 +583,10 @@ export class MarketingGenerationService {
 
     const usedResearchAngle = strong[0] || hooks[0] || input.content.shortText;
     const usedOffer = offers[0] || input.content.shortText;
-    const usedCTA = ctas[0] || input.researchConfig?.defaultCTA || 'Cotiza por WhatsApp hoy';
+    const usedCTA = this.pickNaturalCta(ctas, input.researchConfig?.defaultCTA || 'Cotiza por WhatsApp hoy');
     const primaryService = products[0] || mainServices[0] || input.researchConfig?.priorityServices?.[0] || '';
 
-    const selected = input.forceAssetId
+    let selected = input.forceAssetId
       ? await this.prisma.marketingMediaAsset.findFirst({
           where: { id: input.forceAssetId, companyId: input.companyId, isActive: true },
         })
@@ -599,23 +602,48 @@ export class MarketingGenerationService {
     const designNotes = this.buildDesignNotes(input.type, usedCTA);
 
     if (!selected) {
-      return {
-        mediaAssetId: null,
-        imagePrompt: input.forcedPrompt || input.content.imagePrompt,
-        imageUrl: 'image_placeholder_pending_media_9_16',
+      const generatedWithoutBase = await this.imageGeneration.generateOrPrepare({
+        companyName: input.researchConfig?.businessName ?? 'FULLTECH SRL',
+        city: input.researchConfig?.city ?? 'Higüey',
+        country: input.researchConfig?.country ?? 'República Dominicana',
+        brandTone: input.researchConfig?.brandTone ?? 'tecnológico, limpio y profesional',
+        brandColors: this.safeStringArray(input.researchConfig?.brandColors),
+        title: input.content.title,
+        cta: usedCTA,
+        offer: usedOffer,
         visualConcept,
         designNotes,
-        imageStatus: 'PENDING_MEDIA' as const,
-        generatedImageUrl: null,
-        generatedImageProvider: 'placeholder/local',
-        imageGenerationMetadata: {
-          reason: 'NO_MATCHING_MEDIA_ASSET',
-          format: '9:16',
-        },
+        baseImageUrl: '',
+        imageCategory: this.galleryCategoryForType(input.type),
+        serviceOrProduct: primaryService,
         usedResearchAngle,
-        usedOffer,
-        usedCTA,
-      };
+      });
+
+      const generatedUrl = (generatedWithoutBase.generatedImageUrl || '').trim();
+      if (!generatedUrl) {
+        throw new ConflictException('No se pudo generar imagen IA para el estado');
+      }
+
+      selected = await this.prisma.marketingMediaAsset.create({
+        data: {
+          companyId: input.companyId,
+          fileUrl: generatedUrl,
+          thumbnailUrl: generatedUrl,
+          fileName: `ai-${this.storyTypeSlug(input.type)}-${Date.now()}.png`,
+          mimeType: 'image/png',
+          category: this.galleryCategoryForType(input.type),
+          relatedService: primaryService || null,
+          tags: [
+            'ai-generated',
+            'marketing',
+            this.storyTypeSlug(input.type),
+            ...(primaryService ? [primaryService.toLowerCase()] : []),
+          ],
+          description: `Generada automaticamente para estado ${this.storyTypeSlug(input.type)} en formato 9:16`,
+          isActive: true,
+          isFeatured: false,
+        },
+      });
     }
 
     const generated = await this.imageGeneration.generateOrPrepare({
@@ -635,14 +663,19 @@ export class MarketingGenerationService {
       usedResearchAngle,
     });
 
+    const finalImageUrl = (selected.fileUrl || '').trim();
+    if (!finalImageUrl) {
+      throw new ConflictException('El estado no tiene imagen final valida desde Galeria Publicitaria');
+    }
+
     return {
       mediaAssetId: selected.id,
       imagePrompt: input.forcedPrompt || generated.prompt,
-      imageUrl: generated.generatedImageUrl || selected.fileUrl,
+      imageUrl: finalImageUrl,
       visualConcept: generated.visualConcept,
       designNotes: generated.designNotes,
       imageStatus: generated.imageStatus,
-      generatedImageUrl: generated.generatedImageUrl,
+      generatedImageUrl: finalImageUrl,
       generatedImageProvider: generated.generatedImageProvider,
       imageGenerationMetadata: generated.metadata,
       usedResearchAngle,
@@ -669,6 +702,57 @@ export class MarketingGenerationService {
       return `Destacar personas/equipo o evidencia real, tono profesional, sello de confianza y CTA corto: ${cta}.`;
     }
     return `Distribución limpia con espacio para texto, estilo infografía ligera, cierre con CTA: ${cta}.`;
+  }
+
+  private galleryCategoryForType(type: MarketingStoryType) {
+    if (type === 'SALES') return 'Promociones y productos';
+    if (type === 'TRUST') return 'Instalaciones reales';
+    return 'Tecnología general';
+  }
+
+  private storyTypeSlug(type: MarketingStoryType) {
+    if (type === 'SALES') return 'venta';
+    if (type === 'TRUST') return 'confianza';
+    return 'educativo';
+  }
+
+  private assertReadyToSave(
+    content: StoryTemplate,
+    visual: {
+      mediaAssetId: string | null;
+      imageUrl: string;
+      generatedImageUrl: string | null;
+      usedCTA: string;
+    },
+  ) {
+    const title = (content.title || '').trim();
+    const shortText = (content.shortText || '').trim();
+    const cta = (visual.usedCTA || '').trim();
+    const image = (visual.imageUrl || visual.generatedImageUrl || '').trim();
+    if (!title || !shortText || !cta) {
+      throw new ConflictException('No se puede guardar estado sin copy completo (headline, texto corto y CTA)');
+    }
+    if (!image || !visual.mediaAssetId) {
+      throw new ConflictException('No se puede guardar estado sin imagen final de Galeria Publicitaria');
+    }
+  }
+
+  private pickNaturalCta(recommended: string[], fallback: string) {
+    const options = [
+      ...recommended,
+      fallback,
+      'Escribenos por WhatsApp y te orientamos rapido',
+      'Llamanos hoy y te cotizamos sin compromiso',
+      'Mira esto y consultanos ahora mismo',
+    ]
+      .map((item) => `${item || ''}`.trim())
+      .filter((item) => item.length > 0);
+
+    if (options.length === 0) {
+      return 'Escribenos por WhatsApp y te orientamos rapido';
+    }
+    const index = Math.floor(Math.random() * options.length);
+    return options[index];
   }
 
   private safeStringArray(value: unknown): string[] {

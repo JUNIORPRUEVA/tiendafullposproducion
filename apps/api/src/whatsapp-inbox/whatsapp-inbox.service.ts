@@ -89,10 +89,17 @@ type WhatsappAiMediaContext = {
 
 type WhatsappAiMessageContext = {
   id: string;
+  timestamp: string;
   time: string;
-  direction: 'cliente' | 'vendedor';
+  direction: 'inbound' | 'outbound';
+  senderRole: 'cliente' | 'vendedor';
   senderName: string | null;
+  senderPhone: string | null;
+  instanceName: string;
+  fromMe: boolean;
+  body: string;
   type: string;
+  messageType: string;
   text: string;
   media: WhatsappAiMediaContext | null;
 };
@@ -111,7 +118,17 @@ type WhatsappAiConversationContext = {
   averageResponseMinutes: number | null;
   maxResponseMinutes: number | null;
   unansweredIncomingMessages: number;
+  lastMessageBy: 'cliente' | 'vendedor' | 'desconocido';
+  responsibilityDetected: string;
   messages: WhatsappAiMessageContext[];
+};
+
+type WhatsappAiAskInput = {
+  analysisReportId: string;
+  question: string;
+  conversationId?: string;
+  dateRange?: unknown;
+  generatedBy?: string | null;
 };
 
 type WhatsappAiReport = {
@@ -134,6 +151,15 @@ type WhatsappAiReport = {
     prioridad: string;
     accionRecomendada: string;
     clasificacion: string;
+  }>;
+  responsabilidadDetectada?: Array<{
+    conversationId?: string;
+    cliente: string;
+    atendidoPor: string;
+    estado: string;
+    evidencia: string;
+    ultimoMensajeDe: string;
+    accion: string;
   }>;
 };
 
@@ -907,6 +933,10 @@ export class WhatsappInboxService {
   }
 
   private whatsappMessageBaseSelect() {
+    const reportWithResponsibility = {
+      ...input.report,
+      responsabilidadDetectada,
+    };
     return {
       id: true,
       conversationId: true,
@@ -3265,7 +3295,7 @@ export class WhatsappInboxService {
       mediaSummaries,
     });
 
-    await this.saveWhatsappAiReport({
+    const analysisReportId = await this.saveWhatsappAiReport({
       scope,
       conversationId: scope === 'conversation' ? input.conversationId : null,
       dateRangeKey: cacheKey,
@@ -3276,7 +3306,7 @@ export class WhatsappInboxService {
       generatedBy: input.generatedBy ?? null,
     }).catch(() => null);
 
-    return response;
+    return { ...response, analysisReportId };
   }
 
   private resolveWhatsappAiDateRange(filter: WhatsappAiFilter, customDate?: string) {
@@ -3398,9 +3428,9 @@ export class WhatsappInboxService {
     dateRangeKey: string;
     fingerprint: string;
   }) {
-    type Row = { report: Prisma.JsonValue; generated_at: Date };
+    type Row = { id: string; report: Prisma.JsonValue; generated_at: Date };
     const rows = await this.prisma.$queryRaw<Row[]>`
-      SELECT report, generated_at
+      SELECT id, report, generated_at
       FROM whatsapp_ai_analysis_reports
       WHERE scope = ${input.scope}
         AND date_range_key = ${input.dateRangeKey}
@@ -3414,7 +3444,7 @@ export class WhatsappInboxService {
     `.catch(() => [] as Row[]);
     const report = rows[0]?.report;
     if (!report || typeof report !== 'object' || Array.isArray(report)) return null;
-    return { ...(report as Record<string, unknown>), cached: true };
+    return { ...(report as Record<string, unknown>), cached: true, analysisReportId: rows[0].id };
   }
 
   private async ensureWhatsappAiMediaSummaries(
@@ -3628,6 +3658,17 @@ export class WhatsappInboxService {
         }
       }
       const contact = readableSenderName(conv.remoteName, conv.remotePhone) ?? conv.remotePhone ?? conv.remoteJid;
+      const last = items[items.length - 1];
+      const lastMessageBy = last
+        ? last.direction === WhatsappMessageDirection.OUTGOING
+          ? 'vendedor'
+          : 'cliente'
+        : 'desconocido';
+      const responsibilityDetected = this.detectWhatsappResponsibility({
+        lastMessageBy,
+        unansweredIncomingMessages,
+        totalMessages: items.length,
+      });
       return {
         conversationId,
         contact,
@@ -3644,17 +3685,43 @@ export class WhatsappInboxService {
           : null,
         maxResponseMinutes: responseTimes.length ? Math.round(Math.max(...responseTimes)) : null,
         unansweredIncomingMessages,
+        lastMessageBy,
+        responsibilityDetected,
         messages: items.slice(-80).map((m) => ({
           id: m.id,
+          timestamp: m.sentAt.toISOString(),
           time: m.sentAt.toISOString(),
-          direction: m.direction === WhatsappMessageDirection.OUTGOING ? 'vendedor' : 'cliente',
-          senderName: m.senderName,
+          direction: m.direction === WhatsappMessageDirection.OUTGOING ? 'outbound' : 'inbound',
+          senderRole: m.direction === WhatsappMessageDirection.OUTGOING ? 'vendedor' : 'cliente',
+          senderName: m.direction === WhatsappMessageDirection.OUTGOING
+            ? (m.senderName ?? conv.instance?.user?.nombreCompleto ?? conv.instance?.instanceName ?? 'Vendedor')
+            : (m.senderName ?? contact),
+          senderPhone: m.direction === WhatsappMessageDirection.OUTGOING
+            ? (conv.instance?.phoneNumber ?? null)
+            : (conv.remotePhone ?? null),
+          instanceName: conv.instance?.instanceName ?? '',
+          fromMe: m.direction === WhatsappMessageDirection.OUTGOING,
+          body: (m.body ?? m.caption ?? '').replace(/\s+/g, ' ').trim().slice(0, 1200),
           type: m.messageType,
+          messageType: m.messageType,
           text: (m.body ?? m.caption ?? '').replace(/\s+/g, ' ').trim().slice(0, 1200),
           media: mediaSummaries.get(m.id) ?? null,
         })),
       };
     });
+  }
+
+  private detectWhatsappResponsibility(input: {
+    lastMessageBy: 'cliente' | 'vendedor' | 'desconocido';
+    unansweredIncomingMessages: number;
+    totalMessages: number;
+  }) {
+    if (input.totalMessages === 0) return 'No hay evidencia suficiente';
+    if (input.unansweredIncomingMessages > 0 || input.lastMessageBy === 'cliente') {
+      return 'Vendedor no respondio';
+    }
+    if (input.lastMessageBy === 'vendedor') return 'Cliente no respondio';
+    return 'Conversacion normal';
   }
 
   private buildWhatsappAiStats(conversations: WhatsappAiConversationContext[], range: { label: string; startIso: string; endIso: string }, scope: WhatsappAiScope) {
@@ -3691,6 +3758,21 @@ export class WhatsappInboxService {
       }));
     const critical = problematic.filter((item) => item.prioridad === 'alta').length;
     const fraud = problematic.filter((item) => item.motivo.toLowerCase().includes('fraude')).length;
+    const responsabilidadDetectada = conversations.map((conv) => ({
+      conversationId: conv.conversationId,
+      cliente: `${conv.contact}${conv.phone ? ` (${conv.phone})` : ''}`,
+      atendidoPor: `${conv.userName || 'Usuario no identificado'} / ${conv.instanceName || 'Instancia no identificada'}`,
+      estado: conv.responsibilityDetected,
+      evidencia: conv.messages.length
+        ? `Ultimo mensaje de ${conv.lastMessageBy}. ${this.pickConversationEvidence(conv)}`
+        : 'No hay evidencia suficiente.',
+      ultimoMensajeDe: conv.lastMessageBy,
+      accion: conv.responsibilityDetected === 'Vendedor no respondio'
+        ? 'Dar seguimiento al cliente desde la instancia correspondiente.'
+        : conv.responsibilityDetected === 'Cliente no respondio'
+          ? 'Esperar respuesta o programar seguimiento comercial.'
+          : 'Mantener monitoreo normal.',
+    }));
     return {
       estadoGeneral: critical > 0 ? 'Critico' : problematic.length > 0 ? 'Atencion requerida' : 'Normal',
       resumenEjecutivo: conversations.length === 0
@@ -3709,6 +3791,7 @@ export class WhatsappInboxService {
         ? ['Responder primero los clientes sin respuesta.', 'Confirmar promesas pendientes con fecha y responsable.', 'Escalar reclamos o sospechas de pago antes de entregar productos/servicios.']
         : ['Mantener seguimiento regular y registrar proximos pasos cuando haya interes comercial.'],
       conversacionesProblematicas: problematic,
+      responsabilidadDetectada,
     };
   }
 
@@ -3747,6 +3830,8 @@ export class WhatsappInboxService {
     const systemPrompt =
       `Eres auditor ejecutivo del CRM WhatsApp de ${runtime.companyName}. ` +
       'Analiza conversaciones SOLO con la evidencia provista. No inventes. Diferencia hecho confirmado, sospecha, recomendacion y dato pendiente. ' +
+      'Regla obligatoria de identidad: fromMe=true, direction=outbound y senderRole=vendedor significan mensaje enviado por la empresa/vendedor. fromMe=false, direction=inbound y senderRole=cliente significan mensaje enviado por el cliente/contacto externo. Nunca asumas lo contrario. ' +
+      'Para cada evidencia importante indica quien escribio: cliente o vendedor, y el nombre/telefono/instancia cuando exista. Si no hay evidencia suficiente, dilo exactamente. ' +
       'Detecta posible fraude, conflictos, mala atencion, falta de seguimiento, vendedor sin dedicacion, clientes molestos, reclamos, mensajes sin responder, promesas incumplidas, errores de comunicacion, oportunidades de venta y conversaciones normales. ' +
       'Trata cedulas/documentos como datos sensibles y no copies numeros completos.';
     const schema = {
@@ -3763,6 +3848,9 @@ export class WhatsappInboxService {
       conversacionesProblematicas: [{
         conversationId: 'id', contacto: 'nombre', telefono: 'telefono', motivo: 'motivo', evidencia: 'texto/resumen', prioridad: 'baja|media|alta|critica', accionRecomendada: 'accion', clasificacion: 'Normal|Requiere atencion|Riesgo de conflicto|Posible fraude|Cliente molesto|Falta de seguimiento|Venta potencial|Reclamo abierto|Conversacion critica',
       }],
+      responsabilidadDetectada: [{
+        conversationId: 'id', cliente: 'nombre/telefono', atendidoPor: 'usuario/instancia', estado: 'Cliente no respondio|Vendedor no respondio|Conversacion normal|Requiere seguimiento del vendedor|No hay evidencia suficiente', evidencia: 'quien escribio y que paso', ultimoMensajeDe: 'cliente|vendedor|desconocido', accion: 'accion recomendada',
+      }],
     };
     const userPrompt = {
       rango: payload.range,
@@ -3771,6 +3859,10 @@ export class WhatsappInboxService {
       conversaciones: compactConversations,
       reglas: [
         'El reporte debe usar exactamente este rango.',
+        'fromMe=true significa empresa/vendedor; fromMe=false significa cliente/contacto. Nunca invertir roles.',
+        'direction=outbound significa enviado por vendedor/empresa; direction=inbound significa recibido del cliente.',
+        'senderRole es la fuente de verdad para saber quien escribio cada mensaje importante.',
+        'En responsabilidadDetectada indicar si el problema fue del cliente, vendedor, normal o no hay evidencia suficiente.',
         'Si no hay evidencia suficiente, escribir: No hay evidencia suficiente.',
         'No guardar ni repetir imagenes completas; usa solo resumen visual.',
         'Indicar audio pendiente de transcripcion cuando aplique.',
@@ -3845,6 +3937,49 @@ export class WhatsappInboxService {
     const audioTranscriptionStatus = Array.from(input.mediaSummaries.values())
       .filter((item) => item.type === 'audio')
       .map((item) => ({ messageId: item.messageId, status: item.transcriptionStatus }));
+    const responsabilidadDetectada = input.report.responsabilidadDetectada ?? input.conversations.map((conv) => ({
+      conversationId: conv.conversationId,
+      cliente: `${conv.contact}${conv.phone ? ` (${conv.phone})` : ''}`,
+      atendidoPor: `${conv.userName || 'Usuario no identificado'} / ${conv.instanceName || 'Instancia no identificada'}`,
+      estado: conv.responsibilityDetected,
+      evidencia: conv.messages.length
+        ? `Ultimo mensaje de ${conv.lastMessageBy}. ${this.pickConversationEvidence(conv)}`
+        : 'No hay evidencia suficiente.',
+      ultimoMensajeDe: conv.lastMessageBy,
+      accion: conv.responsibilityDetected === 'Vendedor no respondio'
+        ? 'Dar seguimiento al cliente desde la instancia correspondiente.'
+        : conv.responsibilityDetected === 'Cliente no respondio'
+          ? 'Esperar respuesta o programar seguimiento comercial.'
+          : 'Mantener monitoreo normal.',
+    }));
+    const analyzedConversations = input.conversations.map((conv) => ({
+      conversationId: conv.conversationId,
+      cliente: { nombre: conv.contact, telefono: conv.phone },
+      atendidoPor: { usuario: conv.userName, instancia: conv.instanceName },
+      lastMessageBy: conv.lastMessageBy,
+      responsibilityDetected: conv.responsibilityDetected,
+      unansweredIncomingMessages: conv.unansweredIncomingMessages,
+      messages: conv.messages.map((m) => ({
+        id: m.id,
+        timestamp: m.timestamp,
+        direction: m.direction,
+        senderRole: m.senderRole,
+        senderName: m.senderName,
+        senderPhone: m.senderPhone,
+        instanceName: m.instanceName,
+        fromMe: m.fromMe,
+        body: m.body,
+        messageType: m.messageType,
+        media: m.media
+          ? {
+              type: m.media.type,
+              status: m.media.status,
+              summary: m.media.summary,
+              transcriptionStatus: m.media.transcriptionStatus,
+            }
+          : null,
+      })),
+    }));
     return {
       source: input.source,
       cached: input.cached,
@@ -3853,9 +3988,11 @@ export class WhatsappInboxService {
       summary: input.report.resumenEjecutivo,
       alerts,
       conversationAnalysis,
-      report: input.report,
+      report: reportWithResponsibility,
+      responsabilidadDetectada,
       imageSummaries,
       audioTranscriptionStatus,
+      analyzedConversations,
       generatedAt: new Date().toISOString(),
     };
   }
@@ -3880,15 +4017,17 @@ export class WhatsappInboxService {
     report: Record<string, unknown>;
     generatedBy?: string | null;
   }) {
+    const id = randomUUID();
     const report = input.report;
     const rawReport = (report.report ?? {}) as Record<string, unknown>;
     const riskLevel = String(rawReport.estadoGeneral ?? 'Normal');
     await this.prisma.$executeRaw`
       INSERT INTO whatsapp_ai_analysis_reports
-        (conversation_id, scope, date_range_key, start_at, end_at, message_fingerprint, risk_level, summary, alerts, image_summaries, audio_transcription_status, report, generated_by)
+        (id, conversation_id, scope, date_range_key, start_at, end_at, message_fingerprint, risk_level, summary, alerts, image_summaries, audio_transcription_status, report, generated_by)
       VALUES
-        (${input.conversationId}::uuid, ${input.scope}, ${input.dateRangeKey}, ${input.startAt}, ${input.endAt}, ${input.fingerprint}, ${riskLevel}, ${String(report.summary ?? '')}, CAST(${JSON.stringify(report.alerts ?? [])} AS jsonb), CAST(${JSON.stringify(report.imageSummaries ?? [])} AS jsonb), CAST(${JSON.stringify(report.audioTranscriptionStatus ?? [])} AS jsonb), CAST(${JSON.stringify(report)} AS jsonb), ${input.generatedBy}::uuid)
+        (${id}::uuid, ${input.conversationId}::uuid, ${input.scope}, ${input.dateRangeKey}, ${input.startAt}, ${input.endAt}, ${input.fingerprint}, ${riskLevel}, ${String(report.summary ?? '')}, CAST(${JSON.stringify(report.alerts ?? [])} AS jsonb), CAST(${JSON.stringify(report.imageSummaries ?? [])} AS jsonb), CAST(${JSON.stringify(report.audioTranscriptionStatus ?? [])} AS jsonb), CAST(${JSON.stringify(report)} AS jsonb), ${input.generatedBy}::uuid)
     `;
+    return id;
   }
 
   private withTimeout<T>(
