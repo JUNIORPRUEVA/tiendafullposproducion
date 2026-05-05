@@ -28,6 +28,12 @@ export class MarketingGenerationService {
     MarketingStoryType.EDUCATIONAL,
   ];
 
+  private readonly localHooks = {
+    SALES: ['No te compliques', 'Mira esto', 'Atencion negocio', 'Te conviene hoy'],
+    TRUST: ['Asi es que se hace', 'Con respaldo de verdad', 'Trabajo limpio y serio', 'Aqui respondemos'],
+    EDUCATIONAL: ['Dato rapido', 'Tip que si funciona', 'Aprende esto', 'Evita este error'],
+  } as const;
+
   private readonly templates: Record<MarketingStoryType, StoryTemplate[]> = {
     SALES: [
       {
@@ -454,36 +460,36 @@ export class MarketingGenerationService {
         const cta = ctas[0] ?? 'Contáctanos hoy';
         const product = products[0] ?? 'nuestros servicios';
         const opportunity = (research.contentOpportunities ?? '').split('.')[0]?.trim() ?? '';
-        return {
+        return this.withDominicanVariation(type, {
           title: hook,
           shortText: offer,
           longText: `${opportunity || base.longText} ${cta}.`,
           hashtags: base.hashtags,
           imagePrompt: `${product} instalado profesionalmente, iluminación moderna, calidad premium`,
-        };
+        });
       }
       case MarketingStoryType.TRUST: {
         const angle = strong[0] ?? base.shortText;
         const cta = ctas[1] ?? ctas[0] ?? 'Consúltanos sin compromiso';
         const commonOffer = (research.commonOffers ?? '').split('.')[0]?.trim() ?? '';
-        return {
+        return this.withDominicanVariation(type, {
           title: base.title,
           shortText: angle,
           longText: `${angle}. ${commonOffer ? commonOffer + '.' : ''} ${cta}.`.trim(),
           hashtags: base.hashtags,
           imagePrompt: base.imagePrompt,
-        };
+        });
       }
       case MarketingStoryType.EDUCATIONAL: {
         const opportunity = (research.contentOpportunities ?? '').split('.').slice(0, 2).join('.').trim();
         const priceNote = (research.observedPriceRanges ?? '').split('.')[0]?.trim() ?? '';
-        return {
+        return this.withDominicanVariation(type, {
           title: base.title,
           shortText: priceNote ? `Referencia: ${priceNote}.` : base.shortText,
           longText: opportunity || base.longText,
           hashtags: base.hashtags,
           imagePrompt: base.imagePrompt,
-        };
+        });
       }
     }
   }
@@ -491,16 +497,68 @@ export class MarketingGenerationService {
   private pickTemplate(type: MarketingStoryType): StoryTemplate {
     const options = this.templates[type] ?? [];
     if (options.length == 0) {
-      return {
+      return this.withDominicanVariation(type, {
         title: 'Contenido del dia',
         shortText: 'Actualizacion de FULLTECH para nuestros clientes.',
         longText: 'Contenido temporal generado por plantilla.',
         hashtags: ['#FullTech'],
         imagePrompt: 'Diseno promocional tecnologico',
-      };
+      });
     }
     const index = Math.floor(Math.random() * options.length);
-    return options[index];
+    return this.withDominicanVariation(type, options[index]);
+  }
+
+  private withDominicanVariation(type: MarketingStoryType, input: StoryTemplate): StoryTemplate {
+    const pool =
+      type === MarketingStoryType.SALES
+        ? this.localHooks.SALES
+        : type === MarketingStoryType.TRUST
+          ? this.localHooks.TRUST
+          : this.localHooks.EDUCATIONAL;
+
+    const hook = pool[Math.floor(Math.random() * pool.length)] || 'Mira esto';
+    const head = this.ensurePunctuation(this.compact(input.title));
+    const short = this.ensurePunctuation(this.compact(input.shortText));
+    const long = this.compact(input.longText);
+
+    const style = Math.floor(Math.random() * 3);
+    if (style === 0) {
+      return {
+        ...input,
+        title: `${hook}: ${head}`,
+        shortText: short,
+        longText: `${hook}. ${this.ensurePunctuation(long)}`,
+      };
+    }
+
+    if (style === 1) {
+      return {
+        ...input,
+        title: head,
+        shortText: `${hook}. ${short}`,
+        longText: this.ensurePunctuation(long),
+      };
+    }
+
+    return {
+      ...input,
+      title: `${hook} - ${head}`,
+      shortText: short,
+      longText: `${this.ensurePunctuation(long)} ${this.ensurePunctuation('Escribenos y te orientamos sin vueltas')}`,
+    };
+  }
+
+  private compact(value: string) {
+    return `${value || ''}`.replace(/\s+/g, ' ').trim();
+  }
+
+  private ensurePunctuation(value: string) {
+    const text = this.compact(value);
+    if (!text) return text;
+    const last = text[text.length - 1];
+    if (['.', '!', '?', ':'].includes(last)) return text;
+    return `${text}.`;
   }
 
   private async prepareVisualData(input: {

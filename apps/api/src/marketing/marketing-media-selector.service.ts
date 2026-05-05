@@ -30,12 +30,18 @@ export class MarketingMediaSelectorService {
     const product = `${input.recommendedProduct ?? ''}`.toLowerCase();
     const service = `${input.recommendedService ?? ''}`.toLowerCase();
 
-    const candidates = rows
-      .filter((row) => !excluded.has(row.id) || rows.length <= input.usedAssetIds.length + 1)
+    const nonRepeated = rows.filter((row) => !excluded.has(row.id));
+    const pool = nonRepeated.length > 0 ? nonRepeated : rows;
+
+    const candidates = pool
       .map((row) => ({ row, score: this.scoreAsset(row, input.type, product, service) }))
       .sort((a, b) => b.score - a.score);
 
-    return candidates[0]?.row ?? null;
+    if (candidates.length === 0) return null;
+
+    const top = candidates.slice(0, Math.min(3, candidates.length));
+    const randomIndex = Math.floor(Math.random() * top.length);
+    return top[randomIndex]?.row ?? candidates[0].row;
   }
 
   private scoreAsset(
@@ -70,17 +76,21 @@ export class MarketingMediaSelectorService {
     if (tags.some((tag) => recommendedProduct && tag.includes(recommendedProduct))) score += 20;
 
     if (type === 'SALES') {
+      if (this.contains(category, ['promo', 'oferta', 'producto', 'combos'])) score += 26;
+      if (tags.some((tag) => this.contains(tag, ['promo', 'oferta', 'precio', 'descuento']))) score += 20;
       if (this.contains(category, ['motor', 'porton']) && this.matchesAny(recommendedProduct, recommendedService, ['motor', 'porton'])) score += 35;
       if (this.contains(category, ['camara']) && this.matchesAny(recommendedProduct, recommendedService, ['camara', 'seguridad'])) score += 35;
       if (this.contains(category, ['pos']) && this.matchesAny(recommendedProduct, recommendedService, ['pos'])) score += 30;
     }
 
     if (type === 'TRUST') {
+      if (tags.some((tag) => this.contains(tag, ['real', 'cliente', 'instalado', 'equipo']))) score += 24;
       if (this.contains(category, ['equipo tecnico', 'tienda', 'cliente', 'trabajo'])) score += 35;
       if (this.contains(category, ['instalacion'])) score += 20;
     }
 
     if (type === 'EDUCATIONAL') {
+      if (tags.some((tag) => this.contains(tag, ['simple', 'limpio', 'minimal', 'espacio']))) score += 20;
       if (this.contains(category, ['instalacion', 'tecnologia', 'camara', 'motor', 'pos'])) score += 22;
       if (tags.some((tag) => this.contains(tag, ['limpio', 'espacio', 'texto', 'clean']))) score += 18;
     }

@@ -956,115 +956,136 @@ class _StoryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final baseImage = _safeImageUrl(story.mediaAsset?.fileUrl ?? story.imageUrl);
     final generatedImage = _safeImageUrl(story.generatedImageUrl);
     final relatedService = (story.mediaAsset?.relatedService ?? story.usedOffer).trim();
     final cta = story.usedCTA.trim().isEmpty
         ? 'Escribenos por WhatsApp para cotizar'
         : story.usedCTA.trim();
+    final approved = story.status == MarketingStoryStatus.approved;
 
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: scheme.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: scheme.outlineVariant.withValues(alpha: 0.35),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              _MetaChip(label: 'Tipo', value: _storyTypeShort(story.type)),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            _MetaChip(label: 'Tipo', value: _storyTypeShort(story.type)),
+            const SizedBox(width: 8),
+            _StatusPill(status: story.status),
+            if (approved) ...[
               const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  story.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              _StatusPill(status: story.status),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: _StoryPreviewFrame(
-                  label: 'Imagen base seleccionada',
-                  imageUrl: baseImage,
-                  story: story,
-                  fallbackLabel: 'Sin imagen disponible',
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _StoryPreviewFrame(
-                  label: 'Imagen final',
-                  imageUrl: generatedImage,
-                  story: story,
-                  fallbackLabel: 'Placeholder profesional 9:16',
+              const Icon(Icons.verified_rounded, color: Color(0xFF16A34A), size: 20),
+              const SizedBox(width: 4),
+              const Text(
+                'Aprobado',
+                style: TextStyle(
+                  color: Color(0xFF166534),
+                  fontWeight: FontWeight.w800,
                 ),
               ),
             ],
-          ),
-          const SizedBox(height: 10),
-          Text(story.shortText, maxLines: 2, overflow: TextOverflow.ellipsis),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 6,
-            children: [
-              _MetaChip(label: 'Servicio', value: relatedService.isEmpty ? '-' : relatedService),
-              _MetaChip(label: 'CTA', value: cta),
-              _MetaChip(label: 'Estado imagen', value: story.imageStatus.name),
-            ],
-          ),
-          const SizedBox(height: 8),
-          _InfoLine(label: 'Prompt de imagen', value: story.imagePrompt),
-          _InfoLine(label: 'Concepto visual', value: story.visualConcept),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              FilledButton(
-                onPressed: busy ? null : onApprove,
-                child: const Text('Aprobar'),
+          ],
+        ),
+        const SizedBox(height: 10),
+        _StoryPreviewFrame(
+          label: 'Preview final listo para publicar',
+          imageUrl: generatedImage.isNotEmpty ? generatedImage : baseImage,
+          story: story,
+          fallbackLabel: 'Sin imagen disponible',
+          showLabel: false,
+          showApprovedBadge: approved,
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: _StoryPreviewFrame(
+                label: 'Imagen base seleccionada',
+                imageUrl: baseImage,
+                story: story,
+                fallbackLabel: 'Sin imagen disponible',
+                compact: true,
               ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _StoryPreviewFrame(
+                label: 'Imagen final',
+                imageUrl: generatedImage,
+                story: story,
+                fallbackLabel: 'Placeholder profesional 9:16',
+                compact: true,
+                showApprovedBadge: approved,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 6,
+          children: [
+            _MetaChip(label: 'Servicio', value: relatedService.isEmpty ? '-' : relatedService),
+            _MetaChip(label: 'CTA', value: cta),
+            _MetaChip(label: 'Estado imagen', value: story.imageStatus.name),
+          ],
+        ),
+        const SizedBox(height: 8),
+        _InfoLine(label: 'Prompt de imagen', value: story.imagePrompt),
+        _InfoLine(label: 'Concepto visual', value: story.visualConcept),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            FilledButton.icon(
+              onPressed: busy ? null : onApprove,
+              icon: const Icon(Icons.check_circle_rounded, size: 18),
+              label: const Text('Aprobar estado'),
+            ),
+            OutlinedButton(
+              onPressed: busy ? null : onRegenerate,
+              child: const Text('Regenerar contenido'),
+            ),
+            OutlinedButton(
+              onPressed: busy ? null : onRegenerateImage,
+              child: const Text('Regenerar imagen'),
+            ),
+            OutlinedButton(
+              onPressed: busy ? null : onChangeBaseImage,
+              child: const Text('Cambiar imagen manual'),
+            ),
+            OutlinedButton.icon(
+              onPressed: () => _openFullscreenPreview(context, story, generatedImage, baseImage),
+              icon: const Icon(Icons.open_in_full_rounded, size: 18),
+              label: const Text('Ver en pantalla completa'),
+            ),
+            if (!compactActions)
               OutlinedButton(
-                onPressed: busy ? null : onRegenerate,
-                child: const Text('Regenerar contenido'),
+                onPressed: busy ? null : onReject,
+                child: const Text('Rechazar'),
               ),
+            if (!compactActions)
               OutlinedButton(
-                onPressed: busy ? null : onRegenerateImage,
-                child: const Text('Regenerar imagen'),
+                onPressed: busy ? null : onEdit,
+                child: const Text('Editar'),
               ),
-              OutlinedButton(
-                onPressed: busy ? null : onChangeBaseImage,
-                child: const Text('Cambiar imagen'),
-              ),
-              if (!compactActions)
-                OutlinedButton(
-                  onPressed: busy ? null : onReject,
-                  child: const Text('Rechazar'),
-                ),
-              if (!compactActions)
-                OutlinedButton(
-                  onPressed: busy ? null : onEdit,
-                  child: const Text('Editar'),
-                ),
-            ],
-          ),
-        ],
+          ],
+        ),
+      ],
+    );
+  }
+
+  void _openFullscreenPreview(
+    BuildContext context,
+    MarketingStory story,
+    String generatedImage,
+    String baseImage,
+  ) {
+    final image = generatedImage.isNotEmpty ? generatedImage : baseImage;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _StoryFullscreenPreview(story: story, imageUrl: image),
       ),
     );
   }
@@ -1076,12 +1097,18 @@ class _StoryPreviewFrame extends StatelessWidget {
     required this.imageUrl,
     required this.story,
     required this.fallbackLabel,
+    this.showLabel = true,
+    this.compact = false,
+    this.showApprovedBadge = false,
   });
 
   final String label;
   final String imageUrl;
   final MarketingStory story;
   final String fallbackLabel;
+  final bool showLabel;
+  final bool compact;
+  final bool showApprovedBadge;
 
   @override
   Widget build(BuildContext context) {
@@ -1089,16 +1116,17 @@ class _StoryPreviewFrame extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: Theme.of(context).textTheme.labelMedium?.copyWith(
-            color: scheme.onSurfaceVariant,
-            fontWeight: FontWeight.w600,
+        if (showLabel)
+          Text(
+            label,
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: scheme.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
           ),
-        ),
-        const SizedBox(height: 6),
+        if (showLabel) const SizedBox(height: 6),
         ClipRRect(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(compact ? 10 : 18),
           child: AspectRatio(
             aspectRatio: 9 / 16,
             child: Stack(
@@ -1109,10 +1137,13 @@ class _StoryPreviewFrame extends StatelessWidget {
                 else
                   const _BrokenImagePlaceholder(),
                 _StoryVisualOverlay(
+                  type: story.type,
                   headline: story.title,
                   subtitle: story.shortText,
                   cta: story.usedCTA,
                   fallbackLabel: imageUrl.isEmpty ? fallbackLabel : null,
+                  compact: compact,
+                  approved: showApprovedBadge,
                 ),
               ],
             ),
@@ -1157,73 +1188,95 @@ class _StoryImageView extends StatelessWidget {
 
 class _StoryVisualOverlay extends StatelessWidget {
   const _StoryVisualOverlay({
+    required this.type,
     required this.headline,
     required this.subtitle,
     required this.cta,
     required this.fallbackLabel,
+    required this.compact,
+    required this.approved,
   });
 
+  final MarketingStoryType type;
   final String headline;
   final String subtitle;
   final String cta;
   final String? fallbackLabel;
+  final bool compact;
+  final bool approved;
 
   @override
   Widget build(BuildContext context) {
+    final accent = switch (type) {
+      MarketingStoryType.sales => const Color(0xFFF97316),
+      MarketingStoryType.trust => const Color(0xFF10B981),
+      MarketingStoryType.educational => const Color(0xFF38BDF8),
+    };
+
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [Color(0x22000000), Color(0xC0000000)],
+          colors: [
+            const Color(0x12000000),
+            Color.alphaBlend(accent.withValues(alpha: 0.14), const Color(0xCC000000)),
+          ],
         ),
       ),
-      padding: const EdgeInsets.all(12),
+      padding: EdgeInsets.all(compact ? 8 : 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (fallbackLabel != null)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: const Color(0xCC7C2D12),
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Text(
-                fallbackLabel!,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
+          Row(
+            children: [
+              if (fallbackLabel != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xCC7C2D12),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    fallbackLabel!,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ),
-              ),
-            ),
+              const Spacer(),
+              if (approved)
+                const Icon(Icons.check_circle_rounded, color: Color(0xFF22C55E), size: 24),
+            ],
+          ),
           const Spacer(),
           Text(
             headline,
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
+            style: TextStyle(
               color: Colors.white,
-              fontSize: 18,
+              fontSize: compact ? 14 : 24,
               fontWeight: FontWeight.w800,
               height: 1.1,
             ),
           ),
-          const SizedBox(height: 6),
+          SizedBox(height: compact ? 4 : 8),
           Text(
             subtitle,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Color(0xFFF1F5F9),
-              fontSize: 12,
+            style: TextStyle(
+              color: const Color(0xFFF1F5F9),
+              fontSize: compact ? 10 : 13,
               fontWeight: FontWeight.w500,
             ),
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: compact ? 6 : 10),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            padding: EdgeInsets.symmetric(horizontal: compact ? 8 : 12, vertical: compact ? 5 : 7),
             decoration: BoxDecoration(
               color: const Color(0xFFD7F9E9),
               borderRadius: BorderRadius.circular(999),
@@ -1232,14 +1285,68 @@ class _StoryVisualOverlay extends StatelessWidget {
               cta.trim().isEmpty ? 'Escribenos por WhatsApp' : cta.trim(),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Color(0xFF054A2A),
+              style: TextStyle(
+                color: const Color(0xFF054A2A),
                 fontWeight: FontWeight.w700,
-                fontSize: 11,
+                fontSize: compact ? 10 : 12,
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _StoryFullscreenPreview extends StatelessWidget {
+  const _StoryFullscreenPreview({required this.story, required this.imageUrl});
+
+  final MarketingStory story;
+  final String imageUrl;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: SafeArea(
+        child: Stack(
+          children: [
+            Center(
+              child: AspectRatio(
+                aspectRatio: 9 / 16,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      if (imageUrl.isNotEmpty)
+                        _StoryImageView(url: imageUrl)
+                      else
+                        const _BrokenImagePlaceholder(),
+                      _StoryVisualOverlay(
+                        type: story.type,
+                        headline: story.title,
+                        subtitle: story.shortText,
+                        cta: story.usedCTA,
+                        fallbackLabel: imageUrl.isEmpty ? 'Sin imagen disponible' : null,
+                        compact: false,
+                        approved: story.status == MarketingStoryStatus.approved,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 8,
+              right: 8,
+              child: IconButton.filledTonal(
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.close_rounded),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
