@@ -802,6 +802,56 @@
 				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH\\apps\\api && node scripts\\audit-publicidad-missing-images.cjs"
 			],
 			"isBackground": false
+		},
+		{
+			"label": "audit-backend-build-marketing",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH\\apps\\api && npm.cmd run build"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "audit-prisma-generate-marketing",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH\\apps\\api && npm.cmd run prisma -- generate"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "audit-prisma-migrate-status-marketing",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH\\apps\\api && npm.cmd run prisma -- migrate status"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "audit-dart-analyze-publicidad",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH\\apps\\fulltech_app && dart analyze"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "audit-flutter-web-release-publicidad",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\Users\\pc\\DEV\\PROYECTOS\\INTERNO\\FULLTECH\\apps\\fulltech_app && flutter build web --release"
+			],
+			"isBackground": false
 		}
 	]
 }
