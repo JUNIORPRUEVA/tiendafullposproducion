@@ -188,6 +188,9 @@ class ApiRoutes {
       '/media-gallery/$id/publicidad';
   static String mediaGalleryUnmarkPublicidad(String id) =>
       '/media-gallery/$id/quitar-publicidad';
+  static const publicidadImages = '/publicidad-images';
+  static String publicidadImagesDelete(String id) => '/publicidad-images/$id';
+  static String publicidadImagesUpdate(String id) => '/publicidad-images/$id';
   static const marketingDashboard = '/marketing/dashboard';
   static const marketingStories = '/marketing/stories';
   static const marketingStoriesGenerateMissing =

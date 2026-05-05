@@ -506,6 +506,7 @@ model User {
   serviceOrderStatusChanges ServiceOrderStatusHistory[] @relation("ServiceOrderStatusHistoryChangedBy")
   createdServiceEvidences ServiceEvidence[] @relation("ServiceEvidenceCreatedBy")
   createdServiceReports ServiceReport[] @relation("ServiceReportCreatedBy")
+  publicidadImagesUploaded PublicidadImage[] @relation("PublicidadImageUploadedBy")
   preparedOrderDocumentFlows OrderDocumentFlow[] @relation("OrderDocumentFlowPreparedBy")
   approvedOrderDocumentFlows OrderDocumentFlow[] @relation("OrderDocumentFlowApprovedBy")
   serviceExecutionReports ServiceExecutionReport[]
@@ -2081,6 +2082,21 @@ model ServiceReport {
   @@index([type])
   @@index([createdById])
   @@map("service_reports")
+}
+
+model PublicidadImage {
+  id           String   @id @default(uuid()) @db.Uuid
+  url          String   @db.Text
+  caption      String?
+  uploadedById String   @db.Uuid @map("uploaded_by_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  uploadedBy User @relation("PublicidadImageUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  @@index([uploadedById])
+  @@index([createdAt])
+  @@map("publicidad_images")
 }
 
 model OrderDocumentFlow {

@@ -22,6 +22,7 @@ import { CompanyManualModule } from './company-manual/company-manual.module';
 import { AiAssistantModule } from './ai-assistant/ai-assistant.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { MediaGalleryModule } from './media-gallery/media-gallery.module';
+import { PublicidadImagesModule } from './publicidad-images/publicidad-images.module';
 import { ServiceOrdersModule } from './service-orders/service-orders.module';
 import { StorageModule } from './storage/storage.module';
 import { WarrantyConfigsModule } from './warranty-configs/warranty-configs.module';
@@ -61,6 +62,7 @@ import { MarketingModule } from './marketing/marketing.module';
     AiAssistantModule,
     NotificationsModule,
     MediaGalleryModule,
+    PublicidadImagesModule,
     ServiceOrdersModule,
     StorageModule,
     WarrantyConfigsModule,

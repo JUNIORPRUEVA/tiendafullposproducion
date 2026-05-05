@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../../core/auth/app_permissions.dart';
 import '../../../core/auth/auth_provider.dart';
@@ -11,8 +12,11 @@ import '../../../core/auth/auth_repository.dart';
 import '../../../core/utils/media_file_actions.dart';
 import '../../../core/widgets/app_drawer.dart';
 import '../../../core/widgets/custom_app_bar.dart';
+import '../application/publicidad_images_controller.dart';
 import '../data/media_gallery_repository.dart';
+import '../data/publicidad_images_repository.dart';
 import '../media_gallery_models.dart';
+import '../models/publicidad_image_model.dart';
 import '../widgets/media_gallery_card.dart';
 
 // ─── State & Controller ─────────────────────────────────────────────────────
