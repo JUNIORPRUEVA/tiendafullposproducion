@@ -3876,6 +3876,9 @@ export class WhatsappInboxService {
         totalMessages: items.length,
         incomingMessages: items.filter((m) => m.direction === WhatsappMessageDirection.INCOMING).length,
         outgoingMessages: items.filter((m) => m.direction === WhatsappMessageDirection.OUTGOING).length,
+        lastMessageRequiresClientResponse: this.whatsappMessageRequiresClientResponse(
+          last?.body ?? last?.caption ?? '',
+        ),
       });
       return {
         conversationId,
@@ -3925,6 +3928,7 @@ export class WhatsappInboxService {
     totalMessages: number;
     incomingMessages: number;
     outgoingMessages: number;
+    lastMessageRequiresClientResponse?: boolean;
   }): WhatsappResponsibilityOption {
     if (input.totalMessages === 0) return 'No hay evidencia suficiente';
     if (input.unansweredIncomingMessages > 0 || input.lastMessageBy === 'cliente') {
@@ -3933,8 +3937,37 @@ export class WhatsappInboxService {
     if (input.incomingMessages === 0 && input.outgoingMessages === 0) {
       return 'No hay evidencia suficiente';
     }
-    if (input.lastMessageBy === 'vendedor') return 'Cliente no respondio';
+    if (input.lastMessageBy === 'vendedor') {
+      return input.lastMessageRequiresClientResponse
+        ? 'Cliente no respondio'
+        : 'Conversacion normal';
+    }
     return 'Conversacion normal';
+  }
+
+  private whatsappMessageRequiresClientResponse(value: unknown) {
+    const text = asString(value)?.toLowerCase() ?? '';
+    if (!text) return false;
+    if (text.includes('?') || text.includes('¿')) return true;
+    return [
+      'confirm',
+      'avisame',
+      'avísame',
+      'quedo atento',
+      'pendiente',
+      'me indica',
+      'me confirmas',
+      'responde',
+      'respuesta',
+      'interesa',
+      'coordinamos',
+      'cuando',
+      'cuándo',
+      'hora',
+      'fecha',
+      'direccion',
+      'dirección',
+    ].some((needle) => text.includes(needle));
   }
 
   private normalizeWhatsappResponsibility(value: unknown): WhatsappResponsibilityOption {
