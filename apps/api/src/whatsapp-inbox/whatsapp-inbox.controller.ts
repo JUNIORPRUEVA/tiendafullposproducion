@@ -19,7 +19,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { Role } from '@prisma/client';
-import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsIn, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 import { WhatsappInboxService } from './whatsapp-inbox.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -61,6 +61,30 @@ class DailySummaryDto {
   @IsString()
   @IsNotEmpty()
   date!: string;
+}
+
+class AiAnalysisDto {
+  @IsOptional()
+  @IsString()
+  userId?: string;
+
+  @IsOptional()
+  @IsString()
+  conversationId?: string;
+
+  @IsIn(['conversation', 'filter'])
+  scope!: 'conversation' | 'filter';
+
+  @IsIn(['today', 'yesterday', 'last7Days', 'thisMonth', 'custom'])
+  filter!: 'today' | 'yesterday' | 'last7Days' | 'thisMonth' | 'custom';
+
+  @IsOptional()
+  @IsString()
+  customDate?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  forceRefresh?: boolean;
 }
 
 class UnlockComposeDto {
@@ -170,6 +194,21 @@ export class WhatsappInboxController {
   @Post('daily-summary')
   summarizeDailyActivity(@Body() dto: DailySummaryDto) {
     return this.inboxService.summarizeDailyActivity(dto.userId, dto.date);
+  }
+
+  /** Generate advanced CRM AI analysis for the active filter or one conversation */
+  @Post('ai-analysis')
+  analyzeCrmConversations(@Body() dto: AiAnalysisDto, @Req() req: Request) {
+    const user = (req.user ?? {}) as { id?: string };
+    return this.inboxService.analyzeCrmConversations({
+      userId: dto.userId,
+      conversationId: dto.conversationId,
+      scope: dto.scope,
+      filter: dto.filter,
+      customDate: dto.customDate,
+      forceRefresh: dto.forceRefresh === true,
+      generatedBy: user.id ?? null,
+    });
   }
 
   @Post('compose/unlock')

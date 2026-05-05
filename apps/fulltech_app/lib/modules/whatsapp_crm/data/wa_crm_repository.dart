@@ -275,4 +275,36 @@ class WaCrmRepository {
     );
     return res.data ?? const {};
   }
+
+  Future<Map<String, dynamic>> analyzeWithAi({
+    required String scope,
+    required String filter,
+    String? userId,
+    String? conversationId,
+    DateTime? customDate,
+    bool forceRefresh = false,
+  }) async {
+    String? day;
+    if (customDate != null) {
+      day =
+          '${customDate.year.toString().padLeft(4, '0')}-${customDate.month.toString().padLeft(2, '0')}-${customDate.day.toString().padLeft(2, '0')}';
+    }
+    final res = await _dio.post<Map<String, dynamic>>(
+      '/whatsapp-inbox/ai-analysis',
+      data: {
+        'scope': scope,
+        'filter': filter,
+        if (userId != null) 'userId': userId,
+        if (conversationId != null) 'conversationId': conversationId,
+        if (day != null) 'customDate': day,
+        'forceRefresh': forceRefresh,
+      },
+      options: Options(
+        receiveTimeout: const Duration(seconds: 60),
+        sendTimeout: const Duration(seconds: 15),
+        extra: const {'skipLoader': true},
+      ),
+    );
+    return res.data ?? const {};
+  }
 }

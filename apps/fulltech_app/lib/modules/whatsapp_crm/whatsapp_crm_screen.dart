@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:media_kit/media_kit.dart' as media_kit;
@@ -492,6 +492,18 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
               onGenerate: () => ref
                   .read(waCrmControllerProvider.notifier)
                   .generateDailyAiSummary(),
+              onAnalyzeConversation: () => ref
+                  .read(waCrmControllerProvider.notifier)
+                  .analyzeWithAi(scope: WaCrmAiAnalysisScope.conversation),
+              onAnalyzeFilter: () => ref
+                  .read(waCrmControllerProvider.notifier)
+                  .analyzeWithAi(scope: WaCrmAiAnalysisScope.filter),
+              onRefreshAnalysis: () => ref
+                  .read(waCrmControllerProvider.notifier)
+                  .analyzeWithAi(
+                    scope: state.aiAnalysisScope,
+                    forceRefresh: true,
+                  ),
             ),
           ),
         ],
@@ -3395,11 +3407,43 @@ class _DailyAiPanel extends StatelessWidget {
     required this.state,
     required this.onPickDate,
     required this.onGenerate,
+    required this.onAnalyzeConversation,
+    required this.onAnalyzeFilter,
+    required this.onRefreshAnalysis,
   });
 
   final WaCrmState state;
   final VoidCallback onPickDate;
   final VoidCallback onGenerate;
+  final VoidCallback onAnalyzeConversation;
+  final VoidCallback onAnalyzeFilter;
+  final VoidCallback onRefreshAnalysis;
+
+  static String _filterLabel(WaCrmState state) {
+    switch (state.messageDateFilter) {
+      case WaCrmMessageDateFilter.today:
+        return 'Hoy';
+      case WaCrmMessageDateFilter.yesterday:
+        return 'Ayer';
+      case WaCrmMessageDateFilter.last7Days:
+        return 'Últimos 7 días';
+      case WaCrmMessageDateFilter.thisMonth:
+        return 'Este mes';
+      case WaCrmMessageDateFilter.custom:
+        final date = state.customMessageDate;
+        return date == null
+            ? 'Fecha personalizada'
+            : DateFormat('dd/MM/yyyy').format(date);
+      case WaCrmMessageDateFilter.all:
+        return 'Sin filtro de fecha';
+    }
+  }
+
+  static String _scopeLabel(WaCrmAiAnalysisScope scope) {
+    return scope == WaCrmAiAnalysisScope.conversation
+        ? 'Conversación actual'
+        : 'Filtro actual';
+  }
 
   static Color _severityColor(BuildContext context, String severity) {
     final scheme = Theme.of(context).colorScheme;
@@ -3477,6 +3521,7 @@ class _DailyAiPanel extends StatelessWidget {
     final convAnalysis =
         summary?.conversationAnalysis ?? const <WaCrmConversationAnalysis>[];
     final highAlerts = alerts.where((a) => a.severity == 'high').toList();
+    final executiveReport = summary?.report;
 
     return Container(
       color: scheme.surface,
@@ -3524,7 +3569,7 @@ class _DailyAiPanel extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Resumen de actividad, interes comercial y seguimiento del WhatsApp seleccionado.',
+                  'Analiza conversaciones, riesgos, seguimiento, reclamos, media resumida y oportunidades segun el filtro activo.',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: scheme.onPrimaryContainer.withValues(alpha: 0.78),
                     height: 1.25,
@@ -3535,29 +3580,106 @@ class _DailyAiPanel extends StatelessWidget {
           ),
           Padding(
             padding: const EdgeInsets.all(12),
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: onPickDate,
-                    icon: const Icon(Icons.calendar_month_outlined, size: 18),
-                    label: Text(DateFormat('dd/MM/yyyy').format(date)),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: onPickDate,
+                        icon: const Icon(
+                          Icons.calendar_month_outlined,
+                          size: 18,
+                        ),
+                        label: Text(DateFormat('dd/MM/yyyy').format(date)),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton.filledTonal(
+                      tooltip: 'Refrescar análisis IA',
+                      onPressed: state.loadingAiSummary || summary == null
+                          ? null
+                          : onRefreshAnalysis,
+                      icon: const Icon(Icons.refresh_rounded, size: 18),
+                    ),
+                    const SizedBox(width: 6),
+                    IconButton.filledTonal(
+                      tooltip: 'Copiar reporte',
+                      onPressed: executiveReport == null
+                          ? null
+                          : () async {
+                              await Clipboard.setData(
+                                ClipboardData(
+                                  text: executiveReport.toPlainText(),
+                                ),
+                              );
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Reporte copiado'),
+                                  ),
+                                );
+                              }
+                            },
+                      icon: const Icon(Icons.copy_rounded, size: 18),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Filtro actual: ${_filterLabel(state)} · Alcance: ${_scopeLabel(state.aiAnalysisScope)}',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
                 const SizedBox(width: 8),
-                FilledButton.icon(
-                  onPressed:
-                      state.loadingAiSummary || state.selectedUser == null
-                      ? null
-                      : onGenerate,
-                  icon: state.loadingAiSummary
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.analytics_outlined, size: 18),
-                  label: const Text('Generar'),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed:
+                            state.loadingAiSummary || state.selectedUser == null
+                            ? null
+                            : onAnalyzeFilter,
+                        icon: state.loadingAiSummary
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.auto_awesome, size: 18),
+                        label: const Text('Analizar filtro'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed:
+                            state.loadingAiSummary ||
+                                state.selectedConversation == null
+                            ? null
+                            : onAnalyzeConversation,
+                        icon: const Icon(Icons.forum_outlined, size: 18),
+                        label: const Text('Conversación'),
+                      ),
+                    ),
+                  ],
+                ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed:
+                        state.loadingAiSummary || state.selectedUser == null
+                        ? null
+                        : onGenerate,
+                    icon: const Icon(Icons.history_edu_outlined, size: 16),
+                    label: const Text('Resumen diario anterior'),
+                  ),
                 ),
               ],
             ),
@@ -3591,6 +3713,28 @@ class _DailyAiPanel extends StatelessWidget {
                       value: '${highAlerts.length}',
                       isAlert: true,
                     ),
+                  if (executiveReport != null) ...[
+                    _AiStatPill(
+                      label: 'Estado',
+                      value: executiveReport.estadoGeneral,
+                      isAlert: executiveReport.estadoGeneral != 'Normal',
+                    ),
+                    _AiStatPill(
+                      label: 'Casos alerta',
+                      value: '${executiveReport.casosConAlerta}',
+                      isAlert: executiveReport.casosConAlerta > 0,
+                    ),
+                    _AiStatPill(
+                      label: 'Fraudes',
+                      value: '${executiveReport.posiblesFraudesDetectados}',
+                      isAlert: executiveReport.posiblesFraudesDetectados > 0,
+                    ),
+                    _AiStatPill(
+                      label: 'Sin respuesta',
+                      value: '${executiveReport.clientesSinRespuesta}',
+                      isAlert: executiveReport.clientesSinRespuesta > 0,
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -3781,6 +3925,44 @@ class _DailyAiPanel extends StatelessWidget {
                             color: scheme.onSurface,
                           ),
                         ),
+                        if (executiveReport != null &&
+                            executiveReport
+                                .recomendacionesConcretas
+                                .isNotEmpty) ...[
+                          const SizedBox(height: 16),
+                          Text(
+                            'Recomendaciones concretas',
+                            style: theme.textTheme.labelMedium?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              color: scheme.onSurfaceVariant,
+                              letterSpacing: 0.4,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          ...executiveReport.recomendacionesConcretas.map(
+                            (item) => Padding(
+                              padding: const EdgeInsets.only(bottom: 5),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Icon(
+                                    Icons.check_circle_outline_rounded,
+                                    size: 15,
+                                    color: scheme.primary,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      _waText(item),
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(height: 1.35),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
                         // ── Per-conversation analysis ──────────────────
                         if (convAnalysis.isNotEmpty) ...[
                           const SizedBox(height: 18),

@@ -33,7 +33,7 @@ export class MarketingImageGenerationService {
     const prompt = this.buildPrompt(input);
 
     // Placeholder mode for now. Architecture ready for external providers.
-    const placeholderUrl = input.baseImageUrl || 'image_placeholder_story_9_16';
+    const placeholderUrl = this.buildProfessionalPlaceholderUrl(input);
     return {
       imageStatus: 'GENERATED_PLACEHOLDER',
       generatedImageUrl: placeholderUrl,
@@ -47,8 +47,31 @@ export class MarketingImageGenerationService {
         format: '9:16',
         category: input.imageCategory,
         serviceOrProduct: input.serviceOrProduct,
+        headline: this.truncate(input.title, 72),
+        cta: this.truncate(input.cta, 44),
       },
     };
+  }
+
+  private buildProfessionalPlaceholderUrl(input: ImageGenerationInput) {
+    const headline = this.truncate(input.title, 72);
+    const cta = this.truncate(input.cta, 44);
+    const base = (input.baseImageUrl || '').trim();
+
+    if (base.startsWith('http://') || base.startsWith('https://')) {
+      // Keep the selected gallery image as visual base in 9:16 format.
+      const normalized = base.replace(/^https?:\/\//, '');
+      return `https://images.weserv.nl/?url=${encodeURIComponent(normalized)}&w=1080&h=1920&fit=cover&output=jpg&q=82`;
+    }
+
+    const lines = `${headline}\n${cta}`.trim();
+    return `https://placehold.co/1080x1920/101828/F8FAFC/png?text=${encodeURIComponent(lines)}`;
+  }
+
+  private truncate(value: string, max: number) {
+    const clean = (value || '').replace(/\s+/g, ' ').trim();
+    if (clean.length <= max) return clean;
+    return `${clean.slice(0, Math.max(0, max - 3)).trim()}...`;
   }
 
   buildPrompt(input: ImageGenerationInput) {

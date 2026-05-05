@@ -117,6 +117,93 @@ class WaCrmConversationAnalysis {
   }
 }
 
+class WaCrmExecutiveAiReport {
+  const WaCrmExecutiveAiReport({
+    required this.estadoGeneral,
+    required this.resumenEjecutivo,
+    required this.totalConversacionesAnalizadas,
+    required this.totalMensajesAnalizados,
+    required this.casosNormales,
+    required this.casosConAlerta,
+    required this.casosCriticos,
+    required this.posiblesFraudesDetectados,
+    required this.clientesSinRespuesta,
+    required this.recomendacionesConcretas,
+    required this.conversacionesProblematicas,
+  });
+
+  final String estadoGeneral;
+  final String resumenEjecutivo;
+  final int totalConversacionesAnalizadas;
+  final int totalMensajesAnalizados;
+  final int casosNormales;
+  final int casosConAlerta;
+  final int casosCriticos;
+  final int posiblesFraudesDetectados;
+  final int clientesSinRespuesta;
+  final List<String> recomendacionesConcretas;
+  final List<Map<String, dynamic>> conversacionesProblematicas;
+
+  factory WaCrmExecutiveAiReport.fromJson(Map<String, dynamic> json) {
+    return WaCrmExecutiveAiReport(
+      estadoGeneral: sanitizeWaText(json['estadoGeneral']) ?? 'Normal',
+      resumenEjecutivo: sanitizeWaText(json['resumenEjecutivo']) ?? '',
+      totalConversacionesAnalizadas:
+          (json['totalConversacionesAnalizadas'] as num?)?.toInt() ?? 0,
+      totalMensajesAnalizados:
+          (json['totalMensajesAnalizados'] as num?)?.toInt() ?? 0,
+      casosNormales: (json['casosNormales'] as num?)?.toInt() ?? 0,
+      casosConAlerta: (json['casosConAlerta'] as num?)?.toInt() ?? 0,
+      casosCriticos: (json['casosCriticos'] as num?)?.toInt() ?? 0,
+      posiblesFraudesDetectados:
+          (json['posiblesFraudesDetectados'] as num?)?.toInt() ?? 0,
+      clientesSinRespuesta:
+          (json['clientesSinRespuesta'] as num?)?.toInt() ?? 0,
+      recomendacionesConcretas:
+          (json['recomendacionesConcretas'] as List<dynamic>?)
+              ?.map((e) => sanitizeWaText(e) ?? '')
+              .where((s) => s.isNotEmpty)
+              .toList() ??
+          const [],
+      conversacionesProblematicas:
+          (json['conversacionesProblematicas'] as List<dynamic>?)
+              ?.whereType<Map>()
+              .map((e) => e.cast<String, dynamic>())
+              .toList() ??
+          const [],
+    );
+  }
+
+  String toPlainText() {
+    final lines = <String>[
+      'Estado general: $estadoGeneral',
+      '',
+      'Resumen ejecutivo:',
+      resumenEjecutivo,
+      '',
+      'Total conversaciones analizadas: $totalConversacionesAnalizadas',
+      'Total mensajes analizados: $totalMensajesAnalizados',
+      'Casos normales: $casosNormales',
+      'Casos con alerta: $casosConAlerta',
+      'Casos críticos: $casosCriticos',
+      'Posibles fraudes detectados: $posiblesFraudesDetectados',
+      'Clientes sin respuesta: $clientesSinRespuesta',
+      '',
+      'Recomendaciones:',
+      ...recomendacionesConcretas.map((item) => '- $item'),
+    ];
+    if (conversacionesProblematicas.isNotEmpty) {
+      lines.addAll(['', 'Conversaciones problemáticas:']);
+      for (final item in conversacionesProblematicas) {
+        lines.add(
+          '- ${sanitizeWaText(item['contacto']) ?? 'Sin contacto'} | ${sanitizeWaText(item['prioridad']) ?? 'prioridad N/A'} | ${sanitizeWaText(item['motivo']) ?? 'No hay evidencia suficiente'} | Acción: ${sanitizeWaText(item['accionRecomendada']) ?? 'Revisar'}',
+        );
+      }
+    }
+    return lines.join('\n');
+  }
+}
+
 class WaCrmDailyAiSummary {
   const WaCrmDailyAiSummary({
     required this.source,
@@ -124,6 +211,9 @@ class WaCrmDailyAiSummary {
     required this.stats,
     this.alerts = const [],
     this.conversationAnalysis = const [],
+    this.report,
+    this.cached = false,
+    this.generatedAt,
   });
 
   final String source;
@@ -131,6 +221,9 @@ class WaCrmDailyAiSummary {
   final Map<String, dynamic> stats;
   final List<WaCrmAiAlert> alerts;
   final List<WaCrmConversationAnalysis> conversationAnalysis;
+  final WaCrmExecutiveAiReport? report;
+  final bool cached;
+  final String? generatedAt;
 
   factory WaCrmDailyAiSummary.fromJson(Map<String, dynamic> json) {
     return WaCrmDailyAiSummary(
@@ -149,6 +242,13 @@ class WaCrmDailyAiSummary {
               .map(WaCrmConversationAnalysis.fromJson)
               .toList() ??
           const [],
+      report: (json['report'] as Map?) == null
+          ? null
+          : WaCrmExecutiveAiReport.fromJson(
+              (json['report'] as Map).cast<String, dynamic>(),
+            ),
+      cached: json['cached'] == true,
+      generatedAt: sanitizeWaText(json['generatedAt']),
     );
   }
 }
@@ -161,6 +261,8 @@ enum WaCrmMessageDateFilter {
   thisMonth,
   custom,
 }
+
+enum WaCrmAiAnalysisScope { conversation, filter }
 
 class WaCrmUser {
   const WaCrmUser({
@@ -214,6 +316,7 @@ class WaCrmState {
     this.loadingAiSummary = false,
     this.aiSummaryError,
     this.aiSummaryDate,
+    this.aiAnalysisScope = WaCrmAiAnalysisScope.filter,
     this.messageDateFilter = WaCrmMessageDateFilter.all,
     this.customMessageDate,
     this.highlightedConversationIds = const <String>{},
@@ -239,6 +342,7 @@ class WaCrmState {
   final bool loadingAiSummary;
   final String? aiSummaryError;
   final DateTime? aiSummaryDate;
+  final WaCrmAiAnalysisScope aiAnalysisScope;
   final WaCrmMessageDateFilter messageDateFilter;
   final DateTime? customMessageDate;
   final Set<String> highlightedConversationIds;
@@ -264,6 +368,7 @@ class WaCrmState {
     bool? loadingAiSummary,
     String? Function()? aiSummaryError,
     DateTime? Function()? aiSummaryDate,
+    WaCrmAiAnalysisScope? aiAnalysisScope,
     WaCrmMessageDateFilter? messageDateFilter,
     DateTime? Function()? customMessageDate,
     Set<String>? highlightedConversationIds,
@@ -297,6 +402,7 @@ class WaCrmState {
       aiSummaryDate: aiSummaryDate != null
           ? aiSummaryDate()
           : this.aiSummaryDate,
+      aiAnalysisScope: aiAnalysisScope ?? this.aiAnalysisScope,
       messageDateFilter: messageDateFilter ?? this.messageDateFilter,
       customMessageDate: customMessageDate != null
           ? customMessageDate()
@@ -552,6 +658,84 @@ class WaCrmController extends StateNotifier<WaCrmState> {
         aiSummary: () => fallback,
         aiSummaryError: () => null,
       );
+    }
+  }
+
+  Future<void> analyzeWithAi({
+    required WaCrmAiAnalysisScope scope,
+    bool forceRefresh = false,
+  }) async {
+    final user = state.selectedUser;
+    if (user == null) {
+      state = state.copyWith(
+        aiSummaryError: () => 'Selecciona un usuario para analizar con IA.',
+      );
+      return;
+    }
+    if (scope == WaCrmAiAnalysisScope.conversation &&
+        state.selectedConversation == null) {
+      state = state.copyWith(
+        aiSummaryError: () => 'Selecciona una conversación para analizarla.',
+      );
+      return;
+    }
+    final filter = _apiFilterFor(state.messageDateFilter);
+    if (filter == null) {
+      state = state.copyWith(
+        aiSummaryError: () =>
+            'Selecciona un filtro de fecha: Hoy, Ayer, Últimos 7 días, Este mes o Fecha personalizada.',
+      );
+      return;
+    }
+
+    state = state.copyWith(
+      loadingAiSummary: true,
+      aiSummaryError: () => null,
+      aiAnalysisScope: scope,
+      aiSummaryDate: () => state.customMessageDate,
+    );
+    try {
+      final raw = await _repo.analyzeWithAi(
+        scope: scope == WaCrmAiAnalysisScope.conversation
+            ? 'conversation'
+            : 'filter',
+        filter: filter,
+        userId: user.id,
+        conversationId: scope == WaCrmAiAnalysisScope.conversation
+            ? state.selectedConversation?.id
+            : null,
+        customDate: state.messageDateFilter == WaCrmMessageDateFilter.custom
+            ? state.customMessageDate
+            : null,
+        forceRefresh: forceRefresh,
+      );
+      state = state.copyWith(
+        aiSummary: () => WaCrmDailyAiSummary.fromJson(raw),
+        loadingAiSummary: false,
+      );
+    } catch (e, st) {
+      debugPrint('[WaCrm] analyzeWithAi error: $e\n$st');
+      state = state.copyWith(
+        loadingAiSummary: false,
+        aiSummaryError: () => 'No se pudo generar el análisis de IA: $e',
+      );
+    }
+  }
+
+  String? _apiFilterFor(WaCrmMessageDateFilter filter) {
+    switch (filter) {
+      case WaCrmMessageDateFilter.today:
+        return 'today';
+      case WaCrmMessageDateFilter.yesterday:
+        return 'yesterday';
+      case WaCrmMessageDateFilter.last7Days:
+        return 'last7Days';
+      case WaCrmMessageDateFilter.thisMonth:
+        return 'thisMonth';
+      case WaCrmMessageDateFilter.custom:
+        return 'custom';
+      case WaCrmMessageDateFilter.all:
+        return null;
     }
   }
 

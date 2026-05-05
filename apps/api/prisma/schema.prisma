@@ -904,6 +904,7 @@ model WhatsappConversation {
 
   instance UserWhatsappInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
   messages WhatsappMessage[]
+  aiAnalyses WhatsappAiAnalysisReport[]
 
   @@unique([instanceId, remoteJid])
   @@unique([instanceId, remotePhone])
@@ -934,10 +935,55 @@ model WhatsappMessage {
   rawPayload     Json?                    @map("raw_payload")
 
   conversation WhatsappConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  aiMediaSummary WhatsappAiMediaSummary?
 
   @@index([conversationId, sentAt(sort: Desc)])
   @@index([mediaStorageKey])
   @@map("whatsapp_messages")
+}
+
+model WhatsappAiMediaSummary {
+  id                  String   @id @default(uuid()) @db.Uuid
+  messageId           String   @unique @db.Uuid @map("message_id")
+  mediaType           String   @map("media_type")
+  summary             String?  @db.Text
+  evidence            Json?
+  transcriptionStatus String   @default("not_applicable") @map("transcription_status")
+  transcriptionText   String?  @db.Text @map("transcription_text")
+  model               String?
+  generatedAt         DateTime @default(now()) @map("generated_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  message WhatsappMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([mediaType])
+  @@index([transcriptionStatus])
+  @@map("whatsapp_ai_media_summaries")
+}
+
+model WhatsappAiAnalysisReport {
+  id                       String    @id @default(uuid()) @db.Uuid
+  conversationId           String?   @db.Uuid @map("conversation_id")
+  scope                    String
+  dateRangeKey             String    @map("date_range_key")
+  startAt                  DateTime  @map("start_at")
+  endAt                    DateTime  @map("end_at")
+  messageFingerprint       String    @map("message_fingerprint")
+  riskLevel                String    @map("risk_level")
+  summary                  String    @db.Text
+  alerts                   Json?
+  imageSummaries           Json?     @map("image_summaries")
+  audioTranscriptionStatus Json?     @map("audio_transcription_status")
+  report                   Json
+  generatedAt              DateTime  @default(now()) @map("generated_at")
+  generatedBy              String?   @db.Uuid @map("generated_by")
+
+  conversation WhatsappConversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, generatedAt(sort: Desc)])
+  @@index([scope, dateRangeKey, generatedAt(sort: Desc)])
+  @@index([riskLevel])
+  @@map("whatsapp_ai_analysis_reports")
 }
 
 model UserLocation {

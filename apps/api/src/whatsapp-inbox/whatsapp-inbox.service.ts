@@ -6,13 +6,17 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
-import { WhatsappMessageDirection, WhatsappMessageType } from '@prisma/client';
+import {
+  Prisma,
+  WhatsappMessageDirection,
+  WhatsappMessageType,
+} from '@prisma/client';
 import { CatalogRealtimeRelayService } from '../products/catalog-realtime-relay.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { R2Service } from '../storage/r2.service';
 import { RedisService } from '../common/redis/redis.service';
 import * as bcrypt from 'bcryptjs';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   normalizeInstanceName,
   normalizeWhatsappIdentity,
@@ -53,6 +57,85 @@ type PreparedWhatsappMedia = {
 };
 
 type OutgoingWhatsappMediaType = 'image' | 'video' | 'audio' | 'document';
+
+type WhatsappAiFilter =
+  | 'today'
+  | 'yesterday'
+  | 'last7Days'
+  | 'thisMonth'
+  | 'custom';
+
+type WhatsappAiScope = 'conversation' | 'filter';
+
+type WhatsappAiAnalysisInput = {
+  userId?: string;
+  conversationId?: string;
+  scope: WhatsappAiScope;
+  filter: WhatsappAiFilter;
+  customDate?: string;
+  forceRefresh?: boolean;
+  generatedBy?: string | null;
+};
+
+type WhatsappAiMediaContext = {
+  messageId: string;
+  type: string;
+  mimeType: string | null;
+  status: string;
+  summary: string | null;
+  transcriptionStatus: string;
+  transcriptionText: string | null;
+};
+
+type WhatsappAiMessageContext = {
+  id: string;
+  time: string;
+  direction: 'cliente' | 'vendedor';
+  senderName: string | null;
+  type: string;
+  text: string;
+  media: WhatsappAiMediaContext | null;
+};
+
+type WhatsappAiConversationContext = {
+  conversationId: string;
+  contact: string;
+  phone: string | null;
+  instanceName: string;
+  userName: string;
+  firstMessageAt: string | null;
+  lastMessageAt: string | null;
+  totalMessages: number;
+  incomingMessages: number;
+  outgoingMessages: number;
+  averageResponseMinutes: number | null;
+  maxResponseMinutes: number | null;
+  unansweredIncomingMessages: number;
+  messages: WhatsappAiMessageContext[];
+};
+
+type WhatsappAiReport = {
+  estadoGeneral: string;
+  resumenEjecutivo: string;
+  totalConversacionesAnalizadas: number;
+  totalMensajesAnalizados: number;
+  casosNormales: number;
+  casosConAlerta: number;
+  casosCriticos: number;
+  posiblesFraudesDetectados: number;
+  clientesSinRespuesta: number;
+  recomendacionesConcretas: string[];
+  conversacionesProblematicas: Array<{
+    conversationId?: string;
+    contacto: string;
+    telefono?: string | null;
+    motivo: string;
+    evidencia: string;
+    prioridad: string;
+    accionRecomendada: string;
+    clasificacion: string;
+  }>;
+};
 
 function asRecord(value: unknown): JsonRecord | undefined {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -3126,6 +3209,686 @@ export class WhatsappInboxService {
         conversationAnalysis: [],
       };
     }
+  }
+
+  async analyzeCrmConversations(input: WhatsappAiAnalysisInput) {
+    const range = this.resolveWhatsappAiDateRange(input.filter, input.customDate);
+    const runtime = await this.getOpenAiRuntimeConfig();
+    const scope = input.scope === 'conversation' ? 'conversation' : 'filter';
+
+    const messages = await this.loadWhatsappAiMessages({
+      scope,
+      userId: input.userId,
+      conversationId: input.conversationId,
+      start: range.start,
+      end: range.end,
+    });
+
+    const fingerprint = this.buildWhatsappAiFingerprint(messages);
+    const cacheKey = `${scope}:${range.key}:${input.conversationId ?? input.userId ?? 'all'}`;
+    const cached = input.forceRefresh
+      ? null
+      : await this.findCachedWhatsappAiReport({
+          scope,
+          conversationId: scope === 'conversation' ? input.conversationId : null,
+          dateRangeKey: cacheKey,
+          fingerprint,
+        });
+    if (cached) return cached;
+
+    const mediaSummaries = await this.ensureWhatsappAiMediaSummaries(
+      messages,
+      runtime,
+    );
+    const conversations = this.buildWhatsappAiConversationContext(
+      messages,
+      mediaSummaries,
+    );
+    const stats = this.buildWhatsappAiStats(conversations, range, scope);
+
+    const report = runtime.apiKey
+      ? await this.requestWhatsappAiAnalysisFromOpenAi(runtime, {
+          range,
+          scope,
+          stats,
+          conversations,
+        }).catch(() => this.buildDeterministicWhatsappAiReport(conversations, stats))
+      : this.buildDeterministicWhatsappAiReport(conversations, stats);
+
+    const response = this.normalizeWhatsappAiResponse({
+      source: runtime.apiKey ? 'openai' : 'rules-only',
+      cached: false,
+      range,
+      stats,
+      report,
+      conversations,
+      mediaSummaries,
+    });
+
+    await this.saveWhatsappAiReport({
+      scope,
+      conversationId: scope === 'conversation' ? input.conversationId : null,
+      dateRangeKey: cacheKey,
+      startAt: range.start,
+      endAt: range.end,
+      fingerprint,
+      report: response,
+      generatedBy: input.generatedBy ?? null,
+    }).catch(() => null);
+
+    return response;
+  }
+
+  private resolveWhatsappAiDateRange(filter: WhatsappAiFilter, customDate?: string) {
+    const now = new Date();
+    const localDay = (value: Date) => value.toLocaleDateString('en-CA', {
+      timeZone: 'America/Santo_Domingo',
+    });
+    const startOfLocalDay = (day: string) => new Date(`${day}T00:00:00-04:00`);
+    const todayStart = startOfLocalDay(localDay(now));
+    let start = todayStart;
+    let end = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
+    let label = 'Hoy';
+
+    if (filter === 'yesterday') {
+      start = new Date(todayStart.getTime() - 24 * 60 * 60 * 1000);
+      end = todayStart;
+      label = 'Ayer';
+    } else if (filter === 'last7Days') {
+      start = new Date(todayStart.getTime() - 6 * 24 * 60 * 60 * 1000);
+      end = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
+      label = 'Ultimos 7 dias';
+    } else if (filter === 'thisMonth') {
+      const parts = localDay(now).split('-').map((x) => Number(x));
+      start = startOfLocalDay(`${parts[0]}-${String(parts[1]).padStart(2, '0')}-01`);
+      end = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
+      label = 'Este mes';
+    } else if (filter === 'custom') {
+      const day = /^\d{4}-\d{2}-\d{2}$/.test(customDate ?? '')
+        ? customDate!
+        : customDate
+          ? new Date(customDate).toISOString().slice(0, 10)
+          : localDay(now);
+      start = startOfLocalDay(day);
+      end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+      label = `Fecha personalizada ${day}`;
+    }
+
+    return {
+      filter,
+      label,
+      start,
+      end,
+      key: `${filter}:${start.toISOString()}:${end.toISOString()}`,
+      startIso: start.toISOString(),
+      endIso: end.toISOString(),
+    };
+  }
+
+  private async loadWhatsappAiMessages(input: {
+    scope: WhatsappAiScope;
+    userId?: string;
+    conversationId?: string;
+    start: Date;
+    end: Date;
+  }) {
+    if (input.scope === 'conversation') {
+      if (!input.conversationId) {
+        throw new BadRequestException('conversationId es requerido.');
+      }
+      return this.prisma.whatsappMessage.findMany({
+        where: {
+          conversationId: input.conversationId,
+          sentAt: { gte: input.start, lt: input.end },
+        },
+        orderBy: { sentAt: 'asc' },
+        include: {
+          conversation: {
+            include: {
+              instance: {
+                include: {
+                  user: { select: { id: true, nombreCompleto: true, role: true } },
+                },
+              },
+            },
+          },
+        },
+        take: 1500,
+      });
+    }
+
+    if (!input.userId) throw new BadRequestException('userId es requerido.');
+    const instance = await this.prisma.userWhatsappInstance.findUnique({
+      where: { userId: input.userId },
+      select: { id: true },
+    });
+    if (!instance) throw new NotFoundException('Instance not found for user');
+
+    return this.prisma.whatsappMessage.findMany({
+      where: {
+        sentAt: { gte: input.start, lt: input.end },
+        conversation: { instanceId: instance.id },
+      },
+      orderBy: { sentAt: 'asc' },
+      include: {
+        conversation: {
+          include: {
+            instance: {
+              include: {
+                user: { select: { id: true, nombreCompleto: true, role: true } },
+              },
+            },
+          },
+        },
+      },
+      take: 1500,
+    });
+  }
+
+  private buildWhatsappAiFingerprint(messages: Array<{ id: string; sentAt: Date; messageType: WhatsappMessageType; mediaStatus: string | null; body: string | null; caption: string | null }>) {
+    const source = messages
+      .map((m) => [m.id, m.sentAt.toISOString(), m.messageType, m.mediaStatus ?? '', (m.body ?? '').length, (m.caption ?? '').length].join('|'))
+      .join('\n');
+    return createHash('sha256').update(source).digest('hex');
+  }
+
+  private async findCachedWhatsappAiReport(input: {
+    scope: WhatsappAiScope;
+    conversationId?: string | null;
+    dateRangeKey: string;
+    fingerprint: string;
+  }) {
+    type Row = { report: Prisma.JsonValue; generated_at: Date };
+    const rows = await this.prisma.$queryRaw<Row[]>`
+      SELECT report, generated_at
+      FROM whatsapp_ai_analysis_reports
+      WHERE scope = ${input.scope}
+        AND date_range_key = ${input.dateRangeKey}
+        AND message_fingerprint = ${input.fingerprint}
+        AND (
+          (${input.conversationId}::uuid IS NULL AND conversation_id IS NULL)
+          OR conversation_id = ${input.conversationId}::uuid
+        )
+      ORDER BY generated_at DESC
+      LIMIT 1
+    `.catch(() => [] as Row[]);
+    const report = rows[0]?.report;
+    if (!report || typeof report !== 'object' || Array.isArray(report)) return null;
+    return { ...(report as Record<string, unknown>), cached: true };
+  }
+
+  private async ensureWhatsappAiMediaSummaries(
+    messages: Array<{
+      id: string;
+      messageType: WhatsappMessageType;
+      mediaUrl: string | null;
+      mediaMimeType: string | null;
+      mediaStatus: string | null;
+      caption: string | null;
+    }>,
+    runtime: { apiKey: string; model: string; companyName: string },
+  ) {
+    const mediaMessages = messages.filter((m) => m.messageType !== WhatsappMessageType.TEXT);
+    if (mediaMessages.length === 0) return new Map<string, WhatsappAiMediaContext>();
+
+    type Row = {
+      message_id: string;
+      media_type: string;
+      summary: string | null;
+      transcription_status: string;
+      transcription_text: string | null;
+    };
+    const ids = mediaMessages.map((m) => m.id);
+    const uuidIds = ids.map((id) => Prisma.sql`${id}::uuid`);
+    const existingRows = ids.length
+      ? await this.prisma.$queryRaw<Row[]>`
+          SELECT message_id, media_type, summary, transcription_status, transcription_text
+          FROM whatsapp_ai_media_summaries
+          WHERE message_id IN (${Prisma.join(uuidIds)})
+        `.catch(() => [] as Row[])
+      : [];
+    const summaries = new Map<string, WhatsappAiMediaContext>();
+    for (const row of existingRows) {
+      summaries.set(row.message_id, {
+        messageId: row.message_id,
+        type: row.media_type,
+        mimeType: null,
+        status: 'cached',
+        summary: row.summary,
+        transcriptionStatus: row.transcription_status,
+        transcriptionText: row.transcription_text,
+      });
+    }
+
+    let imageBudget = 8;
+    let audioBudget = 4;
+    for (const msg of mediaMessages) {
+      if (summaries.has(msg.id)) continue;
+      let summary: string | null = null;
+      let transcriptionStatus = 'not_applicable';
+      let transcriptionText: string | null = null;
+      const mediaType = msg.messageType.toString().toLowerCase();
+
+      if (msg.messageType === WhatsappMessageType.IMAGE) {
+        if (runtime.apiKey && imageBudget > 0 && this.canOpenAiReadImageUrl(msg.mediaUrl)) {
+          imageBudget -= 1;
+          summary = await this.requestWhatsappImageSummary(runtime, msg.mediaUrl!, msg.caption).catch(() => null);
+        }
+        summary ??= msg.caption?.trim()
+          ? `Imagen con caption: ${msg.caption.trim()}`
+          : msg.mediaStatus === 'ready'
+            ? 'Imagen disponible; resumen visual pendiente.'
+            : 'Imagen pendiente o no disponible para analisis visual.';
+      } else if (msg.messageType === WhatsappMessageType.AUDIO) {
+        transcriptionStatus = 'pending';
+        if (runtime.apiKey && audioBudget > 0 && msg.mediaUrl?.startsWith('data:audio')) {
+          audioBudget -= 1;
+          transcriptionText = await this.transcribeAudioBase64(
+            msg.mediaUrl,
+            msg.mediaMimeType ?? 'audio/ogg',
+            runtime.apiKey,
+          ).catch(() => null);
+          transcriptionStatus = transcriptionText ? 'transcribed' : 'pending';
+        }
+        summary = transcriptionText
+          ? `Audio transcrito: ${transcriptionText}`
+          : 'Audio pendiente de transcripcion.';
+      } else if (msg.messageType === WhatsappMessageType.VIDEO) {
+        summary = msg.caption?.trim()
+          ? `Video disponible con caption: ${msg.caption.trim()}`
+          : 'Video disponible; analisis visual/transcripcion pendiente.';
+      } else if (msg.messageType === WhatsappMessageType.DOCUMENT) {
+        summary = msg.caption?.trim()
+          ? `Documento adjunto con caption: ${msg.caption.trim()}`
+          : 'Documento adjunto; contenido pendiente de lectura automatica.';
+      } else {
+        summary = 'Media no textual registrada; analisis especifico pendiente.';
+      }
+
+      const context: WhatsappAiMediaContext = {
+        messageId: msg.id,
+        type: mediaType,
+        mimeType: msg.mediaMimeType,
+        status: msg.mediaStatus ?? 'unknown',
+        summary,
+        transcriptionStatus,
+        transcriptionText,
+      };
+      summaries.set(msg.id, context);
+      await this.saveWhatsappAiMediaSummary(context, runtime.model).catch(() => null);
+    }
+
+    return summaries;
+  }
+
+  private canOpenAiReadImageUrl(value: string | null) {
+    if (!value) return false;
+    return value.startsWith('data:image') || value.startsWith('https://') || value.startsWith('http://');
+  }
+
+  private async requestWhatsappImageSummary(
+    runtime: { apiKey: string; model: string; companyName: string },
+    imageUrl: string,
+    caption?: string | null,
+  ) {
+    const candidates = [runtime.model, 'gpt-4o', 'gpt-4.1', 'gpt-4o-mini'].filter(
+      (value, index, list) => value && list.indexOf(value) === index,
+    );
+    const prompt = [
+      'Analiza esta imagen de una conversacion de WhatsApp CRM.',
+      'Describe solo evidencia visible. No inventes datos.',
+      'Detecta si parece comprobante de pago, transferencia, factura, cedula/documento, producto danado, instalacion, reclamo visual, captura de pantalla, conversacion reenviada o posible manipulacion/fraude evidente.',
+      'Si contiene datos sensibles, no transcribas numeros completos; solo indica el tipo de documento o evidencia.',
+      caption?.trim() ? `Caption: ${caption.trim()}` : '',
+    ].filter(Boolean).join(' ');
+
+    for (const model of candidates) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 9000);
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          signal: controller.signal,
+          headers: {
+            Authorization: `Bearer ${runtime.apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model,
+            temperature: 0.05,
+            max_tokens: 350,
+            messages: [
+              { role: 'system', content: 'Eres auditor visual de CRM. Responde breve en espanol y sin inventar.' },
+              { role: 'user', content: [
+                { type: 'text', text: prompt },
+                { type: 'image_url', image_url: { url: imageUrl, detail: 'low' } },
+              ] },
+            ],
+          }),
+        }).finally(() => clearTimeout(timeout));
+        if (!response.ok) continue;
+        const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
+        const content = data.choices?.[0]?.message?.content?.trim();
+        if (content) return content.slice(0, 1200);
+      } catch {
+        continue;
+      }
+    }
+    return null;
+  }
+
+  private async saveWhatsappAiMediaSummary(context: WhatsappAiMediaContext, model: string) {
+    const evidence = {
+      summary: context.summary,
+      mediaType: context.type,
+      mimeType: context.mimeType,
+      status: context.status,
+    };
+    await this.prisma.$executeRaw`
+      INSERT INTO whatsapp_ai_media_summaries
+        (message_id, media_type, summary, evidence, transcription_status, transcription_text, model)
+      VALUES
+        (${context.messageId}::uuid, ${context.type}, ${context.summary}, CAST(${JSON.stringify(evidence)} AS jsonb), ${context.transcriptionStatus}, ${context.transcriptionText}, ${model})
+      ON CONFLICT (message_id) DO UPDATE SET
+        media_type = EXCLUDED.media_type,
+        summary = EXCLUDED.summary,
+        evidence = EXCLUDED.evidence,
+        transcription_status = EXCLUDED.transcription_status,
+        transcription_text = EXCLUDED.transcription_text,
+        model = EXCLUDED.model,
+        updated_at = CURRENT_TIMESTAMP
+    `;
+  }
+
+  private buildWhatsappAiConversationContext(
+    messages: Array<any>,
+    mediaSummaries: Map<string, WhatsappAiMediaContext>,
+  ): WhatsappAiConversationContext[] {
+    const grouped = new Map<string, Array<any>>();
+    for (const message of messages) {
+      const list = grouped.get(message.conversationId) ?? [];
+      list.push(message);
+      grouped.set(message.conversationId, list);
+    }
+
+    return Array.from(grouped.entries()).map(([conversationId, items]) => {
+      const first = items[0];
+      const conv = first.conversation;
+      const responseTimes: number[] = [];
+      let pendingIncomingAt: Date | null = null;
+      let unansweredIncomingMessages = 0;
+      for (const item of items) {
+        if (item.direction === WhatsappMessageDirection.INCOMING) {
+          pendingIncomingAt = item.sentAt;
+          unansweredIncomingMessages += 1;
+        } else if (pendingIncomingAt) {
+          responseTimes.push(Math.max(0, item.sentAt.getTime() - pendingIncomingAt.getTime()) / 60000);
+          pendingIncomingAt = null;
+          unansweredIncomingMessages = Math.max(0, unansweredIncomingMessages - 1);
+        }
+      }
+      const contact = readableSenderName(conv.remoteName, conv.remotePhone) ?? conv.remotePhone ?? conv.remoteJid;
+      return {
+        conversationId,
+        contact,
+        phone: conv.remotePhone,
+        instanceName: conv.instance?.instanceName ?? '',
+        userName: conv.instance?.user?.nombreCompleto ?? conv.instance?.instanceName ?? '',
+        firstMessageAt: items[0]?.sentAt?.toISOString() ?? null,
+        lastMessageAt: items[items.length - 1]?.sentAt?.toISOString() ?? null,
+        totalMessages: items.length,
+        incomingMessages: items.filter((m) => m.direction === WhatsappMessageDirection.INCOMING).length,
+        outgoingMessages: items.filter((m) => m.direction === WhatsappMessageDirection.OUTGOING).length,
+        averageResponseMinutes: responseTimes.length
+          ? Math.round(responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length)
+          : null,
+        maxResponseMinutes: responseTimes.length ? Math.round(Math.max(...responseTimes)) : null,
+        unansweredIncomingMessages,
+        messages: items.slice(-80).map((m) => ({
+          id: m.id,
+          time: m.sentAt.toISOString(),
+          direction: m.direction === WhatsappMessageDirection.OUTGOING ? 'vendedor' : 'cliente',
+          senderName: m.senderName,
+          type: m.messageType,
+          text: (m.body ?? m.caption ?? '').replace(/\s+/g, ' ').trim().slice(0, 1200),
+          media: mediaSummaries.get(m.id) ?? null,
+        })),
+      };
+    });
+  }
+
+  private buildWhatsappAiStats(conversations: WhatsappAiConversationContext[], range: { label: string; startIso: string; endIso: string }, scope: WhatsappAiScope) {
+    const totalMessages = conversations.reduce((sum, conv) => sum + conv.totalMessages, 0);
+    return {
+      scope,
+      rangeLabel: range.label,
+      startAt: range.startIso,
+      endAt: range.endIso,
+      contacts: conversations.length,
+      totalMessages,
+      incomingMessages: conversations.reduce((sum, conv) => sum + conv.incomingMessages, 0),
+      outgoingMessages: conversations.reduce((sum, conv) => sum + conv.outgoingMessages, 0),
+      mediaMessages: conversations.reduce((sum, conv) => sum + conv.messages.filter((m) => m.media != null).length, 0),
+    };
+  }
+
+  private buildDeterministicWhatsappAiReport(conversations: WhatsappAiConversationContext[], stats: Record<string, unknown>): WhatsappAiReport {
+    const problematic = conversations
+      .filter((conv) => conv.unansweredIncomingMessages > 0 || (conv.maxResponseMinutes ?? 0) > 180 || this.hasRiskWords(conv))
+      .map((conv) => ({
+        conversationId: conv.conversationId,
+        contacto: conv.contact,
+        telefono: conv.phone,
+        motivo: conv.unansweredIncomingMessages > 0
+          ? 'Mensajes del cliente sin respuesta dentro del rango.'
+          : this.hasRiskWords(conv)
+            ? 'Se detectaron palabras asociadas a reclamo, molestia o posible fraude.'
+            : 'Tiempo de respuesta alto.',
+        evidencia: this.pickConversationEvidence(conv),
+        prioridad: this.hasCriticalWords(conv) ? 'alta' : 'media',
+        accionRecomendada: 'Revisar la conversacion, responder con seguimiento claro y documentar el cierre.',
+        clasificacion: this.hasCriticalWords(conv) ? 'Conversacion critica' : 'Requiere atencion',
+      }));
+    const critical = problematic.filter((item) => item.prioridad === 'alta').length;
+    const fraud = problematic.filter((item) => item.motivo.toLowerCase().includes('fraude')).length;
+    return {
+      estadoGeneral: critical > 0 ? 'Critico' : problematic.length > 0 ? 'Atencion requerida' : 'Normal',
+      resumenEjecutivo: conversations.length === 0
+        ? 'No hay mensajes en el rango seleccionado. No hay evidencia suficiente para evaluar conversaciones.'
+        : problematic.length > 0
+          ? `Se analizaron ${conversations.length} conversaciones y se encontraron ${problematic.length} con posibles alertas. Revisar prioridades antes de cerrar el dia.`
+          : `Se analizaron ${conversations.length} conversaciones sin evidencia suficiente de conflictos, fraude o falta de seguimiento grave.`,
+      totalConversacionesAnalizadas: conversations.length,
+      totalMensajesAnalizados: Number(stats.totalMessages ?? 0),
+      casosNormales: Math.max(0, conversations.length - problematic.length),
+      casosConAlerta: problematic.length,
+      casosCriticos: critical,
+      posiblesFraudesDetectados: fraud,
+      clientesSinRespuesta: conversations.filter((conv) => conv.unansweredIncomingMessages > 0).length,
+      recomendacionesConcretas: problematic.length
+        ? ['Responder primero los clientes sin respuesta.', 'Confirmar promesas pendientes con fecha y responsable.', 'Escalar reclamos o sospechas de pago antes de entregar productos/servicios.']
+        : ['Mantener seguimiento regular y registrar proximos pasos cuando haya interes comercial.'],
+      conversacionesProblematicas: problematic,
+    };
+  }
+
+  private hasRiskWords(conv: WhatsappAiConversationContext) {
+    const text = conv.messages.map((m) => `${m.text} ${m.media?.summary ?? ''}`).join(' ').toLowerCase();
+    return ['reclamo', 'molesto', 'denuncia', 'devolucion', 'devolución', 'fraude', 'estafa', 'pago', 'transferencia', 'no me resolvieron', 'redes'].some((word) => text.includes(word));
+  }
+
+  private hasCriticalWords(conv: WhatsappAiConversationContext) {
+    const text = conv.messages.map((m) => `${m.text} ${m.media?.summary ?? ''}`).join(' ').toLowerCase();
+    return ['denuncia', 'fraude', 'estafa', 'demanda', 'redes', 'policia', 'policía'].some((word) => text.includes(word));
+  }
+
+  private pickConversationEvidence(conv: WhatsappAiConversationContext) {
+    const evidence = conv.messages.find((m) => m.text.trim().length > 0 || m.media?.summary);
+    if (!evidence) return 'No hay evidencia suficiente.';
+    return (evidence.text || evidence.media?.summary || 'No hay evidencia suficiente.').slice(0, 500);
+  }
+
+  private async requestWhatsappAiAnalysisFromOpenAi(
+    runtime: { apiKey: string; model: string; companyName: string },
+    payload: {
+      range: { label: string; startIso: string; endIso: string };
+      scope: WhatsappAiScope;
+      stats: Record<string, unknown>;
+      conversations: WhatsappAiConversationContext[];
+    },
+  ): Promise<WhatsappAiReport> {
+    const candidates = [runtime.model, 'gpt-5', 'gpt-4.1', 'gpt-4o', 'gpt-4o-mini'].filter(
+      (value, index, list) => value && list.indexOf(value) === index,
+    );
+    const compactConversations = payload.conversations.slice(0, 80).map((conv) => ({
+      ...conv,
+      messages: conv.messages.slice(-70),
+    }));
+    const systemPrompt =
+      `Eres auditor ejecutivo del CRM WhatsApp de ${runtime.companyName}. ` +
+      'Analiza conversaciones SOLO con la evidencia provista. No inventes. Diferencia hecho confirmado, sospecha, recomendacion y dato pendiente. ' +
+      'Detecta posible fraude, conflictos, mala atencion, falta de seguimiento, vendedor sin dedicacion, clientes molestos, reclamos, mensajes sin responder, promesas incumplidas, errores de comunicacion, oportunidades de venta y conversaciones normales. ' +
+      'Trata cedulas/documentos como datos sensibles y no copies numeros completos.';
+    const schema = {
+      estadoGeneral: 'Normal|Atencion requerida|Critico',
+      resumenEjecutivo: 'texto ejecutivo breve',
+      totalConversacionesAnalizadas: 0,
+      totalMensajesAnalizados: 0,
+      casosNormales: 0,
+      casosConAlerta: 0,
+      casosCriticos: 0,
+      posiblesFraudesDetectados: 0,
+      clientesSinRespuesta: 0,
+      recomendacionesConcretas: ['acciones concretas'],
+      conversacionesProblematicas: [{
+        conversationId: 'id', contacto: 'nombre', telefono: 'telefono', motivo: 'motivo', evidencia: 'texto/resumen', prioridad: 'baja|media|alta|critica', accionRecomendada: 'accion', clasificacion: 'Normal|Requiere atencion|Riesgo de conflicto|Posible fraude|Cliente molesto|Falta de seguimiento|Venta potencial|Reclamo abierto|Conversacion critica',
+      }],
+    };
+    const userPrompt = {
+      rango: payload.range,
+      alcance: payload.scope,
+      estadisticas: payload.stats,
+      conversaciones: compactConversations,
+      reglas: [
+        'El reporte debe usar exactamente este rango.',
+        'Si no hay evidencia suficiente, escribir: No hay evidencia suficiente.',
+        'No guardar ni repetir imagenes completas; usa solo resumen visual.',
+        'Indicar audio pendiente de transcripcion cuando aplique.',
+      ],
+      formatoObligatorio: schema,
+    };
+
+    for (const model of candidates) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 18000);
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          signal: controller.signal,
+          headers: {
+            Authorization: `Bearer ${runtime.apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model,
+            temperature: 0.08,
+            max_tokens: 4500,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: `Devuelve SOLO JSON valido.\n${JSON.stringify(userPrompt).slice(0, 60000)}` },
+            ],
+          }),
+        }).finally(() => clearTimeout(timeout));
+        if (!response.ok) continue;
+        const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
+        const content = data.choices?.[0]?.message?.content?.trim();
+        if (!content) continue;
+        const first = content.indexOf('{');
+        const last = content.lastIndexOf('}');
+        const json = first >= 0 && last > first ? content.slice(first, last + 1) : content;
+        return JSON.parse(json) as WhatsappAiReport;
+      } catch {
+        continue;
+      }
+    }
+    throw new BadRequestException('No se pudo generar el analisis de IA.');
+  }
+
+  private normalizeWhatsappAiResponse(input: {
+    source: string;
+    cached: boolean;
+    range: { label: string; startIso: string; endIso: string; key: string };
+    stats: Record<string, unknown>;
+    report: WhatsappAiReport;
+    conversations: WhatsappAiConversationContext[];
+    mediaSummaries: Map<string, WhatsappAiMediaContext>;
+  }) {
+    const alerts = input.report.conversacionesProblematicas.map((item) => ({
+      type: item.clasificacion?.toLowerCase().includes('fraude') ? 'fraud' : item.clasificacion?.toLowerCase().includes('molesto') ? 'angry_customer' : item.clasificacion?.toLowerCase().includes('seguimiento') ? 'no_response' : 'crm_risk',
+      severity: item.prioridad === 'critica' || item.prioridad === 'alta' ? 'high' : item.prioridad === 'media' ? 'medium' : 'low',
+      contact: item.contacto,
+      description: `${item.motivo}. Evidencia: ${item.evidencia}`,
+    }));
+    const conversationAnalysis = input.conversations.map((conv) => {
+      const problem = input.report.conversacionesProblematicas.find((item) => item.conversationId === conv.conversationId || item.contacto === conv.contact);
+      return {
+        contact: conv.contact,
+        messageCount: conv.totalMessages,
+        status: problem ? this.mapWhatsappAiClassificationToStatus(problem.clasificacion) : 'normal',
+        issues: problem ? [problem.motivo, problem.accionRecomendada] : [],
+        summary: problem?.evidencia ?? 'Conversacion normal sin problema evidente.',
+      };
+    });
+    const imageSummaries = Array.from(input.mediaSummaries.values())
+      .filter((item) => item.type === 'image')
+      .map((item) => ({ messageId: item.messageId, summary: item.summary }));
+    const audioTranscriptionStatus = Array.from(input.mediaSummaries.values())
+      .filter((item) => item.type === 'audio')
+      .map((item) => ({ messageId: item.messageId, status: item.transcriptionStatus }));
+    return {
+      source: input.source,
+      cached: input.cached,
+      dateRange: input.range,
+      stats: input.stats,
+      summary: input.report.resumenEjecutivo,
+      alerts,
+      conversationAnalysis,
+      report: input.report,
+      imageSummaries,
+      audioTranscriptionStatus,
+      generatedAt: new Date().toISOString(),
+    };
+  }
+
+  private mapWhatsappAiClassificationToStatus(value: string) {
+    const text = (value ?? '').toLowerCase();
+    if (text.includes('fraude')) return 'fraud';
+    if (text.includes('critica')) return 'critical';
+    if (text.includes('molesto') || text.includes('conflicto')) return 'angry';
+    if (text.includes('seguimiento') || text.includes('respuesta')) return 'no_response';
+    if (text.includes('venta')) return 'interested';
+    return 'pending';
+  }
+
+  private async saveWhatsappAiReport(input: {
+    scope: WhatsappAiScope;
+    conversationId?: string | null;
+    dateRangeKey: string;
+    startAt: Date;
+    endAt: Date;
+    fingerprint: string;
+    report: Record<string, unknown>;
+    generatedBy?: string | null;
+  }) {
+    const report = input.report;
+    const rawReport = (report.report ?? {}) as Record<string, unknown>;
+    const riskLevel = String(rawReport.estadoGeneral ?? 'Normal');
+    await this.prisma.$executeRaw`
+      INSERT INTO whatsapp_ai_analysis_reports
+        (conversation_id, scope, date_range_key, start_at, end_at, message_fingerprint, risk_level, summary, alerts, image_summaries, audio_transcription_status, report, generated_by)
+      VALUES
+        (${input.conversationId}::uuid, ${input.scope}, ${input.dateRangeKey}, ${input.startAt}, ${input.endAt}, ${input.fingerprint}, ${riskLevel}, ${String(report.summary ?? '')}, CAST(${JSON.stringify(report.alerts ?? [])} AS jsonb), CAST(${JSON.stringify(report.imageSummaries ?? [])} AS jsonb), CAST(${JSON.stringify(report.audioTranscriptionStatus ?? [])} AS jsonb), CAST(${JSON.stringify(report)} AS jsonb), ${input.generatedBy}::uuid)
+    `;
   }
 
   private withTimeout<T>(
