@@ -136,6 +136,15 @@ class PublicidadController extends StateNotifier<PublicidadState> {
     });
   }
 
+  Future<MarketingRepairIncompleteSummary> repairIncompleteNow() async {
+    late MarketingRepairIncompleteSummary summary;
+    await _runBusy(() async {
+      summary = await _api.repairIncomplete(state.date);
+      await _refresh(keepLoading: false);
+    });
+    return summary;
+  }
+
   Future<void> approve(String storyId) async {
     await _runBusy(() async {
       await _api.approve(storyId);
@@ -571,6 +580,28 @@ class PublicidadScreen extends ConsumerStatefulWidget {
 class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
   _PublicidadTab _tab = _PublicidadTab.dashboard;
 
+  Future<void> _handleRepairIncomplete(
+    BuildContext context,
+    PublicidadController controller,
+  ) async {
+    try {
+      final summary = await controller.repairIncompleteNow();
+      if (!context.mounted) return;
+      final hasErrors = summary.failed.isNotEmpty;
+      final message = hasErrors
+          ? 'Reparados ${summary.repaired}/${summary.targeted}. Fallaron ${summary.failed.length}.'
+          : 'Reparados ${summary.repaired}/${summary.targeted} anuncios incompletos.';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    } on ApiException catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.message.trim().isEmpty ? 'No se pudo ejecutar la reparación automática.' : error.message),
+        ),
+      );
+    }
+  }
+
   Future<void> _handleResetClean(
     BuildContext context,
     PublicidadController controller,
@@ -678,6 +709,7 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
                                 onActivate: controller.activateFlow,
                                 onPause: controller.pauseFlow,
                                 onGenerateNow: controller.generateNow,
+                                onRepairIncomplete: () => _handleRepairIncomplete(context, controller),
                                 onResetClean: () => _handleResetClean(context, controller, state.date),
                                 onApprove: controller.approve,
                                 onRegenerate: controller.regenerate,
@@ -761,27 +793,73 @@ class _TopToolbar extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         color: scheme.surface.withValues(alpha: 0.9),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.4)),
       ),
       child: Column(
         children: [
           Row(
             children: [
+              Text(
+                'Flujo de contenidos diarios',
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(width: 10),
               Expanded(
-                child: Text(
-                  'Flujo de contenidos diarios',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: SegmentedButton<_PublicidadTab>(
+                      style: ButtonStyle(
+                        visualDensity: VisualDensity.compact,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      segments: const [
+                        ButtonSegment(
+                          value: _PublicidadTab.dashboard,
+                          label: Text('Dashboard', style: TextStyle(fontSize: 12)),
+                        ),
+                        ButtonSegment(
+                          value: _PublicidadTab.investigacion,
+                          label: Text('Investigación', style: TextStyle(fontSize: 12)),
+                        ),
+                        ButtonSegment(
+                          value: _PublicidadTab.galeria,
+                          label: Text('Galería Publicitaria', style: TextStyle(fontSize: 12)),
+                        ),
+                        ButtonSegment(
+                          value: _PublicidadTab.estados,
+                          label: Text('Estados diarios', style: TextStyle(fontSize: 12)),
+                        ),
+                        ButtonSegment(
+                          value: _PublicidadTab.historial,
+                          label: Text('Historial', style: TextStyle(fontSize: 12)),
+                        ),
+                        ButtonSegment(
+                          value: _PublicidadTab.configuracion,
+                          label: Text('Configuración', style: TextStyle(fontSize: 12)),
+                        ),
+                      ],
+                      selected: {tab},
+                      onSelectionChanged: (value) {
+                        if (value.isNotEmpty) onTabChanged(value.first);
+                      },
+                    ),
                   ),
                 ),
               ),
+              const SizedBox(width: 6),
               IconButton(
                 tooltip: 'Actualizar',
                 onPressed: busy ? null : onRefresh,
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.all(6),
                 icon: const Icon(Icons.refresh_rounded),
               ),
               OutlinedButton.icon(
@@ -796,45 +874,16 @@ class _TopToolbar extends StatelessWidget {
                         );
                         if (selected != null) onPickDate(selected);
                       },
+                style: OutlinedButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                ),
                 icon: const Icon(Icons.calendar_today_rounded, size: 16),
                 label: Text(
                   '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}',
                 ),
               ),
             ],
-          ),
-          const SizedBox(height: 8),
-          SegmentedButton<_PublicidadTab>(
-            segments: const [
-              ButtonSegment(
-                value: _PublicidadTab.dashboard,
-                label: Text('Dashboard'),
-              ),
-              ButtonSegment(
-                value: _PublicidadTab.investigacion,
-                label: Text('Investigación'),
-              ),
-              ButtonSegment(
-                value: _PublicidadTab.galeria,
-                label: Text('Galería Publicitaria'),
-              ),
-              ButtonSegment(
-                value: _PublicidadTab.estados,
-                label: Text('Estados diarios'),
-              ),
-              ButtonSegment(
-                value: _PublicidadTab.historial,
-                label: Text('Historial'),
-              ),
-              ButtonSegment(
-                value: _PublicidadTab.configuracion,
-                label: Text('Configuración'),
-              ),
-            ],
-            selected: {tab},
-            onSelectionChanged: (value) {
-              if (value.isNotEmpty) onTabChanged(value.first);
-            },
           ),
         ],
       ),
@@ -944,6 +993,7 @@ class _DashboardTab extends StatelessWidget {
     required this.onActivate,
     required this.onPause,
     required this.onGenerateNow,
+    required this.onRepairIncomplete,
     required this.onResetClean,
     required this.onApprove,
     required this.onRegenerate,
@@ -959,6 +1009,7 @@ class _DashboardTab extends StatelessWidget {
   final Future<void> Function() onActivate;
   final Future<void> Function() onPause;
   final Future<void> Function() onGenerateNow;
+  final Future<void> Function() onRepairIncomplete;
   final Future<void> Function() onResetClean;
   final Future<void> Function(String storyId) onApprove;
   final Future<void> Function(String storyId) onRegenerate;
@@ -984,79 +1035,71 @@ class _DashboardTab extends StatelessWidget {
           s.usedCTA.trim().isNotEmpty,
       )
       .length;
-    final cards = [
-      ('Estado del flujo', dashboard?.flowStatus ?? 'INACTIVO'),
-      ('Pendientes de aprobación', '${dashboard?.pendingApprovalCount ?? 0}'),
+    final keyMetrics = [
+      ('Flujo', dashboard?.flowStatus ?? 'INACTIVO'),
+      ('Pendientes', '${dashboard?.pendingApprovalCount ?? 0}'),
       ('Aprobados hoy', '${dashboard?.approvedTodayCount ?? 0}'),
-      ('Última generación', _formatDateTime(dashboard?.lastGenerationAt)),
-      (
-        'Próxima generación sugerida',
-        _formatDateTime(dashboard?.nextSuggestedGeneration),
-      ),
-      (
-        'Investigación usable',
-        dashboard?.researchUsable == true ? 'Sí' : 'No',
-      ),
-      (
-        'Próxima investigación auto',
-        _formatDateTime(dashboard?.nextAutoResearch),
-      ),
-      (
-        'Frecuencia investigación',
-        'Cada ${dashboard?.researchFrequencyDays ?? 2} días',
-      ),
-      ('Radio de servicio', '${dashboard?.serviceRadiusKm ?? 25} km'),
-      ('Zona objetivo', dashboard?.serviceZone ?? 'Higüey, La Altagracia'),
-      (
-        'Estados con investigación actual',
-        '${dashboard?.storiesFromCurrentResearch ?? 0}',
-      ),
-      ('Estados listos para revisión', '$completeStories'),
-      ('Estados incompletos', '$incompleteStories'),
-      ('Imágenes generadas', '$generatedImages'),
-      ('Copys generados', '$generatedCopies'),
+      ('Listos', '$completeStories'),
+      ('Incompletos', '$incompleteStories'),
+      ('Imágenes', '$generatedImages'),
+      ('Copys', '$generatedCopies'),
+      ('Investigación', dashboard?.researchUsable == true ? 'Usable' : 'No usable'),
+      ('Última', _formatDateTime(dashboard?.lastGenerationAt)),
+      ('Próxima', _formatDateTime(dashboard?.nextSuggestedGeneration)),
     ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: [
-            for (final card in cards)
-              SizedBox(
-                width: 270,
-                child: _MetricCard(label: card.$1, value: card.$2),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              _MetaChip(label: 'Flujo', value: dashboard?.flowStatus ?? 'INACTIVO'),
+              const SizedBox(width: 8),
+              FilledButton.icon(
+                onPressed: busy ? null : onGenerateNow,
+                icon: const Icon(Icons.auto_fix_high_rounded),
+                label: const Text('Generar estados ahora'),
               ),
-          ],
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                onPressed: busy ? null : onRepairIncomplete,
+                icon: const Icon(Icons.build_circle_outlined),
+                label: const Text('Reparar incompletos'),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                onPressed: busy ? null : onResetClean,
+                icon: const Icon(Icons.restart_alt_rounded),
+                label: const Text('Reset limpio'),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                onPressed: busy ? null : onActivate,
+                icon: const Icon(Icons.play_circle_fill_rounded),
+                label: const Text('Activar'),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                onPressed: busy ? null : onPause,
+                icon: const Icon(Icons.pause_circle_filled_rounded),
+                label: const Text('Pausar'),
+              ),
+            ],
+          ),
         ),
-        const SizedBox(height: 14),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            FilledButton.icon(
-              onPressed: busy ? null : onActivate,
-              icon: const Icon(Icons.play_circle_fill_rounded),
-              label: const Text('Activar flujo'),
-            ),
-            OutlinedButton.icon(
-              onPressed: busy ? null : onPause,
-              icon: const Icon(Icons.pause_circle_filled_rounded),
-              label: const Text('Pausar flujo'),
-            ),
-            OutlinedButton.icon(
-              onPressed: busy ? null : onGenerateNow,
-              icon: const Icon(Icons.auto_fix_high_rounded),
-              label: const Text('Generar estados ahora'),
-            ),
-            OutlinedButton.icon(
-              onPressed: busy ? null : onResetClean,
-              icon: const Icon(Icons.restart_alt_rounded),
-              label: const Text('Reset limpio de publicidad'),
-            ),
-          ],
+        const SizedBox(height: 10),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              for (final metric in keyMetrics) ...[
+                _MetaChip(label: metric.$1, value: metric.$2),
+                const SizedBox(width: 6),
+              ],
+            ],
+          ),
         ),
         const SizedBox(height: 16),
         Text(
@@ -1094,46 +1137,6 @@ class _DashboardTab extends StatelessWidget {
         story.usedCTA.trim().isNotEmpty;
     final hasPrompt = story.imagePrompt.trim().isNotEmpty;
     return hasImage && hasCopy && hasPrompt;
-  }
-}
-
-class _MetricCard extends StatelessWidget {
-  const _MetricCard({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: scheme.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: scheme.outlineVariant.withValues(alpha: 0.32),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-          ),
-        ],
-      ),
-    );
   }
 }
 
@@ -1202,36 +1205,46 @@ class _DailyStoriesTab extends StatelessWidget {
                 for (final story in stories)
                   SizedBox(
                     width: cardWidth,
-                    child: _StoryCard(
-                      story: story,
-                      usedResearch: _findResearch(story.researchId),
-                      busy: busy,
-                      compactActions: compactActions,
-                      onApprove: () => onApprove(story.id),
-                      onReject: () => onReject(story.id),
-                      onRegenerate: () => onRegenerate(story.id),
-                      onRegenerateImage: () => onRegenerateImage(story.id),
-                      onChangeBaseImage: () async {
-                        final chosen = await showDialog<String>(
-                          context: context,
-                          builder: (_) => _PickMediaAssetDialog(
-                            assets: mediaAssets,
-                            selectedId: story.mediaAssetId,
-                          ),
-                        );
-                        if (chosen != null && chosen.isNotEmpty) {
-                          await onChangeBaseImage(story.id, chosen);
-                        }
-                      },
-                      onEdit: () async {
-                        final payload = await showDialog<_EditStoryPayload>(
-                          context: context,
-                          builder: (_) => _EditStoryDialog(story: story),
-                        );
-                        if (payload != null) {
-                          await onEdit(story, payload);
-                        }
-                      },
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surface,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.35),
+                        ),
+                      ),
+                      child: _StoryCard(
+                        story: story,
+                        usedResearch: _findResearch(story.researchId),
+                        busy: busy,
+                        compactActions: compactActions,
+                        onApprove: () => onApprove(story.id),
+                        onReject: () => onReject(story.id),
+                        onRegenerate: () => onRegenerate(story.id),
+                        onRegenerateImage: () => onRegenerateImage(story.id),
+                        onChangeBaseImage: () async {
+                          final chosen = await showDialog<String>(
+                            context: context,
+                            builder: (_) => _PickMediaAssetDialog(
+                              assets: mediaAssets,
+                              selectedId: story.mediaAssetId,
+                            ),
+                          );
+                          if (chosen != null && chosen.isNotEmpty) {
+                            await onChangeBaseImage(story.id, chosen);
+                          }
+                        },
+                        onEdit: () async {
+                          final payload = await showDialog<_EditStoryPayload>(
+                            context: context,
+                            builder: (_) => _EditStoryDialog(story: story),
+                          );
+                          if (payload != null) {
+                            await onEdit(story, payload);
+                          }
+                        },
+                      ),
                     ),
                   ),
               ],
@@ -1295,6 +1308,7 @@ class _StoryCard extends StatelessWidget {
     final baseImage = _safeImageUrl(story.mediaAsset?.fileUrl ?? story.imageUrl);
     final generatedImage = _safeImageUrl(story.generatedImageUrl);
     final finalImage = _resolveFinalImage(story);
+    final compact = compactActions;
     final relatedService = (story.mediaAsset?.relatedService ?? story.usedOffer).trim();
     final cta = story.usedCTA.trim().isEmpty
         ? 'Escribenos por WhatsApp para cotizar'
@@ -1333,14 +1347,18 @@ class _StoryCard extends StatelessWidget {
         const SizedBox(height: 10),
         Center(
           child: SizedBox(
-            width: 210,
-            child: _StoryPreviewFrame(
-              label: 'Preview final listo para publicar',
-              imageUrl: finalImage,
-              story: story,
-              fallbackLabel: 'Genera imagen para este anuncio',
-              showLabel: false,
-              showApprovedBadge: approved,
+            width: compact ? 160 : 210,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(18),
+              onTap: () => _openFullscreenPreview(context, story, generatedImage, baseImage),
+              child: _StoryPreviewFrame(
+                label: 'Preview final listo para publicar',
+                imageUrl: finalImage,
+                story: story,
+                fallbackLabel: 'Genera imagen para este anuncio',
+                showLabel: false,
+                showApprovedBadge: approved,
+              ),
             ),
           ),
         ),
@@ -1358,36 +1376,44 @@ class _StoryCard extends StatelessWidget {
         const SizedBox(height: 8),
         const SizedBox(height: 10),
         Wrap(
-          spacing: 8,
-          runSpacing: 6,
+          spacing: 6,
+          runSpacing: 4,
           children: [
-            _MetaChip(label: 'Investigación usada', value: story.researchId ?? '-'),
+            _MetaChip(label: 'Estado', value: story.status.name),
             _MetaChip(label: 'Servicio', value: relatedService.isEmpty ? '-' : relatedService),
-            _MetaChip(label: 'CTA', value: cta),
-            _MetaChip(label: 'Estado imagen', value: story.imageStatus.name),
             _MetaChip(label: 'Fecha generación', value: _formatDateTime(story.updatedAt ?? story.date)),
           ],
         ),
-        const SizedBox(height: 8),
-        _InfoLine(label: 'Headline', value: story.title),
-        _InfoLine(label: 'Texto corto para historia', value: story.shortText),
-        _InfoLine(label: 'Texto largo para post', value: story.longText),
-        _InfoLine(label: 'Notas de diseño', value: story.designNotes),
-        _InfoLine(label: 'Prompt de imagen', value: story.imagePrompt),
-        _InfoLine(label: 'Concepto visual', value: story.visualConcept),
-        _InfoLine(
-          label: 'Hashtags',
-          value: story.hashtags.isEmpty ? '-' : story.hashtags.join(' '),
+        const SizedBox(height: 6),
+        Text(
+          story.title.trim().isEmpty ? '-' : story.title.trim(),
+          maxLines: compact ? 2 : 3,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 4),
+        Text(
+          story.shortText.trim().isEmpty ? '-' : story.shortText.trim(),
+          maxLines: compact ? 3 : 4,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        const SizedBox(height: 4),
+        Text(
+          cta,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 8),
         Wrap(
-          spacing: 8,
-          runSpacing: 8,
+          spacing: 6,
+          runSpacing: 6,
           children: [
             FilledButton.icon(
               onPressed: busy || !isComplete ? null : onApprove,
               icon: const Icon(Icons.check_circle_rounded, size: 18),
-              label: const Text('Aprobar estado'),
+              label: const Text('Aprobar'),
             ),
             OutlinedButton(
               onPressed: busy ? null : onRegenerate,
@@ -1397,22 +1423,21 @@ class _StoryCard extends StatelessWidget {
               onPressed: busy ? null : onRegenerateImage,
               child: const Text('Regenerar imagen'),
             ),
-            OutlinedButton(
-              onPressed: busy ? null : onChangeBaseImage,
-              child: const Text('Cambiar imagen manual'),
-            ),
+            if (!compact || finalImage.isEmpty)
+              OutlinedButton(
+                onPressed: busy ? null : onChangeBaseImage,
+                child: const Text('Cambiar imagen manual'),
+              ),
             OutlinedButton.icon(
               onPressed: () => _openFullscreenPreview(context, story, generatedImage, baseImage),
               icon: const Icon(Icons.open_in_full_rounded, size: 18),
-              label: const Text('Ver anuncio completo'),
+              label: const Text('Ver completo'),
             ),
-            OutlinedButton.icon(
-              onPressed: usedResearch == null
-                  ? null
-                  : () => _openResearchUsed(context, usedResearch!),
-              icon: const Icon(Icons.science_rounded, size: 18),
-              label: const Text('Ver investigación usada'),
-            ),
+            if (!compact)
+              OutlinedButton(
+                onPressed: () => _openStoryDetails(context),
+                child: const Text('Detalles'),
+              ),
             if (!compactActions)
               OutlinedButton(
                 onPressed: busy ? null : onReject,
@@ -1456,6 +1481,47 @@ class _StoryCard extends StatelessWidget {
     showDialog<void>(
       context: context,
       builder: (_) => _ResearchDetailDialog(research: detail),
+    );
+  }
+
+  void _openStoryDetails(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Detalle del anuncio'),
+        content: SizedBox(
+          width: 640,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _InfoLine(label: 'Texto largo', value: story.longText, maxLines: 8),
+                _InfoLine(label: 'Prompt', value: story.imagePrompt, maxLines: 4),
+                _InfoLine(label: 'Concepto visual', value: story.visualConcept, maxLines: 4),
+                _InfoLine(label: 'Notas de diseño', value: story.designNotes, maxLines: 4),
+                _InfoLine(label: 'Hashtags', value: story.hashtags.join(' '), maxLines: 3),
+                if (usedResearch != null)
+                  const SizedBox(height: 8),
+                if (usedResearch != null)
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      _openResearchUsed(context, usedResearch!);
+                    },
+                    icon: const Icon(Icons.science_rounded),
+                    label: const Text('Ver investigación usada'),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cerrar'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1813,19 +1879,20 @@ class _BrokenImagePlaceholder extends StatelessWidget {
 }
 
 class _InfoLine extends StatelessWidget {
-  const _InfoLine({required this.label, required this.value});
+  const _InfoLine({required this.label, required this.value, this.maxLines = 2});
 
   final String label;
   final String value;
+  final int maxLines;
 
   @override
   Widget build(BuildContext context) {
     final text = value.trim().isEmpty ? '-' : value.trim();
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.only(bottom: 4),
       child: RichText(
         text: TextSpan(
-          style: Theme.of(context).textTheme.bodySmall,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(fontSize: 11),
           children: [
             TextSpan(
               text: '$label: ',
@@ -1834,6 +1901,8 @@ class _InfoLine extends StatelessWidget {
             TextSpan(text: text),
           ],
         ),
+        maxLines: maxLines,
+        overflow: TextOverflow.ellipsis,
       ),
     );
   }
@@ -2176,41 +2245,52 @@ class _GalleryTabState extends State<_GalleryTab> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            SizedBox(
-              width: 320,
-              child: DropdownButtonFormField<String>(
-                initialValue: _filterCategory,
-                items: ['Todos', ..._categories]
-                    .map((e) => DropdownMenuItem(value: e, child: Text('Categoría: $e')))
-                    .toList(growable: false),
-                onChanged: (v) => setState(() => _filterCategory = v ?? 'Todos'),
-              ),
-            ),
-            _MetaChip(label: 'Disponibles', value: '${visible.length}'),
-            _MetaChip(label: 'Publicadas', value: '${published.length}'),
-          ],
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final dropdownWidth = constraints.maxWidth < 480 ? constraints.maxWidth : 280.0;
+            return Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                SizedBox(
+                  width: dropdownWidth,
+                  child: DropdownButtonFormField<String>(
+                    isExpanded: true,
+                    initialValue: _filterCategory,
+                    decoration: const InputDecoration(
+                      labelText: 'Categoría',
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                    ),
+                    items: ['Todos', ..._categories]
+                        .map((e) => DropdownMenuItem(value: e, child: Text(e, overflow: TextOverflow.ellipsis)))
+                        .toList(growable: false),
+                    onChanged: (v) => setState(() => _filterCategory = v ?? 'Todos'),
+                  ),
+                ),
+                _MetaChip(label: 'Disponibles', value: '${visible.length}'),
+                _MetaChip(label: 'Publicadas', value: '${published.length}'),
+              ],
+            );
+          },
         ),
         const SizedBox(height: 10),
         Text(
           'Imágenes disponibles para publicidad',
-          style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+          style: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: 8),
         if (visible.isEmpty)
           const _EmptyState(text: 'No hay imágenes en la galería publicitaria.')
         else
           Wrap(
-            spacing: 10,
-            runSpacing: 10,
+            spacing: 8,
+            runSpacing: 8,
             children: [
               for (final item in visible)
                 SizedBox(
-                  width: 300,
+                  width: 260,
                   child: _GalleryAssetCard(asset: item),
                 ),
             ],
@@ -2218,19 +2298,19 @@ class _GalleryTabState extends State<_GalleryTab> {
         const SizedBox(height: 14),
         Text(
           'Imágenes publicadas',
-          style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+          style: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: 8),
         if (published.isEmpty)
           const _EmptyState(text: 'Aún no hay anuncios aprobados para publicar en esta lista.')
         else
           Wrap(
-            spacing: 10,
-            runSpacing: 10,
+            spacing: 8,
+            runSpacing: 8,
             children: [
               for (final item in published)
                 SizedBox(
-                  width: 320,
+                  width: 280,
                   child: _PublishedAssetCard(item: item),
                 ),
             ],
@@ -2249,10 +2329,10 @@ class _PublishedAssetCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final imageUrl = _resolveImageUrl(item);
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.35),
         ),
@@ -2274,7 +2354,12 @@ class _PublishedAssetCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          Text(item.headline, maxLines: 2, overflow: TextOverflow.ellipsis),
+          Text(
+            item.headline,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w700),
+          ),
           const SizedBox(height: 6),
           Wrap(
             spacing: 6,
@@ -2367,10 +2452,10 @@ class _GalleryAssetCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.35),
         ),
@@ -2392,7 +2477,12 @@ class _GalleryAssetCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          Text(asset.fileName, maxLines: 1, overflow: TextOverflow.ellipsis),
+          Text(
+            asset.fileName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w700),
+          ),
           const SizedBox(height: 6),
           Wrap(
             spacing: 6,
@@ -2765,14 +2855,14 @@ class _MetaChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: scheme.surfaceContainerHighest.withValues(alpha: 0.45),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
         '$label: $value',
-        style: Theme.of(context).textTheme.bodySmall,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(fontSize: 11),
       ),
     );
   }

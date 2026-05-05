@@ -1,19 +1,21 @@
 import 'package:flutter/material.dart';
 
 import '../auth/app_role.dart';
+import 'app_colors.dart';
+import 'app_text_styles.dart';
 import 'role_branding.dart';
 
 class AppTheme {
-  static const Color primaryColor = Color(0xFF1E40AF);
-  static const Color secondaryColor = Color(0xFF3B82F6);
-  static const Color accentColor = Color(0xFF111827);
-  static const Color successColor = Color(0xFF149A6C);
-  static const Color warningColor = Color(0xFFDA9A1A);
-  static const Color errorColor = Color(0xFFD04A3E);
-  static const Color backgroundColor = Color(0xFFF7FAFC);
-  static const Color surfaceColor = Color(0xFFFFFFFF);
-  static const Color textDarkColor = Color(0xFF102235);
-  static const Color textLightColor = Color(0xFF607285);
+  static const Color primaryColor = AppColors.primary;
+  static const Color secondaryColor = AppColors.secondary;
+  static const Color accentColor = AppColors.accent;
+  static const Color successColor = AppColors.success;
+  static const Color warningColor = AppColors.warning;
+  static const Color errorColor = AppColors.error;
+  static const Color backgroundColor = AppColors.background;
+  static const Color surfaceColor = AppColors.surface;
+  static const Color textDarkColor = AppColors.textPrimary;
+  static const Color textLightColor = AppColors.textSecondary;
 
   static ThemeData get light => lightForRole(AppRole.unknown);
 
@@ -44,9 +46,9 @@ class AppTheme {
     return ThemeData(
       brightness: Brightness.light,
       colorScheme: scheme,
-      scaffoldBackgroundColor: Colors.transparent,
+      scaffoldBackgroundColor: AppColors.background,
       useMaterial3: true,
-      fontFamily: 'Segoe UI',
+      fontFamily: 'Inter',
 
       appBarTheme: AppBarTheme(
         backgroundColor: branding.drawerSolidColor,
@@ -69,41 +71,29 @@ class AppTheme {
         displayLarge: TextStyle(
           fontSize: 32,
           fontWeight: FontWeight.w700,
-          color: textDarkColor,
+          color: AppColors.textPrimary,
         ),
         displayMedium: TextStyle(
           fontSize: 28,
           fontWeight: FontWeight.w600,
-          color: textDarkColor,
+          color: AppColors.textPrimary,
         ),
         titleLarge: TextStyle(
           fontSize: 22,
           fontWeight: FontWeight.w700,
-          color: textDarkColor,
+          color: AppColors.textPrimary,
           letterSpacing: -0.2,
         ),
-        titleMedium: TextStyle(
-          fontSize: 18,
-          fontWeight: FontWeight.w600,
-          color: textDarkColor,
-        ),
+        titleMedium: AppTextStyles.title,
         bodyLarge: TextStyle(
           fontSize: 16,
           fontWeight: FontWeight.w500,
-          color: textDarkColor,
+          color: AppColors.textPrimary,
           height: 1.35,
         ),
-        bodyMedium: TextStyle(
-          fontSize: 14,
-          fontWeight: FontWeight.w400,
-          color: textLightColor,
-          height: 1.4,
-        ),
-        labelSmall: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w500,
-          color: textLightColor,
-        ),
+        bodyMedium: AppTextStyles.subtitle,
+        bodySmall: AppTextStyles.body,
+        labelSmall: AppTextStyles.small,
       ),
 
       cardTheme: CardThemeData(
@@ -224,16 +214,13 @@ class AppTheme {
       chipTheme: ChipThemeData(
         backgroundColor: surfaceHigh,
         selectedColor: branding.primary,
-        disabledColor: const Color(0xFFE2E8F0),
+        disabledColor: AppColors.border,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
-        labelStyle: const TextStyle(
-          color: textDarkColor,
-          fontWeight: FontWeight.w500,
-        ),
+        labelStyle: AppTextStyles.body.copyWith(fontWeight: FontWeight.w500),
       ),
       listTileTheme: ListTileThemeData(
         iconColor: branding.primary,
-        textColor: textDarkColor,
+        textColor: AppColors.textPrimary,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       ),
       snackBarTheme: SnackBarThemeData(

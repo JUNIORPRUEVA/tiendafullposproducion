@@ -3791,6 +3791,10 @@ class _ServiceOrderListCard extends StatelessWidget {
             bucket: serviceBucket,
             compact: false,
           ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 4, 0, 6),
+            child: _AnimatedServiceOrderStatusBadge(status: order.status),
+          ),
           _DesktopServiceOrderLine(
             order: order,
             clientDisplayName: clientDisplayName,
@@ -3826,6 +3830,10 @@ class _ServiceOrderListCard extends StatelessWidget {
           label: topLineText,
           bucket: serviceBucket,
           compact: true,
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(7, 5, 0, 7),
+          child: _AnimatedServiceOrderStatusBadge(status: order.status),
         ),
         Material(
           color: Colors.transparent,
@@ -3883,8 +3891,6 @@ class _ServiceOrderListCard extends StatelessWidget {
                             ),
                           ),
                         ),
-                        const SizedBox(width: 6),
-                        _StatusBadge(status: order.status, compact: true),
                       ],
                     ),
                     const SizedBox(height: 4),
@@ -4093,17 +4099,7 @@ class _DesktopServiceOrderLine extends ConsumerWidget {
                         letterSpacing: 0.15,
                       ),
                     ),
-                    const SizedBox(height: 3),
-                    Text(
-                      'Estado: ${order.status.label}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                        fontSize: 9.8,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 4),
                     Text(
                       'Último: $lastStatusLabel',
                       maxLines: 1,
@@ -4117,11 +4113,6 @@ class _DesktopServiceOrderLine extends ConsumerWidget {
                 ),
               ),
               const SizedBox(width: 10),
-              SizedBox(
-                width: 116,
-                child: _StatusBadge(status: order.status, compact: true),
-              ),
-              const SizedBox(width: 12),
               Expanded(
                 flex: 4,
                 child: _DesktopLineTextBlock(
@@ -5219,42 +5210,230 @@ class _OrderActionsMenu extends StatelessWidget {
   }
 }
 
-class _StatusBadge extends StatelessWidget {
-  const _StatusBadge({required this.status, this.compact = false});
+class _AnimatedServiceOrderStatusBadge extends StatefulWidget {
+  const _AnimatedServiceOrderStatusBadge({required this.status});
 
   final ServiceOrderStatus status;
-  final bool compact;
+
+  @override
+  State<_AnimatedServiceOrderStatusBadge> createState() =>
+      _AnimatedServiceOrderStatusBadgeState();
+}
+
+class _AnimatedServiceOrderStatusBadgeState
+    extends State<_AnimatedServiceOrderStatusBadge>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late _StatusMotionStyle _motionStyle;
+
+  @override
+  void initState() {
+    super.initState();
+    _motionStyle = _StatusMotionStyle.forStatus(widget.status);
+    _controller = AnimationController(
+      vsync: this,
+      duration: _motionStyle.duration,
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void didUpdateWidget(covariant _AnimatedServiceOrderStatusBadge oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.status == widget.status) return;
+    _motionStyle = _StatusMotionStyle.forStatus(widget.status);
+    _controller
+      ..duration = _motionStyle.duration
+      ..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: compact ? 9 : 10,
-        vertical: compact ? 5 : 6,
-      ),
-      decoration: BoxDecoration(
-        color: status.color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: status.color.withValues(alpha: 0.22)),
-        boxShadow: compact
-            ? [
-                BoxShadow(
-                  color: status.color.withValues(alpha: 0.08),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
+    final theme = Theme.of(context);
+    final status = widget.status;
+    final style = _motionStyle;
+
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        final pulse = Curves.easeInOutCubic.transform(_controller.value);
+        final dotColor = Color.lerp(style.dotStart, style.dotEnd, pulse)!;
+        final dotScale = style.minScale + (style.maxScale - style.minScale) * pulse;
+        final glowAlpha = style.minGlow + (style.maxGlow - style.minGlow) * pulse;
+
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            color: Color.alphaBlend(
+              status.color.withValues(alpha: 0.08 + (pulse * 0.04)),
+              theme.colorScheme.surface,
+            ),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: status.color.withValues(alpha: 0.22 + (pulse * 0.14)),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: dotColor.withValues(alpha: glowAlpha),
+                blurRadius: style.glowRadius,
+                spreadRadius: style.spreadRadius * pulse,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: Center(
+                    child: Transform.scale(
+                      scale: dotScale,
+                      child: Container(
+                        width: 10,
+                        height: 10,
+                        decoration: BoxDecoration(
+                          color: dotColor,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: dotColor.withValues(alpha: 0.42),
+                              blurRadius: 9,
+                              spreadRadius: 1.2,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
-              ]
-            : null,
-      ),
-      child: Text(
-        status.label,
-        style: TextStyle(
-          color: status.color,
-          fontWeight: FontWeight.w700,
-          fontSize: compact ? 13 : 13,
-        ),
-      ),
+                const SizedBox(width: 8),
+                Text(
+                  status.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: status.color,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 14.5,
+                    letterSpacing: 0.2,
+                    height: 1,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
+  }
+}
+
+class _StatusMotionStyle {
+  const _StatusMotionStyle({
+    required this.dotStart,
+    required this.dotEnd,
+    required this.duration,
+    required this.minScale,
+    required this.maxScale,
+    required this.minGlow,
+    required this.maxGlow,
+    required this.glowRadius,
+    required this.spreadRadius,
+  });
+
+  final Color dotStart;
+  final Color dotEnd;
+  final Duration duration;
+  final double minScale;
+  final double maxScale;
+  final double minGlow;
+  final double maxGlow;
+  final double glowRadius;
+  final double spreadRadius;
+
+  factory _StatusMotionStyle.forStatus(ServiceOrderStatus status) {
+    switch (status) {
+      case ServiceOrderStatus.pendiente:
+        return const _StatusMotionStyle(
+          dotStart: Color(0xFFFFB020),
+          dotEnd: Color(0xFFFF6B00),
+          duration: Duration(milliseconds: 840),
+          minScale: 0.82,
+          maxScale: 1.3,
+          minGlow: 0.16,
+          maxGlow: 0.34,
+          glowRadius: 15,
+          spreadRadius: 1.8,
+        );
+      case ServiceOrderStatus.enProceso:
+        return const _StatusMotionStyle(
+          dotStart: Color(0xFF1D5D9B),
+          dotEnd: Color(0xFF22D3EE),
+          duration: Duration(milliseconds: 620),
+          minScale: 0.9,
+          maxScale: 1.18,
+          minGlow: 0.18,
+          maxGlow: 0.42,
+          glowRadius: 18,
+          spreadRadius: 2.1,
+        );
+      case ServiceOrderStatus.enPausa:
+        return const _StatusMotionStyle(
+          dotStart: Color(0xFFEAB308),
+          dotEnd: Color(0xFFB7791F),
+          duration: Duration(milliseconds: 1150),
+          minScale: 0.84,
+          maxScale: 1.08,
+          minGlow: 0.12,
+          maxGlow: 0.24,
+          glowRadius: 12,
+          spreadRadius: 1.1,
+        );
+      case ServiceOrderStatus.pospuesta:
+        return const _StatusMotionStyle(
+          dotStart: Color(0xFF9CA3AF),
+          dotEnd: Color(0xFF8A6D3B),
+          duration: Duration(milliseconds: 1320),
+          minScale: 0.78,
+          maxScale: 1.04,
+          minGlow: 0.10,
+          maxGlow: 0.22,
+          glowRadius: 11,
+          spreadRadius: 0.9,
+        );
+      case ServiceOrderStatus.finalizado:
+        return const _StatusMotionStyle(
+          dotStart: Color(0xFF2E8B57),
+          dotEnd: Color(0xFF34D399),
+          duration: Duration(milliseconds: 980),
+          minScale: 0.86,
+          maxScale: 1.14,
+          minGlow: 0.14,
+          maxGlow: 0.30,
+          glowRadius: 14,
+          spreadRadius: 1.4,
+        );
+      case ServiceOrderStatus.cancelado:
+        return const _StatusMotionStyle(
+          dotStart: Color(0xFFB3261E),
+          dotEnd: Color(0xFFEF4444),
+          duration: Duration(milliseconds: 780),
+          minScale: 0.82,
+          maxScale: 1.18,
+          minGlow: 0.12,
+          maxGlow: 0.30,
+          glowRadius: 13,
+          spreadRadius: 1.3,
+        );
+    }
   }
 }
 

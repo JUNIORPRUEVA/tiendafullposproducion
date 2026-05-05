@@ -162,6 +162,56 @@ export class MarketingService {
     return this.generation.generateMissingStories(companyId, date, userId, researchId);
   }
 
+  async repairIncompleteStories(companyId: string, date: Date, userId: string) {
+    const rows = await this.prisma.marketingDailyStory.findMany({
+      where: {
+        companyId,
+        date,
+      },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+    });
+    const latest = this.pickLatestStoryPerType(rows);
+
+    const targeted = latest.filter((story) => this.getStoryMissingFields(story).length > 0);
+    const repairedIds: string[] = [];
+    const failed: Array<{ storyId: string; reason: string }> = [];
+
+    for (const story of targeted) {
+      const missing = this.getStoryMissingFields(story);
+      try {
+        if (missing.includes('prompt') || missing.includes('copy')) {
+          await this.generation.regenerateStory(companyId, story.id, userId);
+        } else {
+          await this.generation.regenerateStoryImage(companyId, story.id, userId, 'Reparacion automatica de imagen');
+        }
+        repairedIds.push(story.id);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : 'Error desconocido';
+        failed.push({ storyId: story.id, reason });
+      }
+    }
+
+    await this.log(
+      companyId,
+      'MARKETING_STORIES_REPAIR_INCOMPLETE',
+      `Barrido de reparacion ejecutado (${repairedIds.length}/${targeted.length})`,
+      userId,
+      {
+        date: this.toDateOnly(date),
+        targeted: targeted.length,
+        repaired: repairedIds.length,
+        failed,
+      },
+    );
+
+    return {
+      date: this.toDateOnly(date),
+      targeted: targeted.length,
+      repaired: repairedIds.length,
+      failed,
+    };
+  }
+
   async approveStory(companyId: string, storyId: string, userId: string) {
     return this.approvals.approve(companyId, storyId, userId);
   }
@@ -630,6 +680,33 @@ export class MarketingService {
     return ordered
       .map((type) => byType.get(type))
       .filter((item): item is T => !!item);
+  }
+
+  private getStoryMissingFields(story: {
+    title: string;
+    shortText: string;
+    usedCTA: string | null;
+    imagePrompt: string | null;
+    imageUrl: string | null;
+    generatedImageUrl: string | null;
+    mediaAssetId: string | null;
+  }) {
+    const missing: string[] = [];
+    const hasImage =
+      `${story.generatedImageUrl ?? ''}`.trim().length > 0 ||
+      `${story.imageUrl ?? ''}`.trim().length > 0 ||
+      `${story.mediaAssetId ?? ''}`.trim().length > 0;
+    if (!hasImage) missing.push('imagen');
+
+    if (`${story.imagePrompt ?? ''}`.trim().length == 0) missing.push('prompt');
+
+    const hasCopy =
+      `${story.title ?? ''}`.trim().length > 0 &&
+      `${story.shortText ?? ''}`.trim().length > 0 &&
+      `${story.usedCTA ?? ''}`.trim().length > 0;
+    if (!hasCopy) missing.push('copy');
+
+    return missing;
   }
 
   private toDateOnly(value: Date) {

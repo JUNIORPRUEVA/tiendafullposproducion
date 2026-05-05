@@ -597,13 +597,17 @@ export class MarketingGenerationService {
       ? await this.prisma.marketingMediaAsset.findFirst({
           where: { id: input.forceAssetId, companyId: input.companyId, isActive: true },
         })
-      : await this.mediaSelector.select({
-          companyId: input.companyId,
-          type: input.type,
-          recommendedProduct: primaryService,
-          recommendedService: primaryService,
-          usedAssetIds: [...input.usedAssetIds],
-        });
+      : null;
+
+    if (!selected) {
+      selected = await this.mediaSelector.select({
+        companyId: input.companyId,
+        type: input.type,
+        recommendedProduct: primaryService,
+        recommendedService: primaryService,
+        usedAssetIds: [...input.usedAssetIds],
+      });
+    }
 
     const visualConcept = this.buildVisualConcept(input.type, usedResearchAngle, primaryService);
     const designNotes = this.buildDesignNotes(input.type, usedCTA);

@@ -54,6 +54,17 @@ export class MarketingController {
     return this.marketing.generateMissingStories(companyId, date, user.id ?? '');
   }
 
+  @Post('stories/repair-incomplete')
+  async repairIncomplete(
+    @Req() req: Request,
+    @Body() dto: GenerateMarketingStoriesDto,
+  ) {
+    const user = req.user as RequestUser;
+    const companyId = this.marketing.resolveCompanyId();
+    const date = this.marketing.parseDateOnly(dto.date);
+    return this.marketing.repairIncompleteStories(companyId, date, user.id ?? '');
+  }
+
   @Post('stories/:id/approve')
   async approve(@Req() req: Request, @Param('id') storyId: string) {
     const user = req.user as RequestUser;

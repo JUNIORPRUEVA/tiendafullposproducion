@@ -195,6 +195,8 @@ class ApiRoutes {
   static const marketingStories = '/marketing/stories';
   static const marketingStoriesGenerateMissing =
       '/marketing/stories/generate-missing';
+  static const marketingStoriesRepairIncomplete =
+      '/marketing/stories/repair-incomplete';
   static String marketingStoryApprove(String id) =>
       '/marketing/stories/$id/approve';
   static String marketingStoryReject(String id) =>
@@ -206,7 +208,7 @@ class ApiRoutes {
   static String marketingStoryChangeBaseImage(String id, String mediaAssetId) =>
       '/marketing/stories/$id/base-image/$mediaAssetId';
   static String marketingStoryEdit(String id) => '/marketing/stories/$id';
-  static const marketingMediaAssets = '/marketing/media-assets';
+    static const marketingMediaAssets = '/marketing/media-assets';
     static const marketingPublishedAssets = '/marketing/published-assets';
   static String marketingMediaAssetById(String id) => '/marketing/media-assets/$id';
   static const marketingHistory = '/marketing/history';

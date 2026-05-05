@@ -667,3 +667,47 @@ class MarketingResetCleanSummary {
     );
   }
 }
+
+class MarketingRepairIncompleteError {
+  const MarketingRepairIncompleteError({
+    required this.storyId,
+    required this.reason,
+  });
+
+  final String storyId;
+  final String reason;
+
+  factory MarketingRepairIncompleteError.fromJson(Map<String, dynamic> json) {
+    return MarketingRepairIncompleteError(
+      storyId: '${json['storyId'] ?? ''}',
+      reason: '${json['reason'] ?? ''}',
+    );
+  }
+}
+
+class MarketingRepairIncompleteSummary {
+  const MarketingRepairIncompleteSummary({
+    required this.date,
+    required this.targeted,
+    required this.repaired,
+    required this.failed,
+  });
+
+  final String date;
+  final int targeted;
+  final int repaired;
+  final List<MarketingRepairIncompleteError> failed;
+
+  factory MarketingRepairIncompleteSummary.fromJson(Map<String, dynamic> json) {
+    final rawFailed = (json['failed'] is List) ? (json['failed'] as List) : const [];
+    return MarketingRepairIncompleteSummary(
+      date: '${json['date'] ?? ''}',
+      targeted: (json['targeted'] as num?)?.toInt() ?? 0,
+      repaired: (json['repaired'] as num?)?.toInt() ?? 0,
+      failed: rawFailed
+          .whereType<Map>()
+          .map((item) => MarketingRepairIncompleteError.fromJson(item.cast<String, dynamic>()))
+          .toList(growable: false),
+    );
+  }
+}

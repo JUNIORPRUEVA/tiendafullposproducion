@@ -117,6 +117,21 @@ class MarketingApi {
     }
   }
 
+  Future<MarketingRepairIncompleteSummary> repairIncomplete(DateTime date) async {
+    try {
+      final res = await _dio.post(
+        ApiRoutes.marketingStoriesRepairIncomplete,
+        data: {'date': _dateOnly(date)},
+      );
+      final raw =
+          (res.data as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
+      return MarketingRepairIncompleteSummary.fromJson(raw);
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudieron reparar los anuncios incompletos');
+    }
+  }
+
   Future<void> approve(String storyId) async {
     try {
       await _dio.post(ApiRoutes.marketingStoryApprove(storyId));

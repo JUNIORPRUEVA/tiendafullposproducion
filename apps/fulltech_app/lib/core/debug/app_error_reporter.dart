@@ -265,6 +265,23 @@ class AppErrorReporter {
     final stack = details.stack ?? StackTrace.current;
     final exceptionMessage = details.exceptionAsString();
     final isRenderFlexOverflow = _isRenderFlexOverflowMessage(exceptionMessage);
+    final isKnownWindowsRawKeyboardStateIssue =
+        _isKnownWindowsRawKeyboardStateIssue(exceptionMessage);
+
+    if (isKnownWindowsRawKeyboardStateIssue) {
+      record(
+        exception,
+        stack,
+        context: 'FlutterError',
+        title: 'Incidencia de teclado detectada',
+        userMessage: 'Se detectó una incidencia menor de teclado en Windows y fue manejada automáticamente.',
+        technicalDetails: exceptionMessage,
+        severity: AppErrorSeverity.warning,
+        dedupeKey: 'flutter-windows-raw-keyboard-alt-left',
+        notifyUser: false,
+      );
+      return;
+    }
 
     record(
       exception,
@@ -297,6 +314,13 @@ class AppErrorReporter {
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
   }
+
+        bool _isKnownWindowsRawKeyboardStateIssue(String value) {
+          final normalized = value.toLowerCase();
+          return normalized.contains('raw_keyboard.dart') &&
+          normalized.contains('attempted to send a key down event when no keys are in keyspressed') &&
+          normalized.contains('alt left');
+        }
 
   String _defaultTitleForSeverity(AppErrorSeverity severity) {
     switch (severity) {

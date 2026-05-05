@@ -6,6 +6,8 @@ import '../auth/auth_provider.dart';
 import '../auth/app_role.dart';
 import '../models/user_model.dart';
 import '../routing/routes.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_text_styles.dart';
 import '../theme/role_branding.dart';
 import 'app_navigation.dart';
 import 'user_avatar.dart';
@@ -18,7 +20,6 @@ class AppDrawer extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final sections = buildAppNavigationSections(ref, currentUser);
-    final theme = Theme.of(context);
     final mediaQuery = MediaQuery.of(context);
     final isCompactMobile = mediaQuery.size.width < 390;
     final location = safeCurrentLocation(context);
@@ -31,26 +32,16 @@ class AppDrawer extends ConsumerWidget {
         currentUser?.nombreCompleto.trim().isNotEmpty == true
         ? currentUser!.nombreCompleto
         : branding.departmentName;
-    const onBase = Colors.white;
-    const slate50 = Color(0xFFF8FAFC);
-    const slate400 = Color(0xFF94A3B8);
-    const panelTop = Color(0xFF0F172A);
-    const panelBottom = Color(0xFF111C31);
-
     final panelShadow = BoxShadow(
-      color: branding.tertiary.withValues(alpha: 0.14),
-      blurRadius: 26,
+      color: AppColors.primary.withValues(alpha: 0.08),
+      blurRadius: 24,
       offset: const Offset(6, 0),
     );
 
     return Drawer(
       child: DecoratedBox(
         decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [panelTop, panelBottom],
-          ),
+          color: AppColors.surface,
           boxShadow: [panelShadow],
         ),
         child: SafeArea(
@@ -72,9 +63,9 @@ class AppDrawer extends ConsumerWidget {
                     isCompactMobile ? 10 : 11,
                   ),
                   decoration: BoxDecoration(
-                    color: onBase.withValues(alpha: 0.04),
+                    color: AppColors.surfaceMuted,
                     borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: onBase.withValues(alpha: 0.08)),
+                    border: Border.all(color: AppColors.border),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -89,12 +80,13 @@ class AppDrawer extends ConsumerWidget {
                             child: UserAvatar(
                               imageUrl: currentUser?.fotoPersonalUrl,
                               radius: isCompactMobile ? 17 : 18,
-                              backgroundColor: onBase.withValues(alpha: 0.16),
+                              backgroundColor: AppColors.primary.withValues(
+                                alpha: 0.10,
+                              ),
                               child: Text(
                                 userInitials(currentUser),
-                                style: theme.textTheme.labelLarge?.copyWith(
-                                  color: onBase,
-                                  fontFamily: 'Inter',
+                                style: AppTextStyles.small.copyWith(
+                                  color: AppColors.primary,
                                   fontWeight: FontWeight.w700,
                                 ),
                               ),
@@ -110,9 +102,8 @@ class AppDrawer extends ConsumerWidget {
                                   'FULLTECH',
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.titleSmall?.copyWith(
-                                    color: slate50,
-                                    fontFamily: 'Inter',
+                                  style: AppTextStyles.title.copyWith(
+                                    fontSize: 15,
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
@@ -121,11 +112,7 @@ class AppDrawer extends ConsumerWidget {
                                   branding.departmentName,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.labelSmall?.copyWith(
-                                    color: slate400,
-                                    fontFamily: 'Inter',
-                                    fontWeight: FontWeight.w500,
-                                  ),
+                                  style: AppTextStyles.small,
                                 ),
                               ],
                             ),
@@ -142,11 +129,9 @@ class AppDrawer extends ConsumerWidget {
                           vertical: 6,
                         ),
                         decoration: BoxDecoration(
-                          color: onBase.withValues(alpha: 0.06),
+                          color: AppColors.surface,
                           borderRadius: BorderRadius.circular(999),
-                          border: Border.all(
-                            color: onBase.withValues(alpha: 0.08),
-                          ),
+                          border: Border.all(color: AppColors.border),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
@@ -154,7 +139,7 @@ class AppDrawer extends ConsumerWidget {
                             Icon(
                               Icons.person_outline_rounded,
                               size: 14,
-                              color: slate400,
+                              color: AppColors.textSecondary,
                             ),
                             const SizedBox(width: 6),
                             Flexible(
@@ -162,9 +147,7 @@ class AppDrawer extends ConsumerWidget {
                                 userDisplayName,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.labelMedium?.copyWith(
-                                  color: slate50,
-                                  fontFamily: 'Inter',
+                                style: AppTextStyles.body.copyWith(
                                   fontWeight: FontWeight.w500,
                                 ),
                               ),
@@ -210,7 +193,7 @@ class AppDrawer extends ConsumerWidget {
                   ],
                 ),
               ),
-              Divider(height: 1, color: onBase.withValues(alpha: 0.08)),
+              const Divider(height: 1, color: AppColors.border),
               Padding(
                 padding: EdgeInsets.fromLTRB(
                   isCompactMobile ? 10 : 12,
@@ -227,18 +210,14 @@ class AppDrawer extends ConsumerWidget {
                         vertical: 8,
                       ),
                       decoration: BoxDecoration(
-                        color: onBase.withValues(alpha: 0.05),
+                        color: AppColors.surfaceMuted,
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: onBase.withValues(alpha: 0.08),
-                        ),
+                        border: Border.all(color: AppColors.border),
                       ),
                       child: Text(
                         branding.departmentName,
                         textAlign: TextAlign.center,
-                        style: theme.textTheme.labelLarge?.copyWith(
-                          color: slate400,
-                          fontFamily: 'Inter',
+                        style: AppTextStyles.small.copyWith(
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -269,7 +248,7 @@ class AppDrawer extends ConsumerWidget {
                           },
                           icon: Icon(
                             Icons.logout_rounded,
-                            color: slate400,
+                            color: AppColors.textSecondary,
                           ),
                         ),
                       ],
@@ -326,12 +305,13 @@ class _DrawerMenuItemState extends State<_DrawerMenuItem> {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    const activeText = Color(0xFFFFFFFF);
-    const normalText = Color(0xFF94A3B8);
     final selected = widget.selected;
     final tileBg = selected
-        ? Colors.white.withValues(alpha: 0.12)
-        : (_hovered ? Colors.white.withValues(alpha: 0.06) : Colors.transparent);
+        ? AppColors.primary.withValues(alpha: 0.10)
+        : (_hovered
+              ? AppColors.secondary.withValues(alpha: 0.06)
+              : Colors.transparent);
+    final foreground = selected ? AppColors.primary : AppColors.textSecondary;
 
     return Padding(
       padding: EdgeInsets.symmetric(vertical: widget.compact ? 1 : 2),
@@ -364,7 +344,7 @@ class _DrawerMenuItemState extends State<_DrawerMenuItem> {
                     height: 24,
                     decoration: BoxDecoration(
                       color: selected
-                          ? colorScheme.primary
+                          ? AppColors.primary
                           : Colors.transparent,
                       borderRadius: BorderRadius.circular(999),
                     ),
@@ -373,7 +353,7 @@ class _DrawerMenuItemState extends State<_DrawerMenuItem> {
                   Icon(
                     widget.icon,
                     size: widget.compact ? 18 : 19,
-                    color: selected ? activeText : normalText,
+                    color: foreground,
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -381,11 +361,10 @@ class _DrawerMenuItemState extends State<_DrawerMenuItem> {
                       widget.title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontFamily: 'Inter',
+                      style: AppTextStyles.body.copyWith(
                         fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
                         fontSize: widget.compact ? 13.4 : 14,
-                        color: selected ? activeText : normalText,
+                        color: foreground,
                       ),
                     ),
                   ),
@@ -417,7 +396,6 @@ class _DrawerSectionTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const titleColor = Color(0xFF64748B);
     return Padding(
       padding: EdgeInsets.fromLTRB(
         compact ? 6 : 8,
@@ -430,11 +408,10 @@ class _DrawerSectionTitle extends StatelessWidget {
           Expanded(
             child: Text(
               text.toUpperCase(),
-              style: TextStyle(
-                fontFamily: 'Inter',
+              style: AppTextStyles.small.copyWith(
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
-                color: titleColor,
+                color: AppColors.textSecondary,
                 letterSpacing: 0.9,
               ),
             ),
