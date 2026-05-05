@@ -67,6 +67,13 @@ type WhatsappAiFilter =
 
 type WhatsappAiScope = 'conversation' | 'filter';
 
+type WhatsappResponsibilityOption =
+  | 'Cliente no respondio'
+  | 'Vendedor no respondio'
+  | 'Conversacion normal'
+  | 'Requiere seguimiento del vendedor'
+  | 'No hay evidencia suficiente';
+
 type WhatsappAiAnalysisInput = {
   userId?: string;
   conversationId?: string;
@@ -119,7 +126,7 @@ type WhatsappAiConversationContext = {
   maxResponseMinutes: number | null;
   unansweredIncomingMessages: number;
   lastMessageBy: 'cliente' | 'vendedor' | 'desconocido';
-  responsibilityDetected: string;
+  responsibilityDetected: WhatsappResponsibilityOption;
   messages: WhatsappAiMessageContext[];
 };
 
@@ -156,7 +163,7 @@ type WhatsappAiReport = {
     conversationId?: string;
     cliente: string;
     atendidoPor: string;
-    estado: string;
+    estado: WhatsappResponsibilityOption | string;
     evidencia: string;
     ultimoMensajeDe: string;
     accion: string;
@@ -3436,14 +3443,26 @@ export class WhatsappInboxService {
       : [];
     const responsibilities = ((report.report as any)?.responsabilidadDetectada ?? report.responsabilidadDetectada ?? []) as Array<any>;
     const problems = ((report.report as any)?.conversacionesProblematicas ?? []) as Array<any>;
+    const responsibility = responsibilities[0] ?? null;
+
+    if (text.includes('ultimo') || text.includes('último') || text.includes('escribio') || text.includes('escribió')) {
+      if (!responsibility) return 'No hay evidencia suficiente en el reporte para afirmar eso.';
+      return [
+        `El ultimo mensaje importante registrado fue de: ${responsibility.ultimoMensajeDe ?? 'desconocido'}.`,
+        `Cliente: ${responsibility.cliente ?? 'No identificado'}.`,
+        `Atendido por: ${responsibility.atendidoPor ?? 'No identificado'}.`,
+        `Evidencia: ${responsibility.evidencia ?? 'No hay evidencia suficiente'}.`,
+      ].join('\n');
+    }
 
     if (text.includes('quien') || text.includes('quién') || text.includes('respond')) {
-      const evidence = responsibilities[0] ?? null;
+      const evidence = responsibility;
       if (!evidence) return 'No hay evidencia suficiente en el reporte para afirmar eso.';
       return [
         `Responsabilidad detectada: ${evidence.estado ?? 'No hay evidencia suficiente'}.`,
         `Cliente: ${evidence.cliente ?? 'No identificado'}.`,
         `Atendido por: ${evidence.atendidoPor ?? 'No identificado'}.`,
+        `Ultimo mensaje de: ${evidence.ultimoMensajeDe ?? 'desconocido'}.`,
         `Evidencia: ${evidence.evidencia ?? 'No hay evidencia suficiente'}.`,
       ].join('\n');
     }
@@ -3458,6 +3477,31 @@ export class WhatsappInboxService {
       const fraud = problems.find((item) => `${item.clasificacion ?? ''} ${item.motivo ?? ''}`.toLowerCase().includes('fraude'));
       if (!fraud) return 'No hay evidencia suficiente en el reporte para afirmar eso.';
       return `Posible fraude: ${fraud.motivo}. Evidencia: ${fraud.evidencia}. Acción recomendada: ${fraud.accionRecomendada}.`;
+    }
+
+    if (text.includes('evidencia') || text.includes('problema') || text.includes('por que') || text.includes('por qué')) {
+      if (responsibility) {
+        return `Evidencia disponible: ${responsibility.evidencia ?? 'No hay evidencia suficiente'}. Responsabilidad detectada: ${responsibility.estado ?? 'No hay evidencia suficiente'}.`;
+      }
+      const firstProblem = problems[0];
+      if (firstProblem) return `Evidencia: ${firstProblem.evidencia}. Motivo: ${firstProblem.motivo}.`;
+      return 'No hay evidencia suficiente en el reporte para afirmar eso.';
+    }
+
+    if (text.includes('hacer') || text.includes('ahora') || text.includes('accion') || text.includes('acción') || text.includes('siguiente')) {
+      if (responsibility?.accion) return `Accion recomendada: ${responsibility.accion}`;
+      const firstProblem = problems[0];
+      if (firstProblem?.accionRecomendada) return `Accion recomendada: ${firstProblem.accionRecomendada}`;
+      return 'No hay evidencia suficiente en el reporte para afirmar eso.';
+    }
+
+    if (text.includes('correctamente') || text.includes('correcto') || text.includes('atencion') || text.includes('atención')) {
+      if (!responsibility) return 'No hay evidencia suficiente en el reporte para afirmar eso.';
+      const estado = `${responsibility.estado ?? ''}`;
+      if (estado === 'Vendedor no respondio' || estado === 'Requiere seguimiento del vendedor') {
+        return `No se puede afirmar que fue atendido correctamente. Responsabilidad detectada: ${estado}. Evidencia: ${responsibility.evidencia ?? 'No hay evidencia suficiente'}.`;
+      }
+      return `No hay evidencia suficiente de mala atencion en este reporte. Responsabilidad detectada: ${estado || 'No hay evidencia suficiente'}. Evidencia: ${responsibility.evidencia ?? 'No hay evidencia suficiente'}.`;
     }
 
     const firstProblem = problems[0];
@@ -3799,22 +3843,26 @@ export class WhatsappInboxService {
       grouped.set(message.conversationId, list);
     }
 
-    return Array.from(grouped.entries()).map(([conversationId, items]) => {
+    return Array.from(grouped.entries()).map(([conversationId, rawItems]) => {
+      const items = [...rawItems].sort(
+        (a, b) => a.sentAt.getTime() - b.sentAt.getTime(),
+      );
       const first = items[0];
       const conv = first.conversation;
       const responseTimes: number[] = [];
       let pendingIncomingAt: Date | null = null;
-      let unansweredIncomingMessages = 0;
+      let pendingIncomingMessages = 0;
       for (const item of items) {
         if (item.direction === WhatsappMessageDirection.INCOMING) {
-          pendingIncomingAt = item.sentAt;
-          unansweredIncomingMessages += 1;
+          pendingIncomingAt ??= item.sentAt;
+          pendingIncomingMessages += 1;
         } else if (pendingIncomingAt) {
           responseTimes.push(Math.max(0, item.sentAt.getTime() - pendingIncomingAt.getTime()) / 60000);
           pendingIncomingAt = null;
-          unansweredIncomingMessages = Math.max(0, unansweredIncomingMessages - 1);
+          pendingIncomingMessages = 0;
         }
       }
+      const unansweredIncomingMessages = pendingIncomingMessages;
       const contact = readableSenderName(conv.remoteName, conv.remotePhone) ?? conv.remotePhone ?? conv.remoteJid;
       const last = items[items.length - 1];
       const lastMessageBy = last
@@ -3826,6 +3874,8 @@ export class WhatsappInboxService {
         lastMessageBy,
         unansweredIncomingMessages,
         totalMessages: items.length,
+        incomingMessages: items.filter((m) => m.direction === WhatsappMessageDirection.INCOMING).length,
+        outgoingMessages: items.filter((m) => m.direction === WhatsappMessageDirection.OUTGOING).length,
       });
       return {
         conversationId,
@@ -3873,13 +3923,72 @@ export class WhatsappInboxService {
     lastMessageBy: 'cliente' | 'vendedor' | 'desconocido';
     unansweredIncomingMessages: number;
     totalMessages: number;
-  }) {
+    incomingMessages: number;
+    outgoingMessages: number;
+  }): WhatsappResponsibilityOption {
     if (input.totalMessages === 0) return 'No hay evidencia suficiente';
     if (input.unansweredIncomingMessages > 0 || input.lastMessageBy === 'cliente') {
       return 'Vendedor no respondio';
     }
+    if (input.incomingMessages === 0 && input.outgoingMessages === 0) {
+      return 'No hay evidencia suficiente';
+    }
     if (input.lastMessageBy === 'vendedor') return 'Cliente no respondio';
     return 'Conversacion normal';
+  }
+
+  private normalizeWhatsappResponsibility(value: unknown): WhatsappResponsibilityOption {
+    const raw = asString(value)?.toLowerCase() ?? '';
+    if (!raw) return 'No hay evidencia suficiente';
+    if (raw.includes('cliente') && raw.includes('no respond')) {
+      return 'Cliente no respondio';
+    }
+    if (raw.includes('vendedor') && raw.includes('no respond')) {
+      return 'Vendedor no respondio';
+    }
+    if (raw.includes('requiere') && raw.includes('seguimiento')) {
+      return 'Requiere seguimiento del vendedor';
+    }
+    if (raw.includes('normal')) return 'Conversacion normal';
+    if (raw.includes('insuficiente') || raw.includes('evidencia')) {
+      return 'No hay evidencia suficiente';
+    }
+    return 'No hay evidencia suficiente';
+  }
+
+  private buildWhatsappResponsibilityEvidence(conv: WhatsappAiConversationContext) {
+    const last = conv.messages[conv.messages.length - 1];
+    const lastWriter = conv.lastMessageBy === 'cliente'
+      ? `cliente ${conv.contact}${conv.phone ? ` (${conv.phone})` : ''}`
+      : conv.lastMessageBy === 'vendedor'
+        ? `vendedor ${conv.userName || 'Usuario no identificado'} / instancia ${conv.instanceName || 'Instancia no identificada'}`
+        : 'desconocido';
+    const lastText = last?.text || last?.media?.summary || 'No hay evidencia suficiente.';
+    return `Ultimo mensaje de ${lastWriter}. Evidencia: ${lastText.slice(0, 500)}`;
+  }
+
+  private buildDeterministicWhatsappResponsibilities(
+    conversations: WhatsappAiConversationContext[],
+  ) {
+    return conversations.map((conv) => ({
+      conversationId: conv.conversationId,
+      cliente: `${conv.contact}${conv.phone ? ` (${conv.phone})` : ''}`,
+      atendidoPor: `${conv.userName || 'Usuario no identificado'} / ${conv.instanceName || 'Instancia no identificada'}`,
+      estado: conv.responsibilityDetected,
+      evidencia: conv.messages.length
+        ? this.buildWhatsappResponsibilityEvidence(conv)
+        : 'No hay evidencia suficiente.',
+      ultimoMensajeDe: conv.lastMessageBy,
+      accion: conv.responsibilityDetected === 'Vendedor no respondio'
+        ? 'Dar seguimiento al cliente desde la instancia correspondiente.'
+        : conv.responsibilityDetected === 'Cliente no respondio'
+          ? 'Esperar respuesta o programar seguimiento comercial.'
+          : conv.responsibilityDetected === 'Requiere seguimiento del vendedor'
+            ? 'Asignar seguimiento claro al vendedor responsable.'
+            : conv.responsibilityDetected === 'No hay evidencia suficiente'
+              ? 'Revisar mas mensajes o ampliar el rango antes de concluir.'
+              : 'Mantener monitoreo normal.',
+    }));
   }
 
   private buildWhatsappAiStats(conversations: WhatsappAiConversationContext[], range: { label: string; startIso: string; endIso: string }, scope: WhatsappAiScope) {
@@ -3916,21 +4025,7 @@ export class WhatsappInboxService {
       }));
     const critical = problematic.filter((item) => item.prioridad === 'alta').length;
     const fraud = problematic.filter((item) => item.motivo.toLowerCase().includes('fraude')).length;
-    const responsabilidadDetectada = conversations.map((conv) => ({
-      conversationId: conv.conversationId,
-      cliente: `${conv.contact}${conv.phone ? ` (${conv.phone})` : ''}`,
-      atendidoPor: `${conv.userName || 'Usuario no identificado'} / ${conv.instanceName || 'Instancia no identificada'}`,
-      estado: conv.responsibilityDetected,
-      evidencia: conv.messages.length
-        ? `Ultimo mensaje de ${conv.lastMessageBy}. ${this.pickConversationEvidence(conv)}`
-        : 'No hay evidencia suficiente.',
-      ultimoMensajeDe: conv.lastMessageBy,
-      accion: conv.responsibilityDetected === 'Vendedor no respondio'
-        ? 'Dar seguimiento al cliente desde la instancia correspondiente.'
-        : conv.responsibilityDetected === 'Cliente no respondio'
-          ? 'Esperar respuesta o programar seguimiento comercial.'
-          : 'Mantener monitoreo normal.',
-    }));
+    const responsabilidadDetectada = this.buildDeterministicWhatsappResponsibilities(conversations);
     return {
       estadoGeneral: critical > 0 ? 'Critico' : problematic.length > 0 ? 'Atencion requerida' : 'Normal',
       resumenEjecutivo: conversations.length === 0
@@ -3989,6 +4084,7 @@ export class WhatsappInboxService {
       `Eres auditor ejecutivo del CRM WhatsApp de ${runtime.companyName}. ` +
       'Analiza conversaciones SOLO con la evidencia provista. No inventes. Diferencia hecho confirmado, sospecha, recomendacion y dato pendiente. ' +
       'Regla obligatoria de identidad: fromMe=true, direction=outbound y senderRole=vendedor significan mensaje enviado por la empresa/vendedor. fromMe=false, direction=inbound y senderRole=cliente significan mensaje enviado por el cliente/contacto externo. Nunca asumas lo contrario. ' +
+      'Cada mensaje del contexto trae direction, senderRole, senderName, senderPhone, instanceName, fromMe, timestamp, body y messageType. Usa esos campos como fuente de verdad y no uses frases ambiguas como mensaje enviado sin indicar quien lo envio. ' +
       'Para cada evidencia importante indica quien escribio: cliente o vendedor, y el nombre/telefono/instancia cuando exista. Si no hay evidencia suficiente, dilo exactamente. ' +
       'Detecta posible fraude, conflictos, mala atencion, falta de seguimiento, vendedor sin dedicacion, clientes molestos, reclamos, mensajes sin responder, promesas incumplidas, errores de comunicacion, oportunidades de venta y conversaciones normales. ' +
       'Trata cedulas/documentos como datos sensibles y no copies numeros completos.';
@@ -4020,7 +4116,9 @@ export class WhatsappInboxService {
         'fromMe=true significa empresa/vendedor; fromMe=false significa cliente/contacto. Nunca invertir roles.',
         'direction=outbound significa enviado por vendedor/empresa; direction=inbound significa recibido del cliente.',
         'senderRole es la fuente de verdad para saber quien escribio cada mensaje importante.',
-        'En responsabilidadDetectada indicar si el problema fue del cliente, vendedor, normal o no hay evidencia suficiente.',
+        'En responsabilidadDetectada usa solo una de estas opciones: Cliente no respondio, Vendedor no respondio, Conversacion normal, Requiere seguimiento del vendedor, No hay evidencia suficiente.',
+        'Nunca marques al cliente como responsable si el ultimo mensaje fue inbound/fromMe=false/senderRole=cliente.',
+        'Nunca marques al vendedor como responsable si el ultimo mensaje fue outbound/fromMe=true/senderRole=vendedor y no hay mensajes posteriores del cliente.',
         'Si no hay evidencia suficiente, escribir: No hay evidencia suficiente.',
         'No guardar ni repetir imagenes completas; usa solo resumen visual.',
         'Indicar audio pendiente de transcripcion cuando aplique.',
@@ -4095,21 +4193,28 @@ export class WhatsappInboxService {
     const audioTranscriptionStatus = Array.from(input.mediaSummaries.values())
       .filter((item) => item.type === 'audio')
       .map((item) => ({ messageId: item.messageId, status: item.transcriptionStatus }));
-    const responsabilidadDetectada = input.report.responsabilidadDetectada ?? input.conversations.map((conv) => ({
-      conversationId: conv.conversationId,
-      cliente: `${conv.contact}${conv.phone ? ` (${conv.phone})` : ''}`,
-      atendidoPor: `${conv.userName || 'Usuario no identificado'} / ${conv.instanceName || 'Instancia no identificada'}`,
-      estado: conv.responsibilityDetected,
-      evidencia: conv.messages.length
-        ? `Ultimo mensaje de ${conv.lastMessageBy}. ${this.pickConversationEvidence(conv)}`
-        : 'No hay evidencia suficiente.',
-      ultimoMensajeDe: conv.lastMessageBy,
-      accion: conv.responsibilityDetected === 'Vendedor no respondio'
-        ? 'Dar seguimiento al cliente desde la instancia correspondiente.'
-        : conv.responsibilityDetected === 'Cliente no respondio'
-          ? 'Esperar respuesta o programar seguimiento comercial.'
-          : 'Mantener monitoreo normal.',
-    }));
+    const deterministicResponsibilities = this.buildDeterministicWhatsappResponsibilities(input.conversations);
+    const rawResponsibilities = Array.isArray(input.report.responsabilidadDetectada)
+      ? input.report.responsabilidadDetectada
+      : [];
+    const responsabilidadDetectada = deterministicResponsibilities.map((deterministic) => {
+      const aiItem = rawResponsibilities.find((item) =>
+        item?.conversationId === deterministic.conversationId,
+      ) as Record<string, unknown> | undefined;
+      return {
+        ...deterministic,
+        ...(aiItem ?? {}),
+        conversationId: deterministic.conversationId,
+        cliente: deterministic.cliente,
+        atendidoPor: deterministic.atendidoPor,
+        estado: this.normalizeWhatsappResponsibility(
+          aiItem?.estado ?? deterministic.estado,
+        ),
+        ultimoMensajeDe: deterministic.ultimoMensajeDe,
+        evidencia: asString(aiItem?.evidencia) ?? deterministic.evidencia,
+        accion: asString(aiItem?.accion) ?? deterministic.accion,
+      };
+    });
     const analyzedConversations = input.conversations.map((conv) => ({
       conversationId: conv.conversationId,
       cliente: { nombre: conv.contact, telefono: conv.phone },

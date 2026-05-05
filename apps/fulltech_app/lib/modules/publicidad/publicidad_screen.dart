@@ -587,7 +587,7 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
         includeResearch: request.includeResearch,
         includeDraftMedia: true,
         includeGeneratedImages: request.includeGeneratedImages,
-        includeApprovedStories: request.cleanAllGenerated,
+        includeApprovedStories: true,
         date: request.cleanAllGenerated ? null : selectedDate,
       );
 
@@ -696,14 +696,6 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
                               _GalleryTab(
                                 assets: state.mediaAssets,
                                 publishedAssets: state.publishedAssets,
-                                stories: state.dailyStories,
-                                busy: state.busy,
-                                onCreate: controller.createMediaAsset,
-                                onToggleActive: controller.toggleAssetActive,
-                                onToggleFeatured: controller.toggleAssetFeatured,
-                                onUpdateMeta: controller.updateAssetMeta,
-                                onDuplicatePublished: controller.duplicatePublishedAsset,
-                                onReusePublishedInStory: controller.reusePublishedAssetInStory,
                               ),
                             if (_tab == _PublicidadTab.estados)
                               _DailyStoriesTab(
@@ -2148,54 +2140,16 @@ class _GalleryTab extends StatefulWidget {
   const _GalleryTab({
     required this.assets,
     required this.publishedAssets,
-    required this.stories,
-    required this.busy,
-    required this.onCreate,
-    required this.onToggleActive,
-    required this.onToggleFeatured,
-    required this.onUpdateMeta,
-    required this.onDuplicatePublished,
-    required this.onReusePublishedInStory,
   });
 
   final List<MarketingMediaAsset> assets;
   final List<MarketingPublishedAsset> publishedAssets;
-  final List<MarketingStory> stories;
-  final bool busy;
-  final Future<void> Function({
-    required String fileUrl,
-    required String fileName,
-    required String category,
-    String relatedService,
-    String description,
-    List<String> tags,
-  }) onCreate;
-  final Future<void> Function(MarketingMediaAsset asset) onToggleActive;
-  final Future<void> Function(MarketingMediaAsset asset) onToggleFeatured;
-  final Future<void> Function(
-    MarketingMediaAsset asset, {
-    required String category,
-    required String relatedService,
-    required String tagsCsv,
-    required String description,
-  }) onUpdateMeta;
-  final Future<void> Function(MarketingPublishedAsset item) onDuplicatePublished;
-  final Future<void> Function({
-    required MarketingPublishedAsset asset,
-    required String storyId,
-  }) onReusePublishedInStory;
 
   @override
   State<_GalleryTab> createState() => _GalleryTabState();
 }
 
 class _GalleryTabState extends State<_GalleryTab> {
-  String _category = 'Instalaciones reales';
-  final _urlCtrl = TextEditingController();
-  final _nameCtrl = TextEditingController();
-  final _serviceCtrl = TextEditingController();
-  final _tagsCtrl = TextEditingController();
-  final _descCtrl = TextEditingController();
   String _filterCategory = 'Todos';
 
   static const _categories = [
@@ -2213,16 +2167,6 @@ class _GalleryTabState extends State<_GalleryTab> {
   ];
 
   @override
-  void dispose() {
-    _urlCtrl.dispose();
-    _nameCtrl.dispose();
-    _serviceCtrl.dispose();
-    _tagsCtrl.dispose();
-    _descCtrl.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     final visible = _filterCategory == 'Todos'
         ? widget.assets
@@ -2232,94 +2176,28 @@ class _GalleryTabState extends State<_GalleryTab> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surface,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.35),
-            ),
-          ),
-          child: Column(
-            children: [
-              TextFormField(
-                controller: _urlCtrl,
-                decoration: const InputDecoration(labelText: 'URL de imagen'),
-              ),
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: _nameCtrl,
-                decoration: const InputDecoration(labelText: 'Nombre archivo'),
-              ),
-              const SizedBox(height: 8),
-              DropdownButtonFormField<String>(
-                initialValue: _category,
-                items: _categories
-                    .map((e) => DropdownMenuItem(value: e, child: Text(e)))
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            SizedBox(
+              width: 320,
+              child: DropdownButtonFormField<String>(
+                initialValue: _filterCategory,
+                items: ['Todos', ..._categories]
+                    .map((e) => DropdownMenuItem(value: e, child: Text('Categoría: $e')))
                     .toList(growable: false),
-                onChanged: (v) => setState(() => _category = v ?? _category),
-                decoration: const InputDecoration(labelText: 'Categoría'),
+                onChanged: (v) => setState(() => _filterCategory = v ?? 'Todos'),
               ),
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: _serviceCtrl,
-                decoration: const InputDecoration(labelText: 'Producto/servicio relacionado'),
-              ),
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: _tagsCtrl,
-                decoration: const InputDecoration(labelText: 'Tags (coma separada)'),
-              ),
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: _descCtrl,
-                maxLines: 2,
-                decoration: const InputDecoration(labelText: 'Descripción'),
-              ),
-              const SizedBox(height: 10),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: FilledButton.icon(
-                  onPressed: widget.busy
-                      ? null
-                      : () async {
-                          await widget.onCreate(
-                            fileUrl: _urlCtrl.text.trim(),
-                            fileName: _nameCtrl.text.trim(),
-                            category: _category,
-                            relatedService: _serviceCtrl.text.trim(),
-                            description: _descCtrl.text.trim(),
-                            tags: _tagsCtrl.text
-                                .split(',')
-                                .map((item) => item.trim())
-                                .where((item) => item.isNotEmpty)
-                                .toList(growable: false),
-                          );
-                          _urlCtrl.clear();
-                          _nameCtrl.clear();
-                          _serviceCtrl.clear();
-                          _tagsCtrl.clear();
-                          _descCtrl.clear();
-                        },
-                  icon: const Icon(Icons.upload_rounded),
-                  label: const Text('Subir imagen a galería'),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-        DropdownButtonFormField<String>(
-          initialValue: _filterCategory,
-          items: ['Todos', ..._categories]
-              .map((e) => DropdownMenuItem(value: e, child: Text('Filtro: $e')))
-              .toList(growable: false),
-          onChanged: (v) => setState(() => _filterCategory = v ?? 'Todos'),
+            ),
+            _MetaChip(label: 'Disponibles', value: '${visible.length}'),
+            _MetaChip(label: 'Publicadas', value: '${published.length}'),
+          ],
         ),
         const SizedBox(height: 10),
         Text(
-          'Galería disponible',
+          'Imágenes disponibles para publicidad',
           style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: 8),
@@ -2333,12 +2211,7 @@ class _GalleryTabState extends State<_GalleryTab> {
               for (final item in visible)
                 SizedBox(
                   width: 300,
-                  child: _GalleryAssetCard(
-                    asset: item,
-                    busy: widget.busy,
-                    onToggleActive: () => widget.onToggleActive(item),
-                    onToggleFeatured: () => widget.onToggleFeatured(item),
-                  ),
+                  child: _GalleryAssetCard(asset: item),
                 ),
             ],
           ),
@@ -2358,81 +2231,19 @@ class _GalleryTabState extends State<_GalleryTab> {
               for (final item in published)
                 SizedBox(
                   width: 320,
-                  child: _PublishedAssetCard(
-                    item: item,
-                    busy: widget.busy,
-                    onDuplicate: () => widget.onDuplicatePublished(item),
-                    onReuse: () async {
-                      final storyId = await _pickStoryForReuse(context);
-                      if (storyId == null || storyId.isEmpty) return;
-                      await widget.onReusePublishedInStory(asset: item, storyId: storyId);
-                    },
-                  ),
+                  child: _PublishedAssetCard(item: item),
                 ),
             ],
           ),
       ],
     );
   }
-
-  Future<String?> _pickStoryForReuse(BuildContext context) async {
-    final stories = widget.stories.where((item) {
-      final status = item.status.name.toUpperCase();
-      return status == 'PENDING_APPROVAL' || status == 'REGENERATED';
-    }).toList(growable: false);
-
-    if (stories.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No hay estados pendientes para reutilizar imagen.'),
-        ),
-      );
-      return null;
-    }
-
-    return showDialog<String>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Reutilizar imagen en estado'),
-        content: SizedBox(
-          width: 560,
-          child: ListView.separated(
-            shrinkWrap: true,
-            itemCount: stories.length,
-            separatorBuilder: (_, __) => const Divider(height: 1),
-            itemBuilder: (_, index) {
-              final story = stories[index];
-              return ListTile(
-                title: Text(story.title),
-                subtitle: Text('${_storyTypeLabel(story.type)} · ${story.status}'),
-                onTap: () => Navigator.of(context).pop(story.id),
-              );
-            },
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancelar'),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 class _PublishedAssetCard extends StatelessWidget {
-  const _PublishedAssetCard({
-    required this.item,
-    required this.busy,
-    required this.onDuplicate,
-    required this.onReuse,
-  });
+  const _PublishedAssetCard({required this.item});
 
   final MarketingPublishedAsset item;
-  final bool busy;
-  final Future<void> Function() onDuplicate;
-  final Future<void> Function() onReuse;
 
   @override
   Widget build(BuildContext context) {
@@ -2472,29 +2283,14 @@ class _PublishedAssetCard extends StatelessWidget {
               _MetaChip(label: 'Tipo', value: _storyTypeLabelFromCode(item.storyType)),
               _MetaChip(label: 'Estado', value: item.status),
               _MetaChip(label: 'Aprobado', value: _formatDateTime(item.approvedAt)),
+              _MetaChip(label: 'CTA', value: item.cta.trim().isEmpty ? '-' : item.cta.trim()),
             ],
           ),
           const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              OutlinedButton.icon(
-                onPressed: () => _showStoryPreview(context, item),
-                icon: const Icon(Icons.open_in_full_rounded),
-                label: const Text('Ver anuncio'),
-              ),
-              OutlinedButton.icon(
-                onPressed: busy ? null : onReuse,
-                icon: const Icon(Icons.replay_rounded),
-                label: const Text('Reutilizar imagen'),
-              ),
-              FilledButton.icon(
-                onPressed: busy ? null : onDuplicate,
-                icon: const Icon(Icons.copy_all_rounded),
-                label: const Text('Duplicar para nuevo estado'),
-              ),
-            ],
+          OutlinedButton.icon(
+            onPressed: () => _showStoryPreview(context, item),
+            icon: const Icon(Icons.open_in_full_rounded),
+            label: const Text('Ver anuncio'),
           ),
         ],
       ),
@@ -2564,17 +2360,9 @@ class _PublishedAssetCard extends StatelessWidget {
 }
 
 class _GalleryAssetCard extends StatelessWidget {
-  const _GalleryAssetCard({
-    required this.asset,
-    required this.busy,
-    required this.onToggleActive,
-    required this.onToggleFeatured,
-  });
+  const _GalleryAssetCard({required this.asset});
 
   final MarketingMediaAsset asset;
-  final bool busy;
-  final Future<void> Function() onToggleActive;
-  final Future<void> Function() onToggleFeatured;
 
   @override
   Widget build(BuildContext context) {
@@ -2590,10 +2378,22 @@ class _GalleryAssetCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: AspectRatio(
+              aspectRatio: 9 / 16,
+              child: asset.fileUrl.trim().isEmpty
+                  ? const _BrokenImagePlaceholder()
+                  : Image.network(
+                      asset.fileUrl,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => const _BrokenImagePlaceholder(),
+                    ),
+            ),
+          ),
+          const SizedBox(height: 8),
           Text(asset.fileName, maxLines: 1, overflow: TextOverflow.ellipsis),
           const SizedBox(height: 6),
-          Text(asset.fileUrl, maxLines: 2, overflow: TextOverflow.ellipsis),
-          const SizedBox(height: 8),
           Wrap(
             spacing: 6,
             runSpacing: 6,
@@ -2613,21 +2413,6 @@ class _GalleryAssetCard extends StatelessWidget {
               _MetaChip(
                 label: 'Tipo anuncio',
                 value: asset.latestStoryType ?? '-',
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              OutlinedButton(
-                onPressed: busy ? null : onToggleActive,
-                child: Text(asset.isActive ? 'Desactivar' : 'Activar'),
-              ),
-              OutlinedButton(
-                onPressed: busy ? null : onToggleFeatured,
-                child: Text(asset.isFeatured ? 'Quitar destacada' : 'Marcar destacada'),
               ),
             ],
           ),

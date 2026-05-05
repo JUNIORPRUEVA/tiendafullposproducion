@@ -43,9 +43,11 @@ export class MarketingService {
 
   async getDashboard(companyId: string, date: Date) {
     const config = await this.configService.getOrCreate(companyId);
-    const stories = await this.prisma.marketingDailyStory.findMany({
+    const dailyRows = await this.prisma.marketingDailyStory.findMany({
       where: { companyId, date },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
     });
+    const stories = this.pickLatestStoryPerType(dailyRows);
 
     const pending = stories.filter(
       (item) => item.status === MarketingStoryStatus.PENDING || item.status === MarketingStoryStatus.REGENERATED,
@@ -108,7 +110,7 @@ export class MarketingService {
   }
 
   async listDailyStories(companyId: string, date: Date) {
-    const stories = await this.prisma.marketingDailyStory.findMany({
+    const rows = await this.prisma.marketingDailyStory.findMany({
       where: {
         companyId,
         date,
@@ -129,8 +131,9 @@ export class MarketingService {
         },
         mediaAsset: true,
       },
-      orderBy: { type: 'asc' },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
     });
+    const stories = this.pickLatestStoryPerType(rows);
 
     return {
       date,
@@ -608,6 +611,25 @@ export class MarketingService {
       scheduled.setDate(scheduled.getDate() + 1);
     }
     return scheduled;
+  }
+
+  private pickLatestStoryPerType<T extends { type: MarketingStoryType }>(rows: T[]) {
+    const byType = new Map<MarketingStoryType, T>();
+    for (const row of rows) {
+      if (!byType.has(row.type)) {
+        byType.set(row.type, row);
+      }
+    }
+
+    const ordered: MarketingStoryType[] = [
+      MarketingStoryType.SALES,
+      MarketingStoryType.TRUST,
+      MarketingStoryType.EDUCATIONAL,
+    ];
+
+    return ordered
+      .map((type) => byType.get(type))
+      .filter((item): item is T => !!item);
   }
 
   private toDateOnly(value: Date) {
