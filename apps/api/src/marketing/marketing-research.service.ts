@@ -254,7 +254,6 @@ export class MarketingResearchService {
     return this.prisma.marketingResearch.findMany({
       where: { companyId },
       orderBy: { createdAt: 'desc' },
-      take: 10,
     });
   }
 

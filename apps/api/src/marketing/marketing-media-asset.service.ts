@@ -19,13 +19,30 @@ export class MarketingMediaAssetService {
         ...(query.featured_only === true ? { isFeatured: true } : {}),
       },
       orderBy: [{ isFeatured: 'desc' }, { useCount: 'asc' }, { createdAt: 'desc' }],
+      include: {
+        stories: {
+          select: {
+            id: true,
+            title: true,
+            date: true,
+            type: true,
+            updatedAt: true,
+          },
+          orderBy: { updatedAt: 'desc' },
+          take: 1,
+        },
+      },
     });
 
     return {
-      items: items.map((item) => ({
-        ...item,
-        tags: Array.isArray(item.tags) ? item.tags : [],
-      })),
+      items: items.map((item) => {
+        const latestStory = item.stories?.[0] ?? null;
+        return {
+          ...item,
+          tags: Array.isArray(item.tags) ? item.tags : [],
+          latestStory,
+        };
+      }),
     };
   }
 

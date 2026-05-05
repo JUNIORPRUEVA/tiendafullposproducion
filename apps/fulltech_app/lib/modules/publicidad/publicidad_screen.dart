@@ -30,6 +30,9 @@ class PublicidadState {
     required this.dailyStories,
     required this.mediaAssets,
     required this.history,
+    required this.latestResearch,
+    required this.researchHistory,
+    required this.learningStats,
     required this.error,
   });
 
@@ -41,6 +44,9 @@ class PublicidadState {
   final List<MarketingStory> dailyStories;
   final List<MarketingMediaAsset> mediaAssets;
   final List<MarketingStory> history;
+  final MarketingResearchDetail? latestResearch;
+  final List<MarketingResearchDetail> researchHistory;
+  final MarketingLearningStats? learningStats;
   final String? error;
 
   factory PublicidadState.initial() {
@@ -54,6 +60,9 @@ class PublicidadState {
       dailyStories: const [],
       mediaAssets: const [],
       history: const [],
+      latestResearch: null,
+      researchHistory: const [],
+      learningStats: null,
       error: null,
     );
   }
@@ -67,6 +76,9 @@ class PublicidadState {
     List<MarketingStory>? dailyStories,
     List<MarketingMediaAsset>? mediaAssets,
     List<MarketingStory>? history,
+    MarketingResearchDetail? latestResearch,
+    List<MarketingResearchDetail>? researchHistory,
+    MarketingLearningStats? learningStats,
     String? error,
     bool clearError = false,
   }) {
@@ -79,6 +91,9 @@ class PublicidadState {
       dailyStories: dailyStories ?? this.dailyStories,
       mediaAssets: mediaAssets ?? this.mediaAssets,
       history: history ?? this.history,
+      latestResearch: latestResearch ?? this.latestResearch,
+      researchHistory: researchHistory ?? this.researchHistory,
+      learningStats: learningStats ?? this.learningStats,
       error: clearError ? null : (error ?? this.error),
     );
   }
@@ -287,6 +302,9 @@ class PublicidadController extends StateNotifier<PublicidadState> {
       final mediaAssets = await _api.loadMediaAssets();
       var stories = const <MarketingStory>[];
       var historyItems = const <MarketingStory>[];
+      MarketingResearchDetail? latestResearch;
+      var researchHistory = const <MarketingResearchDetail>[];
+      MarketingLearningStats? learningStats;
       String? softError;
 
       try {
@@ -308,6 +326,33 @@ class PublicidadController extends StateNotifier<PublicidadState> {
         );
       }
 
+      try {
+        latestResearch = await _api.loadLatestResearch();
+      } catch (error) {
+        softError ??= _friendlyError(
+          error,
+          fallback: 'No se pudo cargar la investigación más reciente.',
+        );
+      }
+
+      try {
+        researchHistory = await _api.loadResearchHistory();
+      } catch (error) {
+        softError ??= _friendlyError(
+          error,
+          fallback: 'No se pudo cargar el historial de investigaciones.',
+        );
+      }
+
+      try {
+        learningStats = await _api.loadLearningStats();
+      } catch (error) {
+        softError ??= _friendlyError(
+          error,
+          fallback: 'No se pudieron cargar memorias de aprendizaje.',
+        );
+      }
+
       state = state.copyWith(
         loading: false,
         dashboard: dashboard,
@@ -315,6 +360,9 @@ class PublicidadController extends StateNotifier<PublicidadState> {
         dailyStories: stories,
         mediaAssets: mediaAssets,
         history: historyItems,
+        latestResearch: latestResearch,
+        researchHistory: researchHistory,
+        learningStats: learningStats,
         error: softError,
       );
     } catch (error) {
@@ -462,6 +510,7 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
                                 state: state,
                                 stories: state.dailyStories,
                                 mediaAssets: state.mediaAssets,
+                                researches: state.researchHistory,
                                 onActivate: controller.activateFlow,
                                 onPause: controller.pauseFlow,
                                 onGenerateNow: controller.generateNow,
@@ -473,7 +522,12 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
                                 busy: state.busy,
                               ),
                             if (_tab == _PublicidadTab.investigacion)
-                              _ResearchSummaryTab(dashboard: state.dashboard),
+                              _ResearchSummaryTab(
+                                dashboard: state.dashboard,
+                                latestResearch: state.latestResearch,
+                                researchHistory: state.researchHistory,
+                                learningStats: state.learningStats,
+                              ),
                             if (_tab == _PublicidadTab.galeria)
                               _GalleryTab(
                                 assets: state.mediaAssets,
@@ -487,6 +541,7 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
                               _DailyStoriesTab(
                                 stories: state.dailyStories,
                                 mediaAssets: state.mediaAssets,
+                                researches: state.researchHistory,
                                 busy: state.busy,
                                 onApprove: controller.approve,
                                 onReject: controller.reject,
@@ -632,6 +687,7 @@ class _DashboardTab extends StatelessWidget {
     required this.state,
     required this.stories,
     required this.mediaAssets,
+    required this.researches,
     required this.onActivate,
     required this.onPause,
     required this.onGenerateNow,
@@ -646,6 +702,7 @@ class _DashboardTab extends StatelessWidget {
   final PublicidadState state;
   final List<MarketingStory> stories;
   final List<MarketingMediaAsset> mediaAssets;
+  final List<MarketingResearchDetail> researches;
   final Future<void> Function() onActivate;
   final Future<void> Function() onPause;
   final Future<void> Function() onGenerateNow;
@@ -661,6 +718,19 @@ class _DashboardTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dashboard = state.dashboard;
+    final completeStories = stories.where(_isCompleteStory).length;
+    final incompleteStories = stories.length - completeStories;
+    final generatedImages = stories
+      .where((s) => _safeImageUrl(s.generatedImageUrl).isNotEmpty)
+      .length;
+    final generatedCopies = stories
+      .where(
+        (s) =>
+          s.title.trim().isNotEmpty &&
+          s.shortText.trim().isNotEmpty &&
+          s.usedCTA.trim().isNotEmpty,
+      )
+      .length;
     final cards = [
       ('Estado del flujo', dashboard?.flowStatus ?? 'INACTIVO'),
       ('Pendientes de aprobaci├│n', '${dashboard?.pendingApprovalCount ?? 0}'),
@@ -688,6 +758,10 @@ class _DashboardTab extends StatelessWidget {
         'Estados con investigación actual',
         '${dashboard?.storiesFromCurrentResearch ?? 0}',
       ),
+      ('Estados listos para revisión', '$completeStories'),
+      ('Estados incompletos', '$incompleteStories'),
+      ('Imágenes generadas', '$generatedImages'),
+      ('Copys generados', '$generatedCopies'),
     ];
 
     return Column(
@@ -742,6 +816,7 @@ class _DashboardTab extends StatelessWidget {
         _DailyStoriesTab(
           stories: stories,
           mediaAssets: mediaAssets,
+          researches: researches,
           busy: busy,
           onApprove: onApprove,
           onReject: (_, {reason = ''}) async {},
@@ -753,6 +828,18 @@ class _DashboardTab extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  bool _isCompleteStory(MarketingStory story) {
+    final hasImage =
+        _safeImageUrl(story.generatedImageUrl).isNotEmpty ||
+        _safeImageUrl(story.imageUrl).isNotEmpty;
+    final hasCopy =
+        story.title.trim().isNotEmpty &&
+        story.shortText.trim().isNotEmpty &&
+        story.usedCTA.trim().isNotEmpty;
+    final hasPrompt = story.imagePrompt.trim().isNotEmpty;
+    return hasImage && hasCopy && hasPrompt;
   }
 }
 
@@ -800,6 +887,7 @@ class _DailyStoriesTab extends StatelessWidget {
   const _DailyStoriesTab({
     required this.stories,
     required this.mediaAssets,
+    required this.researches,
     required this.busy,
     required this.onApprove,
     required this.onReject,
@@ -812,6 +900,7 @@ class _DailyStoriesTab extends StatelessWidget {
 
   final List<MarketingStory> stories;
   final List<MarketingMediaAsset> mediaAssets;
+  final List<MarketingResearchDetail> researches;
   final bool busy;
   final Future<void> Function(String storyId) onApprove;
   final Future<void> Function(String storyId, {String reason}) onReject;
@@ -833,27 +922,11 @@ class _DailyStoriesTab extends StatelessWidget {
       );
     }
 
-    final validStories = stories
-        .where((story) => _isStoryComplete(story))
-        .toList(growable: false);
-
-    if (validStories.isEmpty) {
-      return const _EmptyState(
-        text:
-            'No hay estados generados todavia. Presiona "Generar estados ahora".',
-      );
-    }
-
-    final duplicateBaseIds = _findDuplicateBaseAssetIds(validStories);
+    final duplicateBaseIds = _findDuplicateBaseAssetIds(stories);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (stories.length != validStories.length)
-          const _ErrorBanner(
-            message:
-                'Se ocultaron estados incompletos para evitar errores visuales. Regenera contenido o imagen.',
-          ),
         if (duplicateBaseIds.isNotEmpty)
           const Padding(
             padding: EdgeInsets.only(bottom: 8),
@@ -866,11 +939,12 @@ class _DailyStoriesTab extends StatelessWidget {
           spacing: 12,
           runSpacing: 12,
           children: [
-            for (final story in validStories)
+            for (final story in stories)
               SizedBox(
                 width: 420,
                 child: _StoryCard(
                   story: story,
+                  usedResearch: _findResearch(story.researchId),
                   busy: busy,
                   compactActions: compactActions,
                   onApprove: () => onApprove(story.id),
@@ -906,15 +980,13 @@ class _DailyStoriesTab extends StatelessWidget {
     );
   }
 
-  bool _isStoryComplete(MarketingStory story) {
-    final hasText = story.shortText.trim().isNotEmpty;
-    final hasPrompt = story.imagePrompt.trim().isNotEmpty;
-    final hasConcept = story.visualConcept.trim().isNotEmpty;
-    final hasCta = story.usedCTA.trim().isNotEmpty || story.shortText.trim().isNotEmpty;
-    final hasImage = _safeImageUrl(story.generatedImageUrl).isNotEmpty ||
-        _safeImageUrl(story.mediaAsset?.fileUrl ?? '').isNotEmpty ||
-        _safeImageUrl(story.imageUrl).isNotEmpty;
-    return hasText && hasPrompt && hasConcept && hasCta && hasImage;
+  MarketingResearchDetail? _findResearch(String? id) {
+    final target = (id ?? '').trim();
+    if (target.isEmpty) return null;
+    for (final item in researches) {
+      if (item.id == target) return item;
+    }
+    return null;
   }
 
   Set<String> _findDuplicateBaseAssetIds(List<MarketingStory> rows) {
@@ -934,6 +1006,7 @@ class _DailyStoriesTab extends StatelessWidget {
 class _StoryCard extends StatelessWidget {
   const _StoryCard({
     required this.story,
+    required this.usedResearch,
     required this.busy,
     required this.onApprove,
     required this.onReject,
@@ -945,6 +1018,7 @@ class _StoryCard extends StatelessWidget {
   });
 
   final MarketingStory story;
+  final MarketingResearchDetail? usedResearch;
   final bool busy;
   final Future<void> Function() onApprove;
   final Future<void> Function() onReject;
@@ -963,10 +1037,17 @@ class _StoryCard extends StatelessWidget {
         ? 'Escribenos por WhatsApp para cotizar'
         : story.usedCTA.trim();
     final approved = story.status == MarketingStoryStatus.approved;
+    final missing = _missingFields(story);
+    final isComplete = missing.isEmpty;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (!isComplete)
+          _ErrorBanner(
+            message:
+                'Este anuncio está incompleto: falta ${missing.join(', ')}.',
+          ),
         Row(
           children: [
             _MetaChip(label: 'Tipo', value: _storyTypeShort(story.type)),
@@ -1025,21 +1106,31 @@ class _StoryCard extends StatelessWidget {
           spacing: 8,
           runSpacing: 6,
           children: [
+            _MetaChip(label: 'Investigación usada', value: story.researchId ?? '-'),
             _MetaChip(label: 'Servicio', value: relatedService.isEmpty ? '-' : relatedService),
             _MetaChip(label: 'CTA', value: cta),
             _MetaChip(label: 'Estado imagen', value: story.imageStatus.name),
+            _MetaChip(label: 'Fecha generación', value: _formatDateTime(story.updatedAt ?? story.date)),
           ],
         ),
         const SizedBox(height: 8),
+        _InfoLine(label: 'Headline', value: story.title),
+        _InfoLine(label: 'Texto corto para historia', value: story.shortText),
+        _InfoLine(label: 'Texto largo para post', value: story.longText),
+        _InfoLine(label: 'Notas de diseño', value: story.designNotes),
         _InfoLine(label: 'Prompt de imagen', value: story.imagePrompt),
         _InfoLine(label: 'Concepto visual', value: story.visualConcept),
+        _InfoLine(
+          label: 'Hashtags',
+          value: story.hashtags.isEmpty ? '-' : story.hashtags.join(' '),
+        ),
         const SizedBox(height: 10),
         Wrap(
           spacing: 8,
           runSpacing: 8,
           children: [
             FilledButton.icon(
-              onPressed: busy ? null : onApprove,
+              onPressed: busy || !isComplete ? null : onApprove,
               icon: const Icon(Icons.check_circle_rounded, size: 18),
               label: const Text('Aprobar estado'),
             ),
@@ -1058,7 +1149,14 @@ class _StoryCard extends StatelessWidget {
             OutlinedButton.icon(
               onPressed: () => _openFullscreenPreview(context, story, generatedImage, baseImage),
               icon: const Icon(Icons.open_in_full_rounded, size: 18),
-              label: const Text('Ver en pantalla completa'),
+              label: const Text('Ver anuncio completo'),
+            ),
+            OutlinedButton.icon(
+              onPressed: usedResearch == null
+                  ? null
+                  : () => _openResearchUsed(context, usedResearch!),
+              icon: const Icon(Icons.science_rounded, size: 18),
+              label: const Text('Ver investigación usada'),
             ),
             if (!compactActions)
               OutlinedButton(
@@ -1088,6 +1186,28 @@ class _StoryCard extends StatelessWidget {
         builder: (_) => _StoryFullscreenPreview(story: story, imageUrl: image),
       ),
     );
+  }
+
+  void _openResearchUsed(BuildContext context, MarketingResearchDetail detail) {
+    showDialog<void>(
+      context: context,
+      builder: (_) => _ResearchDetailDialog(research: detail),
+    );
+  }
+
+  List<String> _missingFields(MarketingStory story) {
+    final missing = <String>[];
+    final hasImage =
+        _safeImageUrl(story.generatedImageUrl).isNotEmpty ||
+        _safeImageUrl(story.imageUrl).isNotEmpty;
+    if (!hasImage) missing.add('imagen');
+    if (story.imagePrompt.trim().isEmpty) missing.add('prompt');
+    final hasCopy =
+        story.title.trim().isNotEmpty &&
+        story.shortText.trim().isNotEmpty &&
+        story.usedCTA.trim().isNotEmpty;
+    if (!hasCopy) missing.add('copy');
+    return missing;
   }
 }
 
@@ -1230,6 +1350,23 @@ class _StoryVisualOverlay extends StatelessWidget {
         children: [
           Row(
             children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xB3000000),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  'FULLTECH',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: compact ? 9 : 11,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.6,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
               if (fallbackLabel != null)
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -1393,13 +1530,21 @@ class _InfoLine extends StatelessWidget {
 }
 
 class _ResearchSummaryTab extends StatelessWidget {
-  const _ResearchSummaryTab({required this.dashboard});
+  const _ResearchSummaryTab({
+    required this.dashboard,
+    required this.latestResearch,
+    required this.researchHistory,
+    required this.learningStats,
+  });
 
   final MarketingDashboard? dashboard;
+  final MarketingResearchDetail? latestResearch;
+  final List<MarketingResearchDetail> researchHistory;
+  final MarketingLearningStats? learningStats;
 
   @override
   Widget build(BuildContext context) {
-    final research = dashboard?.latestResearch;
+    final research = latestResearch;
     if (research == null) {
       return const _EmptyState(
         text:
@@ -1422,11 +1567,31 @@ class _ResearchSummaryTab extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Investigación automática',
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Investigación automática completa',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                ),
+              ),
+              OutlinedButton.icon(
+                onPressed: researchHistory.isEmpty
+                    ? null
+                    : () {
+                        showDialog<void>(
+                          context: context,
+                          builder: (_) => _ResearchHistoryDialog(
+                            items: researchHistory,
+                          ),
+                        );
+                      },
+                icon: const Icon(Icons.history_rounded),
+                label: const Text('Ver historial de investigaciones'),
+              ),
+            ],
           ),
           const SizedBox(height: 10),
           Wrap(
@@ -1434,10 +1599,13 @@ class _ResearchSummaryTab extends StatelessWidget {
             runSpacing: 8,
             children: [
               _MetaChip(label: 'Estado', value: research.status),
+              _MetaChip(label: 'Fecha investigación', value: _formatDate(research.date)),
+              _MetaChip(label: 'Fuente usada', value: research.dataSources.isEmpty ? '-' : research.dataSources.join(', ')),
               _MetaChip(
                 label: 'Confianza',
                 value: '${(research.confidenceScore * 100).toStringAsFixed(0)}%',
               ),
+              _MetaChip(label: 'Tema investigado', value: research.mainFocus.isEmpty ? '-' : research.mainFocus),
               _MetaChip(
                 label: 'Frecuencia',
                 value: 'Cada ${dashboard?.researchFrequencyDays ?? 2} días',
@@ -1456,8 +1624,204 @@ class _ResearchSummaryTab extends StatelessWidget {
               ),
             ],
           ),
+          const SizedBox(height: 12),
+          _ResearchField(label: 'Resumen del mercado', value: research.marketSummary),
+          _ResearchField(
+            label: 'Patrones de competidores',
+            value: research.competitorPublishingPatterns,
+          ),
+          _ResearchField(label: 'Ofertas comunes', value: research.commonOffers),
+          _ResearchField(
+            label: 'Rangos de precios observados',
+            value: research.observedPriceRanges,
+          ),
+          _ResearchField(
+            label: 'Oportunidades para FULLTECH',
+            value: research.contentOpportunities,
+          ),
+          _ResearchField(
+            label: 'Recomendaciones para estados',
+            value: research.recommendedHooks.join(' | '),
+          ),
+          _ResearchField(
+            label: 'Recomendaciones de contenido',
+            value: research.recommendedContentTypes.join(' | '),
+          ),
+          _ResearchField(label: 'Qué repetir', value: research.doMoreOfThis.join(' | ')),
+          _ResearchField(label: 'Qué evitar', value: research.avoidThis.join(' | ')),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _MetaChip(
+                label: 'Ángulos fuertes',
+                value: research.strongAngles.isEmpty
+                    ? '-'
+                    : research.strongAngles.join(' | '),
+              ),
+              _MetaChip(
+                label: 'Ángulos débiles',
+                value: research.weakAngles.isEmpty
+                    ? '-'
+                    : research.weakAngles.join(' | '),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Memorias/aprendizajes activos',
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 8),
+          if (learningStats == null || learningStats!.topInsights.isEmpty)
+            const Text('No hay memorias activas todavía.')
+          else
+            Column(
+              children: [
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _MetaChip(
+                      label: 'Activas',
+                      value: '${learningStats!.activeCount}',
+                    ),
+                    _MetaChip(
+                      label: 'Descartadas',
+                      value: '${learningStats!.discardedCount}',
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                for (final insight in learningStats!.topInsights)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Text(
+                        '- [${insight.category}] ${insight.insight} (score ${insight.score.toStringAsFixed(2)})',
+                      ),
+                    ),
+                  ),
+              ],
+            ),
         ],
       ),
+    );
+  }
+}
+
+class _ResearchField extends StatelessWidget {
+  const _ResearchField({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = value.trim().isEmpty ? '-' : value.trim();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+          const SizedBox(height: 4),
+          Text(text),
+        ],
+      ),
+    );
+  }
+}
+
+class _ResearchHistoryDialog extends StatelessWidget {
+  const _ResearchHistoryDialog({required this.items});
+
+  final List<MarketingResearchDetail> items;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Historial de investigaciones'),
+      content: SizedBox(
+        width: 760,
+        child: ListView.separated(
+          shrinkWrap: true,
+          itemCount: items.length,
+          separatorBuilder: (_, __) => const Divider(height: 1),
+          itemBuilder: (_, index) {
+            final item = items[index];
+            return ListTile(
+              title: Text(item.mainFocus.isEmpty ? 'Investigación sin tema' : item.mainFocus),
+              subtitle: Text(
+                '${_formatDate(item.date)} · ${item.status} · ${(item.confidenceScore * 100).toStringAsFixed(0)}%',
+              ),
+              trailing: const Icon(Icons.open_in_new_rounded),
+              onTap: () {
+                showDialog<void>(
+                  context: context,
+                  builder: (_) => _ResearchDetailDialog(research: item),
+                );
+              },
+            );
+          },
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cerrar'),
+        ),
+      ],
+    );
+  }
+}
+
+class _ResearchDetailDialog extends StatelessWidget {
+  const _ResearchDetailDialog({required this.research});
+
+  final MarketingResearchDetail research;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Detalle de investigación'),
+      content: SizedBox(
+        width: 840,
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _ResearchField(label: 'Fecha', value: _formatDateTime(research.createdAt ?? research.date)),
+              _ResearchField(label: 'Estado', value: research.status),
+              _ResearchField(label: 'Nivel de confianza', value: '${(research.confidenceScore * 100).toStringAsFixed(0)}%'),
+              _ResearchField(label: 'Tema investigado', value: research.mainFocus),
+              _ResearchField(label: 'Prompt usado', value: research.researchPrompt),
+              _ResearchField(label: 'Resumen del mercado', value: research.marketSummary),
+              _ResearchField(label: 'Patrones de competidores', value: research.competitorPublishingPatterns),
+              _ResearchField(label: 'Ofertas comunes', value: research.commonOffers),
+              _ResearchField(label: 'Rangos de precios observados', value: research.observedPriceRanges),
+              _ResearchField(label: 'Ángulos fuertes', value: research.strongAngles.join(' | ')),
+              _ResearchField(label: 'Ángulos débiles', value: research.weakAngles.join(' | ')),
+              _ResearchField(label: 'Oportunidades para FULLTECH', value: research.contentOpportunities),
+              _ResearchField(label: 'Recomendaciones de contenido', value: research.recommendedContentTypes.join(' | ')),
+              _ResearchField(label: 'Recomendaciones para estados', value: research.recommendedHooks.join(' | ')),
+              _ResearchField(label: 'Qué repetir', value: research.doMoreOfThis.join(' | ')),
+              _ResearchField(label: 'Qué evitar', value: research.avoidThis.join(' | ')),
+              _ResearchField(label: 'Fuentes usadas', value: research.dataSources.join(' | ')),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cerrar'),
+        ),
+      ],
     );
   }
 }
@@ -1685,8 +2049,20 @@ class _GalleryAssetCard extends StatelessWidget {
             children: [
               _MetaChip(label: 'Categoría', value: asset.category),
               _MetaChip(label: 'Servicio', value: asset.relatedService ?? '-'),
+              _MetaChip(
+                label: 'Tags',
+                value: asset.tags.isEmpty ? '-' : asset.tags.join(', '),
+              ),
               _MetaChip(label: 'Uso', value: '${asset.useCount}'),
               _MetaChip(label: 'Último uso', value: _formatDateTime(asset.lastUsedAt)),
+              _MetaChip(
+                label: 'Usada en anuncio',
+                value: asset.latestStoryTitle ?? '-',
+              ),
+              _MetaChip(
+                label: 'Tipo anuncio',
+                value: asset.latestStoryType ?? '-',
+              ),
             ],
           ),
           const SizedBox(height: 8),

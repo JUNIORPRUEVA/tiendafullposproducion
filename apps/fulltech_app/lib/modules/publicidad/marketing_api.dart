@@ -346,4 +346,55 @@ class MarketingApi {
       _rethrow(error, 'No se pudo eliminar el asset');
     }
   }
+
+  Future<MarketingResearchDetail?> loadLatestResearch() async {
+    try {
+      final res = await _dio.get(
+        ApiRoutes.marketingResearchLatest,
+        options: _backgroundOptions,
+      );
+      final raw =
+          (res.data as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
+      if ('${raw['id'] ?? ''}'.trim().isEmpty) return null;
+      return MarketingResearchDetail.fromJson(raw);
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo cargar la investigación más reciente');
+    }
+  }
+
+  Future<List<MarketingResearchDetail>> loadResearchHistory() async {
+    try {
+      final res = await _dio.get(
+        ApiRoutes.marketingResearchList,
+        options: _backgroundOptions,
+      );
+      final rows = (res.data is List) ? (res.data as List) : const [];
+      return rows
+          .whereType<Map>()
+          .map(
+            (item) => MarketingResearchDetail.fromJson(
+              item.cast<String, dynamic>(),
+            ),
+          )
+          .toList(growable: false);
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo cargar el historial de investigaciones');
+    }
+  }
+
+  Future<MarketingLearningStats> loadLearningStats() async {
+    try {
+      final res = await _dio.get(
+        ApiRoutes.marketingResearchLearningStats,
+        options: _backgroundOptions,
+      );
+      final raw =
+          (res.data as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
+      return MarketingLearningStats.fromJson(raw);
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo cargar memorias/aprendizajes activos');
+    }
+  }
 }

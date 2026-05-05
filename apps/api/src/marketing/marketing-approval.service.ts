@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateMarketingStoryDto } from './dto/update-marketing-story.dto';
 
@@ -12,6 +12,19 @@ export class MarketingApprovalService {
       include: { mediaAsset: true },
     });
     if (!story) throw new NotFoundException('Contenido no encontrado');
+
+    const missing: string[] = [];
+    const hasImage = `${(story as any).generatedImageUrl ?? ''}`.trim() || `${story.imageUrl ?? ''}`.trim();
+    if (!hasImage) missing.push('imagen');
+    if (`${story.imagePrompt ?? ''}`.trim().length === 0) missing.push('prompt');
+    const hasCopy =
+      `${story.title ?? ''}`.trim().length > 0 &&
+      `${story.shortText ?? ''}`.trim().length > 0 &&
+      `${(story as any).usedCTA ?? ''}`.trim().length > 0;
+    if (!hasCopy) missing.push('copy');
+    if (missing.length > 0) {
+      throw new ConflictException(`No se puede aprobar: anuncio incompleto (${missing.join(', ')})`);
+    }
 
     const updated = await this.prisma.marketingDailyStory.update({
       where: { id: story.id },

@@ -117,6 +117,10 @@ class MarketingMediaAsset {
     required this.isFeatured,
     required this.useCount,
     required this.lastUsedAt,
+    required this.latestStoryId,
+    required this.latestStoryTitle,
+    required this.latestStoryDate,
+    required this.latestStoryType,
   });
 
   final String id;
@@ -132,6 +136,10 @@ class MarketingMediaAsset {
   final bool isFeatured;
   final int useCount;
   final DateTime? lastUsedAt;
+  final String? latestStoryId;
+  final String? latestStoryTitle;
+  final DateTime? latestStoryDate;
+  final String? latestStoryType;
 
   factory MarketingMediaAsset.fromJson(Map<String, dynamic> json) {
     final tagsRaw = json['tags'];
@@ -141,6 +149,10 @@ class MarketingMediaAsset {
               .where((item) => item.isNotEmpty)
               .toList(growable: false)
         : const <String>[];
+      final latestStoryRaw = json['latestStory'];
+      final latestStory = latestStoryRaw is Map
+        ? latestStoryRaw.cast<String, dynamic>()
+        : const <String, dynamic>{};
     return MarketingMediaAsset(
       id: '${json['id'] ?? ''}',
       fileUrl: '${json['fileUrl'] ?? ''}',
@@ -161,8 +173,157 @@ class MarketingMediaAsset {
       isFeatured: json['isFeatured'] == true,
       useCount: (json['useCount'] as num?)?.toInt() ?? 0,
       lastUsedAt: DateTime.tryParse('${json['lastUsedAt'] ?? ''}'),
+      latestStoryId: '${latestStory['id'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${latestStory['id']}',
+      latestStoryTitle: '${latestStory['title'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${latestStory['title']}',
+      latestStoryDate: DateTime.tryParse('${latestStory['date'] ?? ''}'),
+      latestStoryType: '${latestStory['type'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${latestStory['type']}',
     );
   }
+}
+
+class MarketingLearningInsight {
+  const MarketingLearningInsight({
+    required this.id,
+    required this.category,
+    required this.insight,
+    required this.score,
+    required this.status,
+  });
+
+  final String id;
+  final String category;
+  final String insight;
+  final double score;
+  final String status;
+
+  factory MarketingLearningInsight.fromJson(Map<String, dynamic> json) {
+    return MarketingLearningInsight(
+      id: '${json['id'] ?? ''}',
+      category: '${json['category'] ?? ''}',
+      insight: '${json['insight'] ?? ''}',
+      score: (json['score'] as num?)?.toDouble() ?? 0,
+      status: '${json['status'] ?? ''}',
+    );
+  }
+}
+
+class MarketingLearningStats {
+  const MarketingLearningStats({
+    required this.activeCount,
+    required this.discardedCount,
+    required this.topInsights,
+  });
+
+  final int activeCount;
+  final int discardedCount;
+  final List<MarketingLearningInsight> topInsights;
+
+  factory MarketingLearningStats.fromJson(Map<String, dynamic> json) {
+    final rawRows = json['topInsights'];
+    final rows = rawRows is List ? rawRows : const [];
+    return MarketingLearningStats(
+      activeCount: (json['activeCount'] as num?)?.toInt() ?? 0,
+      discardedCount: (json['discardedCount'] as num?)?.toInt() ?? 0,
+      topInsights: rows
+          .whereType<Map>()
+          .map(
+            (item) => MarketingLearningInsight.fromJson(
+              item.cast<String, dynamic>(),
+            ),
+          )
+          .toList(growable: false),
+    );
+  }
+}
+
+class MarketingResearchDetail {
+  const MarketingResearchDetail({
+    required this.id,
+    required this.date,
+    required this.status,
+    required this.createdAt,
+    required this.confidenceScore,
+    required this.mainFocus,
+    required this.researchPrompt,
+    required this.marketSummary,
+    required this.competitorPublishingPatterns,
+    required this.commonOffers,
+    required this.observedPriceRanges,
+    required this.contentOpportunities,
+    required this.strongAngles,
+    required this.weakAngles,
+    required this.recommendedContentTypes,
+    required this.recommendedOffers,
+    required this.recommendedHooks,
+    required this.recommendedCTAs,
+    required this.doMoreOfThis,
+    required this.avoidThis,
+    required this.dataSources,
+  });
+
+  final String id;
+  final DateTime? date;
+  final String status;
+  final DateTime? createdAt;
+  final double confidenceScore;
+  final String mainFocus;
+  final String researchPrompt;
+  final String marketSummary;
+  final String competitorPublishingPatterns;
+  final String commonOffers;
+  final String observedPriceRanges;
+  final String contentOpportunities;
+  final List<String> strongAngles;
+  final List<String> weakAngles;
+  final List<String> recommendedContentTypes;
+  final List<String> recommendedOffers;
+  final List<String> recommendedHooks;
+  final List<String> recommendedCTAs;
+  final List<String> doMoreOfThis;
+  final List<String> avoidThis;
+  final List<String> dataSources;
+
+  factory MarketingResearchDetail.fromJson(Map<String, dynamic> json) {
+    return MarketingResearchDetail(
+      id: '${json['id'] ?? ''}',
+      date: DateTime.tryParse('${json['date'] ?? ''}'),
+      status: '${json['status'] ?? ''}',
+      createdAt: DateTime.tryParse('${json['createdAt'] ?? ''}'),
+      confidenceScore: (json['confidenceScore'] as num?)?.toDouble() ?? 0,
+      mainFocus: '${json['mainFocus'] ?? ''}',
+      researchPrompt: '${json['researchPrompt'] ?? ''}',
+      marketSummary: '${json['marketSummary'] ?? ''}',
+      competitorPublishingPatterns: '${json['competitorPublishingPatterns'] ?? ''}',
+      commonOffers: '${json['commonOffers'] ?? ''}',
+      observedPriceRanges: '${json['observedPriceRanges'] ?? ''}',
+      contentOpportunities: '${json['contentOpportunities'] ?? ''}',
+      strongAngles: _stringListFromUnknown(json['strongAngles']),
+      weakAngles: _stringListFromUnknown(json['weakAngles']),
+      recommendedContentTypes: _stringListFromUnknown(
+        json['recommendedContentTypes'],
+      ),
+      recommendedOffers: _stringListFromUnknown(json['recommendedOffers']),
+      recommendedHooks: _stringListFromUnknown(json['recommendedHooks']),
+      recommendedCTAs: _stringListFromUnknown(json['recommendedCTAs']),
+      doMoreOfThis: _stringListFromUnknown(json['doMoreOfThis']),
+      avoidThis: _stringListFromUnknown(json['avoidThis']),
+      dataSources: _stringListFromUnknown(json['dataSources']),
+    );
+  }
+}
+
+List<String> _stringListFromUnknown(dynamic value) {
+  if (value is! List) return const [];
+  return value
+      .map((item) => '$item'.trim())
+      .where((item) => item.isNotEmpty)
+      .toList(growable: false);
 }
 
 String storyTypeApiValue(MarketingStoryType type) {
