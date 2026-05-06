@@ -171,6 +171,74 @@ export class ContabilidadService {
     updatedAt: true,
   };
 
+  private readonly depositOrderMinimumSelect: Prisma.DepositOrderSelect = {
+    id: true,
+    windowFrom: true,
+    windowTo: true,
+    bankName: true,
+    bankAccount: true,
+    collaboratorName: true,
+    note: true,
+    reserveAmount: true,
+    totalAvailableCash: true,
+    depositTotal: true,
+    closesCountByType: true,
+    depositByType: true,
+    accountByType: true,
+    status: true,
+    createdById: true,
+    executedById: true,
+    executedAt: true,
+    createdAt: true,
+    updatedAt: true,
+  };
+
+  private readonly depositOrderSelectFallbacks: Prisma.DepositOrderSelect[] = [
+    this.depositOrderLegacySelect,
+    this.depositOrderMinimumSelect,
+  ];
+
+  private isDepositOrderSchemaCompatibilityError(error: unknown) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      return error.code === 'P2021' || error.code === 'P2022';
+    }
+
+    if (typeof error !== 'object' || error === null) {
+      return false;
+    }
+
+    const value = error as { code?: unknown; message?: unknown };
+    const code = typeof value.code === 'string' ? value.code : '';
+    const message = typeof value.message === 'string' ? value.message.toLowerCase() : '';
+
+    if (code === 'P2021' || code === 'P2022') return true;
+    return message.includes('does not exist') || message.includes('unknown column');
+  }
+
+  private async findManyDepositOrdersWithFallback(args: {
+    where: Record<string, unknown>;
+    orderBy: Array<{ createdAt: 'desc' | 'asc' }>;
+  }) {
+    let lastError: unknown;
+
+    for (const select of this.depositOrderSelectFallbacks) {
+      try {
+        return await this.prisma.depositOrder.findMany({
+          where: args.where,
+          orderBy: args.orderBy,
+          select,
+        });
+      } catch (error) {
+        lastError = error;
+        if (!this.isDepositOrderSchemaCompatibilityError(error)) {
+          throw error;
+        }
+      }
+    }
+
+    throw lastError;
+  }
+
   private enrichDepositOrderRow<T extends Record<string, unknown>>(row: T) {
     return {
       ...row,
@@ -1890,7 +1958,7 @@ export class ContabilidadService {
             payload.note,
             `Corrección del depósito ${correction.correctionOfDepositOrderId}. Motivo: ${correction.correctionReason}`,
           ]
-            .where((item) => (item ?? '').trim().isNotEmpty)
+            .filter((item): item is string => (item ?? '').trim().length > 0)
             .join('\n')
         : payload.note;
 
@@ -1934,10 +2002,9 @@ export class ContabilidadService {
       where.status = query.status;
     }
 
-    const rows = await this.prisma.depositOrder.findMany({
+    const rows = await this.findManyDepositOrdersWithFallback({
       where,
       orderBy: [{ createdAt: 'desc' }],
-      select: this.depositOrderLegacySelect,
     });
     return rows.map((row) => this.enrichDepositOrderRow(row));
   }
@@ -2103,7 +2170,7 @@ export class ContabilidadService {
 
     const reasonLine = `Anulación: ${reason}`;
     const mergedNote = [existing.note, reasonLine]
-      .where((item) => (item ?? '').trim().isNotEmpty)
+      .filter((item): item is string => (item ?? '').trim().length > 0)
       .join('\n');
 
     const updated = await this.prisma.depositOrder.update({
