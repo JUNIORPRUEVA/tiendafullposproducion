@@ -37,6 +37,17 @@ export class PublicidadImagesController {
 
   constructor(private readonly service: PublicidadImagesService) {}
 
+  private resolveRequestUserId(req: Request): string {
+    const user = req.user as
+      | (Partial<JwtUser> & { id?: string; sub?: string })
+      | undefined;
+    const id = `${user?.id ?? user?.sub ?? ''}`.trim();
+    if (!id) {
+      throw new BadRequestException('No se pudo resolver el usuario autenticado para la subida');
+    }
+    return id;
+  }
+
   @Get()
   @Roles(Role.ADMIN)
   findAll() {
@@ -50,8 +61,8 @@ export class PublicidadImagesController {
     @Body() data: { url: string; caption?: string },
     @Req() req: Request,
   ) {
-    const user = req.user as unknown as JwtUser;
-    return this.service.create({ ...data, uploadedById: user.sub });
+    const uploadedById = this.resolveRequestUserId(req);
+    return this.service.create({ ...data, uploadedById });
   }
 
   /** Multipart file upload — saves locally and optionally mirrors to R2. */
@@ -85,9 +96,9 @@ export class PublicidadImagesController {
     @UploadedFile() file: Express.Multer.File,
     @Body('caption') caption?: string,
   ) {
-    const user = req.user as unknown as JwtUser;
+    const uploadedById = this.resolveRequestUserId(req);
     this.logger.log(
-      `[upload] received request user=${user?.sub ?? 'unknown'} content-type=${req.get('content-type') ?? 'n/a'} filePresent=${Boolean(file)}`,
+      `[upload] received request user=${uploadedById} content-type=${req.get('content-type') ?? 'n/a'} filePresent=${Boolean(file)}`,
     );
     if (!file) throw new BadRequestException('No se adjunto ningun archivo');
     this.logger.log(
@@ -99,7 +110,7 @@ export class PublicidadImagesController {
       mimetype: file.mimetype,
       size: file.size,
       caption,
-      uploadedById: user.sub,
+      uploadedById,
       req,
     });
 
