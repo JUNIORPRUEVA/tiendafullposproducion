@@ -18,6 +18,8 @@ type ImageGenerationInput = {
   imageCategory: string;
   serviceOrProduct: string;
   usedResearchAngle: string;
+  /** Story type for type-specific premium prompts */
+  storyType?: 'SALES' | 'TRUST' | 'EDUCATIONAL';
 };
 
 type ImageGenerationResult = {
@@ -41,41 +43,57 @@ export class MarketingImageGenerationService {
   ) {}
 
   async generateOrPrepare(input: ImageGenerationInput): Promise<ImageGenerationResult> {
-    const prompt = this.buildPrompt(input);
     const failures: string[] = [];
+    const storyType = this.inferStoryType(input);
 
+    // ── Provider 1: Stability AI (PRIMARY — no billing issues) ─────────────
+    const stabilityKey = await this.resolveStabilityApiKey();
+    if (stabilityKey) {
+      this.logger.log(
+        `[marketing-image] trying provider=STABILITY_AI type=${storyType} category=${input.imageCategory} service=${input.serviceOrProduct}`,
+      );
+      try {
+        const result = await this.generateWithStabilityAi(input, stabilityKey, storyType);
+        if (result) return result;
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        this.logger.warn(`Stability AI failed, trying OpenAI: ${reason}`);
+        failures.push(`stability-ai: ${reason}`);
+      }
+    }
+
+    // ── Provider 2: OpenAI (FALLBACK) ───────────────────────────────────────
     const apiKey = await this.resolveOpenAiApiKey();
     this.logger.log(
-      `[marketing-image] provider=OPENAI configured=${apiKey ? 'true' : 'false'} category=${input.imageCategory} service=${input.serviceOrProduct}`,
+      `[marketing-image] provider=OPENAI configured=${apiKey ? 'true' : 'false'} category=${input.imageCategory}`,
     );
-    if (!apiKey) {
-      throw new BadRequestException('No hay proveedor de imagenes configurado');
+
+    if (!apiKey && !stabilityKey) {
+      throw new BadRequestException(
+        'No hay proveedor de imágenes configurado. Configura STABILITY_API_KEY o OPENAI_API_KEY.',
+      );
     }
 
     if (apiKey) {
       try {
         this.logger.log(
-          `[marketing-image] generating storyId=n/a mode=edit base=${(input.baseImageUrl || '').trim().length > 0}`,
+          `[marketing-image] generating mode=gpt-image-edit base=${(input.baseImageUrl || '').trim().length > 0}`,
         );
-        const edited = await this.generateWithGptImageEdit(input, prompt, apiKey);
+        const edited = await this.generateWithGptImageEdit(input, this.buildGptImagePrompt(input, storyType), apiKey);
         if (edited) return edited;
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
-        this.logger.warn(
-          `GPT Image edit failed, trying DALL-E 3 fallback: ${reason}`,
-        );
+        this.logger.warn(`GPT Image edit failed, trying DALL-E 3: ${reason}`);
         failures.push(`gpt-image-1-edit: ${reason}`);
       }
 
       try {
-        this.logger.log('[marketing-image] generating storyId=n/a mode=from-scratch');
-        const result = await this.generateWithDallE3(input, prompt, apiKey);
+        this.logger.log('[marketing-image] generating mode=dall-e-3');
+        const result = await this.generateWithDallE3(input, this.buildPrompt(input), apiKey, storyType);
         if (result) return result;
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
-        this.logger.error(
-          `[marketing-image] failed reason=${reason}`,
-        );
+        this.logger.error(`[marketing-image] dall-e-3 failed: ${reason}`);
         failures.push(`dall-e-3: ${reason}`);
       }
     }
@@ -85,9 +103,199 @@ export class MarketingImageGenerationService {
   }
 
   async isProviderConfigured(): Promise<boolean> {
+    const stabilityKey = await this.resolveStabilityApiKey();
+    if (stabilityKey) return true;
     const apiKey = await this.resolveOpenAiApiKey();
     return !!apiKey;
   }
+
+  /** Infer story type from explicit field or visual concept/design notes */
+  private inferStoryType(input: ImageGenerationInput): 'SALES' | 'TRUST' | 'EDUCATIONAL' {
+    if (input.storyType) return input.storyType;
+    const vc = (input.visualConcept || '').toLowerCase();
+    const dn = (input.designNotes || '').toLowerCase();
+    const cat = (input.imageCategory || '').toLowerCase();
+    if (
+      vc.includes('confianza') || vc.includes('trust') || vc.includes('prueba social') ||
+      dn.includes('personas') || dn.includes('equipo') || cat.includes('instalaci')
+    ) {
+      return 'TRUST';
+    }
+    if (
+      vc.includes('educativ') || vc.includes('educacion') || vc.includes('educational') ||
+      dn.includes('infograf') || dn.includes('distribuci') || cat.includes('general')
+    ) {
+      return 'EDUCATIONAL';
+    }
+    return 'SALES';
+  }
+
+  // ── Stability AI Provider ──────────────────────────────────────────────────
+
+  private async generateWithStabilityAi(
+    input: ImageGenerationInput,
+    stabilityKey: string,
+    storyType: 'SALES' | 'TRUST' | 'EDUCATIONAL',
+  ): Promise<ImageGenerationResult | null> {
+    const baseImageUrl = (input.baseImageUrl || '').trim();
+    const prompt = this.buildStabilityPrompt(input, storyType);
+
+    let response: Response;
+    let mode: string;
+
+    if (baseImageUrl.startsWith('http://') || baseImageUrl.startsWith('https://')) {
+      // Image-guided generation using product image as structure reference
+      const imageResponse = await fetch(baseImageUrl);
+      if (!imageResponse.ok) {
+        throw new Error(`Cannot download base image for Stability AI: HTTP ${imageResponse.status}`);
+      }
+      const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+
+      const formData = new FormData();
+      formData.append('prompt', prompt);
+      formData.append('control_strength', '0.65');
+      formData.append('aspect_ratio', '9:16');
+      formData.append('output_format', 'jpeg');
+      formData.append('image', new Blob([imageBuffer], { type: 'image/jpeg' }), 'product.jpg');
+
+      response = await fetch('https://api.stability.ai/v2beta/stable-image/control/structure', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${stabilityKey}`,
+          Accept: 'application/json',
+        },
+        body: formData,
+      });
+      mode = 'stability-structure';
+    } else {
+      // Pure text-to-image
+      const formData = new FormData();
+      formData.append('prompt', prompt);
+      formData.append('aspect_ratio', '9:16');
+      formData.append('output_format', 'jpeg');
+
+      response = await fetch('https://api.stability.ai/v2beta/stable-image/generate/ultra', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${stabilityKey}`,
+          Accept: 'application/json',
+        },
+        body: formData,
+      });
+      mode = 'stability-ultra';
+    }
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      throw new Error(`Stability AI HTTP ${response.status}: ${errorText.slice(0, 400)}`);
+    }
+
+    const payload = (await response.json()) as { image?: string; finish_reason?: string };
+    if (!payload.image) {
+      throw new Error(`Stability AI returned no image. finish_reason=${payload.finish_reason ?? 'unknown'}`);
+    }
+
+    const bytes = Buffer.from(payload.image, 'base64');
+    const dataUrl = this.buildDataUrl(bytes, 'image/jpeg');
+
+    this.logger.log(`[marketing-image] generated provider=STABILITY_AI mode=${mode} type=${storyType}`);
+
+    return {
+      imageStatus: 'GENERATED',
+      generatedImageUrl: dataUrl,
+      generatedImageProvider: 'STABILITY_AI',
+      prompt,
+      visualConcept: input.visualConcept,
+      designNotes: input.designNotes,
+      metadata: {
+        mode,
+        model: mode === 'stability-structure'
+          ? 'stable-image/control/structure'
+          : 'stable-image/generate/ultra',
+        size: '9:16',
+        quality: 'ultra',
+        baseImageUrl: input.baseImageUrl,
+        format: '9:16',
+        category: input.imageCategory,
+        serviceOrProduct: input.serviceOrProduct,
+        storyType,
+      },
+    };
+  }
+
+  private async resolveStabilityApiKey(): Promise<string | null> {
+    const envKey = (
+      this.config.get<string>('STABILITY_API_KEY') ?? process.env.STABILITY_API_KEY ?? ''
+    ).trim();
+    return envKey || null;
+  }
+
+  /** Premium prompt builder for Stability AI — type-specific commercial ad direction */
+  private buildStabilityPrompt(
+    input: ImageGenerationInput,
+    storyType: 'SALES' | 'TRUST' | 'EDUCATIONAL',
+  ): string {
+    const service = input.serviceOrProduct || input.imageCategory || 'security and automation technology system';
+    const city = input.city || 'Higüey';
+    const country = input.country || 'Dominican Republic';
+    const angle = input.usedResearchAngle || 'reliability, professionalism, and real results';
+    const offer = input.offer || 'personalized consultation, professional installation included';
+    const colors = input.brandColors.length > 0
+      ? input.brandColors.join(', ')
+      : 'deep navy blue #0D1B2A, clean white, electric cyan #00B4D8';
+
+    if (storyType === 'TRUST') {
+      return [
+        `Ultra-realistic professional editorial advertisement photography, strict vertical 9:16 portrait format.`,
+        `Subject: A confident professional service technician (30s, Dominican/Latino appearance, neat professional uniform) actively performing installation or service demonstration of ${service} in a modern commercial or upscale residential environment.`,
+        `People: Real photographic quality human figure, natural authentic expression, professional body language, NOT posed artificially. Clean dark branded work uniform.`,
+        `Environment: Modern organized interior space (commercial office, upscale home, or clean workshop). Contemporary Dominican urban setting. Good quality window light entering from side.`,
+        `Composition: Technician and product as main subjects filling 65% of frame, authentic action moment captured, upper zone clean for brand placement, product visibly identified.`,
+        `Lighting: Natural editorial daylight quality, side window key light, clean warm fill, soft professional shadows. Authentic corporate service advertising photography.`,
+        `Atmosphere: Premium professional services brand. Trust, reliability, human expertise. Similar to Hikvision/Axis partner installation imagery.`,
+        `Quality: Commercial editorial photography at magazine ad quality. Photorealistic. Zero AI cartoon style. Genuine human faces only.`,
+        `Color palette: Natural professional tones, clean whites, deep blues. ${colors}.`,
+        `Context: Technology security company in ${city}, ${country}. Sales angle: ${angle}.`,
+        `STRICT: No text in image. No watermarks. Photorealistic humans only. No deformed faces or hands. Natural professional scene.`,
+      ].join(' ');
+    }
+
+    if (storyType === 'EDUCATIONAL') {
+      return [
+        `Ultra-realistic professional educational advertisement photography, strict vertical 9:16 portrait format.`,
+        `Subject: ${service} displayed as the clear visual focus in a clean professional studio or modern office environment.`,
+        `Background: Clean white, soft warm pearl gray gradient, or modern light minimalist office surface. Bright, airy, spacious feel.`,
+        `Composition: Product centered as primary subject with generous negative space at top (20%) and bottom (25%) for text overlay. Clean product photography perspective. Full product visibility with all features identifiable.`,
+        `Lighting: Bright even studio lighting. Three soft box studio lights. Product perfectly illuminated without harsh shadows. Professional product photography standard.`,
+        `Product presentation: Ultra sharp detail throughout, professional isolation, slight 3/4 angle view showing product depth and all key features.`,
+        `Atmosphere: Modern tech brand educational content. Informative, clear, approachable. Apple/Samsung how-to content aesthetic.`,
+        `Quality: Ultra-sharp commercial product photography, advertising grade. Every product detail pristine and clear.`,
+        `Color palette: Clean whites, light pearl grays, soft electric blue technology accents. ${colors}.`,
+        `Technology context: ${service} for ${city}, ${country} smart technology and security systems.`,
+        `Visual concept: ${input.visualConcept || 'Clear educational product showcase'}.`,
+        `STRICT: No text in image. Photorealistic product only. No people. No cluttered background.`,
+      ].join(' ');
+    }
+
+    // SALES (direct sales ad - the premium hero product shot)
+    return [
+      `Ultra-realistic premium hero product advertisement photography, strict vertical 9:16 portrait format. Direct sales commercial ad.`,
+      `Hero product: ${service} displayed as the undisputed star of the shot in a dramatic premium studio environment.`,
+      `Background: Deep dark gradient from deep navy blue (#0A1628) at edges transitioning to rich charcoal (#1a1a2e) behind product center, with subtle atmospheric electric blue-cyan backlight glow emanating from behind the product giving depth and premium atmosphere.`,
+      `Product presentation: ${service} at slight elevated angle (15-20 degrees from eye level), ultra-sharp detail across entire product surface, perfect professional product isolation, subtle clean shadow directly beneath product.`,
+      `Lighting: Professional cinematic three-point studio setup: strong warm key light from upper-right creating product depth highlights, soft blue fill from left preventing pure shadow, electric blue-cyan rim backlight from behind product creating premium separation glow from background.`,
+      `Surface: Dark premium reflective surface (like black granite or dark tempered glass) below product showing clean subtle product reflection.`,
+      `Color accents: Electric blue LED ambient glow (#00B4D8), ultra clean white product edge highlights, subtle cyan technology atmosphere. Brand palette: ${colors}.`,
+      `Composition: Product hero centered-to-right occupying 55-60% of frame height. Upper 15% intentionally clean dark zone reserved for brand logo. Lower 20% semi-clean gradient zone reserved for price and CTA text. Rule of thirds premium composition.`,
+      `Atmosphere: Premium flagship technology product commercial reveal photography. Hikvision/Axis/Samsung product launch commercial quality. Sophisticated, high-value, modern.`,
+      `Quality: 8K ultra-realistic commercial product photography. Advertising grade. Photographic quality only, zero AI art style, zero illustration.`,
+      `Offer context: ${offer}. Sales angle: ${angle}.`,
+      `Technology category: ${service} for ${city}, ${country} security and technology market.`,
+      `STRICT: No text in image. No watermarks. Pure photorealistic product photography. Advertising ready. Leave clean text zones.`,
+    ].join(' ');
+  }
+
+  // ── OpenAI Providers ───────────────────────────────────────────────────────
 
   private async generateWithGptImageEdit(
     input: ImageGenerationInput,
@@ -118,7 +326,7 @@ export class MarketingImageGenerationService {
 
     const formData = new FormData();
     formData.append('model', 'gpt-image-1');
-    formData.append('prompt', this.buildGptImagePrompt(input));
+    formData.append('prompt', prompt);
     formData.append('size', '1024x1792');
     formData.append('quality', 'high');
     formData.append('image', new Blob([baseBuffer], { type: baseContentType }), `base.${baseExt}`);
@@ -181,8 +389,9 @@ export class MarketingImageGenerationService {
     input: ImageGenerationInput,
     prompt: string,
     apiKey: string,
+    storyType: 'SALES' | 'TRUST' | 'EDUCATIONAL' = 'SALES',
   ): Promise<ImageGenerationResult | null> {
-    const dallePrompt = this.buildDallE3Prompt(input);
+    const dallePrompt = this.buildDallE3Prompt(input, storyType);
 
     const response = await fetch('https://api.openai.com/v1/images/generations', {
       method: 'POST',
@@ -265,23 +474,30 @@ export class MarketingImageGenerationService {
     return 'image/jpeg';
   }
 
-  private buildGptImagePrompt(input: ImageGenerationInput) {
-    const colors = input.brandColors.length > 0 ? input.brandColors.join(', ') : 'azul marino, blanco, cian';
-    const service = input.serviceOrProduct || input.imageCategory || 'solución de seguridad y tecnología';
+  private buildGptImagePrompt(input: ImageGenerationInput, storyType: 'SALES' | 'TRUST' | 'EDUCATIONAL' = 'SALES') {
+    const colors = input.brandColors.length > 0 ? input.brandColors.join(', ') : 'deep navy blue, white, electric cyan';
+    const service = input.serviceOrProduct || input.imageCategory || 'security and automation technology';
     const title = this.truncate(input.title, 72);
     const cta = this.truncate(input.cta, 44);
 
+    const typeDirection = storyType === 'TRUST'
+      ? `Transform this into a professional editorial advertisement scene showing the technician or professional environment. Add realistic professional lighting, branded uniform context, modern clean workspace environment.`
+      : storyType === 'EDUCATIONAL'
+      ? `Transform this into a clean educational product showcase advertisement. Add bright professional studio lighting, clean white/gray minimalist background, ultra-sharp product detail visible.`
+      : `Transform this into a premium dark-studio hero product advertisement. Add dramatic three-point studio lighting with electric blue-cyan backlight, deep navy gradient background, product surface reflection below, premium cinematic product reveal atmosphere.`;
+
     return [
-      `Edit this base image to create a premium vertical 9:16 social story advertisement for FULLTECH (${input.city}, ${input.country}).`,
-      `Keep the original product/service identity recognizable and realistic: ${service}.`,
-      'Visual direction: premium commercial campaign, clean background, realistic lighting, soft shadows, modern composition, high depth and contrast.',
+      `Transform this product image into a premium vertical 9:16 commercial advertisement for FULLTECH SRL in ${input.city}, ${input.country}.`,
+      `Product: ${service}.`,
+      typeDirection,
+      `Keep product identity 100% recognizable and elevate to commercial advertising photography quality.`,
       `Brand palette: ${colors}.`,
       `Story objective: ${input.visualConcept}.`,
-      `Design notes: ${input.designNotes}.`,
-      `Sales angle: ${input.usedResearchAngle}.`,
-      'Do not produce cartoon style. Do not overload elements. Keep mobile readability and ad-grade realism.',
-      `Suggested headline context: ${title}.`,
-      `Suggested CTA context: ${cta}.`,
+      `Advertising angle: ${input.usedResearchAngle}.`,
+      `Leave clean text zones at top 15% and bottom 20% of frame for brand and CTA overlay.`,
+      `Quality: 8K commercial photography grade. Photorealistic only. Zero AI art style.`,
+      `STRICT: No text in image. No watermarks. Pure advertising photography quality.`,
+      `Headline context (do not render): ${title}. CTA context (do not render): ${cta}.`,
     ].join(' ');
   }
 
@@ -305,21 +521,26 @@ export class MarketingImageGenerationService {
     return null;
   }
 
-  private buildDallE3Prompt(input: ImageGenerationInput): string {
-    const colors = input.brandColors.length > 0 ? input.brandColors.join(', ') : 'dark blue, white, turquoise';
-    const service = input.serviceOrProduct || input.imageCategory || 'security technology service';
+  private buildDallE3Prompt(input: ImageGenerationInput, storyType: 'SALES' | 'TRUST' | 'EDUCATIONAL' = 'SALES'): string {
+    const colors = input.brandColors.length > 0 ? input.brandColors.join(', ') : 'deep navy blue #0D1B2A, clean white, electric cyan #00B4D8';
+    const service = input.serviceOrProduct || input.imageCategory || 'professional security technology system';
+
+    const typeScene = storyType === 'TRUST'
+      ? `Professional service technician (30s, Dominican/Latino, clean dark uniform) actively installing or demonstrating ${service} in a modern clean commercial or residential space. Authentic action shot, natural professional expression, editorial corporate photography style.`
+      : storyType === 'EDUCATIONAL'
+      ? `${service} displayed as hero product in pristine white studio environment. Perfect product photography with all features clearly visible, bright even professional lighting, clean minimal background. Educational product showcase composition.`
+      : `${service} as dramatic hero product on deep navy-charcoal dark gradient studio background. Three-point cinematic lighting: warm key light from upper right, soft blue fill from left, electric cyan-blue rim backlight creating premium product separation glow. Dark reflective surface below showing subtle product reflection. Sophisticated premium tech brand commercial reveal.`;
 
     return [
-      `Create a vertical 9:16 Instagram/Facebook story advertisement for a technology company called ${input.companyName} based in ${input.city}, ${input.country}.`,
-      `The advertisement is for: ${service}.`,
-      `Visual style: ${input.brandTone || 'modern, clean, professional technology'}.`,
+      `Ultra-realistic commercial advertisement photography for FULLTECH SRL technology company in ${input.city}, ${input.country}. Vertical 9:16 portrait format optimized for Instagram Stories and WhatsApp Status.`,
+      typeScene,
       `Visual concept: ${input.visualConcept}.`,
-      `Brand colors: ${colors}.`,
-      `The image must look like a real professional marketing photo of the actual product or service (${service}).`,
-      `Show realistic equipment, installations, or technology in use. Do not add text overlays.`,
-      `High quality, photorealistic, professional lighting, suitable for social media advertising.`,
-      `Sales angle: ${input.usedResearchAngle || 'reliability and real results'}.`,
-      `Design notes: ${input.designNotes}.`,
+      `Brand color palette: ${colors}.`,
+      `Advertising angle: ${input.usedResearchAngle || 'reliability, professional quality, and real results'}.`,
+      `Quality requirements: 8K ultra-realistic commercial photography, advertising grade, zero AI art style, no cartoon, no illustration, pure photorealistic.`,
+      `Composition: Leave upper 15% and lower 20% as intentionally clean zones for brand/CTA text post-production overlays.`,
+      `Design approach: ${input.designNotes}.`,
+      `STRICT: No text in image. No watermarks. No logos in image. Pure photorealistic commercial photography only. Advertising ready.`,
     ].join(' ');
   }
 

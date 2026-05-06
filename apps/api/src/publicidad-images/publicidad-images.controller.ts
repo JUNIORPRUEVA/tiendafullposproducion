@@ -4,6 +4,7 @@
   Controller,
   Delete,
   Get,
+  Logger,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -25,13 +26,15 @@ import { JwtUser } from '../auth/jwt-user.type';
 import { PublicidadImagesService } from './publicidad-images.service';
 
 const allowedImageMimes = new Set([
-  'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic',
+  'image/jpeg', 'image/png', 'image/webp',
 ]);
-const allowedImageExts = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.heic']);
+const allowedImageExts = new Set(['.jpg', '.jpeg', '.png', '.webp']);
 
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 @Controller('publicidad-images')
 export class PublicidadImagesController {
+  private readonly logger = new Logger(PublicidadImagesController.name);
+
   constructor(private readonly service: PublicidadImagesService) {}
 
   @Get()
@@ -82,9 +85,15 @@ export class PublicidadImagesController {
     @UploadedFile() file: Express.Multer.File,
     @Body('caption') caption?: string,
   ) {
-    if (!file) throw new BadRequestException('No se adjunto ningun archivo');
     const user = req.user as unknown as JwtUser;
-    return this.service.createFromFile({
+    this.logger.log(
+      `[upload] received request user=${user?.sub ?? 'unknown'} content-type=${req.get('content-type') ?? 'n/a'} filePresent=${Boolean(file)}`,
+    );
+    if (!file) throw new BadRequestException('No se adjunto ningun archivo');
+    this.logger.log(
+      `[upload] file detected original=${file.originalname} mime=${file.mimetype} size=${file.size}`,
+    );
+    const created = await this.service.createFromFile({
       buffer: file.buffer,
       originalname: file.originalname,
       mimetype: file.mimetype,
@@ -93,6 +102,17 @@ export class PublicidadImagesController {
       uploadedById: user.sub,
       req,
     });
+
+    this.logger.log(
+      `[upload] success id=${created.id} imageUrl=${created.url}`,
+    );
+
+    return {
+      success: true,
+      id: created.id,
+      imageUrl: created.url,
+      image: created,
+    };
   }
 
   @Patch(':id')

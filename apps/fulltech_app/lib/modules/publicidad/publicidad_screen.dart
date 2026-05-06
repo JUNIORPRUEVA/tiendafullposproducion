@@ -711,6 +711,13 @@ class PublicidadController extends StateNotifier<PublicidadState> {
         return 'Se corrigio automaticamente la paginacion. Intenta actualizar de nuevo.';
       }
 
+      final genericServerError =
+          normalized == 'error interno del servidor' ||
+          normalized == 'internal server error';
+      if (genericServerError) {
+        return fallback;
+      }
+
       if (raw.isEmpty || raw.startsWith('{') || raw.startsWith('[')) {
         return fallback;
       }
@@ -1570,6 +1577,7 @@ class _StoryCard extends StatelessWidget {
     final generatedImage = _safeImageUrl(story.generatedImageUrl);
     final finalImage = _resolveFinalImage(story);
     final imageError = _storyImageError(story);
+    final showImageDebug = Env.marketingDebugUiEnabled;
     final compact = compactActions;
     final relatedService = (story.mediaAsset?.relatedService ?? story.usedOffer).trim();
     final cta = story.usedCTA.trim().isEmpty
@@ -1672,13 +1680,15 @@ class _StoryCard extends StatelessWidget {
             ],
           ),
         ],
-        const SizedBox(height: 8),
-        _DebugImageInfo(
-          imageStatus: story.imageStatus,
-          generatedImageUrl: generatedImage,
-          finalImageUrl: finalImage,
-          error: imageError,
-        ),
+        if (showImageDebug) ...[
+          const SizedBox(height: 8),
+          _DebugImageInfo(
+            imageStatus: story.imageStatus,
+            generatedImageUrl: generatedImage,
+            finalImageUrl: finalImage,
+            error: imageError,
+          ),
+        ],
         const SizedBox(height: 8),
         if (baseImage.isNotEmpty)
           Row(
@@ -2014,15 +2024,15 @@ bool _isImageStatusLoading(MarketingImageStatus status) {
 
 String _imageFallbackLabel(MarketingStory story, bool imageBusy) {
   if (imageBusy || story.imageStatus == MarketingImageStatus.processing) {
-    return 'Generando imagen...';
+    return 'Generando...';
   }
   if (story.imageStatus == MarketingImageStatus.queued) {
-    return 'Imagen en cola';
+    return 'En cola';
   }
   if (story.imageStatus == MarketingImageStatus.failed) {
-    return 'La imagen falló. Reintenta.';
+    return 'Imagen falló';
   }
-  return 'Genera imagen para este anuncio';
+  return 'Sin imagen AI';
 }
 
 String _imageActionLabel(MarketingStory story, bool imageBusy) {
@@ -2050,9 +2060,28 @@ String _storyImageError(MarketingStory story) {
   ];
   for (final key in keys) {
     final raw = '${metadata[key] ?? ''}'.trim();
-    if (raw.isNotEmpty) return raw;
+    if (raw.isNotEmpty) return _compactImageError(raw);
   }
   return '';
+}
+
+String _compactImageError(String raw) {
+  final lower = raw.toLowerCase();
+  if (lower.contains('billing_hard_limit_reached') ||
+      lower.contains('billing hard limit has been reached')) {
+    return 'Límite de facturación OpenAI agotado. Configura Stability AI (STABILITY_API_KEY).';
+  }
+  if (lower.contains('stability_api_key') || lower.contains('stability ai') ||
+      (lower.contains('no hay proveedor') && lower.contains('configurado'))) {
+    return 'No hay proveedor de imágenes configurado. Agrega STABILITY_API_KEY o OPENAI_API_KEY.';
+  }
+  if (lower.contains('openai') && lower.contains('api key')) {
+    return 'El proveedor de imagen no esta configurado correctamente.';
+  }
+  if (raw.length > 220) {
+    return '${raw.substring(0, 220).trim()}...';
+  }
+  return raw;
 }
 
 class _StoryPreviewFrame extends StatelessWidget {
@@ -2376,18 +2405,37 @@ class _BrokenImagePlaceholder extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFFF8FAFC), Color(0xFFE2E8F0)],
+          colors: [Color(0xFF0D1B2A), Color(0xFF1a2744)],
         ),
       ),
       alignment: Alignment.center,
-      child: const Column(
+      child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.image_not_supported_outlined, color: Color(0xFF64748B), size: 30),
-          SizedBox(height: 6),
-          Text(
-            'Sin imagen',
-            style: TextStyle(color: Color(0xFF475569), fontWeight: FontWeight.w600),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0x2200B4D8),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: const Icon(Icons.auto_awesome_rounded, color: Color(0x9900B4D8), size: 36),
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'Imagen pendiente',
+            style: TextStyle(
+              color: Color(0xFF94A3B8),
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Genera imagen para activar',
+            style: TextStyle(
+              color: Color(0xFF475569),
+              fontSize: 11,
+            ),
           ),
         ],
       ),

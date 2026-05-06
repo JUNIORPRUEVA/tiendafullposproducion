@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'dart:developer' as dev;
 
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -85,6 +86,11 @@ class PublicidadImagesRepository {
     String? caption,
   }) async {
     try {
+      final endpoint = '${_dio.options.baseUrl}${ApiRoutes.publicidadImages}/upload';
+      dev.log(
+        '[PublicidadUpload][request] endpoint=$endpoint filename=$filename contentType=$contentType bytes=${bytes.lengthInBytes}',
+        name: 'PublicidadUpload',
+      );
       final formData = FormData.fromMap({
         'file': MultipartFile.fromBytes(
           bytes,
@@ -97,8 +103,26 @@ class PublicidadImagesRepository {
         '${ApiRoutes.publicidadImages}/upload',
         data: formData,
       );
-      return PublicidadImage.fromJson(response.data as Map<String, dynamic>);
+
+      dev.log(
+        '[PublicidadUpload][response] status=${response.statusCode} body=${response.data}',
+        name: 'PublicidadUpload',
+      );
+
+      final payload = response.data as Map<String, dynamic>;
+      final imageJson = payload['image'] is Map<String, dynamic>
+          ? payload['image'] as Map<String, dynamic>
+          : payload;
+      return PublicidadImage.fromJson(imageJson);
     } on DioException catch (e) {
+      final status = e.response?.statusCode;
+      final body = e.response?.data;
+      dev.log(
+        '[PublicidadUpload][error] endpoint=${_dio.options.baseUrl}${ApiRoutes.publicidadImages}/upload status=$status body=$body detail=${e.message}',
+        name: 'PublicidadUpload',
+        error: e,
+        stackTrace: e.stackTrace,
+      );
       _rethrow(e, 'No se pudo subir la imagen');
     }
   }

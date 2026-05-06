@@ -11,6 +11,11 @@ class Env {
   static const int _defaultApiTimeoutMs = 15000;
   static const int _minApiTimeoutMs = 1000;
 
+  static bool get marketingDebugUiEnabled {
+    final raw = (_readEnv('MARKETING_DEBUG_UI') ?? '').trim().toLowerCase();
+    return raw == '1' || raw == 'true' || raw == 'yes' || raw == 'on';
+  }
+
   static String? _readEnv(String key) {
     // 1) Compile-time values (flutter build --dart-define=...)
     if (key == 'API_BASE_URL') {

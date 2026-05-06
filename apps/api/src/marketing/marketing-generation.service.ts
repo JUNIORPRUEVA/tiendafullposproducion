@@ -524,6 +524,7 @@ export class MarketingGenerationService {
         story.mediaAsset?.category ||
         this.galleryCategoryForType(story.type),
       usedResearchAngle,
+      storyType: story.type as 'SALES' | 'TRUST' | 'EDUCATIONAL',
     });
 
     const savedGenerated = await this.marketingStorage.saveGeneratedImage({

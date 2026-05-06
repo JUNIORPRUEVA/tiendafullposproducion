@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:typed_data';
+import 'dart:developer' as dev;
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -9,6 +10,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../../core/auth/app_permissions.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/auth/auth_repository.dart';
+import '../../../core/errors/api_exception.dart';
 import '../../../core/utils/media_file_actions.dart';
 import '../../../core/widgets/app_drawer.dart';
 import '../../../core/widgets/custom_app_bar.dart';
@@ -193,6 +195,9 @@ class _GaleriaPublicidadScreenState
     final ctrl = ref.read(publicidadImagesControllerProvider.notifier);
     int successCount = 0;
     final List<String> failedNames = [];
+    final List<String> failedDetails = [];
+    final uploadEndpoint =
+      '${ref.read(dioProvider).options.baseUrl}/publicidad-images/upload';
 
     for (int i = 0; i < results.length; i++) {
       if (!mounted) break;
@@ -200,6 +205,11 @@ class _GaleriaPublicidadScreenState
       final result = results[i];
       try {
         if (result.bytes != null) {
+          final ext = (result.filename ?? '').split('.').last.toLowerCase();
+          dev.log(
+            '[PublicidadUpload][prepare] file=${result.filename ?? 'sin_nombre'} ext=$ext bytes=${result.bytes!.lengthInBytes} endpoint=$uploadEndpoint',
+            name: 'PublicidadUpload',
+          );
           await ctrl.uploadBytesAndSave(
             bytes: result.bytes!,
             contentType: result.contentType ?? 'image/jpeg',
@@ -212,6 +222,13 @@ class _GaleriaPublicidadScreenState
         successCount++;
       } catch (e) {
         failedNames.add(result.filename ?? 'imagen');
+        failedDetails.add(_formatUploadError(e, endpoint: uploadEndpoint));
+        dev.log(
+          '[PublicidadUpload][ui-error] file=${result.filename ?? 'imagen'} detail=${failedDetails.last}',
+          name: 'PublicidadUpload',
+          error: e,
+          stackTrace: e is Error ? e.stackTrace : null,
+        );
       }
     }
 
@@ -222,18 +239,21 @@ class _GaleriaPublicidadScreenState
           : '$successCount imágenes agregadas correctamente.';
       messenger?.showSnackBar(SnackBar(content: Text(label)));
     } else if (successCount == 0) {
+      final detail = failedDetails.isEmpty ? '' : '\n${failedDetails.first}';
       messenger?.showSnackBar(
         SnackBar(
           content: Text(
-            'No se pudo agregar ninguna imagen: ${failedNames.join(', ')}',
+            'No se pudo agregar ninguna imagen: ${failedNames.join(', ')}$detail',
           ),
+          duration: const Duration(seconds: 8),
         ),
       );
     } else {
+      final detail = failedDetails.isEmpty ? '' : '\n${failedDetails.first}';
       messenger?.showSnackBar(
         SnackBar(
           content: Text(
-            '$successCount subida(s) correctas. Falló: ${failedNames.join(', ')}',
+            '$successCount subida(s) correctas. Falló: ${failedNames.join(', ')}$detail',
           ),
           duration: const Duration(seconds: 5),
         ),
@@ -695,6 +715,22 @@ class _GaleriaPublicidadScreenState
       ),
     );
   }
+
+  String _formatUploadError(Object error, {required String endpoint}) {
+    if (error is ApiException) {
+      final status = error.code?.toString() ?? 'n/a';
+      final body = (error.responseBody ?? '').trim();
+      final bodySummary = body.isEmpty ? 'n/a' : body;
+      return 'statusCode=$status endpoint=$endpoint body=$bodySummary';
+    }
+    if (error is DioException) {
+      final status = error.response?.statusCode?.toString() ?? 'n/a';
+      final body = (error.response?.data ?? '').toString();
+      final bodySummary = body.trim().isEmpty ? 'n/a' : body;
+      return 'statusCode=$status endpoint=$endpoint body=$bodySummary';
+    }
+    return 'endpoint=$endpoint error=$error';
+  }
 }
 
 // ─── Publicidad Image Card ───────────────────────────────────────────────────
@@ -927,6 +963,7 @@ class _UploadPublicidadDialogState extends State<_UploadPublicidadDialog> {
   List<XFile> _pickedFiles = [];
   bool _useUrl = false;
   bool _isReadingFile = false;
+  static const _allowedExtensions = {'jpg', 'jpeg', 'png', 'webp'};
 
   @override
   void dispose() {
@@ -940,8 +977,21 @@ class _UploadPublicidadDialogState extends State<_UploadPublicidadDialog> {
     final picker = ImagePicker();
     final picked = await picker.pickMultiImage(imageQuality: 85);
     if (picked.isNotEmpty && mounted) {
+      final filtered = picked.where((file) {
+        final ext = file.name.split('.').last.toLowerCase();
+        return _allowedExtensions.contains(ext);
+      }).toList(growable: false);
+      if (filtered.length != picked.length) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Se omitieron archivos no permitidos. Solo JPG, JPEG, PNG y WEBP.',
+            ),
+          ),
+        );
+      }
       setState(() {
-        _pickedFiles = picked;
+        _pickedFiles = filtered;
         _useUrl = false;
       });
     }
@@ -973,12 +1023,17 @@ class _UploadPublicidadDialogState extends State<_UploadPublicidadDialog> {
         'jpeg': 'image/jpeg',
         'png': 'image/png',
         'webp': 'image/webp',
-        'gif': 'image/gif',
       };
       final results = <_UploadDialogResult>[];
       for (final file in _pickedFiles) {
         final bytes = await file.readAsBytes();
+        if (bytes.isEmpty) {
+          throw Exception('Archivo vacío detectado: ${file.name}');
+        }
         final ext = file.name.split('.').last.toLowerCase();
+        if (!_allowedExtensions.contains(ext)) {
+          throw Exception('Extensión no permitida para ${file.name}');
+        }
         results.add(_UploadDialogResult(
           bytes: bytes,
           caption: _captionController.text.trim().isEmpty

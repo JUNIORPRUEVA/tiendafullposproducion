@@ -1,4 +1,4 @@
-﻿import { Injectable, BadRequestException } from '@nestjs/common';
+﻿import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
 import { extname, join } from 'node:path';
@@ -19,11 +19,12 @@ export type PublicidadImageDto = {
   createdAt: string;
 };
 
-const imageExtensions = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.heic']);
+const imageExtensions = new Set(['.jpg', '.jpeg', '.png', '.webp']);
 const maxImageSizeBytes = 15 * 1024 * 1024; // 15 MB
 
 @Injectable()
 export class PublicidadImagesService {
+  private readonly logger = new Logger(PublicidadImagesService.name);
   private readonly publicBaseUrl: string;
 
   constructor(
@@ -101,7 +102,14 @@ export class PublicidadImagesService {
   }): Promise<PublicidadImageDto> {
     const { buffer, originalname, mimetype, size, caption, uploadedById, req } = params;
 
+    this.logger.log(
+      `[upload] start uploadedBy=${uploadedById} original=${originalname} mime=${mimetype} size=${size}`,
+    );
+
     if (size > maxImageSizeBytes) {
+      this.logger.warn(
+        `[upload] rejected size=${size} reason=max_15mb`,
+      );
       throw new BadRequestException('La imagen excede el limite permitido de 15 MB');
     }
 
@@ -113,19 +121,28 @@ export class PublicidadImagesService {
     const now = new Date();
     const yyyy = String(now.getUTCFullYear());
     const mm = String(now.getUTCMonth() + 1).padStart(2, '0');
-    const objectKey = posix.join('publicidad', uploadedById, yyyy, mm, `${randomUUID()}${safeExt}`);
+    const objectKey = posix.join('marketing', 'gallery', yyyy, mm, `${randomUUID()}${safeExt}`);
 
     const uploadDir = this.resolveUploadDir();
-    const absoluteDir = join(uploadDir, 'publicidad', uploadedById, yyyy, mm);
+    const absoluteDir = join(uploadDir, 'marketing', 'gallery', yyyy, mm);
     const absoluteFilePath = join(uploadDir, ...objectKey.split('/'));
     fs.mkdirSync(absoluteDir, { recursive: true });
     fs.writeFileSync(absoluteFilePath, buffer);
+    this.logger.log(
+      `[upload] stored file path=${absoluteFilePath}`,
+    );
 
     // Optional R2 mirror — graceful fallback if not configured
     try {
       await this.r2.putObject({ objectKey: `uploads/${objectKey}`, body: buffer, contentType });
+      this.logger.log(
+        `[upload] mirrored r2 key=uploads/${objectKey}`,
+      );
     } catch {
       // R2 not configured or unavailable — local storage is source of truth
+      this.logger.warn(
+        `[upload] r2 mirror skipped key=uploads/${objectKey}`,
+      );
     }
 
     const relativePath = `/${posix.join('uploads', objectKey)}`;
@@ -135,6 +152,10 @@ export class PublicidadImagesService {
       data: { url, caption: caption?.trim() || null, uploadedById },
       include: { uploadedBy: { select: { id: true, nombreCompleto: true } } },
     });
+
+    this.logger.log(
+      `[upload] db saved id=${image.id} url=${image.url}`,
+    );
 
     return this._toDto(image);
   }
