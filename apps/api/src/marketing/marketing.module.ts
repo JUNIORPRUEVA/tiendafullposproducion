@@ -5,6 +5,7 @@ import { MarketingConfigService } from './marketing-config.service';
 import { MarketingController } from './marketing.controller';
 import { MarketingGenerationService } from './marketing-generation.service';
 import { MarketingImageGenerationService } from './marketing-image-generation.service';
+import { MarketingImageJobService } from './marketing-image-job.service';
 import { MarketingLearningService } from './marketing-learning.service';
 import { MarketingMediaAssetService } from './marketing-media-asset.service';
 import { MarketingMediaSelectorService } from './marketing-media-selector.service';
@@ -23,6 +24,7 @@ import { StorageModule } from '../storage/storage.module';
     MarketingMediaSelectorService,
     MarketingMediaAssetService,
     MarketingImageGenerationService,
+    MarketingImageJobService,
     MarketingApprovalService,
     MarketingConfigService,
     MarketingAutomationScheduler,

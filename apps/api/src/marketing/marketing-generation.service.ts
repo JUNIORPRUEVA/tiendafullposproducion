@@ -146,7 +146,7 @@ export class MarketingGenerationService {
       const current = existing.find((item) => item.type === type);
       if (!current) {
         const content = research ? this.pickResearchEnrichedTemplate(type, research) : this.pickTemplate(type);
-        const visualData = await this.prepareVisualData({
+        const visualData = await this.prepareQueuedVisualData({
           companyId,
           type,
           content,
@@ -172,9 +172,9 @@ export class MarketingGenerationService {
             visualConcept: visualData.visualConcept,
             designNotes: visualData.designNotes,
             platformFormat: 'STORY_9_16',
-            imageStatus: visualData.imageStatus,
-            generatedImageUrl: visualData.generatedImageUrl,
-            generatedImageProvider: visualData.generatedImageProvider,
+            imageStatus: 'QUEUED',
+            generatedImageUrl: null,
+            generatedImageProvider: null,
             imageGenerationMetadata: visualData.imageGenerationMetadata as any,
             usedResearchAngle: visualData.usedResearchAngle,
             usedOffer: visualData.usedOffer,
@@ -198,7 +198,7 @@ export class MarketingGenerationService {
       }
 
       const content = research ? this.pickResearchEnrichedTemplate(type, research) : this.pickTemplate(type);
-      const visualData = await this.prepareVisualData({
+      const visualData = await this.prepareQueuedVisualData({
         companyId,
         type,
         content,
@@ -225,9 +225,9 @@ export class MarketingGenerationService {
           visualConcept: visualData.visualConcept,
           designNotes: visualData.designNotes,
           platformFormat: 'STORY_9_16',
-          imageStatus: visualData.imageStatus,
-          generatedImageUrl: visualData.generatedImageUrl,
-          generatedImageProvider: visualData.generatedImageProvider,
+          imageStatus: 'QUEUED',
+          generatedImageUrl: null,
+          generatedImageProvider: null,
           imageGenerationMetadata: visualData.imageGenerationMetadata as any,
           usedResearchAngle: visualData.usedResearchAngle,
           usedOffer: visualData.usedOffer,
@@ -287,7 +287,7 @@ export class MarketingGenerationService {
       where: { companyId },
     });
     const content = research ? this.pickResearchEnrichedTemplate(story.type, research) : this.pickTemplate(story.type);
-    const visualData = await this.prepareVisualData({
+    const visualData = await this.prepareQueuedVisualData({
       companyId,
       type: story.type,
       content,
@@ -312,9 +312,9 @@ export class MarketingGenerationService {
         mediaAssetId: visualData.mediaAssetId,
         visualConcept: visualData.visualConcept,
         designNotes: visualData.designNotes,
-        imageStatus: visualData.imageStatus,
-        generatedImageUrl: visualData.generatedImageUrl,
-        generatedImageProvider: visualData.generatedImageProvider,
+        imageStatus: 'QUEUED',
+        generatedImageUrl: null,
+        generatedImageProvider: null,
         imageGenerationMetadata: visualData.imageGenerationMetadata as any,
         usedResearchAngle: visualData.usedResearchAngle,
         usedOffer: visualData.usedOffer,
@@ -343,7 +343,7 @@ export class MarketingGenerationService {
       data: {
         companyId,
         action: 'MARKETING_STORY_REGENERATED',
-        description: `Se regenero el contenido ${story.id}`,
+        description: `Se regenero el contenido ${story.id} y la imagen quedo en cola`,
         userId,
         metadata: {
           storyId: story.id,
@@ -356,7 +356,7 @@ export class MarketingGenerationService {
     return updated;
   }
 
-  async regenerateStoryImage(companyId: string, storyId: string, userId: string, customPrompt?: string) {
+  async queueStoryImageGeneration(companyId: string, storyId: string, userId: string, customPrompt?: string) {
     const story = await this.prisma.marketingDailyStory.findFirst({
       where: { id: storyId, companyId },
       include: { mediaAsset: true },
@@ -365,79 +365,201 @@ export class MarketingGenerationService {
       throw new NotFoundException('Contenido no encontrado');
     }
 
-    const research = story.researchId
-      ? await this.prisma.marketingResearch.findFirst({ where: { id: story.researchId, companyId } })
-      : null;
-    const researchConfig = await this.prisma.marketingResearchConfig.findUnique({ where: { companyId } });
+    const updated = await this.markStoryImageQueued(companyId, storyId, userId, customPrompt, {
+      queuedAt: new Date().toISOString(),
+      queueReason: 'manual-regenerate-image',
+      previousStatus: story.imageStatus,
+    });
 
-    const content = {
-      title: story.title,
-      shortText: story.shortText,
-      longText: story.longText ?? '',
-      hashtags: story.hashtags,
-      imagePrompt: customPrompt?.trim() || story.imagePrompt || '',
-    };
-    try {
-      this.logger.log(`[marketing-image] generating storyId=${storyId}`);
-      const visualData = await this.prepareVisualData({
+    await this.prisma.marketingActivityLog.create({
+      data: {
         companyId,
-        type: story.type,
-        content,
-        research,
-        researchConfig,
-        usedAssetIds: new Set<string>(),
-        forceAssetId: story.mediaAssetId ?? undefined,
-        forcedPrompt: customPrompt?.trim() || undefined,
-      });
+        action: 'MARKETING_STORY_IMAGE_REGENERATED',
+        description: `Imagen puesta en cola para contenido ${storyId}`,
+        userId,
+        metadata: { storyId, mediaAssetId: updated.mediaAssetId ?? null },
+      },
+    });
 
-      const updated = await this.prisma.marketingDailyStory.update({
-        where: { id: storyId },
-        data: {
-          imagePrompt: visualData.imagePrompt,
-          imageUrl: visualData.imageUrl,
-          visualConcept: visualData.visualConcept,
-          designNotes: visualData.designNotes,
-          imageStatus: visualData.imageStatus,
-          generatedImageUrl: visualData.generatedImageUrl,
-          generatedImageProvider: visualData.generatedImageProvider,
-          imageGenerationMetadata: visualData.imageGenerationMetadata as any,
-        },
-        include: {
-          approvedByUser: { select: { id: true, nombreCompleto: true } },
-          mediaAsset: true,
-        },
-      });
+    return updated;
+  }
 
-      this.logger.log(`[marketing-image] saved generatedImageUrl=${updated.generatedImageUrl ?? ''}`);
+  async markStoryImageQueued(
+    companyId: string,
+    storyId: string,
+    userId: string,
+    customPrompt?: string,
+    metadata: Record<string, unknown> = {},
+  ) {
+    const story = await this.prisma.marketingDailyStory.findFirst({
+      where: { id: storyId, companyId },
+      include: {
+        approvedByUser: { select: { id: true, nombreCompleto: true } },
+        mediaAsset: true,
+      },
+    });
+    if (!story) {
+      throw new NotFoundException('Contenido no encontrado');
+    }
+
+    return this.prisma.marketingDailyStory.update({
+      where: { id: storyId },
+      data: {
+        imagePrompt: customPrompt?.trim() || story.imagePrompt,
+        imageStatus: 'QUEUED',
+        generatedImageUrl: null,
+        generatedImageProvider: null,
+        imageGenerationMetadata: {
+          ...(this.asObject(story.imageGenerationMetadata) ?? {}),
+          ...metadata,
+          queuedAt: new Date().toISOString(),
+          queuedByUserId: userId,
+          customPrompt: customPrompt?.trim() || null,
+          lastError: null,
+        } as any,
+      },
+      include: {
+        approvedByUser: { select: { id: true, nombreCompleto: true } },
+        mediaAsset: true,
+      },
+    });
+  }
+
+  async markStoryImageProcessing(companyId: string, storyId: string, attempt: number) {
+    const story = await this.prisma.marketingDailyStory.findFirst({
+      where: { id: storyId, companyId },
+    });
+    if (!story) {
+      throw new NotFoundException('Contenido no encontrado');
+    }
+
+    await this.prisma.marketingDailyStory.update({
+      where: { id: storyId },
+      data: {
+        imageStatus: 'PROCESSING',
+        imageGenerationMetadata: {
+          ...(this.asObject(story.imageGenerationMetadata) ?? {}),
+          processingAt: new Date().toISOString(),
+          processingAttempt: attempt,
+        } as any,
+      },
+    });
+  }
+
+  async markStoryImageFailed(companyId: string, storyId: string, reason: string, attempt: number) {
+    const story = await this.prisma.marketingDailyStory.findFirst({
+      where: { id: storyId, companyId },
+    });
+    if (!story) {
+      throw new NotFoundException('Contenido no encontrado');
+    }
+
+    await this.prisma.marketingDailyStory.update({
+      where: { id: storyId },
+      data: {
+        imageStatus: 'FAILED',
+        generatedImageUrl: null,
+        generatedImageProvider: null,
+        imageGenerationMetadata: {
+          ...(this.asObject(story.imageGenerationMetadata) ?? {}),
+          failedAt: new Date().toISOString(),
+          processingAttempt: attempt,
+          lastError: reason,
+        } as any,
+      },
+    });
+  }
+
+  async processQueuedStoryImage(companyId: string, storyId: string, userId: string, customPrompt?: string) {
+    const story = await this.prisma.marketingDailyStory.findFirst({
+      where: { id: storyId, companyId },
+      include: { mediaAsset: true },
+    });
+    if (!story) {
+      throw new NotFoundException('Contenido no encontrado');
+    }
+
+    const researchConfig = await this.prisma.marketingResearchConfig.findUnique({ where: { companyId } });
+    const usedResearchAngle = `${story.usedResearchAngle ?? ''}`.trim() || story.shortText;
+    const usedOffer = `${story.usedOffer ?? ''}`.trim() || story.shortText;
+    const usedCTA = `${story.usedCTA ?? ''}`.trim() || 'Cotiza por WhatsApp hoy';
+    const visualConcept = `${story.visualConcept ?? ''}`.trim() || this.buildVisualConcept(story.type, usedResearchAngle, usedOffer);
+    const designNotes = `${story.designNotes ?? ''}`.trim() || this.buildDesignNotes(story.type, usedCTA);
+    const baseImageSourceUrl = `${story.mediaAsset?.fileUrl ?? story.imageUrl ?? ''}`.trim();
+    const baseImage = baseImageSourceUrl
+      ? await this.marketingStorage.saveBaseImageReference({
+          companyId,
+          storyType: this.storyTypeSlug(story.type),
+          sourceUrl: baseImageSourceUrl,
+        })
+      : null;
+
+    const generated = await this.imageGeneration.generateOrPrepare({
+      companyName: researchConfig?.businessName ?? 'FULLTECH SRL',
+      city: researchConfig?.city ?? 'Higüey',
+      country: researchConfig?.country ?? 'República Dominicana',
+      brandTone: researchConfig?.brandTone ?? 'tecnológico, limpio y profesional',
+      brandColors: this.safeStringArray(researchConfig?.brandColors),
+      title: story.title,
+      cta: usedCTA,
+      offer: usedOffer,
+      visualConcept,
+      designNotes,
+      baseImageUrl: baseImageSourceUrl,
+      imageCategory: story.mediaAsset?.category ?? this.galleryCategoryForType(story.type),
+      serviceOrProduct:
+        `${story.mediaAsset?.relatedService ?? ''}`.trim() ||
+        usedOffer ||
+        story.mediaAsset?.category ||
+        this.galleryCategoryForType(story.type),
+      usedResearchAngle,
+    });
+
+    const savedGenerated = await this.marketingStorage.saveGeneratedImage({
+      companyId,
+      storyType: this.storyTypeSlug(story.type),
+      sourceUrl: generated.generatedImageUrl || '',
+    });
+    const finalGeneratedUrl = `${savedGenerated?.url ?? ''}`.trim();
+    if (!finalGeneratedUrl) {
+      throw new BadRequestException('No se pudo persistir la imagen generada');
+    }
+
+    return this.prisma.marketingDailyStory.update({
+      where: { id: storyId },
+      data: {
+        imagePrompt: customPrompt?.trim() || generated.prompt,
+        imageUrl: `${baseImage?.url ?? story.imageUrl ?? ''}`.trim(),
+        visualConcept: generated.visualConcept,
+        designNotes: generated.designNotes,
+        imageStatus: 'GENERATED',
+        generatedImageUrl: finalGeneratedUrl,
+        generatedImageProvider: generated.generatedImageProvider,
+        imageGenerationMetadata: {
+          ...generated.metadata,
+          processedAt: new Date().toISOString(),
+          baseImageSavedUrl: `${baseImage?.url ?? story.imageUrl ?? ''}`.trim() || null,
+          generatedImageSavedUrl: finalGeneratedUrl,
+          finalImageUrl: finalGeneratedUrl,
+          lastError: null,
+        } as any,
+      },
+      include: {
+        approvedByUser: { select: { id: true, nombreCompleto: true } },
+        mediaAsset: true,
+      },
+    }).then(async (updated) => {
       await this.prisma.marketingActivityLog.create({
         data: {
           companyId,
-          action: 'MARKETING_STORY_IMAGE_REGENERATED',
-          description: `Imagen regenerada para contenido ${storyId}`,
+          action: 'MARKETING_STORY_IMAGE_GENERATED',
+          description: `Imagen generada en background para contenido ${storyId}`,
           userId,
-          metadata: { storyId, mediaAssetId: updated.mediaAssetId ?? null },
+          metadata: { storyId, generatedImageUrl: finalGeneratedUrl },
         },
       });
-
       return updated;
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      this.logger.error(`[marketing-image] failed reason=${reason}`);
-      await this.prisma.marketingDailyStory.update({
-        where: { id: storyId },
-        data: {
-          imageStatus: 'FAILED',
-          generatedImageUrl: null,
-          generatedImageProvider: null,
-          imageGenerationMetadata: {
-            failedAt: new Date().toISOString(),
-            reason,
-            storyId,
-          } as any,
-        },
-      });
-      throw error;
-    }
+    });
   }
 
   async changeBaseImage(companyId: string, storyId: string, mediaAssetId: string, userId: string) {
@@ -708,6 +830,68 @@ export class MarketingGenerationService {
     };
   }
 
+  private async prepareQueuedVisualData(input: {
+    companyId: string;
+    type: MarketingStoryType;
+    content: StoryTemplate;
+    research: any | null;
+    researchConfig: any | null;
+    usedAssetIds: Set<string>;
+    forceAssetId?: string;
+    forcedPrompt?: string;
+  }) {
+    const hooks: string[] = this.safeStringArray(input.research?.recommendedHooks);
+    const offers: string[] = this.safeStringArray(input.research?.recommendedOffers);
+    const ctas: string[] = this.safeStringArray(input.research?.recommendedCTAs);
+    const strong: string[] = this.safeStringArray(input.research?.strongAngles);
+    const products: string[] = this.safeStringArray(input.research?.recommendedProducts);
+    const mainServices: string[] = this.safeStringArray(input.researchConfig?.mainServices);
+
+    const usedResearchAngle = strong[0] || hooks[0] || input.content.shortText;
+    const usedOffer = offers[0] || input.content.shortText;
+    const usedCTA = this.pickNaturalCta(ctas, input.researchConfig?.defaultCTA || 'Cotiza por WhatsApp hoy');
+    const primaryService = products[0] || mainServices[0] || input.researchConfig?.priorityServices?.[0] || '';
+
+    let selected = input.forceAssetId
+      ? await this.prisma.marketingMediaAsset.findFirst({
+          where: { id: input.forceAssetId, companyId: input.companyId, isActive: true },
+        })
+      : null;
+
+    if (!selected) {
+      selected = await this.mediaSelector.select({
+        companyId: input.companyId,
+        type: input.type,
+        recommendedProduct: primaryService,
+        recommendedService: primaryService,
+        usedAssetIds: [...input.usedAssetIds],
+      });
+    }
+
+    const visualConcept = this.buildVisualConcept(input.type, usedResearchAngle, primaryService);
+    const designNotes = this.buildDesignNotes(input.type, usedCTA);
+    const baseImageUrl = `${selected?.fileUrl ?? ''}`.trim();
+
+    return {
+      mediaAssetId: selected?.id ?? null,
+      imagePrompt: input.forcedPrompt || input.content.imagePrompt,
+      imageUrl: baseImageUrl,
+      visualConcept,
+      designNotes,
+      imageGenerationMetadata: {
+        queuedAt: new Date().toISOString(),
+        queueReason: 'story-image-generation',
+        baseImageSourceUrl: baseImageUrl || null,
+        category: selected?.category ?? this.galleryCategoryForType(input.type),
+        serviceOrProduct:
+          primaryService || selected?.relatedService || selected?.category || this.galleryCategoryForType(input.type),
+      },
+      usedResearchAngle,
+      usedOffer,
+      usedCTA,
+    };
+  }
+
   private buildVisualConcept(type: MarketingStoryType, angle: string, service: string) {
     if (type === 'SALES') {
       return `Oferta directa enfocada en ${service || 'seguridad y automatización'} con énfasis en resultado inmediato (${angle}).`;
@@ -784,6 +968,13 @@ export class MarketingGenerationService {
   private safeStringArray(value: unknown): string[] {
     if (!Array.isArray(value)) return [];
     return value.map((item) => `${item}`.trim()).filter((item) => item.length > 0);
+  }
+
+  private asObject(value: unknown): Record<string, unknown> | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return null;
+    }
+    return value as Record<string, unknown>;
   }
 
   private async logAssetUsage(companyId: string, mediaAssetId: string, userId: string | null, metadata: Record<string, unknown>) {

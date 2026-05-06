@@ -299,9 +299,9 @@ enum MarketingPlatformFormat {
 
 enum MarketingImageStatus {
   PENDING
-  PENDING_MEDIA
+  QUEUED
+  PROCESSING
   GENERATED
-  GENERATED_PLACEHOLDER
   FAILED
 
   @@map("marketing_image_status")

@@ -1,0 +1,2 @@
+ALTER TYPE "marketing_image_status" ADD VALUE IF NOT EXISTS 'QUEUED';
+ALTER TYPE "marketing_image_status" ADD VALUE IF NOT EXISTS 'PROCESSING';

@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { MarketingApprovalService } from './marketing-approval.service';
 import { MarketingConfigService } from './marketing-config.service';
 import { MarketingGenerationService } from './marketing-generation.service';
+import { MarketingImageJobService } from './marketing-image-job.service';
 import { MarketingMediaAssetService } from './marketing-media-asset.service';
 import { MarketingResearchService } from './marketing-research.service';
 import { MarketingStorageService } from './marketing-storage.service';
@@ -18,6 +19,7 @@ export class MarketingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly generation: MarketingGenerationService,
+    private readonly imageJobs: MarketingImageJobService,
     private readonly approvals: MarketingApprovalService,
     private readonly configService: MarketingConfigService,
     private readonly researchService: MarketingResearchService,
@@ -161,7 +163,19 @@ export class MarketingService {
       researchId = generated.id;
     }
 
-    return this.generation.generateMissingStories(companyId, date, userId, researchId);
+    const stories = await this.generation.generateMissingStories(companyId, date, userId, researchId);
+    for (const story of stories) {
+      if (`${story.imageStatus ?? ''}`.toUpperCase() === 'QUEUED') {
+        this.imageJobs.enqueueStoryImageGeneration(story.id, companyId, userId);
+      }
+    }
+
+    return {
+      date: this.toDateOnly(date),
+      message: 'Contenido generado. Las imágenes están en proceso.',
+      queuedCount: stories.filter((story) => `${story.imageStatus ?? ''}`.toUpperCase() === 'QUEUED').length,
+      items: await Promise.all(stories.map((story) => this.normalizeStoryUrlsAsync(story))),
+    };
   }
 
   async repairIncompleteStories(companyId: string, date: Date, userId: string) {
@@ -183,8 +197,20 @@ export class MarketingService {
       try {
         if (missing.includes('prompt') || missing.includes('copy')) {
           await this.generation.regenerateStory(companyId, story.id, userId);
+          this.imageJobs.enqueueStoryImageGeneration(story.id, companyId, userId);
         } else {
-          await this.generation.regenerateStoryImage(companyId, story.id, userId, 'Reparacion automatica de imagen');
+          await this.generation.queueStoryImageGeneration(
+            companyId,
+            story.id,
+            userId,
+            'Reparacion automatica de imagen',
+          );
+          this.imageJobs.enqueueStoryImageGeneration(
+            story.id,
+            companyId,
+            userId,
+            'Reparacion automatica de imagen',
+          );
         }
         repairedIds.push(story.id);
       } catch (error) {
@@ -223,11 +249,21 @@ export class MarketingService {
   }
 
   async regenerateStory(companyId: string, storyId: string, userId: string) {
-    return this.generation.regenerateStory(companyId, storyId, userId);
+    const updated = await this.generation.regenerateStory(companyId, storyId, userId);
+    this.imageJobs.enqueueStoryImageGeneration(updated.id, companyId, userId);
+    return {
+      message: 'Contenido regenerado. La imagen está en proceso.',
+      item: await this.normalizeStoryUrlsAsync(updated),
+    };
   }
 
   async regenerateStoryImage(companyId: string, storyId: string, userId: string, customPrompt?: string) {
-    return this.generation.regenerateStoryImage(companyId, storyId, userId, customPrompt);
+    const updated = await this.generation.queueStoryImageGeneration(companyId, storyId, userId, customPrompt);
+    this.imageJobs.enqueueStoryImageGeneration(updated.id, companyId, userId, customPrompt);
+    return {
+      message: 'Imagen en proceso',
+      item: await this.normalizeStoryUrlsAsync(updated),
+    };
   }
 
   async changeStoryBaseImage(companyId: string, storyId: string, mediaAssetId: string, userId: string) {
