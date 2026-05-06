@@ -61,6 +61,46 @@ export class MarketingStorageService {
     return this.r2.buildPublicUrl(raw);
   }
 
+  getDebugStorageConfig() {
+    const uploadDir = this.resolveUploadDir();
+    const r2Endpoint = (
+      this.config.get<string>('R2_ENDPOINT') ??
+      process.env.R2_ENDPOINT ??
+      ''
+    ).trim();
+    const r2Bucket = (
+      this.config.get<string>('R2_BUCKET') ??
+      process.env.R2_BUCKET ??
+      ''
+    ).trim();
+    const r2AccessKey = (
+      this.config.get<string>('R2_ACCESS_KEY_ID') ??
+      process.env.R2_ACCESS_KEY_ID ??
+      ''
+    ).trim();
+    const r2Secret = (
+      this.config.get<string>('R2_SECRET_ACCESS_KEY') ??
+      process.env.R2_SECRET_ACCESS_KEY ??
+      ''
+    ).trim();
+    const hasR2 = !!(r2Endpoint && r2Bucket && r2AccessKey && r2Secret);
+    const publicBaseUrl = (
+      this.config.get<string>('PUBLIC_BASE_URL') ??
+      this.config.get<string>('API_BASE_URL') ??
+      process.env.PUBLIC_BASE_URL ??
+      process.env.API_BASE_URL ??
+      'http://localhost:4000'
+    ).trim();
+
+    return {
+      storageConfigured: hasR2,
+      uploadDir,
+      publicBaseUrl,
+      r2EndpointConfigured: !!r2Endpoint,
+      r2BucketConfigured: !!r2Bucket,
+    };
+  }
+
   async getPublicUrlAsync(objectKeyOrUrl: string) {
     const raw = (objectKeyOrUrl || '').trim();
     if (!raw) return '';
@@ -217,6 +257,10 @@ export class MarketingStorageService {
         body,
         contentType,
       });
+
+      this.logger.log(
+        `[marketing-image] uploaded objectKey=${objectKey} bytes=${body.length} contentType=${contentType}`,
+      );
 
       return {
         url: this.buildPublicUploadsUrl(objectKey),

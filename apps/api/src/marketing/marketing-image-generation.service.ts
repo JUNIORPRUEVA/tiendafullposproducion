@@ -42,6 +42,7 @@ export class MarketingImageGenerationService {
 
   async generateOrPrepare(input: ImageGenerationInput): Promise<ImageGenerationResult> {
     const prompt = this.buildPrompt(input);
+    const failures: string[] = [];
 
     const apiKey = await this.resolveOpenAiApiKey();
     this.logger.log(
@@ -59,9 +60,11 @@ export class MarketingImageGenerationService {
         const edited = await this.generateWithGptImageEdit(input, prompt, apiKey);
         if (edited) return edited;
       } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
         this.logger.warn(
-          `GPT Image edit failed, trying DALL-E 3 fallback: ${error instanceof Error ? error.message : String(error)}`,
+          `GPT Image edit failed, trying DALL-E 3 fallback: ${reason}`,
         );
+        failures.push(`gpt-image-1-edit: ${reason}`);
       }
 
       try {
@@ -69,13 +72,21 @@ export class MarketingImageGenerationService {
         const result = await this.generateWithDallE3(input, prompt, apiKey);
         if (result) return result;
       } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
         this.logger.error(
-          `[marketing-image] failed reason=${error instanceof Error ? error.message : String(error)}`,
+          `[marketing-image] failed reason=${reason}`,
         );
+        failures.push(`dall-e-3: ${reason}`);
       }
     }
 
-    throw new BadRequestException('No se pudo generar la imagen publicitaria con el proveedor configurado');
+    const detail = failures.length > 0 ? failures.join(' | ') : 'sin detalle del proveedor';
+    throw new BadRequestException(`No se pudo generar la imagen publicitaria con el proveedor configurado. ${detail}`);
+  }
+
+  async isProviderConfigured(): Promise<boolean> {
+    const apiKey = await this.resolveOpenAiApiKey();
+    return !!apiKey;
   }
 
   private async generateWithGptImageEdit(

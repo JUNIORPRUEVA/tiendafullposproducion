@@ -3,6 +3,7 @@ import { MarketingApprovalService } from './marketing-approval.service';
 import { MarketingAutomationScheduler } from './marketing-automation.scheduler';
 import { MarketingConfigService } from './marketing-config.service';
 import { MarketingController } from './marketing.controller';
+import { MarketingDebugController } from './marketing-debug.controller';
 import { MarketingGenerationService } from './marketing-generation.service';
 import { MarketingImageGenerationService } from './marketing-image-generation.service';
 import { MarketingImageJobService } from './marketing-image-job.service';
@@ -17,7 +18,7 @@ import { StorageModule } from '../storage/storage.module';
 
 @Module({
   imports: [StorageModule],
-  controllers: [MarketingController],
+  controllers: [MarketingController, MarketingDebugController],
   providers: [
     MarketingService,
     MarketingGenerationService,

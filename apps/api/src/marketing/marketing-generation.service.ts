@@ -371,15 +371,26 @@ export class MarketingGenerationService {
       previousStatus: story.imageStatus,
     });
 
-    await this.prisma.marketingActivityLog.create({
-      data: {
-        companyId,
-        action: 'MARKETING_STORY_IMAGE_REGENERATED',
-        description: `Imagen puesta en cola para contenido ${storyId}`,
-        userId,
-        metadata: { storyId, mediaAssetId: updated.mediaAssetId ?? null },
-      },
-    });
+    try {
+      await this.prisma.marketingActivityLog.create({
+        data: {
+          companyId,
+          action: 'MARKETING_STORY_IMAGE_REGENERATED',
+          description: `Imagen puesta en cola para contenido ${storyId}`,
+          userId,
+          metadata: { storyId, mediaAssetId: updated.mediaAssetId ?? null },
+        },
+      });
+    } catch (error) {
+      const code = (error as { code?: string })?.code;
+      if (code === 'P2003' || code === 'P2023') {
+        this.logger.warn(
+          `[marketing-image] activity-log skipped for story ${storyId}: userId invalido (${userId})`,
+        );
+      } else {
+        throw error;
+      }
+    }
 
     return updated;
   }
@@ -525,6 +536,8 @@ export class MarketingGenerationService {
       throw new BadRequestException('No se pudo persistir la imagen generada');
     }
 
+    this.logger.log(`[marketing-image] saved generatedImageUrl storyId=${storyId} url=${finalGeneratedUrl}`);
+
     return this.prisma.marketingDailyStory.update({
       where: { id: storyId },
       data: {
@@ -560,6 +573,25 @@ export class MarketingGenerationService {
       });
       return updated;
     });
+  }
+
+  async regenerateStoryImageDirect(companyId: string, storyId: string, userId: string, customPrompt?: string) {
+    const story = await this.prisma.marketingDailyStory.findFirst({
+      where: { id: storyId, companyId },
+    });
+    if (!story) {
+      throw new NotFoundException('Contenido no encontrado');
+    }
+
+    await this.markStoryImageProcessing(companyId, storyId, 1);
+    try {
+      const updated = await this.processQueuedStoryImage(companyId, storyId, userId, customPrompt);
+      return updated;
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      await this.markStoryImageFailed(companyId, storyId, reason, 1);
+      throw error;
+    }
   }
 
   async changeBaseImage(companyId: string, storyId: string, mediaAssetId: string, userId: string) {

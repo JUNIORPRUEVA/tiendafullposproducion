@@ -1,9 +1,11 @@
 import { ConflictException, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { MarketingStoryStatus, MarketingStoryType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MarketingApprovalService } from './marketing-approval.service';
 import { MarketingConfigService } from './marketing-config.service';
 import { MarketingGenerationService } from './marketing-generation.service';
+import { MarketingImageGenerationService } from './marketing-image-generation.service';
 import { MarketingImageJobService } from './marketing-image-job.service';
 import { MarketingMediaAssetService } from './marketing-media-asset.service';
 import { MarketingResearchService } from './marketing-research.service';
@@ -18,7 +20,9 @@ import { UpdateMarketingStoryDto } from './dto/update-marketing-story.dto';
 export class MarketingService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
     private readonly generation: MarketingGenerationService,
+    private readonly imageGeneration: MarketingImageGenerationService,
     private readonly imageJobs: MarketingImageJobService,
     private readonly approvals: MarketingApprovalService,
     private readonly configService: MarketingConfigService,
@@ -257,12 +261,94 @@ export class MarketingService {
     };
   }
 
-  async regenerateStoryImage(companyId: string, storyId: string, userId: string, customPrompt?: string) {
+  async regenerateStoryImage(companyId: string, storyId: string, userId: string, customPrompt?: string, sync = false) {
+    if (sync) {
+      const updated = await this.generation.regenerateStoryImageDirect(companyId, storyId, userId, customPrompt);
+      return {
+        message: 'Imagen generada en modo directo',
+        item: await this.normalizeStoryUrlsAsync(updated),
+      };
+    }
+
     const updated = await this.generation.queueStoryImageGeneration(companyId, storyId, userId, customPrompt);
     this.imageJobs.enqueueStoryImageGeneration(updated.id, companyId, userId, customPrompt);
     return {
       message: 'Imagen en proceso',
       item: await this.normalizeStoryUrlsAsync(updated),
+    };
+  }
+
+  async getDebugVersion(companyId: string) {
+    const providerConfigured = await this.imageGeneration.isProviderConfigured();
+    const storage = this.marketingStorage.getDebugStorageConfig();
+    const currentApiBase = (
+      this.config.get<string>('API_BASE_URL') ??
+      process.env.API_BASE_URL ??
+      ''
+    ).trim();
+
+    return {
+      buildTime: new Date().toISOString(),
+      asyncImageJobsEnabled: true,
+      providerConfigured,
+      storageConfigured: storage.storageConfigured,
+      publicBaseUrl: storage.publicBaseUrl,
+      currentApiBase,
+      uploadDir: storage.uploadDir,
+      r2EndpointConfigured: storage.r2EndpointConfigured,
+      r2BucketConfigured: storage.r2BucketConfigured,
+      companyId,
+      pid: process.pid,
+    };
+  }
+
+  async debugTestImage(companyId: string, prompt: string) {
+    const safePrompt = prompt.trim() || 'Genera una historia 9:16 de anuncio premium para seguridad electrónica en tienda.';
+    const providerConfigured = await this.imageGeneration.isProviderConfigured();
+    if (!providerConfigured) {
+      throw new ConflictException('falta OPENAI_API_KEY (env o app_config.openAiApiKey)');
+    }
+
+    const storage = this.marketingStorage.getDebugStorageConfig();
+    if (!storage.storageConfigured) {
+      throw new ConflictException('storage no configurado: faltan variables R2');
+    }
+
+    const generated = await this.imageGeneration.generateOrPrepare({
+      companyName: 'FULLTECH SRL',
+      city: 'Higüey',
+      country: 'República Dominicana',
+      brandTone: 'tecnológico, limpio y profesional',
+      brandColors: ['#0B1F3B', '#12C7D9', '#FFFFFF'],
+      title: 'Prueba técnica de generación',
+      cta: 'Contáctanos por WhatsApp',
+      offer: safePrompt,
+      visualConcept: 'Prueba técnica para validar generación real de imagen',
+      designNotes: 'Formato 9:16, calidad comercial premium, sin texto sobreimpreso',
+      baseImageUrl: '',
+      imageCategory: 'Diagnóstico',
+      serviceOrProduct: 'Publicidad',
+      usedResearchAngle: 'Diagnóstico técnico',
+    });
+
+    const saved = await this.marketingStorage.saveGeneratedImage({
+      companyId,
+      storyType: 'debug',
+      sourceUrl: generated.generatedImageUrl ?? '',
+    });
+
+    const publicUrl = `${saved.url ?? ''}`.trim();
+    if (!publicUrl) {
+      throw new ConflictException('error de storage: no se pudo obtener URL pública');
+    }
+
+    return {
+      ok: true,
+      provider: generated.generatedImageProvider,
+      prompt: generated.prompt,
+      generatedImageUrl: publicUrl,
+      publicBaseUrl: storage.publicBaseUrl,
+      metadata: generated.metadata,
     };
   }
 

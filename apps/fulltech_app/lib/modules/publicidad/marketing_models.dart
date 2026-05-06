@@ -380,6 +380,7 @@ class MarketingStory {
     required this.imageStatus,
     required this.generatedImageUrl,
     required this.generatedImageProvider,
+    required this.imageGenerationMetadata,
     required this.usedResearchAngle,
     required this.usedOffer,
     required this.usedCTA,
@@ -408,6 +409,7 @@ class MarketingStory {
   final MarketingImageStatus imageStatus;
   final String generatedImageUrl;
   final String generatedImageProvider;
+  final Map<String, dynamic> imageGenerationMetadata;
   final String usedResearchAngle;
   final String usedOffer;
   final String usedCTA;
@@ -455,6 +457,9 @@ class MarketingStory {
       imageStatus: parseImageStatus('${json['imageStatus'] ?? ''}'),
       generatedImageUrl: '${json['generatedImageUrl'] ?? ''}',
       generatedImageProvider: '${json['generatedImageProvider'] ?? ''}',
+        imageGenerationMetadata: (json['imageGenerationMetadata'] is Map)
+          ? (json['imageGenerationMetadata'] as Map).cast<String, dynamic>()
+          : const <String, dynamic>{},
       usedResearchAngle: '${json['usedResearchAngle'] ?? ''}',
       usedOffer: '${json['usedOffer'] ?? ''}',
       usedCTA: '${json['usedCTA'] ?? ''}',

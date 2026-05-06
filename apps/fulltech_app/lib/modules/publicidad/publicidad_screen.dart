@@ -8,6 +8,7 @@ import '../../core/auth/app_permissions.dart';
 import '../../core/auth/auth_provider.dart';
 import '../../core/errors/api_exception.dart';
 import '../../core/api/env.dart';
+import '../../core/utils/safe_url_launcher.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
 import 'marketing_api.dart';
@@ -1568,6 +1569,7 @@ class _StoryCard extends StatelessWidget {
     final baseImage = _resolveBaseImageUrl(story);
     final generatedImage = _safeImageUrl(story.generatedImageUrl);
     final finalImage = _resolveFinalImage(story);
+    final imageError = _storyImageError(story);
     final compact = compactActions;
     final relatedService = (story.mediaAsset?.relatedService ?? story.usedOffer).trim();
     final cta = story.usedCTA.trim().isEmpty
@@ -1581,8 +1583,10 @@ class _StoryCard extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (story.imageStatus == MarketingImageStatus.failed)
-          const _ErrorBanner(
-            message: 'La imagen no se pudo generar. Revisa la configuración del proveedor o intenta de nuevo.',
+          _ErrorBanner(
+            message: imageError.isNotEmpty
+                ? 'La imagen no se pudo generar: $imageError'
+                : 'La imagen no se pudo generar. Revisa la configuración del proveedor o intenta de nuevo.',
           ),
         if (!isComplete)
           _ErrorBanner(
@@ -1646,6 +1650,35 @@ class _StoryCard extends StatelessWidget {
             ),
           ),
         ],
+        if (finalImage.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final uri = Uri.tryParse(finalImage);
+                  if (uri == null) return;
+                  await safeOpenUrl(
+                    context,
+                    uri,
+                    copiedMessage: 'No se pudo abrir la imagen. URL copiada.',
+                  );
+                },
+                icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                label: const Text('Abrir imagen'),
+              ),
+            ],
+          ),
+        ],
+        const SizedBox(height: 8),
+        _DebugImageInfo(
+          imageStatus: story.imageStatus,
+          generatedImageUrl: generatedImage,
+          finalImageUrl: finalImage,
+          error: imageError,
+        ),
         const SizedBox(height: 8),
         if (baseImage.isNotEmpty)
           Row(
@@ -1902,6 +1935,63 @@ class _ImageStatusPill extends StatelessWidget {
   }
 }
 
+class _DebugImageInfo extends StatelessWidget {
+  const _DebugImageInfo({
+    required this.imageStatus,
+    required this.generatedImageUrl,
+    required this.finalImageUrl,
+    required this.error,
+  });
+
+  final MarketingImageStatus imageStatus;
+  final String generatedImageUrl;
+  final String finalImageUrl;
+  final String error;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context).textTheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.35),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Debug imagen',
+            style: theme.labelMedium?.copyWith(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 4),
+          SelectableText(
+            'status=${_imageStatusLabel(imageStatus)}',
+            style: theme.bodySmall,
+          ),
+          SelectableText(
+            'generatedImageUrl=${generatedImageUrl.isEmpty ? '(empty)' : generatedImageUrl}',
+            style: theme.bodySmall,
+          ),
+          SelectableText(
+            'finalImageUrl=${finalImageUrl.isEmpty ? '(empty)' : finalImageUrl}',
+            style: theme.bodySmall,
+          ),
+          if (error.isNotEmpty)
+            SelectableText(
+              'error=$error',
+              style: theme.bodySmall?.copyWith(color: const Color(0xFFB91C1C), fontWeight: FontWeight.w700),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 String _imageStatusLabel(MarketingImageStatus status) {
   switch (status) {
     case MarketingImageStatus.queued:
@@ -1946,6 +2036,23 @@ String _imageActionLabel(MarketingStory story, bool imageBusy) {
     return 'Reintentar imagen';
   }
   return 'Generar imagen';
+}
+
+String _storyImageError(MarketingStory story) {
+  final metadata = story.imageGenerationMetadata;
+  if (metadata.isEmpty) return '';
+  const keys = [
+    'lastError',
+    'reason',
+    'error',
+    'retryReason',
+    'providerError',
+  ];
+  for (final key in keys) {
+    final raw = '${metadata[key] ?? ''}'.trim();
+    if (raw.isNotEmpty) return raw;
+  }
+  return '';
 }
 
 class _StoryPreviewFrame extends StatelessWidget {

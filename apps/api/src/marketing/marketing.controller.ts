@@ -94,11 +94,14 @@ export class MarketingController {
   async regenerateImage(
     @Req() req: Request,
     @Param('id') storyId: string,
+    @Query('mode') mode: string | undefined,
     @Body() dto: MarketingActionDto,
   ) {
     const user = req.user as RequestUser;
     const companyId = this.marketing.resolveCompanyId();
-    return this.marketing.regenerateStoryImage(companyId, storyId, user.id ?? '', dto.reason);
+    const normalizedMode = `${mode ?? ''}`.trim().toLowerCase();
+    const sync = normalizedMode === 'sync' || normalizedMode === 'direct';
+    return this.marketing.regenerateStoryImage(companyId, storyId, user.id ?? '', dto.reason, sync);
   }
 
   @Patch('stories/:id/base-image/:mediaAssetId')
