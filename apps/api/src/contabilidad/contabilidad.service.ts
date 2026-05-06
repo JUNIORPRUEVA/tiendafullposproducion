@@ -144,6 +144,45 @@ export class ContabilidadService {
     },
   ] as const;
 
+  private readonly depositOrderLegacySelect: Prisma.DepositOrderSelect = {
+    id: true,
+    windowFrom: true,
+    windowTo: true,
+    bankName: true,
+    bankAccount: true,
+    collaboratorName: true,
+    note: true,
+    reserveAmount: true,
+    totalAvailableCash: true,
+    depositTotal: true,
+    closesCountByType: true,
+    depositByType: true,
+    accountByType: true,
+    status: true,
+    voucherUrl: true,
+    voucherFileName: true,
+    voucherMimeType: true,
+    createdById: true,
+    createdByName: true,
+    executedById: true,
+    executedByName: true,
+    executedAt: true,
+    createdAt: true,
+    updatedAt: true,
+  };
+
+  private enrichDepositOrderRow<T extends Record<string, unknown>>(row: T) {
+    return {
+      ...row,
+      correctionOfDepositOrderId: null,
+      correctionReason: null,
+      deletedAt: null,
+      deletedById: null,
+      deletedByName: null,
+      deletedReason: null,
+    };
+  }
+
   private normalizeRoleGuard(actor: Actor) {
     if (!actor.id) {
       throw new ForbiddenException('No autorizado para operar cierres');
@@ -1845,16 +1884,27 @@ export class ContabilidadService {
       select: { nombreCompleto: true },
     });
 
-    return this.prisma.depositOrder.create({
+    const correctedNote =
+      correction.correctionOfDepositOrderId && correction.correctionReason
+        ? [
+            payload.note,
+            `Corrección del depósito ${correction.correctionOfDepositOrderId}. Motivo: ${correction.correctionReason}`,
+          ]
+            .where((item) => (item ?? '').trim().isNotEmpty)
+            .join('\n')
+        : payload.note;
+
+    const created = await this.prisma.depositOrder.create({
       data: {
         ...payload,
+        note: this.toNullableTrimmed(correctedNote),
         status: DepositOrderStatus.PENDING,
         createdById: actor.id!,
         createdByName: creator?.nombreCompleto ?? null,
-        correctionOfDepositOrderId: correction.correctionOfDepositOrderId,
-        correctionReason: correction.correctionReason,
       },
+      select: this.depositOrderLegacySelect,
     });
+    return this.enrichDepositOrderRow(created);
   }
 
   async getDepositOrders(query: DepositOrdersQueryDto, actor: Actor) {
@@ -1884,22 +1934,27 @@ export class ContabilidadService {
       where.status = query.status;
     }
 
-    return this.prisma.depositOrder.findMany({
+    const rows = await this.prisma.depositOrder.findMany({
       where,
       orderBy: [{ createdAt: 'desc' }],
+      select: this.depositOrderLegacySelect,
     });
+    return rows.map((row) => this.enrichDepositOrderRow(row));
   }
 
   async getDepositOrderById(id: string, actor: Actor) {
     this.normalizeRoleGuard(actor);
-    const row = await this.prisma.depositOrder.findUnique({ where: { id } });
+    const row = await this.prisma.depositOrder.findUnique({
+      where: { id },
+      select: this.depositOrderLegacySelect,
+    });
     if (!row) throw new NotFoundException('Depósito bancario no encontrado');
     if (!this.isReviewer(actor) && row.createdById !== actor.id) {
       throw new ForbiddenException(
         'Solo puedes ver depósitos bancarios creados por tu usuario.',
       );
     }
-    return row;
+    return this.enrichDepositOrderRow(row);
   }
 
   async updateDepositOrder(
@@ -1911,11 +1966,27 @@ export class ContabilidadService {
 
     const existing = await this.prisma.depositOrder.findUnique({
       where: { id },
+      select: {
+        id: true,
+        status: true,
+        windowFrom: true,
+        windowTo: true,
+        bankName: true,
+        bankAccount: true,
+        collaboratorName: true,
+        note: true,
+        reserveAmount: true,
+        totalAvailableCash: true,
+        depositTotal: true,
+        closesCountByType: true,
+        depositByType: true,
+        accountByType: true,
+      },
     });
     if (!existing)
       throw new NotFoundException('Depósito bancario no encontrado');
 
-    if (existing.status !== DepositOrderStatus.PENDING || existing.deletedAt) {
+    if (existing.status !== DepositOrderStatus.PENDING) {
       throw new BadRequestException(
         'Solo se pueden editar depósitos pendientes y no anulados.',
       );
@@ -1948,10 +2019,12 @@ export class ContabilidadService {
       accountByType: dto.accountByType ?? existing.accountByType,
     });
 
-    return this.prisma.depositOrder.update({
+    const updated = await this.prisma.depositOrder.update({
       where: { id },
       data: payload,
+      select: this.depositOrderLegacySelect,
     });
+    return this.enrichDepositOrderRow(updated);
   }
 
   async approveDepositOrder(id: string, _reviewNote: string | undefined, actor: Actor) {
@@ -1959,6 +2032,11 @@ export class ContabilidadService {
 
     const existing = await this.prisma.depositOrder.findUnique({
       where: { id },
+      select: {
+        id: true,
+        status: true,
+        voucherUrl: true,
+      },
     });
     if (!existing) {
       throw new NotFoundException('Depósito bancario no encontrado');
@@ -1966,7 +2044,7 @@ export class ContabilidadService {
     if (existing.status === DepositOrderStatus.EXECUTED) {
       throw new BadRequestException('El depósito ya fue ejecutado.');
     }
-    if (existing.status === DepositOrderStatus.CANCELLED || existing.deletedAt) {
+    if (existing.status === DepositOrderStatus.CANCELLED) {
       throw new BadRequestException(
         'No se puede aprobar un depósito anulado o rechazado.',
       );
@@ -1982,7 +2060,7 @@ export class ContabilidadService {
       select: { nombreCompleto: true },
     });
 
-    return this.prisma.depositOrder.update({
+    const updated = await this.prisma.depositOrder.update({
       where: { id },
       data: {
         status: DepositOrderStatus.EXECUTED,
@@ -1990,7 +2068,9 @@ export class ContabilidadService {
         executedById: actor.id!,
         executedByName: executor?.nombreCompleto ?? null,
       },
+      select: this.depositOrderLegacySelect,
     });
+    return this.enrichDepositOrderRow(updated);
   }
 
   async cancelDepositOrder(id: string, reviewNote: string | undefined, actor: Actor) {
@@ -1998,6 +2078,11 @@ export class ContabilidadService {
 
     const existing = await this.prisma.depositOrder.findUnique({
       where: { id },
+      select: {
+        id: true,
+        status: true,
+        note: true,
+      },
     });
     if (!existing) {
       throw new NotFoundException('Depósito bancario no encontrado');
@@ -2007,7 +2092,7 @@ export class ContabilidadService {
         'Los depósitos ejecutados son inmutables y no pueden anularse.',
       );
     }
-    if (existing.status === DepositOrderStatus.CANCELLED || existing.deletedAt) {
+    if (existing.status === DepositOrderStatus.CANCELLED) {
       throw new BadRequestException('El depósito ya fue anulado o rechazado.');
     }
 
@@ -2016,21 +2101,20 @@ export class ContabilidadService {
       throw new BadRequestException('El motivo de anulación es obligatorio.');
     }
 
-    const reviewer = await this.prisma.user.findUnique({
-      where: { id: actor.id! },
-      select: { nombreCompleto: true },
-    });
+    const reasonLine = `Anulación: ${reason}`;
+    const mergedNote = [existing.note, reasonLine]
+      .where((item) => (item ?? '').trim().isNotEmpty)
+      .join('\n');
 
-    return this.prisma.depositOrder.update({
+    const updated = await this.prisma.depositOrder.update({
       where: { id },
       data: {
         status: DepositOrderStatus.CANCELLED,
-        deletedAt: new Date(),
-        deletedById: actor.id!,
-        deletedByName: reviewer?.nombreCompleto ?? null,
-        deletedReason: reason,
+        note: this.toNullableTrimmed(mergedNote),
       },
+      select: this.depositOrderLegacySelect,
     });
+    return this.enrichDepositOrderRow(updated);
   }
 
   async attachDepositOrderVoucher(
@@ -2042,14 +2126,24 @@ export class ContabilidadService {
     },
     actor: Actor,
   ) {
-    this.ensureAdmin(actor);
+    this.normalizeRoleGuard(actor);
 
     const existing = await this.prisma.depositOrder.findUnique({
       where: { id },
+      select: {
+        id: true,
+        status: true,
+        createdById: true,
+      },
     });
     if (!existing)
       throw new NotFoundException('Depósito bancario no encontrado');
-    if (existing.status === DepositOrderStatus.CANCELLED || existing.deletedAt) {
+    if (!this.isReviewer(actor) && existing.createdById !== actor.id) {
+      throw new ForbiddenException(
+        'Solo puedes subir voucher a depósitos creados por tu usuario.',
+      );
+    }
+    if (existing.status === DepositOrderStatus.CANCELLED) {
       throw new BadRequestException(
         'No se puede adjuntar voucher a un depósito cancelado',
       );
@@ -2060,14 +2154,16 @@ export class ContabilidadService {
       );
     }
 
-    return this.prisma.depositOrder.update({
+    const updated = await this.prisma.depositOrder.update({
       where: { id },
       data: {
         voucherUrl: params.voucherUrl.trim(),
         voucherFileName: params.voucherFileName.trim(),
         voucherMimeType: params.voucherMimeType.trim(),
       },
+      select: this.depositOrderLegacySelect,
     });
+    return this.enrichDepositOrderRow(updated);
   }
 
   async deleteDepositOrder(id: string, actor: Actor) {

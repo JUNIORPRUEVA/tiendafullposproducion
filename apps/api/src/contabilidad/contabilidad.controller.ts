@@ -346,7 +346,7 @@ export class ContabilidadController {
   }
 
   @Post('deposit-orders/:id/voucher')
-  @Roles('ADMIN')
+  @Roles(...DEPOSIT_ROLES)
   @UseInterceptors(
     FileInterceptor('file', {
       storage: memoryStorage(),

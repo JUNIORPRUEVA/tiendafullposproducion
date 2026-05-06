@@ -1043,7 +1043,7 @@ class _DepositosBancariosScreenState
                               spacing: 8,
                               runSpacing: 8,
                               children: [
-                                if (_isAdmin && fresh.isPending)
+                                if ((_isAdmin || _isAssistant) && fresh.isPending)
                                   OutlinedButton.icon(
                                     onPressed: () {
                                       Navigator.pop(dialogContext);
@@ -1273,6 +1273,7 @@ class _DepositosBancariosScreenState
         .where((item) => item.status == DepositOrderStatus.executed)
         .toList(growable: false);
     final visibleOrders = _visibleOrders();
+    final isCompact = MediaQuery.sizeOf(context).width < 760;
     final executedTotal = executedOrders.fold<double>(
       0,
       (sum, item) => sum + item.depositTotal,
@@ -1431,7 +1432,7 @@ class _DepositosBancariosScreenState
                 ),
                 child: Column(
                   children: [
-                    _DepositListHeader(isAdmin: _isAdmin),
+                    if (!isCompact) _DepositListHeader(isAdmin: _isAdmin),
                     for (var index = 0; index < visibleOrders.length; index++) ...[
                       if (index > 0) const Divider(height: 1),
                       _DepositOrderTile(
@@ -1439,6 +1440,7 @@ class _DepositosBancariosScreenState
                         money: _money,
                         statusColor: _statusColor(visibleOrders[index].status),
                         isAdmin: _isAdmin,
+                        canUploadVoucher: _isAdmin || _isAssistant,
                         onTap: () => _openDepositDetail(visibleOrders[index]),
                         onSelectedAction: (action) =>
                             _handleTileAction(visibleOrders[index], action),
@@ -1474,61 +1476,74 @@ class _DepositsSummaryBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF0F172A), Color(0xFF1E3A5F)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(22),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x1F0F172A),
-            blurRadius: 18,
-            offset: Offset(0, 8),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 760;
+        final items = <Widget>[
+          _SummaryPill(label: 'Total', value: '$total'),
+          _SummaryPill(label: 'Pendiente', value: '$pending'),
+          _SummaryPill(label: 'Ejecutada', value: '$executed'),
+          _SummaryPill(label: 'Anulados', value: '$cancelled'),
+          _SummaryPill(label: 'Correcciones', value: '$corrections'),
+          _SummaryPill(label: 'Depositado', value: money.format(depositedTotal)),
+        ];
+
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFF0F172A), Color(0xFF1E3A5F)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(22),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x1F0F172A),
+                blurRadius: 18,
+                offset: Offset(0, 8),
+              ),
+            ],
           ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                Expanded(child: _SummaryPill(label: 'Total', value: '$total')),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _SummaryPill(label: 'Pendiente', value: '$pending'),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _SummaryPill(label: 'Ejecutada', value: '$executed'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: _SummaryPill(label: 'Anulados', value: '$cancelled'),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _SummaryPill(label: 'Correcciones', value: '$corrections'),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _SummaryPill(
-                    label: 'Depositado',
-                    value: money.format(depositedTotal),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: compact
+                ? Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final item in items)
+                        SizedBox(
+                          width: (constraints.maxWidth - 24) / 2,
+                          child: item,
+                        ),
+                    ],
+                  )
+                : Column(
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(child: items[0]),
+                          const SizedBox(width: 8),
+                          Expanded(child: items[1]),
+                          const SizedBox(width: 8),
+                          Expanded(child: items[2]),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(child: items[3]),
+                          const SizedBox(width: 8),
+                          Expanded(child: items[4]),
+                          const SizedBox(width: 8),
+                          Expanded(child: items[5]),
+                        ],
+                      ),
+                    ],
                   ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }
@@ -1680,6 +1695,7 @@ class _DepositOrderTile extends StatelessWidget {
     required this.money,
     required this.statusColor,
     required this.isAdmin,
+    required this.canUploadVoucher,
     required this.onTap,
     required this.onSelectedAction,
   });
@@ -1688,6 +1704,7 @@ class _DepositOrderTile extends StatelessWidget {
   final NumberFormat money;
   final Color statusColor;
   final bool isAdmin;
+  final bool canUploadVoucher;
   final VoidCallback onTap;
   final ValueChanged<_DepositTileMenuAction> onSelectedAction;
 
@@ -1703,100 +1720,7 @@ class _DepositOrderTile extends StatelessWidget {
       : item.isCancelled
         ? 'Anulado'
         : 'Solicitado';
-    return InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
-        child: Row(
-          children: [
-            Expanded(
-              flex: 3,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          item.bankName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.w900,
-                              ),
-                        ),
-                      ),
-                      if (item.isCorrection)
-                        Container(
-                          margin: const EdgeInsets.only(left: 8),
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFE0F2FE),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: const Text(
-                            'Corrección',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFF075985),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    item.bankAccount ?? 'Cuenta sin indicar',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: const Color(0xFF64748B),
-                        ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              flex: 2,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    responsibleName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '$roleLabel · ${item.status.label}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: statusColor,
-                          fontWeight: FontWeight.w800,
-                        ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                money.format(item.depositTotal),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.end,
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w900,
-                    ),
-              ),
-            ),
-            PopupMenuButton<_DepositTileMenuAction>(
+    final menuButton = PopupMenuButton<_DepositTileMenuAction>(
               tooltip: 'Más acciones',
               onSelected: onSelectedAction,
               itemBuilder: (context) => [
@@ -1822,7 +1746,7 @@ class _DepositOrderTile extends StatelessWidget {
                       label: 'Ver voucher',
                     ),
                   ),
-                if (isAdmin)
+                if (canUploadVoucher && item.isPending)
                   PopupMenuItem(
                     value: _DepositTileMenuAction.uploadVoucher,
                     child: _DepositMenuItem(
@@ -1866,10 +1790,162 @@ class _DepositOrderTile extends StatelessWidget {
                 padding: EdgeInsets.all(8),
                 child: Icon(Icons.more_vert_rounded),
               ),
-            ),
-          ],
-        ),
-      ),
+            );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 760;
+        return InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+            child: compact
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              item.bankName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                            ),
+                          ),
+                          menuButton,
+                        ],
+                      ),
+                      Text(
+                        item.bankAccount ?? 'Cuenta sin indicar',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: const Color(0xFF64748B),
+                            ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              '$responsibleName · $roleLabel',
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: statusColor,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            money.format(item.depositTotal),
+                            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                  fontWeight: FontWeight.w900,
+                                ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  )
+                : Row(
+                    children: [
+                      Expanded(
+                        flex: 3,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    item.bankName,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                          fontWeight: FontWeight.w900,
+                                        ),
+                                  ),
+                                ),
+                                if (item.isCorrection)
+                                  Container(
+                                    margin: const EdgeInsets.only(left: 8),
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFE0F2FE),
+                                      borderRadius: BorderRadius.circular(999),
+                                    ),
+                                    child: const Text(
+                                      'Corrección',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w700,
+                                        color: Color(0xFF075985),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              item.bankAccount ?? 'Cuenta sin indicar',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: const Color(0xFF64748B),
+                                  ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        flex: 2,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              responsibleName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '$roleLabel · ${item.status.label}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: statusColor,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          money.format(item.depositTotal),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.end,
+                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w900,
+                              ),
+                        ),
+                      ),
+                      menuButton,
+                    ],
+                  ),
+          ),
+        );
+      },
     );
   }
 }
