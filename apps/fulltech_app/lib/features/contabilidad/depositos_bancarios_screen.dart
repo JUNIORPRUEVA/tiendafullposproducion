@@ -27,6 +27,7 @@ enum _DepositTileMenuAction {
   uploadVoucher,
   approve,
   cancel,
+  delete,
   edit,
   correct,
 }
@@ -691,6 +692,42 @@ class _DepositosBancariosScreenState
     }
   }
 
+  Future<void> _confirmPermanentDelete(DepositOrderModel item) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Eliminar depósito'),
+        content: Text(
+          'Vas a eliminar de forma permanente el depósito de ${_money.format(item.depositTotal)}. Esta acción no se puede deshacer.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFB91C1C)),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await ref.read(contabilidadRepositoryProvider).deleteDepositOrder(item.id);
+      if (!mounted) return;
+      setState(() {
+        _orders = _orders.where((row) => row.id != item.id).toList(growable: false);
+      });
+      await _showSnack('Depósito eliminado correctamente.');
+    } catch (e) {
+      await _showSnack('No se pudo eliminar el depósito: $e');
+    }
+  }
+
   Future<void> _uploadVoucher(DepositOrderModel item) async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
@@ -1083,6 +1120,15 @@ class _DepositosBancariosScreenState
                                     icon: const Icon(Icons.block_outlined),
                                     label: const Text('Rechazar/Anular'),
                                   ),
+                                if (_isAdmin)
+                                  OutlinedButton.icon(
+                                    onPressed: () {
+                                      Navigator.pop(dialogContext);
+                                      _confirmPermanentDelete(fresh);
+                                    },
+                                    icon: const Icon(Icons.delete_forever_outlined),
+                                    label: const Text('Eliminar definitivo'),
+                                  ),
                                 FilledButton.tonalIcon(
                                   onPressed: () {
                                     Navigator.pop(dialogContext);
@@ -1255,6 +1301,9 @@ class _DepositosBancariosScreenState
       case _DepositTileMenuAction.cancel:
         await _confirmDelete(item);
         break;
+      case _DepositTileMenuAction.delete:
+        await _confirmPermanentDelete(item);
+        break;
       case _DepositTileMenuAction.edit:
         await _openEditor(initial: item);
         break;
@@ -1380,7 +1429,7 @@ class _DepositosBancariosScreenState
       body: RefreshIndicator(
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 88),
           children: [
             if (_isAssistant) ...[
               const _AssistantNoticeCard(),
@@ -1784,6 +1833,14 @@ class _DepositOrderTile extends StatelessWidget {
                       label: 'Rechazar/Anular',
                     ),
                   ),
+                if (isAdmin)
+                  const PopupMenuItem(
+                    value: _DepositTileMenuAction.delete,
+                    child: _DepositMenuItem(
+                      icon: Icons.delete_forever_outlined,
+                      label: 'Eliminar definitivamente',
+                    ),
+                  ),
                 if (isAdmin && item.isPending)
                   const PopupMenuItem(
                     value: _DepositTileMenuAction.edit,
@@ -1806,65 +1863,136 @@ class _DepositOrderTile extends StatelessWidget {
               ),
             );
 
+    final dateFmt = DateFormat('dd/MM/yy');
+    const correctionAccent = Color(0xFF0369A1);
+    final correctionBadge = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: const Color(0xFFE0F2FE),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0xFF7DD3FC)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: const [
+          Icon(Icons.content_copy_outlined, size: 10, color: Color(0xFF075985)),
+          SizedBox(width: 3),
+          Text(
+            'Corrección',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF075985),
+            ),
+          ),
+        ],
+      ),
+    );
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final compact = constraints.maxWidth < 760;
         return InkWell(
           onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
-            child: compact
-                ? Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
+          child: Stack(
+            children: [
+              Padding(
+                padding: EdgeInsets.fromLTRB(
+                  item.isCorrection ? 19 : 16,
+                  12,
+                  8,
+                  12,
+                ),
+                child: compact
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Expanded(
-                            child: Text(
-                              item.bankName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                            ),
+                          // Row 1: bank name + correction badge + menu
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  item.bankName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                ),
+                              ),
+                              if (item.isCorrection) ...[
+                                const SizedBox(width: 6),
+                                correctionBadge,
+                              ],
+                              menuButton,
+                            ],
                           ),
-                          menuButton,
-                        ],
-                      ),
-                      Text(
-                        item.bankAccount ?? 'Cuenta sin indicar',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: const Color(0xFF64748B),
+                          if ((item.bankAccount ?? '').trim().isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 1),
+                              child: Text(
+                                item.bankAccount!,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: const Color(0xFF64748B),
+                                    ),
+                              ),
                             ),
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              '$responsibleName · $roleLabel',
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          const SizedBox(height: 8),
+                          // Row 2: status chip + date | amount
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: statusColor.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(999),
+                                  border: Border.all(
+                                    color: statusColor.withValues(alpha: 0.35),
+                                  ),
+                                ),
+                                child: Text(
+                                  item.status.label,
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w700,
                                     color: statusColor,
-                                    fontWeight: FontWeight.w800,
                                   ),
-                            ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                dateFmt.format(item.windowFrom),
+                                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: const Color(0xFF94A3B8),
+                                    ),
+                              ),
+                              const Spacer(),
+                              Text(
+                                money.format(item.depositTotal),
+                                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(width: 8),
+                          const SizedBox(height: 3),
+                          // Row 3: responsible
                           Text(
-                            money.format(item.depositTotal),
-                            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                                  fontWeight: FontWeight.w900,
+                            '$roleLabel: $responsibleName',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                  color: const Color(0xFF64748B),
                                 ),
                           ),
                         ],
-                      ),
-                    ],
-                  )
+                      )
                 : Row(
                     children: [
                       Expanded(
@@ -1884,23 +2012,10 @@ class _DepositOrderTile extends StatelessWidget {
                                         ),
                                   ),
                                 ),
-                                if (item.isCorrection)
-                                  Container(
-                                    margin: const EdgeInsets.only(left: 8),
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFE0F2FE),
-                                      borderRadius: BorderRadius.circular(999),
-                                    ),
-                                    child: const Text(
-                                      'Corrección',
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w700,
-                                        color: Color(0xFF075985),
-                                      ),
-                                    ),
-                                  ),
+                                if (item.isCorrection) ...[
+                                  const SizedBox(width: 8),
+                                  correctionBadge,
+                                ],
                               ],
                             ),
                             const SizedBox(height: 2),
@@ -1957,6 +2072,25 @@ class _DepositOrderTile extends StatelessWidget {
                       menuButton,
                     ],
                   ),
+              ),
+              // Left accent bar for corrections
+              if (item.isCorrection)
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  child: Container(
+                    width: 3,
+                    decoration: const BoxDecoration(
+                      color: correctionAccent,
+                      borderRadius: BorderRadius.only(
+                        topLeft: Radius.circular(2),
+                        bottomLeft: Radius.circular(2),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
           ),
         );
       },

@@ -2295,13 +2295,26 @@ export class ContabilidadService {
 
     const existing = await this.prisma.depositOrder.findUnique({
       where: { id },
+      select: { id: true },
     });
     if (!existing)
       throw new NotFoundException('Depósito bancario no encontrado');
 
-    throw new BadRequestException(
-      'Los depósitos bancarios auditables no se eliminan físicamente. Usa anular con motivo.',
-    );
+    const correctionCount = await this.prisma.depositOrder.count({
+      where: { correctionOfDepositOrderId: id },
+    });
+    if (correctionCount > 0) {
+      throw new BadRequestException(
+        'No puedes eliminar este depósito porque tiene correcciones vinculadas. Elimina primero las correcciones.',
+      );
+    }
+
+    await this.prisma.depositOrder.delete({ where: { id } });
+
+    return {
+      ok: true,
+      message: 'Depósito eliminado correctamente.',
+    };
   }
 
   async createFiscalInvoice(dto: CreateFiscalInvoiceDto, actor: Actor) {
