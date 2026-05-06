@@ -1,4 +1,5 @@
-﻿import 'dart:convert';
+﻿import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -121,6 +122,12 @@ class PublicidadController extends StateNotifier<PublicidadState> {
   }
 
   final MarketingApi _api;
+  static const Duration _imagePollInterval = Duration(seconds: 4);
+  static const Duration _imagePollTimeout = Duration(minutes: 2);
+  Future<void>? _imagePollingTask;
+  DateTime? _imagePollingDeadline;
+  final Set<String> _pollingStoryIds = <String>{};
+  bool _disposed = false;
 
   Future<void> loadInitial() async {
     await _refresh(keepLoading: true);
@@ -512,6 +519,7 @@ class PublicidadController extends StateNotifier<PublicidadState> {
         publishedAssets: publishedAssets,
         error: softError,
       );
+      _syncImagePollingWithStories(stories);
     } catch (error) {
       state = state.copyWith(
         loading: false,
@@ -522,6 +530,113 @@ class PublicidadController extends StateNotifier<PublicidadState> {
         ),
       );
     }
+  }
+
+  void _syncImagePollingWithStories(List<MarketingStory> stories) {
+    final activeIds = _activeImageStoryIds(stories);
+    if (activeIds.isNotEmpty) {
+      _ensureStoryImagePolling(activeIds);
+      return;
+    }
+
+    if (state.imageBusyStoryIds.isEmpty) {
+      return;
+    }
+
+    final nextBusy = {...state.imageBusyStoryIds}
+      ..removeWhere((storyId) => !_storyHasActiveImageStatus(storyId, stories));
+    if (!_sameStringSet(nextBusy, state.imageBusyStoryIds)) {
+      state = state.copyWith(imageBusyStoryIds: nextBusy);
+    }
+  }
+
+  void _ensureStoryImagePolling(Set<String> storyIds) {
+    final normalized = storyIds.map((item) => item.trim()).where((item) => item.isNotEmpty).toSet();
+    if (normalized.isEmpty) {
+      return;
+    }
+
+    final newIds = normalized.difference(_pollingStoryIds);
+    _pollingStoryIds.addAll(normalized);
+    if (newIds.isNotEmpty || _imagePollingTask == null) {
+      _imagePollingDeadline = DateTime.now().add(_imagePollTimeout);
+    }
+
+    final nextBusy = {...state.imageBusyStoryIds, ...normalized};
+    if (!_sameStringSet(nextBusy, state.imageBusyStoryIds)) {
+      state = state.copyWith(imageBusyStoryIds: nextBusy);
+    }
+
+    _imagePollingTask ??= _runImagePolling();
+  }
+
+  Future<void> _runImagePolling() async {
+    try {
+      while (!_disposed && _pollingStoryIds.isNotEmpty) {
+        final deadline = _imagePollingDeadline;
+        if (deadline == null || DateTime.now().isAfter(deadline)) {
+          final timedOutIds = {..._pollingStoryIds};
+          _pollingStoryIds.clear();
+          state = state.copyWith(
+            imageBusyStoryIds: {...state.imageBusyStoryIds}..removeAll(timedOutIds),
+            error: 'La imagen sigue en proceso. Actualiza en unos momentos si todavía no aparece.',
+          );
+          break;
+        }
+
+        await Future<void>.delayed(_imagePollInterval);
+        if (_disposed || _pollingStoryIds.isEmpty) {
+          break;
+        }
+
+        await _refresh(keepLoading: false);
+
+        final activeIds = _activeImageStoryIds(state.dailyStories);
+        _pollingStoryIds.removeWhere((storyId) => !activeIds.contains(storyId));
+
+        final nextBusy = {...state.imageBusyStoryIds}
+          ..removeWhere((storyId) => !_pollingStoryIds.contains(storyId))
+          ..addAll(_pollingStoryIds);
+        if (!_sameStringSet(nextBusy, state.imageBusyStoryIds)) {
+          state = state.copyWith(imageBusyStoryIds: nextBusy);
+        }
+      }
+    } finally {
+      _imagePollingTask = null;
+    }
+  }
+
+  Set<String> _activeImageStoryIds(List<MarketingStory> stories) {
+    return stories
+        .where((story) => _isActiveImageStatus(story.imageStatus))
+        .map((story) => story.id)
+        .toSet();
+  }
+
+  bool _storyHasActiveImageStatus(String storyId, List<MarketingStory> stories) {
+    for (final story in stories) {
+      if (story.id == storyId) {
+        return _isActiveImageStatus(story.imageStatus);
+      }
+    }
+    return false;
+  }
+
+  bool _isActiveImageStatus(MarketingImageStatus status) {
+    return status == MarketingImageStatus.queued ||
+        status == MarketingImageStatus.processing;
+  }
+
+  bool _sameStringSet(Set<String> left, Set<String> right) {
+    if (left.length != right.length) {
+      return false;
+    }
+    for (final value in left) {
+      if (!right.contains(value)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   Future<void> _runBusy(Future<void> Function() task) async {
@@ -576,7 +691,11 @@ class PublicidadController extends StateNotifier<PublicidadState> {
       state = state.copyWith(error: message, imageBusyStoryIds: {...state.imageBusyStoryIds}..remove(storyId));
       rethrow;
     }
-    state = state.copyWith(imageBusyStoryIds: {...state.imageBusyStoryIds}..remove(storyId));
+    final busyIds = {...state.imageBusyStoryIds};
+    if (!_storyHasActiveImageStatus(storyId, state.dailyStories)) {
+      busyIds.remove(storyId);
+    }
+    state = state.copyWith(imageBusyStoryIds: busyIds);
   }
 
   String _friendlyError(Object error, {required String fallback}) {
@@ -647,6 +766,13 @@ class PublicidadController extends StateNotifier<PublicidadState> {
         .map((type) => byType[type])
         .whereType<MarketingStory>()
         .toList(growable: false);
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _pollingStoryIds.clear();
+    super.dispose();
   }
 }
 
@@ -1468,6 +1594,8 @@ class _StoryCard extends StatelessWidget {
             _MetaChip(label: 'Tipo', value: _storyTypeShort(story.type)),
             const SizedBox(width: 8),
             _StatusPill(status: story.status),
+            const SizedBox(width: 8),
+            _ImageStatusPill(status: story.imageStatus),
             if (approved) ...[
               const SizedBox(width: 8),
               const Icon(Icons.verified_rounded, color: Color(0xFF16A34A), size: 20),
@@ -1493,14 +1621,14 @@ class _StoryCard extends StatelessWidget {
                 label: 'Preview final listo para publicar',
                 imageUrl: finalImage,
                 story: story,
-                fallbackLabel: imageBusy ? 'Generando imagen...' : 'Genera imagen para este anuncio',
+                fallbackLabel: _imageFallbackLabel(story, imageBusy),
                 showLabel: false,
                 showApprovedBadge: approved,
               ),
             ),
           ),
         ),
-        if (imageBusy)
+        if (imageBusy || _isImageStatusLoading(story.imageStatus))
           const Padding(
             padding: EdgeInsets.only(top: 8),
             child: LinearProgressIndicator(minHeight: 3),
@@ -1510,9 +1638,11 @@ class _StoryCard extends StatelessWidget {
           Align(
             alignment: Alignment.center,
             child: OutlinedButton.icon(
-              onPressed: busy || imageBusy ? null : onRegenerateImage,
+              onPressed: busy || imageBusy || _isImageStatusLoading(story.imageStatus)
+                  ? null
+                  : onRegenerateImage,
               icon: const Icon(Icons.auto_fix_high_rounded, size: 18),
-              label: Text(imageBusy ? 'Generando...' : 'Generar imagen'),
+              label: Text(_imageActionLabel(story, imageBusy)),
             ),
           ),
         ],
@@ -1718,6 +1848,104 @@ class _StoryCard extends StatelessWidget {
   String _resolveFinalImage(MarketingStory story) {
     return _resolveFinalImageUrl(story);
   }
+}
+
+class _ImageStatusPill extends StatelessWidget {
+  const _ImageStatusPill({required this.status});
+
+  final MarketingImageStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    late final Color background;
+    late final Color foreground;
+
+    switch (status) {
+      case MarketingImageStatus.queued:
+        background = const Color(0xFFFFF3C4);
+        foreground = const Color(0xFF92400E);
+        break;
+      case MarketingImageStatus.processing:
+        background = const Color(0xFFDBEAFE);
+        foreground = const Color(0xFF1D4ED8);
+        break;
+      case MarketingImageStatus.generated:
+        background = const Color(0xFFDCFCE7);
+        foreground = const Color(0xFF166534);
+        break;
+      case MarketingImageStatus.failed:
+        background = const Color(0xFFFEE2E2);
+        foreground = const Color(0xFFB91C1C);
+        break;
+      case MarketingImageStatus.pending:
+        background = scheme.surfaceContainerHighest;
+        foreground = scheme.onSurfaceVariant;
+        break;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        _imageStatusLabel(status),
+        style: TextStyle(
+          color: foreground,
+          fontSize: 12,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
+String _imageStatusLabel(MarketingImageStatus status) {
+  switch (status) {
+    case MarketingImageStatus.queued:
+      return 'Imagen en cola';
+    case MarketingImageStatus.processing:
+      return 'Generando imagen...';
+    case MarketingImageStatus.generated:
+      return 'Imagen lista';
+    case MarketingImageStatus.failed:
+      return 'Falló la imagen';
+    case MarketingImageStatus.pending:
+      return 'Pendiente';
+  }
+}
+
+bool _isImageStatusLoading(MarketingImageStatus status) {
+  return status == MarketingImageStatus.queued ||
+      status == MarketingImageStatus.processing;
+}
+
+String _imageFallbackLabel(MarketingStory story, bool imageBusy) {
+  if (imageBusy || story.imageStatus == MarketingImageStatus.processing) {
+    return 'Generando imagen...';
+  }
+  if (story.imageStatus == MarketingImageStatus.queued) {
+    return 'Imagen en cola';
+  }
+  if (story.imageStatus == MarketingImageStatus.failed) {
+    return 'La imagen falló. Reintenta.';
+  }
+  return 'Genera imagen para este anuncio';
+}
+
+String _imageActionLabel(MarketingStory story, bool imageBusy) {
+  if (imageBusy || story.imageStatus == MarketingImageStatus.processing) {
+    return 'Generando imagen...';
+  }
+  if (story.imageStatus == MarketingImageStatus.queued) {
+    return 'Imagen en cola';
+  }
+  if (story.imageStatus == MarketingImageStatus.failed) {
+    return 'Reintentar imagen';
+  }
+  return 'Generar imagen';
 }
 
 class _StoryPreviewFrame extends StatelessWidget {

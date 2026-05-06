@@ -51,9 +51,9 @@ enum MarketingStoryStatus { pending, approved, rejected, regenerated }
 
 enum MarketingImageStatus {
   pending,
-  pendingMedia,
+  queued,
+  processing,
   generated,
-  generatedPlaceholder,
   failed,
 }
 
@@ -88,14 +88,15 @@ MarketingStoryStatus parseStoryStatus(String? value) {
 MarketingImageStatus parseImageStatus(String? value) {
   final normalized = (value ?? '').trim().toUpperCase();
   switch (normalized) {
-    case 'PENDING_MEDIA':
-      return MarketingImageStatus.pendingMedia;
+    case 'QUEUED':
+      return MarketingImageStatus.queued;
+    case 'PROCESSING':
+      return MarketingImageStatus.processing;
     case 'GENERATED':
       return MarketingImageStatus.generated;
-    case 'GENERATED_PLACEHOLDER':
-      return MarketingImageStatus.generatedPlaceholder;
     case 'FAILED':
       return MarketingImageStatus.failed;
+    case 'PENDING_MEDIA':
     case 'PENDING':
     default:
       return MarketingImageStatus.pending;
