@@ -46,6 +46,15 @@ export class MarketingImageGenerationService {
     const apiKey = await this.resolveOpenAiApiKey();
     if (apiKey) {
       try {
+        const edited = await this.generateWithGptImageEdit(input, prompt, apiKey);
+        if (edited) return edited;
+      } catch (error) {
+        this.logger.warn(
+          `GPT Image edit failed, trying DALL-E 3 fallback: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+
+      try {
         const result = await this.generateWithDallE3(input, prompt, apiKey);
         if (result) return result;
       } catch (error) {
@@ -72,6 +81,92 @@ export class MarketingImageGenerationService {
         serviceOrProduct: input.serviceOrProduct,
         headline: this.truncate(input.title, 72),
         cta: this.truncate(input.cta, 44),
+      },
+    };
+  }
+
+  private async generateWithGptImageEdit(
+    input: ImageGenerationInput,
+    prompt: string,
+    apiKey: string,
+  ): Promise<ImageGenerationResult | null> {
+    const baseImageUrl = (input.baseImageUrl || '').trim();
+    if (!baseImageUrl.startsWith('http://') && !baseImageUrl.startsWith('https://')) {
+      return null;
+    }
+
+    const baseResponse = await fetch(baseImageUrl);
+    if (!baseResponse.ok) {
+      throw new Error(`Cannot download base image: HTTP ${baseResponse.status}`);
+    }
+
+    const baseBuffer = Buffer.from(await baseResponse.arrayBuffer());
+    if (baseBuffer.length === 0) {
+      throw new Error('Base image downloaded with zero bytes');
+    }
+
+    const baseContentType = `${baseResponse.headers.get('content-type') ?? ''}`.toLowerCase().includes('png')
+      ? 'image/png'
+      : `${baseResponse.headers.get('content-type') ?? ''}`.toLowerCase().includes('webp')
+        ? 'image/webp'
+        : 'image/jpeg';
+    const baseExt = baseContentType === 'image/png' ? 'png' : baseContentType === 'image/webp' ? 'webp' : 'jpg';
+
+    const formData = new FormData();
+    formData.append('model', 'gpt-image-1');
+    formData.append('prompt', this.buildGptImagePrompt(input));
+    formData.append('size', '1024x1792');
+    formData.append('quality', 'high');
+    formData.append('image', new Blob([baseBuffer], { type: baseContentType }), `base.${baseExt}`);
+
+    const response = await fetch('https://api.openai.com/v1/images/edits', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      throw new Error(`GPT Image edit HTTP ${response.status}: ${errorText.slice(0, 300)}`);
+    }
+
+    const payload = (await response.json()) as {
+      data?: Array<{ b64_json?: string; url?: string }>;
+    };
+
+    const edited = payload.data?.[0];
+    const b64 = `${edited?.b64_json ?? ''}`.trim();
+    const url = `${edited?.url ?? ''}`.trim();
+    if (!b64 && !url) {
+      throw new Error('GPT Image edit returned no image content');
+    }
+
+    let finalUrl = '';
+    if (b64) {
+      const bytes = Buffer.from(b64, 'base64');
+      finalUrl = await this.uploadGeneratedImage(bytes, input, 'image/png');
+    } else {
+      finalUrl = await this.downloadAndUploadToR2(url, input);
+    }
+
+    return {
+      imageStatus: 'GENERATED',
+      generatedImageUrl: finalUrl,
+      generatedImageProvider: 'openai/gpt-image-1-edit',
+      prompt,
+      visualConcept: input.visualConcept,
+      designNotes: input.designNotes,
+      metadata: {
+        mode: 'gpt-image-1-edit',
+        model: 'gpt-image-1',
+        size: '1024x1792',
+        quality: 'high',
+        baseImageUrl: input.baseImageUrl,
+        format: '9:16',
+        category: input.imageCategory,
+        serviceOrProduct: input.serviceOrProduct,
       },
     };
   }
@@ -149,17 +244,54 @@ export class MarketingImageGenerationService {
     }
 
     const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+    const contentType = this.normalizeContentType(`${imageResponse.headers.get('content-type') ?? ''}`);
+    return this.uploadGeneratedImage(imageBuffer, input, contentType);
+  }
+
+  private async uploadGeneratedImage(
+    imageBuffer: Buffer,
+    input: ImageGenerationInput,
+    contentType: string,
+  ): Promise<string> {
     const timestamp = Date.now();
     const slug = this.slugify(input.serviceOrProduct || input.imageCategory || 'publicidad');
-    const objectKey = `marketing/generated/${slug}-${timestamp}.jpg`;
+    const extension = contentType.includes('png') ? 'png' : contentType.includes('webp') ? 'webp' : 'jpg';
+    const objectKey = `marketing/generated/${slug}-${timestamp}.${extension}`;
 
     await this.r2.putObject({
       objectKey,
       body: imageBuffer,
-      contentType: 'image/jpeg',
+      contentType,
     });
 
     return this.r2.buildPublicUrl(objectKey);
+  }
+
+  private normalizeContentType(raw: string) {
+    const value = `${raw || ''}`.toLowerCase();
+    if (value.includes('png')) return 'image/png';
+    if (value.includes('webp')) return 'image/webp';
+    return 'image/jpeg';
+  }
+
+  private buildGptImagePrompt(input: ImageGenerationInput) {
+    const colors = input.brandColors.length > 0 ? input.brandColors.join(', ') : 'azul marino, blanco, cian';
+    const service = input.serviceOrProduct || input.imageCategory || 'solución de seguridad y tecnología';
+    const title = this.truncate(input.title, 72);
+    const cta = this.truncate(input.cta, 44);
+
+    return [
+      `Edit this base image to create a premium vertical 9:16 social story advertisement for FULLTECH (${input.city}, ${input.country}).`,
+      `Keep the original product/service identity recognizable and realistic: ${service}.`,
+      'Visual direction: premium commercial campaign, clean background, realistic lighting, soft shadows, modern composition, high depth and contrast.',
+      `Brand palette: ${colors}.`,
+      `Story objective: ${input.visualConcept}.`,
+      `Design notes: ${input.designNotes}.`,
+      `Sales angle: ${input.usedResearchAngle}.`,
+      'Do not produce cartoon style. Do not overload elements. Keep mobile readability and ad-grade realism.',
+      `Suggested headline context: ${title}.`,
+      `Suggested CTA context: ${cta}.`,
+    ].join(' ');
   }
 
   private async resolveOpenAiApiKey(): Promise<string | null> {

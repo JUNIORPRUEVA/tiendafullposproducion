@@ -440,6 +440,7 @@ class PublicidadController extends StateNotifier<PublicidadState> {
 
       try {
         stories = await _api.loadStories(date);
+        stories = _normalizeDailyStories(stories);
       } catch (error) {
         softError = _friendlyError(
           error,
@@ -596,6 +597,36 @@ class PublicidadController extends StateNotifier<PublicidadState> {
         return 'image/jpeg';
     }
   }
+
+  List<MarketingStory> _normalizeDailyStories(List<MarketingStory> stories) {
+    if (stories.isEmpty) return stories;
+
+    final byType = <MarketingStoryType, MarketingStory>{};
+    for (final item in stories) {
+      final current = byType[item.type];
+      if (current == null) {
+        byType[item.type] = item;
+        continue;
+      }
+
+      final currentStamp = current.updatedAt ?? current.date;
+      final nextStamp = item.updatedAt ?? item.date;
+      if (nextStamp.isAfter(currentStamp)) {
+        byType[item.type] = item;
+      }
+    }
+
+    const order = [
+      MarketingStoryType.sales,
+      MarketingStoryType.trust,
+      MarketingStoryType.educational,
+    ];
+
+    return order
+        .map((type) => byType[type])
+        .whereType<MarketingStory>()
+        .toList(growable: false);
+  }
 }
 
 class PublicidadScreen extends ConsumerStatefulWidget {
@@ -687,6 +718,7 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
 
     final state = ref.watch(publicidadControllerProvider);
     final controller = ref.read(publicidadControllerProvider.notifier);
+    final activeStories = _limitToThreeStoryTypes(state.dailyStories);
     final scheme = Theme.of(context).colorScheme;
 
     return Scaffold(
@@ -731,7 +763,7 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
                             if (_tab == _PublicidadTab.dashboard)
                               _DashboardTab(
                                 state: state,
-                                stories: state.dailyStories,
+                                stories: activeStories,
                                 mediaAssets: state.mediaAssets,
                                 researches: state.researchHistory,
                                 onActivate: controller.activateFlow,
@@ -764,7 +796,7 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
                               ),
                             if (_tab == _PublicidadTab.estados)
                               _DailyStoriesTab(
-                                stories: state.dailyStories,
+                                stories: activeStories,
                                 mediaAssets: state.mediaAssets,
                                 researches: state.researchHistory,
                                 busy: state.busy,
@@ -802,6 +834,34 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
         ),
       ),
     );
+  }
+
+  List<MarketingStory> _limitToThreeStoryTypes(List<MarketingStory> stories) {
+    if (stories.length <= 3) return stories;
+
+    final byType = <MarketingStoryType, MarketingStory>{};
+    for (final item in stories) {
+      final current = byType[item.type];
+      if (current == null) {
+        byType[item.type] = item;
+        continue;
+      }
+      final currentStamp = current.updatedAt ?? current.date;
+      final nextStamp = item.updatedAt ?? item.date;
+      if (nextStamp.isAfter(currentStamp)) {
+        byType[item.type] = item;
+      }
+    }
+
+    const order = [
+      MarketingStoryType.sales,
+      MarketingStoryType.trust,
+      MarketingStoryType.educational,
+    ];
+    return order
+        .map((type) => byType[type])
+        .whereType<MarketingStory>()
+        .toList(growable: false);
   }
 }
 
@@ -3441,28 +3501,53 @@ String _safeImageUrl(String? raw) {
 
 String _resolveFinalImageUrl(MarketingStory story) {
   final generated = _safeImageUrl(story.generatedImageUrl);
-  if (generated.isNotEmpty) return generated;
+  if (generated.isNotEmpty) {
+    return _appendCacheVersion(generated, story.updatedAt ?? story.date);
+  }
 
   final storyImage = _safeImageUrl(story.imageUrl);
-  if (storyImage.isNotEmpty) return storyImage;
+  if (storyImage.isNotEmpty) {
+    return _appendCacheVersion(storyImage, story.updatedAt ?? story.date);
+  }
 
   final assetFile = _safeImageUrl(story.mediaAsset?.fileUrl);
-  if (assetFile.isNotEmpty) return assetFile;
+  if (assetFile.isNotEmpty) {
+    return _appendCacheVersion(assetFile, story.updatedAt ?? story.date);
+  }
 
   final assetThumb = _safeImageUrl(story.mediaAsset?.thumbnailUrl);
-  if (assetThumb.isNotEmpty) return assetThumb;
+  if (assetThumb.isNotEmpty) {
+    return _appendCacheVersion(assetThumb, story.updatedAt ?? story.date);
+  }
 
   return '';
 }
 
 String _resolveBaseImageUrl(MarketingStory story) {
   final assetFile = _safeImageUrl(story.mediaAsset?.fileUrl);
-  if (assetFile.isNotEmpty) return assetFile;
+  if (assetFile.isNotEmpty) {
+    return _appendCacheVersion(assetFile, story.updatedAt ?? story.date);
+  }
 
   final assetThumb = _safeImageUrl(story.mediaAsset?.thumbnailUrl);
-  if (assetThumb.isNotEmpty) return assetThumb;
+  if (assetThumb.isNotEmpty) {
+    return _appendCacheVersion(assetThumb, story.updatedAt ?? story.date);
+  }
 
-  return _safeImageUrl(story.imageUrl);
+  return _appendCacheVersion(_safeImageUrl(story.imageUrl), story.updatedAt ?? story.date);
+}
+
+String _appendCacheVersion(String url, DateTime? versionDate) {
+  if (url.isEmpty) return '';
+  if (!url.startsWith('http://') && !url.startsWith('https://')) return url;
+
+  final version = (versionDate ?? DateTime.now()).millisecondsSinceEpoch;
+  final uri = Uri.tryParse(url);
+  if (uri == null) return url;
+
+  final updatedQuery = Map<String, String>.from(uri.queryParameters)
+    ..['v'] = '$version';
+  return uri.replace(queryParameters: updatedQuery).toString();
 }
 
 String _formatDate(DateTime? value) {

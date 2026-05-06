@@ -259,6 +259,9 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
   final _msgController = TextEditingController();
   final _scrollController = ScrollController();
   final _conversationScrollController = ScrollController();
+  late final WaCrmController _waCrmNotifier;
+  late final StateController<DesktopShellRouteActions?> _desktopShellActions;
+  late final OperationsRealtimeService _realtimeService;
   ProviderSubscription<WaCrmState>? _waCrmSubscription;
   StreamSubscription<Map<String, dynamic>>? _whatsappSub;
   Timer? _autoRefreshTimer;
@@ -274,6 +277,9 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
   @override
   void initState() {
     super.initState();
+    _waCrmNotifier = ref.read(waCrmControllerProvider.notifier);
+    _desktopShellActions = ref.read(desktopShellRouteActionsProvider.notifier);
+    _realtimeService = ref.read(operationsRealtimeServiceProvider);
     _scrollController.addListener(_handleChatScroll);
     _waCrmSubscription = ref.listenManual<WaCrmState>(waCrmControllerProvider, (
       prev,
@@ -313,17 +319,16 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
         );
         return;
       }
-      ref.read(waCrmControllerProvider.notifier).loadUsers();
+      _waCrmNotifier.loadUsers();
       _listenRealtime();
       _startAutoRefresh();
     });
   }
 
   void _listenRealtime() {
-    final realtimeSvc = ref.read(operationsRealtimeServiceProvider);
-    _whatsappSub = realtimeSvc.whatsappStream.listen((data) {
+    _whatsappSub = _realtimeService.whatsappStream.listen((data) {
       if (!mounted) return;
-      ref.read(waCrmControllerProvider.notifier).handleRealtimeMessage(data);
+      _waCrmNotifier.handleRealtimeMessage(data);
     });
   }
 
@@ -340,7 +345,7 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
       }
       _autoRefreshInFlight = true;
       try {
-        await ref.read(waCrmControllerProvider.notifier).refreshActiveView();
+        await _waCrmNotifier.refreshActiveView();
       } finally {
         _autoRefreshInFlight = false;
       }
@@ -349,9 +354,8 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
 
   @override
   void dispose() {
-    final shellActions = ref.read(desktopShellRouteActionsProvider.notifier);
-    if (shellActions.state?.route == Routes.whatsappCrm) {
-      shellActions.state = null;
+    if (_desktopShellActions.state?.route == Routes.whatsappCrm) {
+      _desktopShellActions.state = null;
     }
     _autoRefreshTimer?.cancel();
     _whatsappSub?.cancel();
@@ -377,13 +381,14 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final notifier = ref.read(desktopShellRouteActionsProvider.notifier);
       if (!enabled) {
-        if (notifier.state?.route == Routes.whatsappCrm) notifier.state = null;
+        if (_desktopShellActions.state?.route == Routes.whatsappCrm) {
+          _desktopShellActions.state = null;
+        }
         return;
       }
 
-      notifier.state = DesktopShellRouteActions(
+      _desktopShellActions.state = DesktopShellRouteActions(
         route: Routes.whatsappCrm,
         actions: [
           DesktopShellActionItem(
@@ -416,7 +421,7 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
   }
 
   void _refreshActiveView() {
-    ref.read(waCrmControllerProvider.notifier).refreshActiveView();
+    _waCrmNotifier.refreshActiveView();
   }
 
   bool _isChatNearBottom() {

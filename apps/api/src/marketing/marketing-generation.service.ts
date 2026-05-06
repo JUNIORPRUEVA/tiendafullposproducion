@@ -440,7 +440,7 @@ export class MarketingGenerationService {
       data: {
         mediaAssetId: asset.id,
         imageUrl: normalized.url,
-        generatedImageUrl: normalized.url,
+        generatedImageUrl: null,
         imageStatus: 'PENDING',
       },
       include: {
