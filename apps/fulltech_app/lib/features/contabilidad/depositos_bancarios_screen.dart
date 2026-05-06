@@ -78,7 +78,14 @@ class _DepositosBancariosScreenState
   @override
   void initState() {
     super.initState();
-    Future.microtask(_load);
+    Future.microtask(() async {
+      final isAssist =
+          ref.read(authStateProvider).user?.appRole == AppRole.asistente;
+      if (isAssist && mounted) {
+        setState(() => _viewFilter = _DepositViewFilter.pending);
+      }
+      await _load();
+    });
   }
 
   Future<void> _load() async {
@@ -1318,26 +1325,28 @@ class _DepositosBancariosScreenState
       );
     }
 
-    final summaryPanel = Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _AppBarBackButton(
-          onPressed: () => AppNavigator.goBack(context),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _DepositsSummaryBar(
-            total: _orders.length,
-            pending: pendingCount,
-            executed: executedCount,
-            cancelled: cancelledCount,
-            corrections: correctionCount,
-            depositedTotal: executedTotal,
-            money: _money,
-          ),
-        ),
-      ],
-    );
+    final summaryPanel = _isAssistant
+        ? _AppBarBackButton(onPressed: () => AppNavigator.goBack(context))
+        : Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _AppBarBackButton(
+                onPressed: () => AppNavigator.goBack(context),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _DepositsSummaryBar(
+                  total: _orders.length,
+                  pending: pendingCount,
+                  executed: executedCount,
+                  cancelled: cancelledCount,
+                  corrections: correctionCount,
+                  depositedTotal: executedTotal,
+                  money: _money,
+                ),
+              ),
+            ],
+          );
 
     return Scaffold(
       key: _scaffoldKey,
@@ -1396,6 +1405,7 @@ class _DepositosBancariosScreenState
             _DepositFilterBar(
               currentFilter: _viewFilter,
               onSelected: (filter) => setState(() => _viewFilter = filter),
+              isAdmin: _isAdmin,
             ),
             const SizedBox(height: 12),
             if (_loading)
@@ -1412,9 +1422,13 @@ class _DepositosBancariosScreenState
                 ),
               )
             else if (visibleOrders.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(24),
-                child: Text('No hay depósitos para el filtro seleccionado.'),
+              Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  _isAssistant
+                      ? 'No hay depósitos pendientes por ahora.'
+                      : 'No hay depósitos para el filtro seleccionado.',
+                ),
               )
             else
               Container(
@@ -1996,17 +2010,24 @@ class _DepositFilterBar extends StatelessWidget {
   const _DepositFilterBar({
     required this.currentFilter,
     required this.onSelected,
+    this.isAdmin = false,
   });
 
   final _DepositViewFilter currentFilter;
   final ValueChanged<_DepositViewFilter> onSelected;
+  final bool isAdmin;
 
   @override
   Widget build(BuildContext context) {
+    final filters = isAdmin
+        ? _DepositViewFilter.values
+        : _DepositViewFilter.values
+            .where((f) => f != _DepositViewFilter.executed)
+            .toList(growable: false);
     return Wrap(
       spacing: 8,
       runSpacing: 8,
-      children: _DepositViewFilter.values
+      children: filters
           .map(
             (filter) => ChoiceChip(
               label: Text(filter.label),

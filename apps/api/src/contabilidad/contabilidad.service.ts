@@ -1996,7 +1996,17 @@ export class ContabilidadService {
       const where: Record<string, unknown> = {};
 
       if (!this.isReviewer(actor)) {
-        where.createdById = actor.id;
+        // ASISTENTE: sees ALL open (non-executed) deposits across the company.
+        // Not restricted to own deposits (createdById). EXECUTED is blocked for this role.
+        const requestedStatus = query.status as string | undefined;
+        if (requestedStatus && requestedStatus !== 'EXECUTED') {
+          where.status = requestedStatus;
+        } else {
+          where.status = { not: 'EXECUTED' };
+        }
+      } else if (query.status) {
+        // ADMIN: apply explicit status filter as requested.
+        where.status = query.status;
       }
 
       if (from != null || to != null) {
@@ -2010,10 +2020,6 @@ export class ContabilidadService {
         } else if (to != null) {
           where.windowFrom = { lte: to };
         }
-      }
-
-      if (query.status) {
-        where.status = query.status;
       }
 
       // eslint-disable-next-line no-console
