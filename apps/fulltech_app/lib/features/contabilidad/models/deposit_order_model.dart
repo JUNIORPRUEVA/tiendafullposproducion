@@ -19,7 +19,7 @@ extension DepositOrderStatusX on DepositOrderStatus {
       case DepositOrderStatus.executed:
         return 'Ejecutado';
       case DepositOrderStatus.cancelled:
-        return 'Cancelado';
+        return 'Anulado';
     }
   }
 
@@ -62,6 +62,12 @@ class DepositOrderModel {
     this.executedAt,
     required this.createdAt,
     required this.updatedAt,
+    this.correctionOfDepositOrderId,
+    this.correctionReason,
+    this.deletedAt,
+    this.deletedById,
+    this.deletedByName,
+    this.deletedReason,
   });
 
   final String id;
@@ -86,10 +92,20 @@ class DepositOrderModel {
   final String? executedById;
   final String? executedByName;
   final DateTime? executedAt;
+  final String? correctionOfDepositOrderId;
+  final String? correctionReason;
+  final DateTime? deletedAt;
+  final String? deletedById;
+  final String? deletedByName;
+  final String? deletedReason;
   final DateTime createdAt;
   final DateTime updatedAt;
 
   bool get hasVoucher => (voucherUrl ?? '').trim().isNotEmpty;
+  bool get isPending => status == DepositOrderStatus.pending;
+  bool get isExecuted => status == DepositOrderStatus.executed;
+  bool get isCancelled => status == DepositOrderStatus.cancelled;
+  bool get isCorrection => (correctionOfDepositOrderId ?? '').trim().isNotEmpty;
 
   factory DepositOrderModel.fromJson(Map<String, dynamic> json) {
     return DepositOrderModel(
@@ -117,6 +133,14 @@ class DepositOrderModel {
       executedAt: json['executedAt'] == null
           ? null
           : DateTime.parse(json['executedAt'].toString()),
+      correctionOfDepositOrderId: _nullableString(json['correctionOfDepositOrderId']),
+      correctionReason: _nullableString(json['correctionReason']),
+      deletedAt: json['deletedAt'] == null
+          ? null
+          : DateTime.parse(json['deletedAt'].toString()),
+      deletedById: _nullableString(json['deletedById']),
+      deletedByName: _nullableString(json['deletedByName']),
+      deletedReason: _nullableString(json['deletedReason']),
       createdAt: DateTime.parse(json['createdAt'].toString()),
       updatedAt: DateTime.parse(json['updatedAt'].toString()),
     );

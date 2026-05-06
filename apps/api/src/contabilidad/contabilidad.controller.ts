@@ -38,6 +38,7 @@ import {
 import {
   CreateDepositOrderDto,
   DepositOrdersQueryDto,
+  ReviewDepositOrderDto,
   UpdateDepositOrderDto,
 } from './deposit-order.dto';
 import {
@@ -59,6 +60,7 @@ const CLOSING_ROLES: Role[] = [
   Role.ADMIN,
   Role.ASISTENTE,
 ];
+const DEPOSIT_ROLES: Role[] = [Role.ADMIN, Role.ASISTENTE];
 
 @Controller('contabilidad')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -263,7 +265,7 @@ export class ContabilidadController {
   }
 
   @Post('deposit-orders')
-  @Roles('ADMIN', 'ASISTENTE')
+  @Roles(...DEPOSIT_ROLES)
   async createDepositOrder(
     @Body() dto: CreateDepositOrderDto,
     @Req() req: Request,
@@ -275,15 +277,21 @@ export class ContabilidadController {
   }
 
   @Get('deposit-orders')
-  @Roles('ADMIN', 'ASISTENTE')
-  async getDepositOrders(@Query() query: DepositOrdersQueryDto) {
-    return this.contabilidadService.getDepositOrders(query);
+  @Roles(...DEPOSIT_ROLES)
+  async getDepositOrders(@Query() query: DepositOrdersQueryDto, @Req() req: Request) {
+    return this.contabilidadService.getDepositOrders(
+      query,
+      (req.user ?? {}) as RequestActor,
+    );
   }
 
   @Get('deposit-orders/:id')
-  @Roles('ADMIN', 'ASISTENTE')
-  async getDepositOrderById(@Param('id') id: string) {
-    return this.contabilidadService.getDepositOrderById(id);
+  @Roles(...DEPOSIT_ROLES)
+  async getDepositOrderById(@Param('id') id: string, @Req() req: Request) {
+    return this.contabilidadService.getDepositOrderById(
+      id,
+      (req.user ?? {}) as RequestActor,
+    );
   }
 
   @Put('deposit-orders/:id')
@@ -296,6 +304,34 @@ export class ContabilidadController {
     return this.contabilidadService.updateDepositOrder(
       id,
       dto,
+      (req.user ?? {}) as RequestActor,
+    );
+  }
+
+  @Post('deposit-orders/:id/approve')
+  @Roles(Role.ADMIN)
+  async approveDepositOrder(
+    @Param('id') id: string,
+    @Body() dto: ReviewDepositOrderDto,
+    @Req() req: Request,
+  ) {
+    return this.contabilidadService.approveDepositOrder(
+      id,
+      dto.reviewNote,
+      (req.user ?? {}) as RequestActor,
+    );
+  }
+
+  @Post('deposit-orders/:id/cancel')
+  @Roles(Role.ADMIN)
+  async cancelDepositOrder(
+    @Param('id') id: string,
+    @Body() dto: ReviewDepositOrderDto,
+    @Req() req: Request,
+  ) {
+    return this.contabilidadService.cancelDepositOrder(
+      id,
+      dto.reviewNote,
       (req.user ?? {}) as RequestActor,
     );
   }

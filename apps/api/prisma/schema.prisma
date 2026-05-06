@@ -1444,12 +1444,20 @@ model DepositOrder {
   executedById      String?            @db.Uuid
   executedByName    String?
   executedAt        DateTime?
+  correctionOfDepositOrderId String?   @db.Uuid
+  correctionReason  String?
+  deletedAt         DateTime?
+  deletedById       String?            @db.Uuid
+  deletedByName     String?
+  deletedReason     String?
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
 
   @@index([windowFrom, windowTo])
   @@index([status])
   @@index([createdById])
+  @@index([correctionOfDepositOrderId])
+  @@index([deletedById])
 }
 
 model FiscalInvoice {

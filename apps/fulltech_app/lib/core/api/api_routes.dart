@@ -57,6 +57,10 @@ class ApiRoutes {
   static const contabilidadDepositOrders = '/contabilidad/deposit-orders';
   static String contabilidadDepositOrderDetail(String id) =>
       '/contabilidad/deposit-orders/$id';
+  static String contabilidadDepositOrderApprove(String id) =>
+      '/contabilidad/deposit-orders/$id/approve';
+  static String contabilidadDepositOrderCancel(String id) =>
+      '/contabilidad/deposit-orders/$id/cancel';
   static const contabilidadFiscalInvoices = '/contabilidad/fiscal-invoices';
   static String contabilidadFiscalInvoiceDetail(String id) =>
       '/contabilidad/fiscal-invoices/$id';

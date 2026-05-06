@@ -25,8 +25,29 @@ enum _DepositTileMenuAction {
   pdf,
   voucher,
   uploadVoucher,
+  approve,
+  cancel,
   edit,
-  delete,
+  correct,
+}
+
+enum _DepositViewFilter { all, pending, executed, cancelled, corrections }
+
+extension on _DepositViewFilter {
+  String get label {
+    switch (this) {
+      case _DepositViewFilter.all:
+        return 'Todos';
+      case _DepositViewFilter.pending:
+        return 'Pendientes';
+      case _DepositViewFilter.executed:
+        return 'Ejecutados';
+      case _DepositViewFilter.cancelled:
+        return 'Rechazados/Anulados';
+      case _DepositViewFilter.corrections:
+        return 'Correcciones';
+    }
+  }
 }
 
 class DepositosBancariosScreen extends ConsumerStatefulWidget {
@@ -52,6 +73,7 @@ class _DepositosBancariosScreenState
   List<DepositOrderModel> _orders = const [];
   List<String> _collaborators = const [];
   DateTimeRange? _dateRange;
+  _DepositViewFilter _viewFilter = _DepositViewFilter.all;
 
   @override
   void initState() {
@@ -114,6 +136,31 @@ class _DepositosBancariosScreenState
   }
 
   bool get _isAdmin => ref.read(authStateProvider).user?.appRole.isAdmin ?? false;
+  bool get _isAssistant =>
+      ref.read(authStateProvider).user?.appRole == AppRole.asistente;
+
+  List<DepositOrderModel> _visibleOrders() {
+    switch (_viewFilter) {
+      case _DepositViewFilter.pending:
+        return _orders.where((item) => item.isPending).toList(growable: false);
+      case _DepositViewFilter.executed:
+        return _orders.where((item) => item.isExecuted).toList(growable: false);
+      case _DepositViewFilter.cancelled:
+        return _orders.where((item) => item.isCancelled).toList(growable: false);
+      case _DepositViewFilter.corrections:
+        return _orders.where((item) => item.isCorrection).toList(growable: false);
+      case _DepositViewFilter.all:
+        return _orders;
+    }
+  }
+
+  void _replaceOrder(DepositOrderModel updated) {
+    setState(() {
+      _orders = _orders
+          .map((row) => row.id == updated.id ? updated : row)
+          .toList(growable: false);
+    });
+  }
 
   Future<void> _applyDateRange(DateTimeRange? value) async {
     setState(() {
@@ -141,23 +188,29 @@ class _DepositosBancariosScreenState
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  Future<void> _openEditor({DepositOrderModel? initial}) async {
+  Future<void> _openEditor({
+    DepositOrderModel? initial,
+    DepositOrderModel? correctionOf,
+  }) async {
     if (_collaborators.isEmpty) {
       await _loadCollaborators(forceRefresh: true);
     }
     if (!mounted) return;
 
-    final createdAt = initial?.windowFrom ?? DateTime.now();
+    final source = initial ?? correctionOf;
+    final isCorrection = correctionOf != null && initial == null;
+    final createdAt = source?.windowFrom ?? DateTime.now();
     final dateCtrl = TextEditingController(text: _dateFmt.format(createdAt));
     final amountCtrl = TextEditingController(
-      text: initial == null ? '' : _amountInputFmt.format(initial.depositTotal),
+      text: source == null ? '' : _amountInputFmt.format(source.depositTotal),
     );
-    final noteCtrl = TextEditingController(text: initial?.note ?? '');
+    final noteCtrl = TextEditingController(text: initial?.note ?? correctionOf?.note ?? '');
+    final correctionReasonCtrl = TextEditingController();
 
     var depositDate = createdAt;
-    var selectedBank = _resolveBank(initial?.bankName);
-    var selectedAccount = _resolveAccount(selectedBank, initial?.bankAccount);
-    var selectedCollaborator = _resolveCollaborator(initial?.collaboratorName);
+    var selectedBank = _resolveBank(source?.bankName);
+    var selectedAccount = _resolveAccount(selectedBank, source?.bankAccount);
+    var selectedCollaborator = _resolveCollaborator(source?.collaboratorName);
     var saving = false;
     String? localError;
 
@@ -204,6 +257,12 @@ class _DepositosBancariosScreenState
                 setDialogState(() => localError = 'Indica un monto válido');
                 return;
               }
+              if (isCorrection && correctionReasonCtrl.text.trim().isEmpty) {
+                setDialogState(
+                  () => localError = 'Debes indicar el motivo de la corrección',
+                );
+                return;
+              }
 
               setDialogState(() {
                 saving = true;
@@ -226,6 +285,10 @@ class _DepositosBancariosScreenState
                     closesCountByType: const {'GENERAL': 1},
                     depositByType: {'GENERAL': parsedAmount},
                     accountByType: {'GENERAL': selectedAccount!.label},
+                    correctionOfDepositOrderId: correctionOf?.id,
+                    correctionReason: isCorrection
+                        ? correctionReasonCtrl.text
+                        : null,
                   );
                 } else {
                   await repo.updateDepositOrder(
@@ -247,9 +310,13 @@ class _DepositosBancariosScreenState
                 if (!mounted || !dialogContext.mounted) return;
                 Navigator.of(dialogContext).pop();
                 await _load();
-                await _showSnack(initial == null
-                    ? 'Depósito bancario creado.'
-                    : 'Depósito bancario actualizado.');
+                await _showSnack(
+                  initial == null
+                      ? isCorrection
+                          ? 'Corrección de depósito creada.'
+                          : 'Depósito bancario creado.'
+                      : 'Depósito bancario actualizado.',
+                );
               } catch (e) {
                 setDialogState(() {
                   saving = false;
@@ -298,7 +365,9 @@ class _DepositosBancariosScreenState
                         children: [
                           Text(
                             initial == null
-                                ? 'Nuevo depósito bancario'
+                                ? isCorrection
+                                    ? 'Crear corrección de depósito'
+                                    : 'Nuevo depósito bancario'
                                 : 'Editar depósito bancario',
                             style: Theme.of(context).textTheme.titleLarge?.copyWith(
                                   fontWeight: FontWeight.w800,
@@ -306,7 +375,9 @@ class _DepositosBancariosScreenState
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            'Registra el depósito con banco, cuenta, colaborador y monto.',
+                            isCorrection
+                                ? 'Crea un nuevo registro correctivo vinculado al depósito original. El original no se modifica.'
+                                : 'Registra el depósito con banco, cuenta, colaborador y monto.',
                             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                                   color: const Color(0xFF64748B),
                                 ),
@@ -410,6 +481,17 @@ class _DepositosBancariosScreenState
                             maxLines: 3,
                             decoration: const InputDecoration(labelText: 'Nota'),
                           ),
+                          if (isCorrection) ...[
+                            const SizedBox(height: 10),
+                            TextField(
+                              controller: correctionReasonCtrl,
+                              minLines: 2,
+                              maxLines: 3,
+                              decoration: const InputDecoration(
+                                labelText: 'Motivo de corrección *',
+                              ),
+                            ),
+                          ],
                           if (localError != null) ...[
                             const SizedBox(height: 10),
                             Text(
@@ -506,11 +588,77 @@ class _DepositosBancariosScreenState
   }
 
   Future<void> _confirmDelete(DepositOrderModel item) async {
+    final reasonCtrl = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Anular depósito'),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'El depósito de ${_money.format(item.depositTotal)} quedará anulado con trazabilidad completa.',
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: reasonCtrl,
+                minLines: 2,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: 'Motivo de anulación *',
+                ),
+                validator: (value) => (value ?? '').trim().isEmpty
+                    ? 'El motivo es obligatorio'
+                    : null,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (!formKey.currentState!.validate()) return;
+              Navigator.pop(context, reasonCtrl.text.trim());
+            },
+            child: const Text('Anular'),
+          ),
+        ],
+      ),
+    );
+    reasonCtrl.dispose();
+
+    if (reason == null) return;
+    try {
+      final updated = await ref
+          .read(contabilidadRepositoryProvider)
+          .cancelDepositOrder(id: item.id, reason: reason);
+      if (!mounted) return;
+      _replaceOrder(updated);
+      await _showSnack('Depósito anulado correctamente.');
+    } catch (e) {
+      await _showSnack('No se pudo anular el depósito: $e');
+    }
+  }
+
+  Future<void> _approveDeposit(DepositOrderModel item) async {
+    if (!item.hasVoucher) {
+      await _showSnack('Debes subir un voucher antes de ejecutar el depósito.');
+      return;
+    }
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Eliminar depósito'),
-        content: Text('Se eliminará el depósito de ${_money.format(item.depositTotal)}.'),
+        title: const Text('Ejecutar depósito'),
+        content: Text(
+          'Se marcará como ejecutado el depósito de ${_money.format(item.depositTotal)}.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -518,19 +666,21 @@ class _DepositosBancariosScreenState
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Eliminar'),
+            child: const Text('Ejecutar'),
           ),
         ],
       ),
     );
-
     if (confirmed != true) return;
     try {
-      await ref.read(contabilidadRepositoryProvider).deleteDepositOrder(item.id);
-      await _load();
-      await _showSnack('Depósito eliminado.');
+      final updated = await ref
+          .read(contabilidadRepositoryProvider)
+          .approveDepositOrder(id: item.id);
+      if (!mounted) return;
+      _replaceOrder(updated);
+      await _showSnack('Depósito ejecutado correctamente.');
     } catch (e) {
-      await _showSnack('No se pudo eliminar el depósito: $e');
+      await _showSnack('No se pudo ejecutar el depósito: $e');
     }
   }
 
@@ -551,7 +701,9 @@ class _DepositosBancariosScreenState
             .map((row) => row.id == updated.id ? updated : row)
             .toList(growable: false);
       });
-      await _showSnack('Voucher cargado correctamente.');
+      await _showSnack(
+        'Voucher cargado correctamente. Ahora puedes ejecutar el depósito.',
+      );
     } catch (e) {
       await _showSnack('No se pudo cargar el voucher: $e');
     }
@@ -686,8 +838,12 @@ class _DepositosBancariosScreenState
                             _DetailInfoCard(
                               title: 'Resumen',
                               children: [
-                                _DetailRow(label: 'Estado', value: item.status.label),
                                 _DetailRow(label: 'Estado', value: fresh.status.label),
+                                if (fresh.isCorrection)
+                                  const _DetailRow(
+                                    label: 'Tipo de registro',
+                                    value: 'Corrección',
+                                  ),
                                 _DetailRow(label: 'Monto', value: _money.format(fresh.depositTotal)),
                                 _DetailRow(label: 'Banco', value: fresh.bankName),
                                 _DetailRow(
@@ -704,13 +860,23 @@ class _DepositosBancariosScreenState
                               title: 'Responsables',
                               children: [
                                 _DetailRow(
-                                  label: 'Ordenado por',
+                                  label: 'Solicitado por',
                                   value: fresh.createdByName ?? fresh.createdById ?? 'No indicado',
                                 ),
                                 _DetailRow(
-                                  label: 'Ejecutado por',
-                                  value: fresh.executedByName ?? fresh.collaboratorName ?? 'No indicado',
+                                  label: 'Colaborador deposita',
+                                  value: fresh.collaboratorName ?? 'No indicado',
                                 ),
+                                if (fresh.executedByName != null)
+                                  _DetailRow(
+                                    label: 'Ejecutado por',
+                                    value: fresh.executedByName ?? 'No indicado',
+                                  ),
+                                if (fresh.deletedByName != null)
+                                  _DetailRow(
+                                    label: 'Anulado por',
+                                    value: fresh.deletedByName ?? 'No indicado',
+                                  ),
                                 _DetailRow(
                                   label: 'Actualizado',
                                   value: DateFormat('dd/MM/yyyy h:mm a', 'es_DO').format(fresh.updatedAt),
@@ -719,6 +885,26 @@ class _DepositosBancariosScreenState
                                   _DetailRow(
                                     label: 'Ejecutado el',
                                     value: DateFormat('dd/MM/yyyy h:mm a', 'es_DO').format(fresh.executedAt!),
+                                  ),
+                                if (fresh.deletedAt != null)
+                                  _DetailRow(
+                                    label: 'Anulado el',
+                                    value: DateFormat('dd/MM/yyyy h:mm a', 'es_DO').format(fresh.deletedAt!),
+                                  ),
+                                if ((fresh.deletedReason ?? '').trim().isNotEmpty)
+                                  _DetailRow(
+                                    label: 'Motivo de anulación',
+                                    value: fresh.deletedReason!.trim(),
+                                  ),
+                                if (fresh.isCorrection)
+                                  _DetailRow(
+                                    label: 'Corrige depósito',
+                                    value: fresh.correctionOfDepositOrderId ?? 'No indicado',
+                                  ),
+                                if ((fresh.correctionReason ?? '').trim().isNotEmpty)
+                                  _DetailRow(
+                                    label: 'Motivo de corrección',
+                                    value: fresh.correctionReason!.trim(),
                                   ),
                               ],
                             ),
@@ -846,6 +1032,60 @@ class _DepositosBancariosScreenState
                                 ],
                               ),
                             ],
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        _DetailInfoCard(
+                          title: 'Acciones',
+                          fullWidth: true,
+                          children: [
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                if (_isAdmin && fresh.isPending)
+                                  OutlinedButton.icon(
+                                    onPressed: () {
+                                      Navigator.pop(dialogContext);
+                                      _uploadVoucher(fresh);
+                                    },
+                                    icon: const Icon(Icons.upload_file_outlined),
+                                    label: Text(
+                                      fresh.hasVoucher
+                                          ? 'Reemplazar voucher'
+                                          : 'Subir voucher',
+                                    ),
+                                  ),
+                                if (_isAdmin && fresh.isPending)
+                                  FilledButton.icon(
+                                    onPressed: fresh.hasVoucher
+                                        ? () {
+                                            Navigator.pop(dialogContext);
+                                            _approveDeposit(fresh);
+                                          }
+                                        : null,
+                                    icon: const Icon(Icons.verified_outlined),
+                                    label: const Text('Ejecutar/Aprobar'),
+                                  ),
+                                if (_isAdmin && fresh.isPending)
+                                  OutlinedButton.icon(
+                                    onPressed: () {
+                                      Navigator.pop(dialogContext);
+                                      _confirmDelete(fresh);
+                                    },
+                                    icon: const Icon(Icons.block_outlined),
+                                    label: const Text('Rechazar/Anular'),
+                                  ),
+                                FilledButton.tonalIcon(
+                                  onPressed: () {
+                                    Navigator.pop(dialogContext);
+                                    _openEditor(correctionOf: fresh);
+                                  },
+                                  icon: const Icon(Icons.content_copy_outlined),
+                                  label: const Text('Crear corrección'),
+                                ),
+                              ],
+                            ),
                           ],
                         ),
                       ],
@@ -1002,11 +1242,17 @@ class _DepositosBancariosScreenState
       case _DepositTileMenuAction.uploadVoucher:
         await _uploadVoucher(item);
         break;
+      case _DepositTileMenuAction.approve:
+        await _approveDeposit(item);
+        break;
+      case _DepositTileMenuAction.cancel:
+        await _confirmDelete(item);
+        break;
       case _DepositTileMenuAction.edit:
         await _openEditor(initial: item);
         break;
-      case _DepositTileMenuAction.delete:
-        await _confirmDelete(item);
+      case _DepositTileMenuAction.correct:
+        await _openEditor(correctionOf: item);
         break;
     }
   }
@@ -1019,9 +1265,14 @@ class _DepositosBancariosScreenState
       _orders.where((item) => item.status == DepositOrderStatus.pending).length;
     final executedCount =
       _orders.where((item) => item.status == DepositOrderStatus.executed).length;
+    final cancelledCount =
+      _orders.where((item) => item.status == DepositOrderStatus.cancelled).length;
+    final correctionCount =
+      _orders.where((item) => item.isCorrection).length;
     final executedOrders = _orders
         .where((item) => item.status == DepositOrderStatus.executed)
         .toList(growable: false);
+    final visibleOrders = _visibleOrders();
     final executedTotal = executedOrders.fold<double>(
       0,
       (sum, item) => sum + item.depositTotal,
@@ -1078,7 +1329,8 @@ class _DepositosBancariosScreenState
             total: _orders.length,
             pending: pendingCount,
             executed: executedCount,
-            depositedCount: executedOrders.length,
+            cancelled: cancelledCount,
+            corrections: correctionCount,
             depositedTotal: executedTotal,
             money: _money,
           ),
@@ -1120,6 +1372,10 @@ class _DepositosBancariosScreenState
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            if (_isAssistant) ...[
+              const _AssistantNoticeCard(),
+              const SizedBox(height: 12),
+            ],
             summaryPanel,
             const SizedBox(height: 12),
             if (_dateRange != null)
@@ -1136,6 +1392,11 @@ class _DepositosBancariosScreenState
                   ),
                 ),
               ),
+            _DepositFilterBar(
+              currentFilter: _viewFilter,
+              onSelected: (filter) => setState(() => _viewFilter = filter),
+            ),
+            const SizedBox(height: 12),
             if (_loading)
               const Padding(
                 padding: EdgeInsets.all(24),
@@ -1149,10 +1410,10 @@ class _DepositosBancariosScreenState
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               )
-            else if (_orders.isEmpty)
+            else if (visibleOrders.isEmpty)
               const Padding(
                 padding: EdgeInsets.all(24),
-                child: Text('Todavía no hay depósitos registrados.'),
+                child: Text('No hay depósitos para el filtro seleccionado.'),
               )
             else
               Container(
@@ -1171,16 +1432,16 @@ class _DepositosBancariosScreenState
                 child: Column(
                   children: [
                     _DepositListHeader(isAdmin: _isAdmin),
-                    for (var index = 0; index < _orders.length; index++) ...[
+                    for (var index = 0; index < visibleOrders.length; index++) ...[
                       if (index > 0) const Divider(height: 1),
                       _DepositOrderTile(
-                        item: _orders[index],
+                        item: visibleOrders[index],
                         money: _money,
-                        statusColor: _statusColor(_orders[index].status),
+                        statusColor: _statusColor(visibleOrders[index].status),
                         isAdmin: _isAdmin,
-                        onTap: () => _openDepositDetail(_orders[index]),
+                        onTap: () => _openDepositDetail(visibleOrders[index]),
                         onSelectedAction: (action) =>
-                            _handleTileAction(_orders[index], action),
+                            _handleTileAction(visibleOrders[index], action),
                       ),
                     ],
                   ],
@@ -1198,14 +1459,16 @@ class _DepositsSummaryBar extends StatelessWidget {
     required this.total,
     required this.pending,
     required this.executed,
-    required this.depositedCount,
+    required this.cancelled,
+    required this.corrections,
     required this.depositedTotal,
     required this.money,
   });
   final int total;
   final int pending;
   final int executed;
-  final int depositedCount;
+  final int cancelled;
+  final int corrections;
   final double depositedTotal;
   final NumberFormat money;
 
@@ -1248,11 +1511,14 @@ class _DepositsSummaryBar extends StatelessWidget {
             Row(
               children: [
                 Expanded(
-                  child: _SummaryPill(label: 'Número', value: '$depositedCount'),
+                  child: _SummaryPill(label: 'Anulados', value: '$cancelled'),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
-                  flex: 2,
+                  child: _SummaryPill(label: 'Correcciones', value: '$corrections'),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
                   child: _SummaryPill(
                     label: 'Depositado',
                     value: money.format(depositedTotal),
@@ -1364,7 +1630,7 @@ class _DepositListHeader extends StatelessWidget {
       child: Row(
         children: [
           Expanded(flex: 3, child: Text('Banco', style: style)),
-          Expanded(flex: 2, child: Text('Ejecutó', style: style)),
+          Expanded(flex: 2, child: Text('Responsable', style: style)),
           Expanded(
             child: Text('Monto', style: style, textAlign: TextAlign.end),
           ),
@@ -1427,7 +1693,16 @@ class _DepositOrderTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final executedBy = item.executedByName ?? item.collaboratorName ?? 'No indicado';
+    final responsibleName = item.isExecuted
+      ? (item.executedByName ?? 'No indicado')
+      : item.isCancelled
+        ? (item.deletedByName ?? item.createdByName ?? 'No indicado')
+        : (item.createdByName ?? item.createdById ?? 'No indicado');
+    final roleLabel = item.isExecuted
+      ? 'Ejecutado'
+      : item.isCancelled
+        ? 'Anulado'
+        : 'Solicitado';
     return InkWell(
       onTap: onTap,
       child: Padding(
@@ -1439,13 +1714,36 @@ class _DepositOrderTile extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    item.bankName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w900,
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          item.bankName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w900,
+                              ),
                         ),
+                      ),
+                      if (item.isCorrection)
+                        Container(
+                          margin: const EdgeInsets.only(left: 8),
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE0F2FE),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: const Text(
+                            'Corrección',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF075985),
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                   const SizedBox(height: 2),
                   Text(
@@ -1466,7 +1764,7 @@ class _DepositOrderTile extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    executedBy,
+                    responsibleName,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
@@ -1475,7 +1773,7 @@ class _DepositOrderTile extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    item.status.label,
+                    '$roleLabel · ${item.status.label}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -1532,7 +1830,23 @@ class _DepositOrderTile extends StatelessWidget {
                       label: item.hasVoucher ? 'Cambiar voucher' : 'Subir voucher',
                     ),
                   ),
-                if (isAdmin)
+                if (isAdmin && item.isPending)
+                  const PopupMenuItem(
+                    value: _DepositTileMenuAction.approve,
+                    child: _DepositMenuItem(
+                      icon: Icons.verified_outlined,
+                      label: 'Ejecutar/Aprobar',
+                    ),
+                  ),
+                if (isAdmin && item.isPending)
+                  const PopupMenuItem(
+                    value: _DepositTileMenuAction.cancel,
+                    child: _DepositMenuItem(
+                      icon: Icons.block_outlined,
+                      label: 'Rechazar/Anular',
+                    ),
+                  ),
+                if (isAdmin && item.isPending)
                   const PopupMenuItem(
                     value: _DepositTileMenuAction.edit,
                     child: _DepositMenuItem(
@@ -1540,14 +1854,13 @@ class _DepositOrderTile extends StatelessWidget {
                       label: 'Editar',
                     ),
                   ),
-                if (isAdmin)
-                  const PopupMenuItem(
-                    value: _DepositTileMenuAction.delete,
-                    child: _DepositMenuItem(
-                      icon: Icons.delete_outline,
-                      label: 'Eliminar',
-                    ),
+                const PopupMenuItem(
+                  value: _DepositTileMenuAction.correct,
+                  child: _DepositMenuItem(
+                    icon: Icons.content_copy_outlined,
+                    label: 'Crear corrección',
                   ),
+                ),
               ],
               child: const Padding(
                 padding: EdgeInsets.all(8),
@@ -1575,6 +1888,57 @@ class _DepositMenuItem extends StatelessWidget {
         const SizedBox(width: 10),
         Text(label),
       ],
+    );
+  }
+}
+
+class _AssistantNoticeCard extends StatelessWidget {
+  const _AssistantNoticeCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFD9E0E8)),
+      ),
+      child: Text(
+        'Registre cada depósito con su banco, cuenta, monto y comprobante correspondiente. Si comete un error, cree una corrección; no modifique registros anteriores.',
+        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: const Color(0xFF334155),
+              fontWeight: FontWeight.w600,
+            ),
+      ),
+    );
+  }
+}
+
+class _DepositFilterBar extends StatelessWidget {
+  const _DepositFilterBar({
+    required this.currentFilter,
+    required this.onSelected,
+  });
+
+  final _DepositViewFilter currentFilter;
+  final ValueChanged<_DepositViewFilter> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: _DepositViewFilter.values
+          .map(
+            (filter) => ChoiceChip(
+              label: Text(filter.label),
+              selected: currentFilter == filter,
+              onSelected: (_) => onSelected(filter),
+            ),
+          )
+          .toList(growable: false),
     );
   }
 }

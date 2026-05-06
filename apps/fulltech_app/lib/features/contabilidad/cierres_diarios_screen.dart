@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/api/env.dart';
@@ -21,6 +22,125 @@ import 'widgets/section_title.dart';
 import 'deposit_bank_catalog.dart';
 
 enum _FinancialSummaryPreset { hoy, ayer, quincena, mes, personalizado }
+
+final NumberFormat _accountingAmountFormatter = NumberFormat(
+  '#,##0.00',
+  'en_US',
+);
+final NumberFormat _accountingCurrencyFormatter = NumberFormat.currency(
+  locale: 'en_US',
+  symbol: 'RD\$ ',
+  decimalDigits: 2,
+);
+
+String _formatAccountingAmount(double value) {
+  return _accountingAmountFormatter.format(value);
+}
+
+String _formatAccountingMoney(double value) {
+  return _accountingCurrencyFormatter.format(value);
+}
+
+double _parseAccountingMoney(String? raw) {
+  if (raw == null) return 0;
+  final cleaned = raw.replaceAll(RegExp(r'[^0-9,\.\-]'), '').trim();
+  if (cleaned.isEmpty || cleaned == '-') return 0;
+
+  final sign = cleaned.startsWith('-') ? '-' : '';
+  final unsigned = cleaned.replaceAll('-', '');
+  final lastDot = unsigned.lastIndexOf('.');
+  final lastComma = unsigned.lastIndexOf(',');
+
+  if (lastDot >= 0 && lastComma >= 0) {
+    final decimalIndex = lastDot > lastComma ? lastDot : lastComma;
+    final integer = unsigned
+        .substring(0, decimalIndex)
+        .replaceAll(RegExp(r'[^0-9]'), '');
+    final decimal = unsigned
+        .substring(decimalIndex + 1)
+        .replaceAll(RegExp(r'[^0-9]'), '');
+    return double.tryParse(
+          '$sign${integer.isEmpty ? '0' : integer}.$decimal',
+        ) ??
+        0;
+  }
+
+  if (lastComma >= 0) {
+    final decimalDigits = unsigned.length - lastComma - 1;
+    if (decimalDigits > 0 && decimalDigits <= 2) {
+      final integer = unsigned
+          .substring(0, lastComma)
+          .replaceAll(RegExp(r'[^0-9]'), '');
+      final decimal = unsigned
+          .substring(lastComma + 1)
+          .replaceAll(RegExp(r'[^0-9]'), '');
+      return double.tryParse(
+            '$sign${integer.isEmpty ? '0' : integer}.$decimal',
+          ) ??
+          0;
+    }
+    return double.tryParse('$sign${unsigned.replaceAll(',', '')}') ?? 0;
+  }
+
+  return double.tryParse('$sign${unsigned.replaceAll(',', '')}') ?? 0;
+}
+
+void _prepareAccountingMoneyEditing(TextEditingController controller) {
+  final text = controller.text;
+  if (_parseAccountingMoney(text) == 0) {
+    controller.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: text.length,
+    );
+    return;
+  }
+  final decimalIndex = text.indexOf('.');
+  controller.selection = TextSelection.collapsed(
+    offset: decimalIndex >= 0 ? decimalIndex : text.length,
+  );
+}
+
+class _AccountingMoneyInputFormatter extends TextInputFormatter {
+  const _AccountingMoneyInputFormatter();
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    if (newValue.text.trim().isEmpty) {
+      return const TextEditingValue(
+        text: '',
+        selection: TextSelection.collapsed(offset: 0),
+      );
+    }
+
+    final decimalIndex = newValue.text.indexOf('.');
+    final integerText = decimalIndex >= 0
+        ? newValue.text.substring(0, decimalIndex)
+        : newValue.text;
+    final decimalText = decimalIndex >= 0
+        ? newValue.text.substring(decimalIndex + 1)
+        : '';
+    final integerDigits = integerText.replaceAll(RegExp(r'[^0-9]'), '');
+    final centsDigits = decimalText.replaceAll(RegExp(r'[^0-9]'), '');
+    final whole =
+        double.tryParse(integerDigits.isEmpty ? '0' : integerDigits) ?? 0;
+    final cents = centsDigits.isEmpty
+        ? 0.0
+        : (double.tryParse(centsDigits.padRight(2, '0').substring(0, 2)) ?? 0) /
+              100;
+    final formatted = _formatAccountingAmount(whole + cents);
+    final cursorOffset = formatted.indexOf('.');
+
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(
+        offset: cursorOffset >= 0 ? cursorOffset : formatted.length,
+      ),
+    );
+  }
+}
 
 DepositBankOption? _resolveDepositBank(String? bankName) {
   final normalized = (bankName ?? '').trim().toLowerCase();
@@ -61,11 +181,15 @@ class CierresDiariosScreen extends ConsumerStatefulWidget {
 
 class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _cashCtrl = TextEditingController(text: '0');
-  final _cardCtrl = TextEditingController(text: '0');
-  final _otherIncomeCtrl = TextEditingController(text: '0');
-  final _expensesCtrl = TextEditingController(text: '0');
-  final _cashDeliveredCtrl = TextEditingController(text: '0');
+  final _cashCtrl = TextEditingController(text: _formatAccountingAmount(0));
+  final _cardCtrl = TextEditingController(text: _formatAccountingAmount(0));
+  final _otherIncomeCtrl = TextEditingController(
+    text: _formatAccountingAmount(0),
+  );
+  final _expensesCtrl = TextEditingController(text: _formatAccountingAmount(0));
+  final _cashDeliveredCtrl = TextEditingController(
+    text: _formatAccountingAmount(0),
+  );
   final _notesCtrl = TextEditingController();
   final _correctionReasonCtrl = TextEditingController();
   final _assistantFormScrollCtrl = ScrollController();
@@ -288,7 +412,7 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
       0,
       (sum, entry) => sum + _toMoney(entry.amountCtrl.text),
     );
-    final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$ ');
+    final money = _accountingCurrencyFormatter;
     final cash = _toMoney(_cashCtrl.text);
     final card = _toMoney(_cardCtrl.text);
     final otherIncome = _toMoney(_otherIncomeCtrl.text);
@@ -380,13 +504,19 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
           if (assistantMode)
             Row(
               children: [
-                Expanded(child: _moneyField(_cashCtrl, 'Efectivo declarado')),
+                Expanded(
+                  child: _moneyField(
+                    _cashCtrl,
+                    'Efectivo declarado',
+                    required: true,
+                  ),
+                ),
                 const SizedBox(width: 8),
                 Expanded(child: _moneyField(_cardCtrl, 'Pagos con tarjetas')),
               ],
             )
           else
-            _moneyField(_cashCtrl, 'Efectivo declarado'),
+            _moneyField(_cashCtrl, 'Efectivo declarado', required: true),
           const SizedBox(height: 10),
           _buildTransferSection(money),
           if (!assistantMode) ...[
@@ -398,7 +528,7 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
           const SizedBox(height: 10),
           _buildExpensesSection(money),
           const SizedBox(height: 10),
-          _moneyField(_cashDeliveredCtrl, 'Efectivo entregado'),
+          _moneyField(_cashDeliveredCtrl, 'Efectivo entregado', required: true),
           const SizedBox(height: 10),
           TextFormField(
             controller: _notesCtrl,
@@ -566,17 +696,26 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
   TextFormField _moneyField(
     TextEditingController controller,
     String label, {
+    bool required = false,
     void Function(String)? onChanged,
   }) {
     return TextFormField(
       controller: controller,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
-      decoration: InputDecoration(labelText: label, prefixText: '\$ '),
+      inputFormatters: const [_AccountingMoneyInputFormatter()],
+      decoration: InputDecoration(
+        labelText: required ? '$label *' : label,
+        prefixText: 'RD\$ ',
+      ),
+      onTap: () => _prepareAccountingMoneyEditing(controller),
       onChanged: (value) {
         setState(() {});
         onChanged?.call(value);
       },
       validator: (value) {
+        if (required && (value ?? '').trim().isEmpty) {
+          return 'Campo obligatorio';
+        }
         final amount = _toMoney(value);
         if (amount < 0) return 'No puede ser negativo';
         return null;
@@ -585,33 +724,42 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
   }
 
   Widget _buildDatePickerField(CierresDiariosState state, bool editing) {
-    return InkWell(
-      onTap: editing
-          ? null
-          : () async {
-              final picked = await showDatePicker(
-                context: context,
-                initialDate: _date,
-                firstDate: DateTime(2024),
-                lastDate: DateTime(2100),
-              );
-              if (picked == null) return;
-              if (_hasActiveCloseFor(
-                    picked,
-                    _type,
-                    state,
-                    excludingId: _editingId,
-                  ) &&
-                  !_isCorrection) {
-                _showDuplicateDateMessage();
-                return;
-              }
-              setState(() => _date = picked);
-            },
-      borderRadius: BorderRadius.circular(12),
-      child: InputDecorator(
-        decoration: const InputDecoration(labelText: 'Fecha del cierre'),
-        child: Text(_dateOnly(_date)),
+    return FormField<DateTime>(
+      initialValue: _date,
+      validator: (_) =>
+          _dateOnly(_date).trim().isEmpty ? 'Fecha obligatoria' : null,
+      builder: (field) => InkWell(
+        onTap: editing
+            ? null
+            : () async {
+                final picked = await showDatePicker(
+                  context: context,
+                  initialDate: _date,
+                  firstDate: DateTime(2024),
+                  lastDate: DateTime(2100),
+                );
+                if (picked == null) return;
+                if (_hasActiveCloseFor(
+                      picked,
+                      _type,
+                      state,
+                      excludingId: _editingId,
+                    ) &&
+                    !_isCorrection) {
+                  _showDuplicateDateMessage();
+                  return;
+                }
+                setState(() => _date = picked);
+                field.didChange(picked);
+              },
+        borderRadius: BorderRadius.circular(12),
+        child: InputDecorator(
+          decoration: InputDecoration(
+            labelText: 'Fecha del cierre *',
+            errorText: field.errorText,
+          ),
+          child: Text(_dateOnly(_date)),
+        ),
       ),
     );
   }
@@ -689,10 +837,7 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                 close.type == CloseType.tienda
                     ? 'Tecnología'
                     : close.type.label,
-                NumberFormat.currency(
-                  locale: 'es_DO',
-                  symbol: 'RD\$ ',
-                ).format(close.netTotal),
+                _formatAccountingMoney(close.netTotal),
               ].join(' · ');
               return DropdownMenuItem(value: close.id, child: Text(label));
             }).toList(),
@@ -1040,16 +1185,16 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
       _editingId = close.id;
       _type = close.type;
       _date = close.date;
-      _cashCtrl.text = close.cash.toStringAsFixed(2);
+      _cashCtrl.text = _formatAccountingAmount(close.cash);
       for (final entry in _transferEntries) {
         entry.dispose();
       }
       _transferEntries
         ..clear()
         ..addAll(close.transfers.map(_TransferDraft.fromModel));
-      _cardCtrl.text = close.card.toStringAsFixed(2);
-      _otherIncomeCtrl.text = close.otherIncome.toStringAsFixed(2);
-      _expensesCtrl.text = close.expenses.toStringAsFixed(2);
+      _cardCtrl.text = _formatAccountingAmount(close.card);
+      _otherIncomeCtrl.text = _formatAccountingAmount(close.otherIncome);
+      _expensesCtrl.text = _formatAccountingAmount(close.expenses);
       _expenseEntries.clear();
       if (close.expenseDetails.isNotEmpty) {
         _expenseEntries.addAll(close.expenseDetails.map(_expenseDraftFromJson));
@@ -1057,11 +1202,11 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
         _expenseEntries.add(
           _ExpenseDraft(
             concept: 'Gastos del día',
-            amount: close.expenses.toStringAsFixed(2),
+            amount: _formatAccountingAmount(close.expenses),
           ),
         );
       }
-      _cashDeliveredCtrl.text = close.cashDelivered.toStringAsFixed(2);
+      _cashDeliveredCtrl.text = _formatAccountingAmount(close.cashDelivered);
       _notesCtrl.text = close.notes ?? '';
       _posVoucher = close.evidenceUrl != null && close.evidenceFileName != null
           ? CloseTransferVoucherModel(
@@ -1080,16 +1225,16 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
       _editingId = null;
       _type = close.type;
       _date = close.date;
-      _cashCtrl.text = close.cash.toStringAsFixed(2);
+      _cashCtrl.text = _formatAccountingAmount(close.cash);
       for (final entry in _transferEntries) {
         entry.dispose();
       }
       _transferEntries
         ..clear()
         ..addAll(close.transfers.map(_TransferDraft.fromModel));
-      _cardCtrl.text = close.card.toStringAsFixed(2);
-      _otherIncomeCtrl.text = close.otherIncome.toStringAsFixed(2);
-      _expensesCtrl.text = close.expenses.toStringAsFixed(2);
+      _cardCtrl.text = _formatAccountingAmount(close.card);
+      _otherIncomeCtrl.text = _formatAccountingAmount(close.otherIncome);
+      _expensesCtrl.text = _formatAccountingAmount(close.expenses);
       _expenseEntries.clear();
       if (close.expenseDetails.isNotEmpty) {
         _expenseEntries.addAll(close.expenseDetails.map(_expenseDraftFromJson));
@@ -1097,11 +1242,11 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
         _expenseEntries.add(
           _ExpenseDraft(
             concept: 'Gastos del día',
-            amount: close.expenses.toStringAsFixed(2),
+            amount: _formatAccountingAmount(close.expenses),
           ),
         );
       }
-      _cashDeliveredCtrl.text = close.cashDelivered.toStringAsFixed(2);
+      _cashDeliveredCtrl.text = _formatAccountingAmount(close.cashDelivered);
       _notesCtrl.text = [
         if ((close.notes ?? '').trim().isNotEmpty) close.notes!.trim(),
         'Correccion de cierre rechazado ${DateFormat('dd/MM/yyyy').format(close.date)}',
@@ -1118,7 +1263,7 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
           ref.read(cierresDiariosControllerProvider).typeFilter ??
           CloseType.tienda;
       _date = DateTime.now();
-      _cashCtrl.text = '0';
+      _cashCtrl.text = _formatAccountingAmount(0);
       for (final entry in _transferEntries) {
         entry.dispose();
       }
@@ -1127,10 +1272,10 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
         expense.dispose();
       }
       _expenseEntries.clear();
-      _cardCtrl.text = '0';
-      _otherIncomeCtrl.text = '0';
-      _expensesCtrl.text = '0';
-      _cashDeliveredCtrl.text = '0';
+      _cardCtrl.text = _formatAccountingAmount(0);
+      _otherIncomeCtrl.text = _formatAccountingAmount(0);
+      _expensesCtrl.text = _formatAccountingAmount(0);
+      _cashDeliveredCtrl.text = _formatAccountingAmount(0);
       _notesCtrl.clear();
       _correctionReasonCtrl.clear();
       _posVoucher = null;
@@ -1143,9 +1288,7 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
   }
 
   double _toMoney(String? raw) {
-    if (raw == null) return 0;
-    final normalized = raw.replaceAll(',', '.').trim();
-    return double.tryParse(normalized) ?? 0;
+    return _parseAccountingMoney(raw);
   }
 
   _ExpenseDraft _expenseDraftFromJson(Map<String, dynamic> value) {
@@ -1163,7 +1306,7 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
 
     return _ExpenseDraft(
       concept: (value['concept'] as String?)?.trim() ?? 'Gastos del día',
-      amount: parsedAmount.toStringAsFixed(2),
+      amount: _formatAccountingAmount(parsedAmount),
       vouchers: vouchers,
     );
   }
@@ -1294,8 +1437,7 @@ class _AssistantRawHistoryListState extends State<_AssistantRawHistoryList> {
     super.dispose();
   }
 
-  String _money(double value) =>
-      NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$ ').format(value);
+  String _money(double value) => _formatAccountingMoney(value);
 
   String _filterLabel(_AssistantCloseListFilter filter) {
     switch (filter) {
@@ -2171,8 +2313,55 @@ class _HistoryFullScreenPageState
     _setSummaryPreset(_FinancialSummaryPreset.hoy);
   }
 
-  String _money(double value) =>
-      NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$ ').format(value);
+  String _money(double value) => _formatAccountingMoney(value);
+
+  String _adminFilterLabel(String value) {
+    switch (value) {
+      case 'pending':
+        return 'Pendientes';
+      case 'approved':
+        return 'Aprobados';
+      case 'rejected':
+        return 'Rechazados';
+      case 'corrections':
+        return 'Correcciones';
+      default:
+        return 'Todos';
+    }
+  }
+
+  bool _matchesAdminStatusFilter(CloseModel close) {
+    switch (_selectedStatus) {
+      case 'pending':
+        return close.isPending;
+      case 'approved':
+        return close.isApproved;
+      case 'rejected':
+        return close.isRejected;
+      case 'corrections':
+        return close.isCorrection;
+      default:
+        return true;
+    }
+  }
+
+  String _adminStatusLabel(CloseModel close) {
+    if (close.isApproved) return 'Aprobado';
+    if (close.isRejected) return 'Rechazado';
+    return 'Pendiente';
+  }
+
+  Color _adminStatusColor(CloseModel close) {
+    if (close.isApproved) return const Color(0xFF15803D);
+    if (close.isRejected) return const Color(0xFFB91C1C);
+    return const Color(0xFFB45309);
+  }
+
+  String _shortCloseId(String? id) {
+    final value = (id ?? '').trim();
+    if (value.isEmpty) return 'N/D';
+    return value.length <= 8 ? value : value.substring(0, 8);
+  }
 
   String _depositStatusLabel(String status) {
     switch (status.trim().toLowerCase()) {
@@ -2618,9 +2807,7 @@ class _HistoryFullScreenPageState
     final canDelete = _isAdmin;
     final filtered = state.closes.where((close) {
       if (close.type != _selectedType) return false;
-      if (_selectedStatus != 'TODOS' && close.status != _selectedStatus) {
-        return false;
-      }
+      if (!_matchesAdminStatusFilter(close)) return false;
       return _isWithinRange(close);
     }).toList();
 
@@ -2682,49 +2869,36 @@ class _HistoryFullScreenPageState
               ],
             ),
             const SizedBox(height: 8),
-            Row(
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 FilterChip(
-                  label: const Text('Tienda'),
+                  label: const Text('Tecnología'),
                   selected: _selectedType == CloseType.tienda,
                   onSelected: (_) =>
                       setState(() => _selectedType = CloseType.tienda),
                 ),
-                const SizedBox(width: 8),
                 FilterChip(
                   label: const Text('PhytoEmagry'),
                   selected: _selectedType == CloseType.phytoemagry,
                   onSelected: (_) =>
                       setState(() => _selectedType = CloseType.phytoemagry),
                 ),
-                const Spacer(),
-                DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: _selectedStatus,
-                    items: const [
-                      DropdownMenuItem(
-                        value: 'TODOS',
-                        child: Text('Estado: Todos'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'pending',
-                        child: Text('Pendiente'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'approved',
-                        child: Text('Aprobado'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'rejected',
-                        child: Text('Rechazado'),
-                      ),
-                    ],
-                    onChanged: (value) {
-                      if (value == null) return;
-                      setState(() => _selectedStatus = value);
-                    },
+                const SizedBox(width: 8),
+                for (final filter in const [
+                  'TODOS',
+                  'pending',
+                  'approved',
+                  'rejected',
+                  'corrections',
+                ])
+                  ChoiceChip(
+                    label: Text(_adminFilterLabel(filter)),
+                    selected: _selectedStatus == filter,
+                    onSelected: (_) => setState(() => _selectedStatus = filter),
                   ),
-                ),
               ],
             ),
             const SizedBox(height: 6),
@@ -2753,16 +2927,13 @@ class _HistoryFullScreenPageState
         separatorBuilder: (_, __) => const SizedBox(height: 10),
         itemBuilder: (context, index) {
           final close = filtered[index];
-          final statusLabel = switch (close.status) {
-            'approved' => 'Aprobado',
-            'rejected' => 'Rechazado',
-            _ => 'Pendiente',
-          };
+          final statusLabel = _adminStatusLabel(close);
+          final statusColor = _adminStatusColor(close);
 
           return Material(
             color: Colors.transparent,
             child: InkWell(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(10),
               onTap: () async {
                 if (_selectionMode) {
                   setState(() {
@@ -2786,11 +2957,19 @@ class _HistoryFullScreenPageState
                 }
               },
               child: Ink(
-                padding: const EdgeInsets.all(14),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(14),
+                  color: close.isPending
+                      ? const Color(0xFFFFFBEB)
+                      : Theme.of(context).colorScheme.surface,
+                  borderRadius: BorderRadius.circular(10),
                   border: Border.all(
-                    color: Theme.of(context).colorScheme.outlineVariant,
+                    color: close.isPending
+                        ? const Color(0xFFF59E0B).withValues(alpha: 0.42)
+                        : Theme.of(context).colorScheme.outlineVariant,
                   ),
                 ),
                 child: Row(
@@ -2812,37 +2991,82 @@ class _HistoryFullScreenPageState
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            '${close.type.label} · ${DateFormat('dd/MM/yyyy').format(close.date)}',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w800,
-                              fontSize: 15,
-                            ),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  '${close.type == CloseType.tienda ? 'Tecnología' : close.type.label} · ${DateFormat('dd/MM/yyyy').format(close.date)}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                _money(close.netTotal),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 13.5,
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Creado por ${close.createdByName ?? close.createdById ?? 'N/D'}',
-                            style: Theme.of(context).textTheme.bodySmall,
+                          const SizedBox(height: 5),
+                          Wrap(
+                            spacing: 7,
+                            runSpacing: 5,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              Text(
+                                'Creado por ${close.createdByName ?? close.createdById ?? 'N/D'}',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                              if (close.isCorrection)
+                                _MiniCloseTag(
+                                  label:
+                                      'Corrección #${_shortCloseId(close.correctionOfCloseId)}',
+                                  color: const Color(0xFF7C3AED),
+                                ),
+                              if ((close.reviewNote ?? '').trim().isNotEmpty &&
+                                  close.isRejected)
+                                const _MiniCloseTag(
+                                  label: 'Con motivo',
+                                  color: Color(0xFFB91C1C),
+                                ),
+                            ],
                           ),
                         ],
                       ),
                     ),
+                    const SizedBox(width: 10),
                     Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
+                        horizontal: 9,
+                        vertical: 5,
                       ),
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(999),
-                        color: Theme.of(
-                          context,
-                        ).colorScheme.surfaceContainerHighest,
+                        color: statusColor.withValues(alpha: 0.12),
+                        border: Border.all(
+                          color: statusColor.withValues(alpha: 0.28),
+                        ),
                       ),
                       child: Text(
                         statusLabel,
-                        style: const TextStyle(fontWeight: FontWeight.w700),
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                          color: statusColor,
+                        ),
                       ),
                     ),
+                    if (!_selectionMode && canDelete && close.isPending) ...[
+                      const SizedBox(width: 6),
+                      const Icon(Icons.rate_review_outlined, size: 18),
+                    ],
                     if (!_selectionMode && canDelete)
                       IconButton(
                         tooltip: 'Eliminar cierre',
@@ -2850,7 +3074,7 @@ class _HistoryFullScreenPageState
                         icon: const Icon(Icons.delete_outline),
                       )
                     else if (!_selectionMode) ...[
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 8),
                       const Icon(Icons.chevron_right_rounded),
                     ],
                   ],
@@ -3022,8 +3246,13 @@ class _CloseDetailFullScreenPageState
   String _aiStep = '';
   bool _autoAiRequested = false;
 
-  String _money(double value) =>
-      NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$ ').format(value);
+  String _money(double value) => _formatAccountingMoney(value);
+
+  String _shortCloseId(String? id) {
+    final value = (id ?? '').trim();
+    if (value.isEmpty) return 'N/D';
+    return value.length <= 8 ? value : value.substring(0, 8);
+  }
 
   List<String> _asStringList(dynamic value) {
     if (value is List) {
@@ -3226,14 +3455,27 @@ class _CloseDetailFullScreenPageState
     required bool approve,
   }) async {
     final ctrl = TextEditingController();
+    final formKey = GlobalKey<FormState>();
     final note = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(approve ? 'Aprobar cierre' : 'Rechazar cierre'),
-        content: TextField(
-          controller: ctrl,
-          maxLines: 3,
-          decoration: const InputDecoration(labelText: 'Nota de revisión'),
+        content: Form(
+          key: formKey,
+          child: TextFormField(
+            controller: ctrl,
+            maxLines: 3,
+            decoration: InputDecoration(
+              labelText: approve ? 'Nota de revisión' : 'Motivo de rechazo *',
+              alignLabelWithHint: true,
+            ),
+            validator: (value) {
+              if (approve) return null;
+              return (value ?? '').trim().isEmpty
+                  ? 'El motivo de rechazo es obligatorio'
+                  : null;
+            },
+          ),
         ),
         actions: [
           TextButton(
@@ -3241,7 +3483,10 @@ class _CloseDetailFullScreenPageState
             child: const Text('Cancelar'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(context, ctrl.text),
+            onPressed: () {
+              if (!approve && !formKey.currentState!.validate()) return;
+              Navigator.pop(context, ctrl.text.trim());
+            },
             child: const Text('Confirmar'),
           ),
         ],
@@ -3254,6 +3499,15 @@ class _CloseDetailFullScreenPageState
     } else {
       await controller.rejectClose(close.id, reviewNote: note);
     }
+    if (!mounted) return;
+    final error = ref.read(cierresDiariosControllerProvider).error;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          error ?? (approve ? 'Cierre aprobado.' : 'Cierre rechazado.'),
+        ),
+      ),
+    );
   }
 
   @override
@@ -3363,6 +3617,35 @@ class _CloseDetailFullScreenPageState
             ],
           ),
           const SizedBox(height: 14),
+          if (currentClose.isCorrection || currentClose.isRejected) ...[
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                if (currentClose.isCorrection)
+                  _RawHistoryField(
+                    label: 'Corrección de cierre',
+                    value:
+                        '#${_shortCloseId(currentClose.correctionOfCloseId)}',
+                  ),
+                if (currentClose.isRejected)
+                  _RawHistoryField(
+                    label: 'Motivo de rechazo',
+                    value: (currentClose.reviewNote ?? '').trim().isNotEmpty
+                        ? currentClose.reviewNote!.trim()
+                        : 'Sin motivo registrado',
+                  ),
+              ],
+            ),
+            if ((currentClose.correctionReason ?? '').trim().isNotEmpty) ...[
+              const SizedBox(height: 10),
+              _DialogTextBlock(
+                label: 'Motivo de corrección',
+                value: currentClose.correctionReason!.trim(),
+              ),
+            ],
+            const SizedBox(height: 14),
+          ],
           Wrap(
             spacing: 10,
             runSpacing: 10,
@@ -3928,8 +4211,7 @@ class _AssistantCloseDetailScaffold extends StatelessWidget {
   final CloseModel close;
   final String statusLabel;
 
-  String _money(double value) =>
-      NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$ ').format(value);
+  String _money(double value) => _formatAccountingMoney(value);
 
   String _referenceLabel(CloseModel close) {
     final id = (close.correctionOfCloseId ?? '').trim();
@@ -4110,7 +4392,7 @@ class _UnitChipButton extends StatelessWidget {
 
 class _TransferDraft {
   final bankCtrl = TextEditingController();
-  final amountCtrl = TextEditingController(text: '0');
+  final amountCtrl = TextEditingController(text: _formatAccountingAmount(0));
   final referenceCtrl = TextEditingController();
   final noteCtrl = TextEditingController();
   final List<CloseTransferVoucherModel> vouchers = [];
@@ -4121,7 +4403,7 @@ class _TransferDraft {
   factory _TransferDraft.fromModel(CloseTransferModel model) {
     final draft = _TransferDraft();
     draft.bankCtrl.text = model.bankName;
-    draft.amountCtrl.text = model.amount.toStringAsFixed(2);
+    draft.amountCtrl.text = _formatAccountingAmount(model.amount);
     draft.referenceCtrl.text = model.referenceNumber ?? '';
     draft.noteCtrl.text = model.note ?? '';
     draft.vouchers.addAll(model.vouchers);
@@ -4138,13 +4420,13 @@ class _TransferDraft {
 
 class _ExpenseDraft {
   final conceptCtrl = TextEditingController();
-  final amountCtrl = TextEditingController(text: '0');
+  final amountCtrl = TextEditingController(text: _formatAccountingAmount(0));
   final List<CloseTransferVoucherModel> vouchers = [];
   bool uploading = false;
 
   _ExpenseDraft({
     String concept = '',
-    String amount = '0',
+    String amount = '0.00',
     List<CloseTransferVoucherModel> vouchers = const [],
   }) {
     conceptCtrl.text = concept;
@@ -4236,12 +4518,16 @@ class _TransferEntryEditor extends StatelessWidget {
                     keyboardType: const TextInputType.numberWithOptions(
                       decimal: true,
                     ),
-                    decoration: const InputDecoration(labelText: 'Monto'),
+                    inputFormatters: const [_AccountingMoneyInputFormatter()],
+                    decoration: const InputDecoration(
+                      labelText: 'Monto',
+                      prefixText: 'RD\$ ',
+                    ),
+                    onTap: () =>
+                        _prepareAccountingMoneyEditing(draft.amountCtrl),
                     onChanged: (_) => onChanged(),
                     validator: (value) {
-                      final amount =
-                          double.tryParse((value ?? '').replaceAll(',', '.')) ??
-                          0;
+                      final amount = _parseAccountingMoney(value);
                       return amount <= 0 ? 'Mayor a 0' : null;
                     },
                   ),
@@ -4385,15 +4671,16 @@ class _ExpenseEntryEditor extends StatelessWidget {
                     keyboardType: const TextInputType.numberWithOptions(
                       decimal: true,
                     ),
+                    inputFormatters: const [_AccountingMoneyInputFormatter()],
                     decoration: const InputDecoration(
                       labelText: 'Monto',
-                      prefixText: '\$ ',
+                      prefixText: 'RD\$ ',
                     ),
+                    onTap: () =>
+                        _prepareAccountingMoneyEditing(draft.amountCtrl),
                     onChanged: (_) => onChanged(),
                     validator: (value) {
-                      final amount =
-                          double.tryParse((value ?? '').replaceAll(',', '.')) ??
-                          0;
+                      final amount = _parseAccountingMoney(value);
                       return amount <= 0 ? 'Mayor a 0' : null;
                     },
                   ),
@@ -4465,7 +4752,7 @@ class _CloseSummaryBlock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final money = NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$ ');
+    final money = _accountingCurrencyFormatter;
     final scheme = Theme.of(context).colorScheme;
     return Container(
       padding: const EdgeInsets.all(12),

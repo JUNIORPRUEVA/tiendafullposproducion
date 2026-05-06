@@ -431,29 +431,43 @@ class ContabilidadRepository {
   }
 
   Future<CloseModel> approveClose(String id, {String? reviewNote}) async {
-    final res = await _dio.post(
-      ApiRoutes.contabilidadCloseApprove(id),
-      data: {
-        if ((reviewNote ?? '').trim().isNotEmpty)
-          'reviewNote': reviewNote!.trim(),
-      },
-    );
-    return CloseModel.fromJson(
-      _normalizeCloseJson((res.data as Map).cast<String, dynamic>()),
-    );
+    try {
+      final res = await _dio.post(
+        ApiRoutes.contabilidadCloseApprove(id),
+        data: {
+          if ((reviewNote ?? '').trim().isNotEmpty)
+            'reviewNote': reviewNote!.trim(),
+        },
+      );
+      return CloseModel.fromJson(
+        _normalizeCloseJson((res.data as Map).cast<String, dynamic>()),
+      );
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo aprobar el cierre'),
+        e.response?.statusCode,
+      );
+    }
   }
 
   Future<CloseModel> rejectClose(String id, {String? reviewNote}) async {
-    final res = await _dio.post(
-      ApiRoutes.contabilidadCloseReject(id),
-      data: {
-        if ((reviewNote ?? '').trim().isNotEmpty)
-          'reviewNote': reviewNote!.trim(),
-      },
-    );
-    return CloseModel.fromJson(
-      _normalizeCloseJson((res.data as Map).cast<String, dynamic>()),
-    );
+    try {
+      final res = await _dio.post(
+        ApiRoutes.contabilidadCloseReject(id),
+        data: {
+          if ((reviewNote ?? '').trim().isNotEmpty)
+            'reviewNote': reviewNote!.trim(),
+        },
+      );
+      return CloseModel.fromJson(
+        _normalizeCloseJson((res.data as Map).cast<String, dynamic>()),
+      );
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo rechazar el cierre'),
+        e.response?.statusCode,
+      );
+    }
   }
 
   Future<CloseModel> generateCloseAiReport(String id) async {
@@ -476,6 +490,8 @@ class ContabilidadRepository {
     required Map<String, int> closesCountByType,
     required Map<String, double> depositByType,
     required Map<String, String> accountByType,
+    String? correctionOfDepositOrderId,
+    String? correctionReason,
   }) async {
     try {
       final res = await _dio.post(
@@ -495,6 +511,11 @@ class ContabilidadRepository {
           'closesCountByType': closesCountByType,
           'depositByType': depositByType,
           'accountByType': accountByType,
+          if (correctionOfDepositOrderId != null &&
+              correctionOfDepositOrderId.trim().isNotEmpty)
+            'correctionOfDepositOrderId': correctionOfDepositOrderId.trim(),
+          if (correctionReason != null && correctionReason.trim().isNotEmpty)
+            'correctionReason': correctionReason.trim(),
         },
       );
       return DepositOrderModel.fromJson(
@@ -601,6 +622,49 @@ class ContabilidadRepository {
     } on DioException catch (e) {
       throw ApiException(
         _extractMessage(e.response?.data, 'No se pudo actualizar el depósito'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<DepositOrderModel> approveDepositOrder({
+    required String id,
+    String? reviewNote,
+  }) async {
+    try {
+      final res = await _dio.post(
+        ApiRoutes.contabilidadDepositOrderApprove(id),
+        data: {
+          if (reviewNote != null && reviewNote.trim().isNotEmpty)
+            'reviewNote': reviewNote.trim(),
+        },
+      );
+      return DepositOrderModel.fromJson(
+        (res.data as Map).cast<String, dynamic>(),
+      );
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo ejecutar el depósito'),
+        e.response?.statusCode,
+      );
+    }
+  }
+
+  Future<DepositOrderModel> cancelDepositOrder({
+    required String id,
+    required String reason,
+  }) async {
+    try {
+      final res = await _dio.post(
+        ApiRoutes.contabilidadDepositOrderCancel(id),
+        data: {'reviewNote': reason.trim()},
+      );
+      return DepositOrderModel.fromJson(
+        (res.data as Map).cast<String, dynamic>(),
+      );
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(e.response?.data, 'No se pudo anular el depósito'),
         e.response?.statusCode,
       );
     }

@@ -155,6 +155,17 @@ class CierresDiariosController extends StateNotifier<CierresDiariosState> {
     state = state.copyWith(clearEditing: true, clearError: true);
   }
 
+  void _replaceClose(CloseModel updated) {
+    final index = state.closes.indexWhere((item) => item.id == updated.id);
+    if (index < 0) {
+      state = state.copyWith(closes: [updated, ...state.closes]);
+      return;
+    }
+    final next = [...state.closes];
+    next[index] = updated;
+    state = state.copyWith(closes: next);
+  }
+
   Future<void> saveClose({
     required CloseType type,
     required DateTime date,
@@ -292,11 +303,11 @@ class CierresDiariosController extends StateNotifier<CierresDiariosState> {
   Future<void> approveClose(String id, {String? reviewNote}) async {
     state = state.copyWith(saving: true, clearError: true);
     try {
-      await ref
+      final updated = await ref
           .read(contabilidadRepositoryProvider)
           .approveClose(id, reviewNote: reviewNote);
       state = state.copyWith(saving: false);
-      await load();
+      _replaceClose(updated);
     } catch (e) {
       final message = e is ApiException
           ? e.message
@@ -308,11 +319,11 @@ class CierresDiariosController extends StateNotifier<CierresDiariosState> {
   Future<void> rejectClose(String id, {String? reviewNote}) async {
     state = state.copyWith(saving: true, clearError: true);
     try {
-      await ref
+      final updated = await ref
           .read(contabilidadRepositoryProvider)
           .rejectClose(id, reviewNote: reviewNote);
       state = state.copyWith(saving: false);
-      await load();
+      _replaceClose(updated);
     } catch (e) {
       final message = e is ApiException
           ? e.message

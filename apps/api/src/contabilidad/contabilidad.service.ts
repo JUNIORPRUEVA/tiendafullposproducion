@@ -110,6 +110,40 @@ export class ContabilidadService {
     'OTRO',
   ]);
 
+  private readonly allowedDepositBanks = [
+    {
+      label: 'Banco Popular',
+      accounts: [
+        {
+          label: 'Yunior Lopez de la Rosa · 0820297174',
+          accountNumber: '0820297174',
+        },
+        {
+          label: 'FULLTECH SRL · 0841088008',
+          accountNumber: '0841088008',
+        },
+      ],
+    },
+    {
+      label: 'Banreservas',
+      accounts: [
+        {
+          label: 'Yunior Lopez de la Rosa · 9600921403',
+          accountNumber: '9600921403',
+        },
+      ],
+    },
+    {
+      label: 'BHD',
+      accounts: [
+        {
+          label: 'Yunior Lopez de la Rosa · 28726660019',
+          accountNumber: '28726660019',
+        },
+      ],
+    },
+  ] as const;
+
   private normalizeRoleGuard(actor: Actor) {
     if (!actor.id) {
       throw new ForbiddenException('No autorizado para operar cierres');
@@ -138,6 +172,274 @@ export class ContabilidadService {
   private isReviewer(actor: Actor) {
     const role = (actor.role ?? '').toUpperCase();
     return role === 'ADMIN';
+  }
+
+  private normalizeDepositKey(value?: string | null) {
+    return (value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+  }
+
+  private normalizeDepositAccountNumber(value?: string | null) {
+    return (value ?? '').replace(/\D/g, '');
+  }
+
+  private findAllowedDepositBank(bankName?: string | null) {
+    const normalized = this.normalizeDepositKey(bankName);
+    return this.allowedDepositBanks.find(
+      (item) => this.normalizeDepositKey(item.label) === normalized,
+    );
+  }
+
+  private isAllowedDepositAccount(
+    bank:
+      | (typeof this.allowedDepositBanks)[number]
+      | undefined,
+    account: string,
+  ) {
+    if (!bank) return false;
+    const normalized = this.normalizeDepositKey(account);
+    const accountNumber = this.normalizeDepositAccountNumber(account);
+    return bank.accounts.some(
+      (item) =>
+        this.normalizeDepositKey(item.label) === normalized ||
+        item.accountNumber === accountNumber,
+    );
+  }
+
+  private parseDepositDate(value: string | Date, fieldName: string) {
+    const parsed = value instanceof Date ? new Date(value) : new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      throw new BadRequestException(`La fecha ${fieldName} no es válida.`);
+    }
+    return parsed;
+  }
+
+  private normalizeDepositCountMap(value: unknown) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new BadRequestException('Debes indicar el detalle de cierres.');
+    }
+    const result: Record<string, number> = {};
+    for (const [key, raw] of Object.entries(value)) {
+      const cleanKey = key.trim();
+      if (!cleanKey) continue;
+      const parsed = Number(raw ?? 0);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        throw new BadRequestException(
+          `La cantidad de cierres para ${cleanKey} no es válida.`,
+        );
+      }
+      result[cleanKey] = Math.trunc(parsed);
+    }
+    return result;
+  }
+
+  private normalizeDepositMoneyMap(value: unknown, fieldName: string) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new BadRequestException(`Debes indicar ${fieldName}.`);
+    }
+    const result: Record<string, number> = {};
+    for (const [key, raw] of Object.entries(value)) {
+      const cleanKey = key.trim();
+      if (!cleanKey) continue;
+      const amount = this.roundMoney(this.decimal(raw));
+      if (amount <= 0) {
+        throw new BadRequestException(
+          `El monto para ${cleanKey} en ${fieldName} debe ser mayor a cero.`,
+        );
+      }
+      result[cleanKey] = amount;
+    }
+    if (Object.keys(result).length === 0) {
+      throw new BadRequestException(`Debes indicar ${fieldName}.`);
+    }
+    return result;
+  }
+
+  private normalizeDepositStringMap(value: unknown, fieldName: string) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new BadRequestException(`Debes indicar ${fieldName}.`);
+    }
+    const result: Record<string, string> = {};
+    for (const [key, raw] of Object.entries(value)) {
+      const cleanKey = key.trim();
+      const cleanValue = this.toNullableTrimmed(String(raw ?? ''));
+      if (!cleanKey || !cleanValue) continue;
+      result[cleanKey] = cleanValue;
+    }
+    if (Object.keys(result).length === 0) {
+      throw new BadRequestException(`Debes indicar ${fieldName}.`);
+    }
+    return result;
+  }
+
+  private async validateDepositCollaborator(collaboratorName?: string | null) {
+    const cleaned = this.toNullableTrimmed(collaboratorName);
+    if (!cleaned) return null;
+
+    const collaborator = await this.prisma.user.findFirst({
+      where: {
+        nombreCompleto: {
+          equals: cleaned,
+          mode: 'insensitive',
+        },
+      },
+      select: { id: true, nombreCompleto: true },
+    });
+    if (!collaborator) {
+      throw new BadRequestException(
+        'El colaborador indicado no existe en el sistema.',
+      );
+    }
+    return collaborator.nombreCompleto.trim();
+  }
+
+  private async normalizeDepositPayload(params: {
+    windowFrom: string | Date;
+    windowTo: string | Date;
+    bankName: string;
+    bankAccount?: string | null;
+    collaboratorName?: string | null;
+    note?: string | null;
+    reserveAmount: unknown;
+    totalAvailableCash: unknown;
+    depositTotal: unknown;
+    closesCountByType: unknown;
+    depositByType: unknown;
+    accountByType: unknown;
+  }) {
+    const windowFrom = this.parseDepositDate(params.windowFrom, 'desde');
+    const windowTo = this.parseDepositDate(params.windowTo, 'hasta');
+    if (windowFrom.getTime() > windowTo.getTime()) {
+      throw new BadRequestException(
+        'La fecha inicial del depósito no puede ser mayor que la final.',
+      );
+    }
+
+    const bankName = this.toNullableTrimmed(params.bankName);
+    if (!bankName) {
+      throw new BadRequestException('Debes indicar el banco del depósito.');
+    }
+    const bank = this.findAllowedDepositBank(bankName);
+    if (!bank) {
+      throw new BadRequestException('El banco seleccionado no es válido.');
+    }
+
+    const bankAccount = this.toNullableTrimmed(params.bankAccount);
+    if (!bankAccount) {
+      throw new BadRequestException('Debes indicar la cuenta del depósito.');
+    }
+    if (!this.isAllowedDepositAccount(bank, bankAccount)) {
+      throw new BadRequestException(
+        'La cuenta seleccionada no corresponde al banco indicado.',
+      );
+    }
+
+    const collaboratorName = await this.validateDepositCollaborator(
+      params.collaboratorName,
+    );
+    const reserveAmount = this.roundMoney(this.decimal(params.reserveAmount));
+    const totalAvailableCash = this.roundMoney(
+      this.decimal(params.totalAvailableCash),
+    );
+    const depositTotal = this.roundMoney(this.decimal(params.depositTotal));
+    if (depositTotal <= 0) {
+      throw new BadRequestException(
+        'El monto total del depósito debe ser mayor a cero.',
+      );
+    }
+
+    const closesCountByType = this.normalizeDepositCountMap(
+      params.closesCountByType,
+    );
+    const depositByType = this.normalizeDepositMoneyMap(
+      params.depositByType,
+      'los montos por tipo',
+    );
+    const accountByType = this.normalizeDepositStringMap(
+      params.accountByType,
+      'las cuentas por tipo',
+    );
+
+    const summedDeposit = this.roundMoney(
+      Object.values(depositByType).reduce((sum, item) => sum + item, 0),
+    );
+    if (Math.abs(summedDeposit - depositTotal) > 0.009) {
+      throw new BadRequestException(
+        'El monto total del depósito no coincide con la suma por tipo.',
+      );
+    }
+
+    for (const [type, account] of Object.entries(accountByType)) {
+      if (!depositByType[type]) {
+        throw new BadRequestException(
+          `La cuenta ${type} no tiene un monto asociado en el depósito.`,
+        );
+      }
+      if (!this.isAllowedDepositAccount(bank, account)) {
+        throw new BadRequestException(
+          `La cuenta de ${type} no corresponde al banco indicado.`,
+        );
+      }
+    }
+
+    for (const type of Object.keys(depositByType)) {
+      if (!accountByType[type]) {
+        throw new BadRequestException(
+          `Debes indicar la cuenta asociada al tipo ${type}.`,
+        );
+      }
+    }
+
+    return {
+      windowFrom,
+      windowTo,
+      bankName,
+      bankAccount,
+      collaboratorName,
+      note: this.toNullableTrimmed(params.note),
+      reserveAmount,
+      totalAvailableCash,
+      depositTotal,
+      closesCountByType,
+      depositByType,
+      accountByType,
+    };
+  }
+
+  private async resolveDepositCorrection(
+    dto: {
+      correctionOfDepositOrderId?: string | null;
+      correctionReason?: string | null;
+    },
+    actor: Actor,
+  ) {
+    const correctionOfDepositOrderId = this.toNullableTrimmed(
+      dto.correctionOfDepositOrderId,
+    );
+    if (!correctionOfDepositOrderId) {
+      return { correctionOfDepositOrderId: null, correctionReason: null };
+    }
+
+    const correctionReason = this.toNullableTrimmed(dto.correctionReason);
+    if (!correctionReason) {
+      throw new BadRequestException(
+        'Debes indicar el motivo de la corrección del depósito.',
+      );
+    }
+
+    const original = await this.prisma.depositOrder.findUnique({
+      where: { id: correctionOfDepositOrderId },
+      select: { id: true, createdById: true },
+    });
+    if (!original) {
+      throw new NotFoundException('El depósito original de la corrección no existe.');
+    }
+    if (!this.isReviewer(actor) && original.createdById !== actor.id) {
+      throw new ForbiddenException(
+        'Solo puedes crear correcciones sobre depósitos propios.',
+      );
+    }
+
+    return { correctionOfDepositOrderId, correctionReason };
   }
 
   private accountingDay(input: Date) {
@@ -435,6 +737,10 @@ export class ContabilidadService {
 
   async getCloses(query: GetClosesQuery, actor?: Actor) {
     const where: Record<string, unknown> = {};
+    if (!this.isReviewer(actor ?? {})) {
+      this.normalizeRoleGuard(actor ?? {});
+      where.createdById = actor!.id;
+    }
 
     if (query.date) {
       const { start, end } = this.normalizeDayRange(new Date(query.date));
@@ -671,11 +977,10 @@ export class ContabilidadService {
 
   async getCloseById(id: string, actor?: Actor) {
     const close = await this.findCloseOrThrow(id);
-    if (
-      actor?.id &&
-      !this.isReviewer(actor) &&
-      close.createdById !== actor.id
-    ) {
+    if (!this.isReviewer(actor ?? {})) {
+      this.normalizeRoleGuard(actor ?? {});
+    }
+    if (!this.isReviewer(actor ?? {}) && close.createdById !== actor!.id) {
       throw new ForbiddenException('No puedes ver cierres de otro usuario.');
     }
     return close;
@@ -928,6 +1233,9 @@ export class ContabilidadService {
     actor: Actor,
     reviewNote?: string | null,
   ) {
+    if (status === CloseStatus.REJECTED && !this.toNullableTrimmed(reviewNote)) {
+      throw new BadRequestException('El motivo de rechazo es obligatorio.');
+    }
     const reviewed = await this.reviewClose(id, status, actor);
     return this.prisma.close.update({
       where: { id: reviewed.id },
@@ -1516,6 +1824,22 @@ export class ContabilidadService {
   async createDepositOrder(dto: CreateDepositOrderDto, actor: Actor) {
     this.normalizeRoleGuard(actor);
 
+    const payload = await this.normalizeDepositPayload({
+      windowFrom: dto.windowFrom,
+      windowTo: dto.windowTo,
+      bankName: dto.bankName,
+      bankAccount: dto.bankAccount,
+      collaboratorName: dto.collaboratorName,
+      note: dto.note,
+      reserveAmount: dto.reserveAmount,
+      totalAvailableCash: dto.totalAvailableCash,
+      depositTotal: dto.depositTotal,
+      closesCountByType: dto.closesCountByType,
+      depositByType: dto.depositByType,
+      accountByType: dto.accountByType,
+    });
+    const correction = await this.resolveDepositCorrection(dto, actor);
+
     const creator = await this.prisma.user.findUnique({
       where: { id: actor.id! },
       select: { nombreCompleto: true },
@@ -1523,35 +1847,37 @@ export class ContabilidadService {
 
     return this.prisma.depositOrder.create({
       data: {
-        windowFrom: new Date(dto.windowFrom),
-        windowTo: new Date(dto.windowTo),
-        bankName: dto.bankName.trim(),
-        bankAccount: this.toNullableTrimmed(dto.bankAccount),
-        collaboratorName: this.toNullableTrimmed(dto.collaboratorName),
-        note: this.toNullableTrimmed(dto.note),
-        reserveAmount: dto.reserveAmount,
-        totalAvailableCash: dto.totalAvailableCash,
-        depositTotal: dto.depositTotal,
-        closesCountByType: dto.closesCountByType,
-        depositByType: dto.depositByType,
-        accountByType: dto.accountByType,
+        ...payload,
         status: DepositOrderStatus.PENDING,
         createdById: actor.id!,
         createdByName: creator?.nombreCompleto ?? null,
+        correctionOfDepositOrderId: correction.correctionOfDepositOrderId,
+        correctionReason: correction.correctionReason,
       },
     });
   }
 
-  async getDepositOrders(query: DepositOrdersQueryDto) {
+  async getDepositOrders(query: DepositOrdersQueryDto, actor: Actor) {
+    this.normalizeRoleGuard(actor);
     const where: Record<string, unknown> = {};
+
+    if (!this.isReviewer(actor)) {
+      where.createdById = actor.id;
+    }
 
     if (query.from || query.to) {
       const from = query.from ? new Date(query.from) : null;
       const to = query.to ? new Date(query.to) : null;
-      where.windowFrom = {
-        ...(from != null ? { gte: from } : {}),
-        ...(to != null ? { lte: to } : {}),
-      };
+      if (from != null && to != null) {
+        where.AND = [
+          { windowFrom: { lte: to } },
+          { windowTo: { gte: from } },
+        ];
+      } else if (from != null) {
+        where.windowTo = { gte: from };
+      } else if (to != null) {
+        where.windowFrom = { lte: to };
+      }
     }
 
     if (query.status) {
@@ -1564,9 +1890,15 @@ export class ContabilidadService {
     });
   }
 
-  async getDepositOrderById(id: string) {
+  async getDepositOrderById(id: string, actor: Actor) {
+    this.normalizeRoleGuard(actor);
     const row = await this.prisma.depositOrder.findUnique({ where: { id } });
     if (!row) throw new NotFoundException('Depósito bancario no encontrado');
+    if (!this.isReviewer(actor) && row.createdById !== actor.id) {
+      throw new ForbiddenException(
+        'Solo puedes ver depósitos bancarios creados por tu usuario.',
+      );
+    }
     return row;
   }
 
@@ -1583,69 +1915,120 @@ export class ContabilidadService {
     if (!existing)
       throw new NotFoundException('Depósito bancario no encontrado');
 
-    const status =
-      dto.status != null
-        ? (dto.status as unknown as DepositOrderStatus)
-        : undefined;
-    const markingExecuted =
-      status === DepositOrderStatusDto.EXECUTED || dto.voucherUrl != null;
+    if (existing.status !== DepositOrderStatus.PENDING || existing.deletedAt) {
+      throw new BadRequestException(
+        'Solo se pueden editar depósitos pendientes y no anulados.',
+      );
+    }
+    if (
+      dto.status != null ||
+      dto.voucherUrl != null ||
+      dto.voucherFileName != null ||
+      dto.voucherMimeType != null ||
+      dto.correctionOfDepositOrderId != null ||
+      dto.correctionReason != null
+    ) {
+      throw new BadRequestException(
+        'El cambio de estado, voucher o corrección debe hacerse por su flujo específico.',
+      );
+    }
 
-    const executor = markingExecuted
-      ? await this.prisma.user.findUnique({
-          where: { id: actor.id! },
-          select: { nombreCompleto: true },
-        })
-      : null;
+    const payload = await this.normalizeDepositPayload({
+      windowFrom: dto.windowFrom ?? existing.windowFrom,
+      windowTo: dto.windowTo ?? existing.windowTo,
+      bankName: dto.bankName ?? existing.bankName,
+      bankAccount: dto.bankAccount ?? existing.bankAccount,
+      collaboratorName: dto.collaboratorName ?? existing.collaboratorName,
+      note: dto.note ?? existing.note,
+      reserveAmount: dto.reserveAmount ?? existing.reserveAmount,
+      totalAvailableCash: dto.totalAvailableCash ?? existing.totalAvailableCash,
+      depositTotal: dto.depositTotal ?? existing.depositTotal,
+      closesCountByType: dto.closesCountByType ?? existing.closesCountByType,
+      depositByType: dto.depositByType ?? existing.depositByType,
+      accountByType: dto.accountByType ?? existing.accountByType,
+    });
+
+    return this.prisma.depositOrder.update({
+      where: { id },
+      data: payload,
+    });
+  }
+
+  async approveDepositOrder(id: string, _reviewNote: string | undefined, actor: Actor) {
+    this.ensureAdmin(actor);
+
+    const existing = await this.prisma.depositOrder.findUnique({
+      where: { id },
+    });
+    if (!existing) {
+      throw new NotFoundException('Depósito bancario no encontrado');
+    }
+    if (existing.status === DepositOrderStatus.EXECUTED) {
+      throw new BadRequestException('El depósito ya fue ejecutado.');
+    }
+    if (existing.status === DepositOrderStatus.CANCELLED || existing.deletedAt) {
+      throw new BadRequestException(
+        'No se puede aprobar un depósito anulado o rechazado.',
+      );
+    }
+    if (!this.toNullableTrimmed(existing.voucherUrl)) {
+      throw new BadRequestException(
+        'Debes adjuntar un voucher antes de ejecutar el depósito.',
+      );
+    }
+
+    const executor = await this.prisma.user.findUnique({
+      where: { id: actor.id! },
+      select: { nombreCompleto: true },
+    });
 
     return this.prisma.depositOrder.update({
       where: { id },
       data: {
-        ...(dto.windowFrom != null
-          ? { windowFrom: new Date(dto.windowFrom) }
-          : {}),
-        ...(dto.windowTo != null ? { windowTo: new Date(dto.windowTo) } : {}),
-        ...(dto.bankName != null ? { bankName: dto.bankName.trim() } : {}),
-        ...(dto.bankAccount != null
-          ? { bankAccount: this.toNullableTrimmed(dto.bankAccount) }
-          : {}),
-        ...(dto.collaboratorName != null
-          ? { collaboratorName: this.toNullableTrimmed(dto.collaboratorName) }
-          : {}),
-        ...(dto.note != null ? { note: this.toNullableTrimmed(dto.note) } : {}),
-        ...(dto.reserveAmount != null
-          ? { reserveAmount: dto.reserveAmount }
-          : {}),
-        ...(dto.totalAvailableCash != null
-          ? { totalAvailableCash: dto.totalAvailableCash }
-          : {}),
-        ...(dto.depositTotal != null ? { depositTotal: dto.depositTotal } : {}),
-        ...(dto.closesCountByType != null
-          ? { closesCountByType: dto.closesCountByType }
-          : {}),
-        ...(dto.depositByType != null
-          ? { depositByType: dto.depositByType }
-          : {}),
-        ...(dto.accountByType != null
-          ? { accountByType: dto.accountByType }
-          : {}),
-        ...(status != null ? { status } : {}),
-        ...(dto.voucherUrl != null
-          ? { voucherUrl: this.toNullableTrimmed(dto.voucherUrl) }
-          : {}),
-        ...(dto.voucherFileName != null
-          ? { voucherFileName: this.toNullableTrimmed(dto.voucherFileName) }
-          : {}),
-        ...(dto.voucherMimeType != null
-          ? { voucherMimeType: this.toNullableTrimmed(dto.voucherMimeType) }
-          : {}),
-        ...(markingExecuted
-          ? {
-              status: DepositOrderStatus.EXECUTED,
-              executedAt: new Date(),
-              executedById: actor.id!,
-              executedByName: executor?.nombreCompleto ?? null,
-            }
-          : {}),
+        status: DepositOrderStatus.EXECUTED,
+        executedAt: new Date(),
+        executedById: actor.id!,
+        executedByName: executor?.nombreCompleto ?? null,
+      },
+    });
+  }
+
+  async cancelDepositOrder(id: string, reviewNote: string | undefined, actor: Actor) {
+    this.ensureAdmin(actor);
+
+    const existing = await this.prisma.depositOrder.findUnique({
+      where: { id },
+    });
+    if (!existing) {
+      throw new NotFoundException('Depósito bancario no encontrado');
+    }
+    if (existing.status === DepositOrderStatus.EXECUTED) {
+      throw new BadRequestException(
+        'Los depósitos ejecutados son inmutables y no pueden anularse.',
+      );
+    }
+    if (existing.status === DepositOrderStatus.CANCELLED || existing.deletedAt) {
+      throw new BadRequestException('El depósito ya fue anulado o rechazado.');
+    }
+
+    const reason = this.toNullableTrimmed(reviewNote);
+    if (!reason) {
+      throw new BadRequestException('El motivo de anulación es obligatorio.');
+    }
+
+    const reviewer = await this.prisma.user.findUnique({
+      where: { id: actor.id! },
+      select: { nombreCompleto: true },
+    });
+
+    return this.prisma.depositOrder.update({
+      where: { id },
+      data: {
+        status: DepositOrderStatus.CANCELLED,
+        deletedAt: new Date(),
+        deletedById: actor.id!,
+        deletedByName: reviewer?.nombreCompleto ?? null,
+        deletedReason: reason,
       },
     });
   }
@@ -1666,16 +2049,16 @@ export class ContabilidadService {
     });
     if (!existing)
       throw new NotFoundException('Depósito bancario no encontrado');
-    if (existing.status === DepositOrderStatus.CANCELLED) {
+    if (existing.status === DepositOrderStatus.CANCELLED || existing.deletedAt) {
       throw new BadRequestException(
         'No se puede adjuntar voucher a un depósito cancelado',
       );
     }
-
-    const executor = await this.prisma.user.findUnique({
-      where: { id: actor.id! },
-      select: { nombreCompleto: true },
-    });
+    if (existing.status === DepositOrderStatus.EXECUTED) {
+      throw new BadRequestException(
+        'Los depósitos ejecutados son inmutables y no admiten cambio de voucher.',
+      );
+    }
 
     return this.prisma.depositOrder.update({
       where: { id },
@@ -1683,10 +2066,6 @@ export class ContabilidadService {
         voucherUrl: params.voucherUrl.trim(),
         voucherFileName: params.voucherFileName.trim(),
         voucherMimeType: params.voucherMimeType.trim(),
-        status: DepositOrderStatus.EXECUTED,
-        executedAt: new Date(),
-        executedById: actor.id!,
-        executedByName: executor?.nombreCompleto ?? null,
       },
     });
   }
@@ -1700,7 +2079,9 @@ export class ContabilidadService {
     if (!existing)
       throw new NotFoundException('Depósito bancario no encontrado');
 
-    return this.prisma.depositOrder.delete({ where: { id } });
+    throw new BadRequestException(
+      'Los depósitos bancarios auditables no se eliminan físicamente. Usa anular con motivo.',
+    );
   }
 
   async createFiscalInvoice(dto: CreateFiscalInvoiceDto, actor: Actor) {

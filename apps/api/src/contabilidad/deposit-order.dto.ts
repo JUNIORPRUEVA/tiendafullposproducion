@@ -57,6 +57,14 @@ export class CreateDepositOrderDto {
 
   @IsObject()
   accountByType!: Record<string, string>;
+
+  @IsOptional()
+  @IsString()
+  correctionOfDepositOrderId?: string;
+
+  @IsOptional()
+  @IsString()
+  correctionReason?: string;
 }
 
 export class UpdateDepositOrderDto {
@@ -112,6 +120,14 @@ export class UpdateDepositOrderDto {
   accountByType?: Record<string, string>;
 
   @IsOptional()
+  @IsString()
+  correctionOfDepositOrderId?: string;
+
+  @IsOptional()
+  @IsString()
+  correctionReason?: string;
+
+  @IsOptional()
   @IsEnum(DepositOrderStatusDto)
   status?: DepositOrderStatusDto;
 
@@ -126,6 +142,12 @@ export class UpdateDepositOrderDto {
   @ValidateIf((_, value) => value != null)
   @IsString()
   voucherMimeType?: string;
+}
+
+export class ReviewDepositOrderDto {
+  @IsOptional()
+  @IsString()
+  reviewNote?: string;
 }
 
 export class DepositOrdersQueryDto {
