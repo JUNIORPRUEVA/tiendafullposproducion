@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { MarketingStoryType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MarketingImageGenerationService } from './marketing-image-generation.service';
@@ -16,6 +16,8 @@ type StoryTemplate = {
 
 @Injectable()
 export class MarketingGenerationService {
+  private readonly logger = new Logger(MarketingGenerationService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly mediaSelector: MarketingMediaSelectorService,
@@ -152,7 +154,6 @@ export class MarketingGenerationService {
           researchConfig,
           usedAssetIds,
         });
-        this.assertReadyToSave(content, visualData);
         await this.prisma.marketingDailyStory.create({
           data: {
             companyId,
@@ -205,7 +206,6 @@ export class MarketingGenerationService {
         researchConfig,
         usedAssetIds,
       });
-        this.assertReadyToSave(content, visualData);
       await this.prisma.marketingDailyStory.update({
         where: { id: current.id },
         data: {
@@ -295,8 +295,6 @@ export class MarketingGenerationService {
       researchConfig,
       usedAssetIds: new Set<string>(story.mediaAssetId ? [story.mediaAssetId] : []),
     });
-    this.assertReadyToSave(content, visualData);
-
     const updated = await this.prisma.marketingDailyStory.update({
       where: { id: story.id },
       data: {
@@ -379,46 +377,67 @@ export class MarketingGenerationService {
       hashtags: story.hashtags,
       imagePrompt: customPrompt?.trim() || story.imagePrompt || '',
     };
-    const visualData = await this.prepareVisualData({
-      companyId,
-      type: story.type,
-      content,
-      research,
-      researchConfig,
-      usedAssetIds: new Set<string>(),
-      forceAssetId: story.mediaAssetId ?? undefined,
-      forcedPrompt: customPrompt?.trim() || undefined,
-    });
-
-    const updated = await this.prisma.marketingDailyStory.update({
-      where: { id: storyId },
-      data: {
-        imagePrompt: visualData.imagePrompt,
-        imageUrl: visualData.imageUrl,
-        visualConcept: visualData.visualConcept,
-        designNotes: visualData.designNotes,
-        imageStatus: visualData.imageStatus,
-        generatedImageUrl: visualData.generatedImageUrl,
-        generatedImageProvider: visualData.generatedImageProvider,
-        imageGenerationMetadata: visualData.imageGenerationMetadata as any,
-      },
-      include: {
-        approvedByUser: { select: { id: true, nombreCompleto: true } },
-        mediaAsset: true,
-      },
-    });
-
-    await this.prisma.marketingActivityLog.create({
-      data: {
+    try {
+      this.logger.log(`[marketing-image] generating storyId=${storyId}`);
+      const visualData = await this.prepareVisualData({
         companyId,
-        action: 'MARKETING_STORY_IMAGE_REGENERATED',
-        description: `Imagen regenerada para contenido ${storyId}`,
-        userId,
-        metadata: { storyId, mediaAssetId: updated.mediaAssetId ?? null },
-      },
-    });
+        type: story.type,
+        content,
+        research,
+        researchConfig,
+        usedAssetIds: new Set<string>(),
+        forceAssetId: story.mediaAssetId ?? undefined,
+        forcedPrompt: customPrompt?.trim() || undefined,
+      });
 
-    return updated;
+      const updated = await this.prisma.marketingDailyStory.update({
+        where: { id: storyId },
+        data: {
+          imagePrompt: visualData.imagePrompt,
+          imageUrl: visualData.imageUrl,
+          visualConcept: visualData.visualConcept,
+          designNotes: visualData.designNotes,
+          imageStatus: visualData.imageStatus,
+          generatedImageUrl: visualData.generatedImageUrl,
+          generatedImageProvider: visualData.generatedImageProvider,
+          imageGenerationMetadata: visualData.imageGenerationMetadata as any,
+        },
+        include: {
+          approvedByUser: { select: { id: true, nombreCompleto: true } },
+          mediaAsset: true,
+        },
+      });
+
+      this.logger.log(`[marketing-image] saved generatedImageUrl=${updated.generatedImageUrl ?? ''}`);
+      await this.prisma.marketingActivityLog.create({
+        data: {
+          companyId,
+          action: 'MARKETING_STORY_IMAGE_REGENERATED',
+          description: `Imagen regenerada para contenido ${storyId}`,
+          userId,
+          metadata: { storyId, mediaAssetId: updated.mediaAssetId ?? null },
+        },
+      });
+
+      return updated;
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      this.logger.error(`[marketing-image] failed reason=${reason}`);
+      await this.prisma.marketingDailyStory.update({
+        where: { id: storyId },
+        data: {
+          imageStatus: 'FAILED',
+          generatedImageUrl: null,
+          generatedImageProvider: null,
+          imageGenerationMetadata: {
+            failedAt: new Date().toISOString(),
+            reason,
+            storyId,
+          } as any,
+        },
+      });
+      throw error;
+    }
   }
 
   async changeBaseImage(companyId: string, storyId: string, mediaAssetId: string, userId: string) {
@@ -612,13 +631,9 @@ export class MarketingGenerationService {
     const visualConcept = this.buildVisualConcept(input.type, usedResearchAngle, primaryService);
     const designNotes = this.buildDesignNotes(input.type, usedCTA);
 
-    if (!selected) {
-      throw new BadRequestException(
-        'No hay imágenes publicitarias válidas. Marca imágenes como publicidad desde la galería de contenido.',
-      );
-    }
-
-    const generated = await this.imageGeneration.generateOrPrepare({
+    let generated;
+    try {
+      generated = await this.imageGeneration.generateOrPrepare({
       companyName: input.researchConfig?.businessName ?? 'FULLTECH SRL',
       city: input.researchConfig?.city ?? 'Higüey',
       country: input.researchConfig?.country ?? 'República Dominicana',
@@ -629,17 +644,34 @@ export class MarketingGenerationService {
       offer: usedOffer,
       visualConcept,
       designNotes,
-      baseImageUrl: selected.fileUrl,
-      imageCategory: selected.category,
-      serviceOrProduct: primaryService || selected.relatedService || selected.category,
+      baseImageUrl: selected?.fileUrl ?? '',
+      imageCategory: selected?.category ?? this.galleryCategoryForType(input.type),
+      serviceOrProduct: primaryService || selected?.relatedService || selected?.category || this.galleryCategoryForType(input.type),
       usedResearchAngle,
-    });
+      });
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      generated = {
+        imageStatus: 'FAILED' as const,
+        generatedImageUrl: null,
+        generatedImageProvider: '',
+        prompt: input.forcedPrompt || input.content.imagePrompt,
+        visualConcept,
+        designNotes,
+        metadata: {
+          failedAt: new Date().toISOString(),
+          reason,
+        },
+      };
+    }
 
-    const savedBase = await this.marketingStorage.saveBaseImageReference({
-      companyId: input.companyId,
-      storyType: this.storyTypeSlug(input.type),
-      sourceUrl: selected.fileUrl,
-    });
+    const savedBase = selected
+      ? await this.marketingStorage.saveBaseImageReference({
+          companyId: input.companyId,
+          storyType: this.storyTypeSlug(input.type),
+          sourceUrl: selected.fileUrl,
+        })
+      : null;
 
     const savedGenerated = (generated.generatedImageUrl || '').trim()
       ? await this.marketingStorage.saveGeneratedImage({
@@ -649,15 +681,12 @@ export class MarketingGenerationService {
         })
       : null;
 
-    const baseImageUrl = (savedBase.url || '').trim();
+    const baseImageUrl = (savedBase?.url || '').trim();
     const finalGeneratedUrl = (savedGenerated?.url || '').trim();
     const finalImageUrl = finalGeneratedUrl || baseImageUrl;
-    if (!finalImageUrl || !baseImageUrl) {
-      throw new BadRequestException('El estado no tiene imagen válida (base y/o final) desde la Galería Publicitaria.');
-    }
 
     return {
-      mediaAssetId: selected.id,
+      mediaAssetId: selected?.id ?? null,
       imagePrompt: input.forcedPrompt || generated.prompt,
       // imageUrl keeps the selected base media from the gallery.
       imageUrl: baseImageUrl,
@@ -671,6 +700,7 @@ export class MarketingGenerationService {
         ...generated.metadata,
         baseImageSavedUrl: baseImageUrl,
         generatedImageSavedUrl: finalGeneratedUrl || null,
+        finalImageUrl: finalImageUrl || null,
       },
       usedResearchAngle,
       usedOffer,
@@ -726,9 +756,9 @@ export class MarketingGenerationService {
     if (!title || !shortText || !cta) {
       throw new BadRequestException('No se puede guardar estado sin copy completo (headline, shortText y CTA).');
     }
-    if (!image || !visual.mediaAssetId) {
+    if (!image) {
       throw new BadRequestException(
-        'No hay imágenes publicitarias válidas. Marca imágenes como publicidad desde la galería de contenido.',
+        'No hay imagen publicitaria final válida para este estado.',
       );
     }
   }

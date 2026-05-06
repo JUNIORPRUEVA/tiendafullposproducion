@@ -35,6 +35,7 @@ class PublicidadState {
     required this.researchHistory,
     required this.learningStats,
     required this.publishedAssets,
+    required this.imageBusyStoryIds,
     required this.error,
   });
 
@@ -50,6 +51,7 @@ class PublicidadState {
   final List<MarketingResearchDetail> researchHistory;
   final MarketingLearningStats? learningStats;
   final List<MarketingPublishedAsset> publishedAssets;
+  final Set<String> imageBusyStoryIds;
   final String? error;
 
   factory PublicidadState.initial() {
@@ -67,6 +69,7 @@ class PublicidadState {
       researchHistory: const [],
       learningStats: null,
       publishedAssets: const [],
+      imageBusyStoryIds: const <String>{},
       error: null,
     );
   }
@@ -84,6 +87,7 @@ class PublicidadState {
     List<MarketingResearchDetail>? researchHistory,
     MarketingLearningStats? learningStats,
     List<MarketingPublishedAsset>? publishedAssets,
+    Set<String>? imageBusyStoryIds,
     String? error,
     bool clearError = false,
   }) {
@@ -100,6 +104,7 @@ class PublicidadState {
       researchHistory: researchHistory ?? this.researchHistory,
       learningStats: learningStats ?? this.learningStats,
       publishedAssets: publishedAssets ?? this.publishedAssets,
+      imageBusyStoryIds: imageBusyStoryIds ?? this.imageBusyStoryIds,
       error: clearError ? null : (error ?? this.error),
     );
   }
@@ -167,14 +172,14 @@ class PublicidadController extends StateNotifier<PublicidadState> {
   }
 
   Future<void> regenerateImage(String storyId, {String? customPrompt}) async {
-    await _runBusy(() async {
+    await _runStoryImageBusy(storyId, () async {
       await _api.regenerateImage(storyId, customPrompt: customPrompt);
       await _refresh(keepLoading: false);
     });
   }
 
   Future<void> changeBaseImage(String storyId, String mediaAssetId) async {
-    await _runBusy(() async {
+    await _runStoryImageBusy(storyId, () async {
       await _api.changeBaseImage(storyId, mediaAssetId);
       await _refresh(keepLoading: false);
     });
@@ -558,6 +563,22 @@ class PublicidadController extends StateNotifier<PublicidadState> {
     }
   }
 
+  Future<void> _runStoryImageBusy(String storyId, Future<void> Function() task) async {
+    final nextBusy = {...state.imageBusyStoryIds, storyId};
+    state = state.copyWith(imageBusyStoryIds: nextBusy, clearError: true);
+    try {
+      await task();
+    } catch (error) {
+      final message = _friendlyError(
+        error,
+        fallback: 'No se pudo completar la generación de imagen.',
+      );
+      state = state.copyWith(error: message, imageBusyStoryIds: {...state.imageBusyStoryIds}..remove(storyId));
+      rethrow;
+    }
+    state = state.copyWith(imageBusyStoryIds: {...state.imageBusyStoryIds}..remove(storyId));
+  }
+
   String _friendlyError(Object error, {required String fallback}) {
     if (error is ApiException) {
       final raw = error.message.trim();
@@ -776,6 +797,7 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
                                 onRegenerateImage: controller.regenerateImage,
                                 onChangeBaseImage: controller.changeBaseImage,
                                 busy: state.busy,
+                                imageBusyStoryIds: state.imageBusyStoryIds,
                               ),
                             if (_tab == _PublicidadTab.investigacion)
                               _ResearchSummaryTab(
@@ -800,6 +822,7 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
                                 mediaAssets: state.mediaAssets,
                                 researches: state.researchHistory,
                                 busy: state.busy,
+                                imageBusyStoryIds: state.imageBusyStoryIds,
                                 onApprove: controller.approve,
                                 onReject: controller.reject,
                                 onRegenerate: controller.regenerate,
@@ -1093,6 +1116,7 @@ class _DashboardTab extends StatelessWidget {
     required this.onRegenerateImage,
     required this.onChangeBaseImage,
     required this.busy,
+    required this.imageBusyStoryIds,
   });
 
   final PublicidadState state;
@@ -1111,6 +1135,7 @@ class _DashboardTab extends StatelessWidget {
   final Future<void> Function(String storyId, String mediaAssetId)
   onChangeBaseImage;
   final bool busy;
+  final Set<String> imageBusyStoryIds;
 
   @override
   Widget build(BuildContext context) {
@@ -1118,13 +1143,17 @@ class _DashboardTab extends StatelessWidget {
     final completeStories = stories.where(_isCompleteStory).length;
     final incompleteStories = stories.length - completeStories;
     final generatedImages = stories
-      .where((s) => _safeImageUrl(s.generatedImageUrl).isNotEmpty)
+      .where(
+        (s) =>
+            s.imageStatus == MarketingImageStatus.generated &&
+            _safeImageUrl(s.generatedImageUrl).isNotEmpty,
+      )
       .length;
     final imagesUsedToday = stories
       .where((s) => _resolveBaseImageUrl(s).isNotEmpty)
       .length;
     final imagesWithoutLoad = stories
-      .where((s) => _resolveFinalImageUrl(s).isEmpty)
+      .where((s) => _safeImageUrl(s.generatedImageUrl).isEmpty)
       .length;
     final generatedCopies = stories
       .where(
@@ -1223,6 +1252,7 @@ class _DashboardTab extends StatelessWidget {
           onChangeBaseImage: onChangeBaseImage,
           onEdit: (_, __) async {},
           compactActions: true,
+          imageBusyStoryIds: imageBusyStoryIds,
         ),
       ],
     );
@@ -1230,13 +1260,12 @@ class _DashboardTab extends StatelessWidget {
 
   bool _isCompleteStory(MarketingStory story) {
     final hasFinalImage = _resolveFinalImageUrl(story).isNotEmpty;
-    final hasBaseImage = _resolveBaseImageUrl(story).isNotEmpty;
     final hasCopy =
         story.title.trim().isNotEmpty &&
         story.shortText.trim().isNotEmpty &&
         story.usedCTA.trim().isNotEmpty;
     final hasPrompt = story.imagePrompt.trim().isNotEmpty;
-    return hasFinalImage && hasBaseImage && hasCopy && hasPrompt;
+    return hasFinalImage && hasCopy && hasPrompt;
   }
 }
 
@@ -1252,6 +1281,7 @@ class _DailyStoriesTab extends StatelessWidget {
     required this.onRegenerateImage,
     required this.onChangeBaseImage,
     required this.onEdit,
+    required this.imageBusyStoryIds,
     this.compactActions = false,
   });
 
@@ -1268,6 +1298,7 @@ class _DailyStoriesTab extends StatelessWidget {
   onChangeBaseImage;
   final Future<void> Function(MarketingStory story, _EditStoryPayload payload)
   onEdit;
+  final Set<String> imageBusyStoryIds;
   final bool compactActions;
 
   @override
@@ -1318,6 +1349,7 @@ class _DailyStoriesTab extends StatelessWidget {
                         story: story,
                         usedResearch: _findResearch(story.researchId),
                         busy: busy,
+                        imageBusy: imageBusyStoryIds.contains(story.id),
                         compactActions: compactActions,
                         onApprove: () => onApprove(story.id),
                         onReject: () => onReject(story.id),
@@ -1383,6 +1415,7 @@ class _StoryCard extends StatelessWidget {
     required this.story,
     required this.usedResearch,
     required this.busy,
+    required this.imageBusy,
     required this.onApprove,
     required this.onReject,
     required this.onRegenerate,
@@ -1395,6 +1428,7 @@ class _StoryCard extends StatelessWidget {
   final MarketingStory story;
   final MarketingResearchDetail? usedResearch;
   final bool busy;
+  final bool imageBusy;
   final Future<void> Function() onApprove;
   final Future<void> Function() onReject;
   final Future<void> Function() onRegenerate;
@@ -1420,6 +1454,10 @@ class _StoryCard extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (story.imageStatus == MarketingImageStatus.failed)
+          const _ErrorBanner(
+            message: 'La imagen no se pudo generar. Revisa la configuración del proveedor o intenta de nuevo.',
+          ),
         if (!isComplete)
           _ErrorBanner(
             message:
@@ -1455,21 +1493,26 @@ class _StoryCard extends StatelessWidget {
                 label: 'Preview final listo para publicar',
                 imageUrl: finalImage,
                 story: story,
-                fallbackLabel: 'Genera imagen para este anuncio',
+                fallbackLabel: imageBusy ? 'Generando imagen...' : 'Genera imagen para este anuncio',
                 showLabel: false,
                 showApprovedBadge: approved,
               ),
             ),
           ),
         ),
+        if (imageBusy)
+          const Padding(
+            padding: EdgeInsets.only(top: 8),
+            child: LinearProgressIndicator(minHeight: 3),
+          ),
         if (finalImage.isEmpty) ...[
           const SizedBox(height: 8),
           Align(
             alignment: Alignment.center,
             child: OutlinedButton.icon(
-              onPressed: busy ? null : onRegenerateImage,
+              onPressed: busy || imageBusy ? null : onRegenerateImage,
               icon: const Icon(Icons.auto_fix_high_rounded, size: 18),
-              label: const Text('Generar imagen'),
+              label: Text(imageBusy ? 'Generando...' : 'Generar imagen'),
             ),
           ),
         ],
@@ -1557,12 +1600,12 @@ class _StoryCard extends StatelessWidget {
               child: const Text('Regenerar contenido'),
             ),
             OutlinedButton(
-              onPressed: busy ? null : onRegenerateImage,
+              onPressed: busy || imageBusy ? null : onRegenerateImage,
               child: const Text('Regenerar imagen'),
             ),
             if (!compact || finalImage.isEmpty)
               OutlinedButton(
-                onPressed: busy ? null : onChangeBaseImage,
+                onPressed: busy || imageBusy ? null : onChangeBaseImage,
                 child: const Text('Cambiar imagen manual'),
               ),
             OutlinedButton.icon(
@@ -1665,7 +1708,6 @@ class _StoryCard extends StatelessWidget {
   List<String> _missingFields(MarketingStory story) {
     final missing = <String>[];
     if (_resolveFinalImage(story).isEmpty) missing.add('imagen final');
-    if (_resolveBaseImageUrl(story).isEmpty) missing.add('imagen base');
     if (story.imagePrompt.trim().isEmpty) missing.add('prompt');
     if (story.title.trim().isEmpty) missing.add('headline');
     if (story.shortText.trim().isEmpty) missing.add('texto corto');
@@ -1963,7 +2005,7 @@ class _StoryFullscreenPreview extends StatelessWidget {
                   if (!canApprove)
                     const Expanded(
                       child: _ErrorBanner(
-                        message: 'Anuncio incompleto: completa imagen final/base, headline, texto, CTA y prompt antes de aprobar.',
+                        message: 'Anuncio incompleto: completa imagen final, headline, texto, CTA y prompt antes de aprobar.',
                       ),
                     ),
                   if (!canApprove) const SizedBox(width: 10),

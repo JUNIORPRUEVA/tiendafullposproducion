@@ -1,5 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { join, posix } from 'node:path';
 import { R2Service } from '../storage/r2.service';
 
 type SaveImageInput = {
@@ -12,7 +16,10 @@ type SaveImageInput = {
 export class MarketingStorageService {
   private readonly logger = new Logger(MarketingStorageService.name);
 
-  constructor(private readonly r2: R2Service) {}
+  constructor(
+    private readonly r2: R2Service,
+    private readonly config: ConfigService,
+  ) {}
 
   async saveGeneratedImage(input: SaveImageInput) {
     const saved = await this.persistToStorage(input, 'generated');
@@ -48,7 +55,36 @@ export class MarketingStorageService {
     if (raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('data:image/')) {
       return raw;
     }
+    if (raw.startsWith('uploads/')) {
+      return this.buildPublicUploadsUrl(raw);
+    }
     return this.r2.buildPublicUrl(raw);
+  }
+
+  async getPublicUrlAsync(objectKeyOrUrl: string) {
+    const raw = (objectKeyOrUrl || '').trim();
+    if (!raw) return '';
+    if (raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('data:image/')) {
+      return raw;
+    }
+    if (raw.startsWith('uploads/')) {
+      return this.buildPublicUploadsUrl(raw);
+    }
+
+    const publicUrl = this.r2.buildPublicUrl(raw);
+    if (this.isAbsoluteHttpUrl(publicUrl)) {
+      return publicUrl;
+    }
+
+    try {
+      return await this.r2.createPresignedGetUrl({
+        objectKey: raw,
+        expiresInSeconds: 60 * 60 * 24,
+      });
+    } catch (error) {
+      this.logger.warn(`No se pudo resolver URL pública de imagen legacy: ${error instanceof Error ? error.message : String(error)}`);
+      return raw;
+    }
   }
 
   private normalizeUrl(raw: string) {
@@ -80,7 +116,7 @@ export class MarketingStorageService {
       }
 
       const objectKey = this.buildObjectKey(input, kind, parsed.extension);
-      const uploaded = await this.tryUpload(objectKey, parsed.bytes, parsed.contentType);
+      const uploaded = await this.persistBytes(objectKey, parsed.bytes, parsed.contentType);
       if (!uploaded) {
         return {
           url: normalizedSource,
@@ -118,7 +154,7 @@ export class MarketingStorageService {
     }
 
     const objectKey = this.buildObjectKey(input, kind, downloaded.extension);
-    const uploaded = await this.tryUpload(objectKey, downloaded.bytes, downloaded.contentType);
+    const uploaded = await this.persistBytes(objectKey, downloaded.bytes, downloaded.contentType);
     if (!uploaded) {
       return {
         url: normalizedSource,
@@ -165,24 +201,25 @@ export class MarketingStorageService {
     }
   }
 
-  private async tryUpload(objectKey: string, body: Buffer, contentType: string) {
+  private async persistBytes(objectKey: string, body: Buffer, contentType: string) {
     try {
+      const absolutePath = this.resolveAbsoluteUploadPath(objectKey);
+      await mkdir(join(absolutePath, '..'), { recursive: true }).catch(async () => {
+        const parent = absolutePath.split(/[\\/]/).slice(0, -1).join('/');
+        if (parent) {
+          await mkdir(parent, { recursive: true });
+        }
+      });
+      await writeFile(absolutePath, body);
+
       await this.r2.putObject({
-        objectKey,
+        objectKey: objectKey.replace(/^uploads\//, ''),
         body,
         contentType,
       });
 
-      const publicUrl = this.r2.buildPublicUrl(objectKey);
-      const accessibleUrl = this.isAbsoluteHttpUrl(publicUrl)
-        ? publicUrl
-        : await this.r2.createPresignedGetUrl({
-            objectKey,
-            expiresInSeconds: 60 * 60 * 24 * 7,
-          });
-
       return {
-        url: accessibleUrl,
+        url: this.buildPublicUploadsUrl(objectKey),
       };
     } catch (error) {
       this.logger.warn(`Error subiendo imagen marketing a storage: ${error instanceof Error ? error.message : String(error)}`);
@@ -191,9 +228,12 @@ export class MarketingStorageService {
   }
 
   private buildObjectKey(input: SaveImageInput, kind: 'base' | 'generated', extension: string) {
+    const date = new Date();
+    const yyyy = `${date.getUTCFullYear()}`;
+    const mm = `${date.getUTCMonth() + 1}`.padStart(2, '0');
     const safeCompany = this.slugify(input.companyId || 'company');
     const safeType = this.slugify(input.storyType || 'story');
-    return `marketing/${kind}/${safeCompany}/${safeType}/${Date.now()}-${randomUUID()}.${extension}`;
+    return `uploads/marketing/${kind}/${yyyy}/${mm}/${safeCompany}-${safeType}-${Date.now()}-${randomUUID()}.${extension}`;
   }
 
   private parseDataImage(value: string) {
@@ -233,6 +273,42 @@ export class MarketingStorageService {
 
   private isAbsoluteHttpUrl(value: string) {
     return value.startsWith('http://') || value.startsWith('https://');
+  }
+
+  private resolveUploadDir(): string {
+    const fromEnv = (process.env.UPLOAD_DIR ?? '').trim();
+    const volumeDir = '/uploads';
+    const volumeExists = existsSync(volumeDir);
+
+    if (fromEnv.length > 0) {
+      if ((fromEnv === './uploads' || fromEnv === 'uploads') && volumeExists) {
+        return volumeDir;
+      }
+      return fromEnv;
+    }
+
+    return volumeExists ? volumeDir : join(process.cwd(), 'uploads');
+  }
+
+  private resolveAbsoluteUploadPath(objectKey: string) {
+    const uploadDir = this.resolveUploadDir();
+    const relativeSegments = objectKey.replace(/^uploads\//, '').split('/');
+    return join(uploadDir, ...relativeSegments);
+  }
+
+  private buildPublicUploadsUrl(objectKey: string) {
+    const base = (
+      this.config.get<string>('PUBLIC_BASE_URL') ??
+      this.config.get<string>('API_BASE_URL') ??
+      process.env.PUBLIC_BASE_URL ??
+      process.env.API_BASE_URL ??
+      'http://localhost:4000'
+    )
+      .trim()
+      .replace(/\/$/, '');
+
+    const relativePath = `/${posix.join(...objectKey.split(/[/\\]+/))}`;
+    return base ? `${base}${relativePath}` : relativePath;
   }
 
   private slugify(value: string) {

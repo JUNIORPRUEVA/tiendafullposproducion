@@ -139,7 +139,7 @@ export class MarketingService {
 
     return {
       date,
-      items: stories.map((item) => this.normalizeStoryUrls(item)),
+      items: await Promise.all(stories.map((item) => this.normalizeStoryUrlsAsync(item))),
     };
   }
 
@@ -296,7 +296,7 @@ export class MarketingService {
     ]);
 
     return {
-      items: items.map((item) => this.normalizeStoryUrls(item)),
+      items: await Promise.all(items.map((item) => this.normalizeStoryUrlsAsync(item))),
       total,
       page,
       limit,
@@ -379,12 +379,12 @@ export class MarketingService {
     });
 
     return {
-      items: items.map((item) => ({
+      items: await Promise.all(items.map(async (item) => ({
         id: item.id,
         storyId: item.id,
         mediaAssetId: item.mediaAssetId ?? null,
-        generatedImageUrl: this.normalizeImageUrl(item.generatedImageUrl),
-        imageUrl: this.normalizeImageUrl(item.imageUrl),
+        generatedImageUrl: await this.normalizeImageUrlAsync(item.generatedImageUrl),
+        imageUrl: await this.normalizeImageUrlAsync(item.imageUrl),
         headline: item.title,
         shortText: item.shortText,
         cta: item.usedCTA ?? null,
@@ -397,8 +397,8 @@ export class MarketingService {
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
         date: item.date,
-        mediaAsset: item.mediaAsset ? this.normalizeMediaAssetUrls(item.mediaAsset) : null,
-      })),
+        mediaAsset: item.mediaAsset ? await this.normalizeMediaAssetUrlsAsync(item.mediaAsset) : null,
+      }))),
     };
   }
 
@@ -702,11 +702,7 @@ export class MarketingService {
     const hasFinalImage =
       `${story.generatedImageUrl ?? ''}`.trim().length > 0 ||
       `${story.imageUrl ?? ''}`.trim().length > 0;
-    const hasBaseImage =
-      `${story.mediaAssetId ?? ''}`.trim().length > 0 ||
-      `${story.imageUrl ?? ''}`.trim().length > 0;
     if (!hasFinalImage) missing.push('imagen final');
-    if (!hasBaseImage) missing.push('imagen base');
 
     if (`${story.imagePrompt ?? ''}`.trim().length == 0) missing.push('prompt');
 
@@ -733,9 +729,27 @@ export class MarketingService {
     return this.marketingStorage.getPublicUrl(raw);
   }
 
+  private async normalizeImageUrlAsync(value: string | null | undefined) {
+    const raw = `${value ?? ''}`.trim();
+    if (!raw) return '';
+    if (raw.startsWith('data:image/')) return raw;
+    return this.marketingStorage.getPublicUrlAsync(raw);
+  }
+
   private normalizeMediaAssetUrls<T extends Record<string, any>>(asset: T): T {
     const normalizedFileUrl = this.normalizeImageUrl(asset.fileUrl);
     const normalizedThumb = this.normalizeImageUrl(asset.thumbnailUrl);
+    return {
+      ...asset,
+      fileUrl: normalizedFileUrl,
+      thumbnailUrl: normalizedThumb || null,
+      sourceType: this.inferAssetSourceType(normalizedFileUrl, asset.fileName, asset.tags),
+    };
+  }
+
+  private async normalizeMediaAssetUrlsAsync<T extends Record<string, any>>(asset: T): Promise<T> {
+    const normalizedFileUrl = await this.normalizeImageUrlAsync(asset.fileUrl);
+    const normalizedThumb = await this.normalizeImageUrlAsync(asset.thumbnailUrl);
     return {
       ...asset,
       fileUrl: normalizedFileUrl,
@@ -750,6 +764,15 @@ export class MarketingService {
       imageUrl: this.normalizeImageUrl(story.imageUrl),
       generatedImageUrl: this.normalizeImageUrl(story.generatedImageUrl),
       mediaAsset: story.mediaAsset ? this.normalizeMediaAssetUrls(story.mediaAsset) : null,
+    };
+  }
+
+  private async normalizeStoryUrlsAsync<T extends Record<string, any>>(story: T): Promise<T> {
+    return {
+      ...story,
+      imageUrl: await this.normalizeImageUrlAsync(story.imageUrl),
+      generatedImageUrl: await this.normalizeImageUrlAsync(story.generatedImageUrl),
+      mediaAsset: story.mediaAsset ? await this.normalizeMediaAssetUrlsAsync(story.mediaAsset) : null,
     };
   }
 

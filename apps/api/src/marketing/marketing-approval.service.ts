@@ -17,12 +17,7 @@ export class MarketingApprovalService {
     const hasFinalImage =
       `${(story as any).generatedImageUrl ?? ''}`.trim().length > 0 ||
       `${story.imageUrl ?? ''}`.trim().length > 0;
-    const hasBaseImage =
-      `${(story as any).mediaAsset?.fileUrl ?? ''}`.trim().length > 0 ||
-      `${(story as any).mediaAsset?.thumbnailUrl ?? ''}`.trim().length > 0 ||
-      `${story.imageUrl ?? ''}`.trim().length > 0;
     if (!hasFinalImage) missing.push('imagen final');
-    if (!hasBaseImage) missing.push('imagen base');
     if (`${story.imagePrompt ?? ''}`.trim().length === 0) missing.push('prompt');
     const hasCopy =
       `${story.title ?? ''}`.trim().length > 0 &&
