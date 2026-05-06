@@ -435,9 +435,6 @@ export class ContabilidadService {
 
   async getCloses(query: GetClosesQuery, actor?: Actor) {
     const where: Record<string, unknown> = {};
-    if (actor?.id && !this.isReviewer(actor)) {
-      where.createdById = actor.id;
-    }
 
     if (query.date) {
       const { start, end } = this.normalizeDayRange(new Date(query.date));
