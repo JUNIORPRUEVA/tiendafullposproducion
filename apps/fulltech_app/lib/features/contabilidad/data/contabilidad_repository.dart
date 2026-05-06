@@ -63,7 +63,9 @@ class ContabilidadRepository {
 
   Map<String, dynamic> _normalizeCloseJson(Map<String, dynamic> json) {
     final normalized = Map<String, dynamic>.from(json);
-    normalized['evidenceUrl'] = _normalizeObjectUrl(json['evidenceUrl'] as String?);
+    normalized['evidenceUrl'] = _normalizeObjectUrl(
+      json['evidenceUrl'] as String?,
+    );
     normalized['pdfUrl'] = _normalizeObjectUrl(json['pdfUrl'] as String?);
 
     final transfersRaw = json['transfers'];
@@ -75,8 +77,12 @@ class ContabilidadRepository {
         if (vouchersRaw is List) {
           transfer['vouchers'] = vouchersRaw.map((v) {
             if (v is! Map) return v;
-            final voucher = Map<String, dynamic>.from(v.cast<String, dynamic>());
-            voucher['fileUrl'] = _normalizeObjectUrl(voucher['fileUrl'] as String?);
+            final voucher = Map<String, dynamic>.from(
+              v.cast<String, dynamic>(),
+            );
+            voucher['fileUrl'] = _normalizeObjectUrl(
+              voucher['fileUrl'] as String?,
+            );
             return voucher;
           }).toList();
         }
@@ -93,8 +99,12 @@ class ContabilidadRepository {
         if (vouchersRaw is List) {
           detail['vouchers'] = vouchersRaw.map((v) {
             if (v is! Map) return v;
-            final voucher = Map<String, dynamic>.from(v.cast<String, dynamic>());
-            voucher['fileUrl'] = _normalizeObjectUrl(voucher['fileUrl'] as String?);
+            final voucher = Map<String, dynamic>.from(
+              v.cast<String, dynamic>(),
+            );
+            voucher['fileUrl'] = _normalizeObjectUrl(
+              voucher['fileUrl'] as String?,
+            );
             return voucher;
           }).toList();
         }
@@ -161,7 +171,9 @@ class ContabilidadRepository {
       );
 
       if (res.data is! Map) {
-        throw ApiException('Se recibió un resumen financiero con formato inválido.');
+        throw ApiException(
+          'Se recibió un resumen financiero con formato inválido.',
+        );
       }
 
       return CloseFinancialSummaryModel.fromJson(
@@ -195,6 +207,8 @@ class ContabilidadRepository {
     String? evidenceStorageKey,
     String? evidenceMimeType,
     List<Map<String, dynamic>> expenseDetails = const [],
+    String? correctionOfCloseId,
+    String? correctionReason,
   }) async {
     try {
       final res = await _dio.post(
@@ -213,9 +227,14 @@ class ContabilidadRepository {
           if (notes != null) 'notes': notes.trim(),
           if (evidenceUrl != null) 'evidenceUrl': evidenceUrl,
           if (evidenceFileName != null) 'evidenceFileName': evidenceFileName,
-          if (evidenceStorageKey != null) 'evidenceStorageKey': evidenceStorageKey,
+          if (evidenceStorageKey != null)
+            'evidenceStorageKey': evidenceStorageKey,
           if (evidenceMimeType != null) 'evidenceMimeType': evidenceMimeType,
           if (expenseDetails.isNotEmpty) 'expenseDetails': expenseDetails,
+          if ((correctionOfCloseId ?? '').trim().isNotEmpty)
+            'correctionOfCloseId': correctionOfCloseId!.trim(),
+          if ((correctionReason ?? '').trim().isNotEmpty)
+            'correctionReason': correctionReason!.trim(),
         },
       );
       return CloseModel.fromJson(
@@ -261,7 +280,8 @@ class ContabilidadRepository {
           if (notes != null) 'notes': notes.trim(),
           if (evidenceUrl != null) 'evidenceUrl': evidenceUrl,
           if (evidenceFileName != null) 'evidenceFileName': evidenceFileName,
-          if (evidenceStorageKey != null) 'evidenceStorageKey': evidenceStorageKey,
+          if (evidenceStorageKey != null)
+            'evidenceStorageKey': evidenceStorageKey,
           if (evidenceMimeType != null) 'evidenceMimeType': evidenceMimeType,
           if (expenseDetails.isNotEmpty) 'expenseDetails': expenseDetails,
         },
@@ -298,14 +318,14 @@ class ContabilidadRepository {
     try {
       await _dio.post(
         ApiRoutes.contabilidadCloseDeleteBulk,
-        data: {
-          'closeIds': closeIds,
-          'adminPassword': adminPassword,
-        },
+        data: {'closeIds': closeIds, 'adminPassword': adminPassword},
       );
     } on DioException catch (e) {
       throw ApiException(
-        _extractMessage(e.response?.data, 'No se pudieron eliminar los cierres seleccionados'),
+        _extractMessage(
+          e.response?.data,
+          'No se pudieron eliminar los cierres seleccionados',
+        ),
         e.response?.statusCode,
       );
     }
@@ -335,9 +355,7 @@ class ContabilidadRepository {
     }
   }
 
-  Future<CloseTransferVoucherModel> uploadPosVoucher(
-    PlatformFile file,
-  ) async {
+  Future<CloseTransferVoucherModel> uploadPosVoucher(PlatformFile file) async {
     try {
       final bytes = file.bytes;
       if (bytes == null || bytes.isEmpty) {

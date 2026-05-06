@@ -67,10 +67,13 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
   final _expensesCtrl = TextEditingController(text: '0');
   final _cashDeliveredCtrl = TextEditingController(text: '0');
   final _notesCtrl = TextEditingController();
+  final _correctionReasonCtrl = TextEditingController();
 
   CloseType _type = CloseType.tienda;
   DateTime _date = DateTime.now();
   String? _editingId;
+  bool _isCorrection = false;
+  String? _correctionOfCloseId;
   final List<_TransferDraft> _transferEntries = [];
   final List<_ExpenseDraft> _expenseEntries = [];
   CloseTransferVoucherModel? _posVoucher;
@@ -110,6 +113,7 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
     _expensesCtrl.dispose();
     _cashDeliveredCtrl.dispose();
     _notesCtrl.dispose();
+    _correctionReasonCtrl.dispose();
     super.dispose();
   }
 
@@ -117,10 +121,21 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
   Widget build(BuildContext context) {
     final auth = ref.watch(authStateProvider);
     final user = auth.user;
+    final role = parseAppRole(user?.role);
+    final isAdmin = role.isAdmin;
+    final isAssistant = role == AppRole.asistente;
     final state = ref.watch(cierresDiariosControllerProvider);
     final controller = ref.read(cierresDiariosControllerProvider.notifier);
-    final canUseModule = user != null;
+    final canUseModule = isAdmin || isAssistant;
     final selectedType = state.typeFilter ?? CloseType.tienda;
+
+    if (!isAdmin && state.editingClose != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        controller.cancelEditing();
+        _resetForm();
+      });
+    }
 
     if (_type != selectedType && _editingId == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -150,43 +165,104 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
             )
           : RefreshIndicator(
               onRefresh: controller.refresh,
-              child: ListView(
-                padding: const EdgeInsets.all(16),
-                children: [
-                  Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 820),
-                      child: _buildFormCard(context, state, controller),
+              child: isAssistant
+                  ? _buildAssistantBody(context, state, controller)
+                  : ListView(
+                      padding: const EdgeInsets.all(16),
+                      children: [
+                        Center(
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 820),
+                            child: _buildFormCard(context, state, controller),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        if (state.loading) const LinearProgressIndicator(),
+                        if (state.error != null) ...[
+                          const SizedBox(height: 8),
+                          _ErrorBox(message: state.error!),
+                        ],
+                        const SizedBox(height: 10),
+                        if (isAdmin)
+                          SizedBox(
+                            height: 48,
+                            child: OutlinedButton.icon(
+                              onPressed: () => _openHistoryScreen(context),
+                              icon: const Icon(Icons.history),
+                              label: Text(
+                                'Historial de cierres (${state.closes.length})',
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
-                  ),
-                  const SizedBox(height: 14),
-                  if (state.loading) const LinearProgressIndicator(),
-                  if (state.error != null) ...[
-                    const SizedBox(height: 8),
-                    _ErrorBox(message: state.error!),
-                  ],
-                  const SizedBox(height: 10),
-                  SizedBox(
-                    height: 48,
-                    child: OutlinedButton.icon(
-                      onPressed: () => _openHistoryScreen(context),
-                      icon: const Icon(Icons.history),
-                      label: Text(
-                        'Historial de cierres (${state.closes.length})',
-                      ),
-                    ),
-                  ),
-                ],
-              ),
             ),
+    );
+  }
+
+  Widget _buildAssistantBody(
+    BuildContext context,
+    CierresDiariosState state,
+    CierresDiariosController controller,
+  ) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final desktop = constraints.maxWidth >= 980;
+        final panelWidth = constraints.maxWidth.clamp(380.0, 460.0);
+        final formPanel = SizedBox(
+          width: desktop ? panelWidth : null,
+          child: _buildFormCard(
+            context,
+            state,
+            controller,
+            assistantMode: true,
+          ),
+        );
+        final history = _AssistantRawHistoryList(closes: state.closes);
+        final statusWidgets = <Widget>[
+          if (state.loading) const LinearProgressIndicator(),
+          if (state.error != null) ...[
+            const SizedBox(height: 8),
+            _ErrorBox(message: state.error!),
+          ],
+        ];
+
+        if (!desktop) {
+          return ListView(
+            padding: const EdgeInsets.all(14),
+            children: [
+              ...statusWidgets,
+              formPanel,
+              const SizedBox(height: 12),
+              history,
+            ],
+          );
+        }
+
+        return ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            ...statusWidgets,
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: history),
+                const SizedBox(width: 16),
+                formPanel,
+              ],
+            ),
+          ],
+        );
+      },
     );
   }
 
   Widget _buildFormCard(
     BuildContext context,
     CierresDiariosState state,
-    CierresDiariosController controller,
-  ) {
+    CierresDiariosController controller, {
+    bool assistantMode = false,
+  }) {
     final editing = state.editingClose != null;
     final transfer = _transferEntries.fold<double>(
       0,
@@ -216,15 +292,23 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            if (assistantMode) ...[
+              const _AssistantCloseNotice(),
+              const SizedBox(height: 12),
+            ],
             SectionTitle(
-              title: editing ? 'Editar cierre ${_type.label}' : 'Nuevo cierre',
+              title: editing
+                  ? 'Editar cierre ${_type.label}'
+                  : assistantMode
+                  ? 'Registrar cierre'
+                  : 'Nuevo cierre',
               trailing: Wrap(
                 spacing: 6,
                 runSpacing: 6,
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   _UnitChipButton(
-                    label: 'Tienda',
+                    label: 'Tecnología',
                     selected: _type == CloseType.tienda,
                     onPressed: editing
                         ? null
@@ -269,11 +353,12 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                       );
                       if (picked == null) return;
                       if (_hasActiveCloseFor(
-                        picked,
-                        _type,
-                        state,
-                        excludingId: _editingId,
-                      )) {
+                            picked,
+                            _type,
+                            state,
+                            excludingId: _editingId,
+                          ) &&
+                          !_isCorrection) {
                         _showDuplicateDateMessage();
                         return;
                       }
@@ -289,6 +374,10 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
             ),
             if (locked) ...[
               _StatusNotice(close: state.editingClose!),
+              const SizedBox(height: 12),
+            ],
+            if (assistantMode) ...[
+              _buildAssistantCorrectionSection(state.closes),
               const SizedBox(height: 12),
             ],
             const SizedBox(height: 12),
@@ -346,12 +435,37 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                           }
                         }
 
+                        if (assistantMode && _isCorrection) {
+                          if ((_correctionOfCloseId ?? '').trim().isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Selecciona el cierre anterior que vas a corregir.',
+                                ),
+                              ),
+                            );
+                            return;
+                          }
+                          if (_correctionReasonCtrl.text.trim().isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'El motivo de la corrección es obligatorio.',
+                                ),
+                              ),
+                            );
+                            return;
+                          }
+                        }
+
                         final confirmed = await showDialog<bool>(
                           context: context,
                           builder: (context) => AlertDialog(
                             title: const Text('Confirmar cierre diario'),
-                            content: const Text(
-                              'Are you sure you want to submit this daily closing?',
+                            content: Text(
+                              _isCorrection
+                                  ? '¿Seguro que deseas registrar este cierre de corrección? El cierre anterior quedará intacto.'
+                                  : '¿Seguro que deseas enviar este cierre diario?',
                             ),
                             actions: [
                               TextButton(
@@ -370,6 +484,7 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                         if (confirmed != true) return;
 
                         if (!editing &&
+                            !_isCorrection &&
                             _hasActiveCloseFor(
                               _date,
                               _type,
@@ -393,6 +508,12 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                           notes: _notesCtrl.text,
                           posVoucher: _posVoucher,
                           expenseDetails: _expensePayload(),
+                          correctionOfCloseId: assistantMode && _isCorrection
+                              ? _correctionOfCloseId
+                              : null,
+                          correctionReason: assistantMode && _isCorrection
+                              ? _correctionReasonCtrl.text
+                              : null,
                         );
                       },
                 icon: state.saving
@@ -402,7 +523,13 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : Icon(editing ? Icons.save_outlined : Icons.add_circle),
-                label: const Text('Confirmar y enviar cierre'),
+                label: Text(
+                  assistantMode && _isCorrection
+                      ? 'Registrar cierre de corrección'
+                      : assistantMode
+                      ? 'Registrar cierre'
+                      : 'Confirmar y enviar cierre',
+                ),
               ),
             ),
           ],
@@ -429,6 +556,92 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
         if (amount < 0) return 'No puede ser negativo';
         return null;
       },
+    );
+  }
+
+  Widget _buildAssistantCorrectionSection(List<CloseModel> closes) {
+    final selectable = closes.where((close) => close.id != _editingId).toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final selectedExists = selectable.any(
+      (close) => close.id == _correctionOfCloseId,
+    );
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text(
+              'Este cierre corrige uno anterior',
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
+            value: _isCorrection,
+            onChanged: (value) {
+              setState(() {
+                _isCorrection = value;
+                if (!value) {
+                  _correctionOfCloseId = null;
+                  _correctionReasonCtrl.clear();
+                }
+              });
+            },
+          ),
+          if (_isCorrection) ...[
+            const SizedBox(height: 10),
+            DropdownButtonFormField<String>(
+              initialValue: selectedExists ? _correctionOfCloseId : null,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                labelText: 'Cierre anterior a corregir',
+              ),
+              items: selectable.map((close) {
+                final label = [
+                  DateFormat('dd/MM/yyyy').format(close.date),
+                  close.type == CloseType.tienda
+                      ? 'Tecnología'
+                      : close.type.label,
+                  NumberFormat.currency(
+                    locale: 'es_DO',
+                    symbol: 'RD\$ ',
+                  ).format(close.netTotal),
+                ].join(' · ');
+                return DropdownMenuItem(value: close.id, child: Text(label));
+              }).toList(),
+              onChanged: (value) =>
+                  setState(() => _correctionOfCloseId = value),
+              validator: (_) {
+                if (!_isCorrection) return null;
+                return (_correctionOfCloseId ?? '').trim().isEmpty
+                    ? 'Selecciona el cierre anterior'
+                    : null;
+              },
+            ),
+            const SizedBox(height: 10),
+            TextFormField(
+              controller: _correctionReasonCtrl,
+              minLines: 2,
+              maxLines: 4,
+              decoration: const InputDecoration(
+                labelText: 'Motivo de corrección',
+                alignLabelWithHint: true,
+              ),
+              onChanged: (_) => setState(() {}),
+              validator: (value) {
+                if (!_isCorrection) return null;
+                return (value ?? '').trim().isEmpty
+                    ? 'El motivo es obligatorio'
+                    : null;
+              },
+            ),
+          ],
+        ],
+      ),
     );
   }
 
@@ -576,6 +789,12 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
         final uploaded = await repo.uploadCloseVoucher(file);
         draft.vouchers.add(uploaded);
       }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error al subir voucher: $e')));
+      }
     } finally {
       if (mounted) setState(() => draft.uploading = false);
     }
@@ -595,6 +814,12 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
       for (final file in result.files) {
         final uploaded = await repo.uploadCloseVoucher(file);
         draft.vouchers.add(uploaded);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error al subir comprobante de gasto: $e')),
+        );
       }
     } finally {
       if (mounted) setState(() => draft.uploading = false);
@@ -745,9 +970,14 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
       _otherIncomeCtrl.text = close.otherIncome.toStringAsFixed(2);
       _expensesCtrl.text = close.expenses.toStringAsFixed(2);
       _expenseEntries.clear();
-      if (close.expenses > 0) {
+      if (close.expenseDetails.isNotEmpty) {
+        _expenseEntries.addAll(close.expenseDetails.map(_expenseDraftFromJson));
+      } else if (close.expenses > 0) {
         _expenseEntries.add(
-          _ExpenseDraft(amount: close.expenses.toStringAsFixed(2)),
+          _ExpenseDraft(
+            concept: 'Gastos del día',
+            amount: close.expenses.toStringAsFixed(2),
+          ),
         );
       }
       _cashDeliveredCtrl.text = close.cashDelivered.toStringAsFixed(2);
@@ -781,23 +1011,13 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
       _expensesCtrl.text = close.expenses.toStringAsFixed(2);
       _expenseEntries.clear();
       if (close.expenseDetails.isNotEmpty) {
-        _expenseEntries.addAll(
-          close.expenseDetails.map(
-            (e) => _ExpenseDraft(
-              concept: (e['concept'] as String?) ?? '',
-              amount: ((e['amount'] as num?)?.toDouble() ?? 0).toStringAsFixed(
-                2,
-              ),
-              vouchers: (((e['vouchers'] as List?) ?? const [])
-                  .whereType<Map>()
-                  .map((v) => CloseTransferVoucherModel.fromJson(v.cast<String, dynamic>()))
-                  .toList()),
-            ),
-          ),
-        );
+        _expenseEntries.addAll(close.expenseDetails.map(_expenseDraftFromJson));
       } else if (close.expenses > 0) {
         _expenseEntries.add(
-          _ExpenseDraft(amount: close.expenses.toStringAsFixed(2)),
+          _ExpenseDraft(
+            concept: 'Gastos del día',
+            amount: close.expenses.toStringAsFixed(2),
+          ),
         );
       }
       _cashDeliveredCtrl.text = close.cashDelivered.toStringAsFixed(2);
@@ -811,6 +1031,8 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
   void _resetForm() {
     setState(() {
       _editingId = null;
+      _isCorrection = false;
+      _correctionOfCloseId = null;
       _type =
           ref.read(cierresDiariosControllerProvider).typeFilter ??
           CloseType.tienda;
@@ -829,6 +1051,7 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
       _expensesCtrl.text = '0';
       _cashDeliveredCtrl.text = '0';
       _notesCtrl.clear();
+      _correctionReasonCtrl.clear();
       _posVoucher = null;
       _uploadingPosVoucher = false;
     });
@@ -842,6 +1065,26 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
     if (raw == null) return 0;
     final normalized = raw.replaceAll(',', '.').trim();
     return double.tryParse(normalized) ?? 0;
+  }
+
+  _ExpenseDraft _expenseDraftFromJson(Map<String, dynamic> value) {
+    final amount = value['amount'];
+    final parsedAmount = amount is num
+        ? amount.toDouble()
+        : double.tryParse((amount ?? '0').toString().replaceAll(',', '.')) ?? 0;
+    final vouchers = ((value['vouchers'] as List?) ?? const [])
+        .whereType<Map>()
+        .map(
+          (item) =>
+              CloseTransferVoucherModel.fromJson(item.cast<String, dynamic>()),
+        )
+        .toList();
+
+    return _ExpenseDraft(
+      concept: (value['concept'] as String?)?.trim() ?? 'Gastos del día',
+      amount: parsedAmount.toStringAsFixed(2),
+      vouchers: vouchers,
+    );
   }
 
   bool _sameDay(DateTime a, DateTime b) {
@@ -877,7 +1120,8 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
     CierresDiariosState state,
     CierresDiariosController controller,
   ) {
-    if (_hasActiveCloseFor(_date, type, state, excludingId: _editingId)) {
+    if (!_isCorrection &&
+        _hasActiveCloseFor(_date, type, state, excludingId: _editingId)) {
       _showDuplicateDateMessage();
       return;
     }
@@ -894,6 +1138,187 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
     if (closeToDuplicate != null) {
       _duplicateRejectedClose(closeToDuplicate);
     }
+  }
+}
+
+class _AssistantCloseNotice extends StatelessWidget {
+  const _AssistantCloseNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 820),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.primaryContainer.withValues(alpha: 0.38),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: theme.colorScheme.primary.withValues(alpha: 0.18),
+            ),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.info_outline, color: theme.colorScheme.primary),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  'Debe hacer un cierre diario por categoría. Ejemplo: Tecnología y Phytoemagry.',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AssistantRawHistoryList extends StatelessWidget {
+  const _AssistantRawHistoryList({required this.closes});
+
+  final List<CloseModel> closes;
+
+  String _money(double value) =>
+      NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$ ').format(value);
+
+  String _statusLabel(CloseModel close) {
+    if (close.isApproved) return 'Aprobado';
+    if (close.isRejected) return 'Rechazado';
+    return 'Pendiente';
+  }
+
+  String _referenceLabel(CloseModel close) {
+    final id = (close.correctionOfCloseId ?? '').trim();
+    if (id.isEmpty) return 'N/D';
+    return id.length <= 8 ? id : id.substring(0, 8);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final rows = [...closes]
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 760),
+        child: AppCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SectionTitle(title: 'Mis cierres registrados'),
+              const SizedBox(height: 8),
+              if (rows.isEmpty)
+                Text(
+                  'Aún no has registrado cierres en este rango.',
+                  style: theme.textTheme.bodyMedium,
+                )
+              else
+                ...rows.map(
+                  (close) => Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: theme.colorScheme.outlineVariant.withValues(
+                          alpha: 0.72,
+                        ),
+                      ),
+                      color: theme.colorScheme.surfaceContainerHighest
+                          .withValues(alpha: 0.18),
+                    ),
+                    child: Wrap(
+                      spacing: 12,
+                      runSpacing: 8,
+                      children: [
+                        _RawHistoryField(
+                          label: 'Fecha',
+                          value: DateFormat('dd/MM/yyyy').format(close.date),
+                        ),
+                        _RawHistoryField(
+                          label: 'Categoría',
+                          value: close.type == CloseType.tienda
+                              ? 'Tecnología'
+                              : close.type.label,
+                        ),
+                        _RawHistoryField(
+                          label: 'Monto',
+                          value: _money(close.netTotal),
+                        ),
+                        _RawHistoryField(
+                          label: 'Estado',
+                          value: _statusLabel(close),
+                        ),
+                        _RawHistoryField(
+                          label: 'Tipo de registro',
+                          value: close.isCorrection ? 'Corrección' : 'Normal',
+                        ),
+                        if (close.isCorrection)
+                          _RawHistoryField(
+                            label: 'Corrige cierre',
+                            value: _referenceLabel(close),
+                          ),
+                        _RawHistoryField(
+                          label: 'Creado por',
+                          value:
+                              close.createdByName ?? close.createdById ?? 'N/D',
+                        ),
+                        _RawHistoryField(
+                          label: 'Fecha de creación',
+                          value: DateFormat(
+                            'dd/MM/yyyy h:mm a',
+                            'es_DO',
+                          ).format(close.createdAt),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RawHistoryField extends StatelessWidget {
+  const _RawHistoryField({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 180,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -1080,7 +1505,10 @@ class _HistoryFullScreenPageState
     return true;
   }
 
-  void _setSummaryPreset(_FinancialSummaryPreset preset, {bool refresh = true}) {
+  void _setSummaryPreset(
+    _FinancialSummaryPreset preset, {
+    bool refresh = true,
+  }) {
     final now = DateTime.now();
     DateTime from;
     DateTime to;
@@ -1264,7 +1692,8 @@ class _HistoryFullScreenPageState
         child: LayoutBuilder(
           builder: (context, panelConstraints) {
             final cardWidth =
-                (panelConstraints.maxWidth - ((metricColumns - 1) * metricSpacing)) /
+                (panelConstraints.maxWidth -
+                    ((metricColumns - 1) * metricSpacing)) /
                 metricColumns;
 
             final content = Column(
@@ -1794,9 +2223,8 @@ class _HistoryFullScreenPageState
 
                 final duplicate = await Navigator.of(context).push<CloseModel>(
                   MaterialPageRoute(
-                    builder: (_) => _CloseDetailFullScreenPage(
-                      closeId: close.id,
-                    ),
+                    builder: (_) =>
+                        _CloseDetailFullScreenPage(closeId: close.id),
                   ),
                 );
                 if (duplicate != null && context.mounted) {
@@ -1852,9 +2280,9 @@ class _HistoryFullScreenPageState
                       ),
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(999),
-                        color: Theme.of(context)
-                            .colorScheme
-                            .surfaceContainerHighest,
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.surfaceContainerHighest,
                       ),
                       child: Text(
                         statusLabel,
@@ -1929,7 +2357,9 @@ class _HistoryFullScreenPageState
           IconButton(
             tooltip: 'Actualizar',
             onPressed: () async {
-              await ref.read(cierresDiariosControllerProvider.notifier).refresh();
+              await ref
+                  .read(cierresDiariosControllerProvider.notifier)
+                  .refresh();
               if (canDelete) {
                 await _fetchSummary();
               }
@@ -1977,7 +2407,9 @@ class _HistoryFullScreenPageState
                       Padding(
                         padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                         child: ExpansionTile(
-                          tilePadding: const EdgeInsets.symmetric(horizontal: 12),
+                          tilePadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                          ),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                             side: const BorderSide(color: Color(0xFFE2E8F0)),
@@ -1994,7 +2426,12 @@ class _HistoryFullScreenPageState
                             SizedBox(
                               height: 560,
                               child: Padding(
-                                padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+                                padding: const EdgeInsets.fromLTRB(
+                                  10,
+                                  0,
+                                  10,
+                                  10,
+                                ),
                                 child: _buildSummaryPanel(compact: true),
                               ),
                             ),
@@ -2276,8 +2713,9 @@ class _CloseDetailFullScreenPageState
       }
     }
     final role = ref.watch(authStateProvider).user?.role;
-    final canReview = role == 'ADMIN' || role == 'ASISTENTE';
-    final canDelete = role == 'ADMIN';
+    final canAdmin = parseAppRole(role).isAdmin;
+    final canReview = canAdmin;
+    final canDelete = canAdmin;
 
     if (close == null) {
       return Scaffold(
@@ -2288,6 +2726,19 @@ class _CloseDetailFullScreenPageState
       );
     }
     final currentClose = close;
+    final statusLabel = switch (currentClose.status) {
+      'approved' => 'Aprobado',
+      'rejected' => 'Rechazado',
+      _ => 'Pendiente',
+    };
+
+    if (!canAdmin) {
+      return _AssistantCloseDetailScaffold(
+        close: currentClose,
+        statusLabel: statusLabel,
+      );
+    }
+
     _ensureAiGeneratedOnOpen(currentClose);
     final posVoucher = CloseTransferVoucherModel(
       storageKey: currentClose.evidenceStorageKey ?? '',
@@ -2295,12 +2746,6 @@ class _CloseDetailFullScreenPageState
       fileName: currentClose.evidenceFileName ?? '',
       mimeType: currentClose.evidenceMimeType ?? '',
     );
-
-    final statusLabel = switch (currentClose.status) {
-      'approved' => 'Aprobado',
-      'rejected' => 'Rechazado',
-      _ => 'Pendiente',
-    };
 
     return Scaffold(
       appBar: AppBar(
@@ -2920,6 +3365,90 @@ class _CloseDetailFullScreenPageState
   }
 }
 
+class _AssistantCloseDetailScaffold extends StatelessWidget {
+  const _AssistantCloseDetailScaffold({
+    required this.close,
+    required this.statusLabel,
+  });
+
+  final CloseModel close;
+  final String statusLabel;
+
+  String _money(double value) =>
+      NumberFormat.currency(locale: 'es_DO', symbol: 'RD\$ ').format(value);
+
+  String _referenceLabel(CloseModel close) {
+    final id = (close.correctionOfCloseId ?? '').trim();
+    if (id.isEmpty) return 'N/D';
+    return id.length <= 8 ? id : id.substring(0, 8);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Detalle de cierre')),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          AppCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const SectionTitle(title: 'Registro crudo'),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 10,
+                  children: [
+                    _RawHistoryField(
+                      label: 'Fecha',
+                      value: DateFormat('dd/MM/yyyy').format(close.date),
+                    ),
+                    _RawHistoryField(
+                      label: 'Categoría',
+                      value: close.type.label,
+                    ),
+                    _RawHistoryField(
+                      label: 'Monto',
+                      value: _money(close.netTotal),
+                    ),
+                    _RawHistoryField(label: 'Estado', value: statusLabel),
+                    _RawHistoryField(
+                      label: 'Tipo de registro',
+                      value: close.isCorrection ? 'Corrección' : 'Normal',
+                    ),
+                    if (close.isCorrection) ...[
+                      _RawHistoryField(
+                        label: 'Corrige cierre',
+                        value: _referenceLabel(close),
+                      ),
+                      _RawHistoryField(
+                        label: 'Motivo',
+                        value: close.correctionReason ?? 'N/D',
+                      ),
+                    ],
+                    _RawHistoryField(
+                      label: 'Creado por',
+                      value: close.createdByName ?? close.createdById ?? 'N/D',
+                    ),
+                    _RawHistoryField(
+                      label: 'Fecha de creación',
+                      value: DateFormat(
+                        'dd/MM/yyyy h:mm a',
+                        'es_DO',
+                      ).format(close.createdAt),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 void _showVoucherPreviewDialog(
   BuildContext context,
   CloseTransferVoucherModel voucher,
@@ -3308,9 +3837,8 @@ class _ExpenseEntryEditor extends StatelessWidget {
                     ),
                     onChanged: (_) => onChanged(),
                     validator: (value) {
-                      final amount = double.tryParse(
-                            (value ?? '').replaceAll(',', '.'),
-                          ) ??
+                      final amount =
+                          double.tryParse((value ?? '').replaceAll(',', '.')) ??
                           0;
                       return amount <= 0 ? 'Mayor a 0' : null;
                     },

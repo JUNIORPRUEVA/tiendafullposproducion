@@ -26,7 +26,7 @@ export class RolesGuard implements CanActivate {
       return true;
     }
     if (!requiredRoles.some((requiredRole) => this.normalizeRole(requiredRole) === role)) {
-      throw new ForbiddenException('Insufficient role');
+      throw new ForbiddenException('No tienes permisos para usar este endpoint.');
     }
     return true;
   }

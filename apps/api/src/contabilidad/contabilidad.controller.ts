@@ -58,9 +58,6 @@ type RequestActor = { id?: string; role?: string };
 const CLOSING_ROLES: Role[] = [
   Role.ADMIN,
   Role.ASISTENTE,
-  Role.MARKETING,
-  Role.VENDEDOR,
-  Role.TECNICO,
 ];
 
 @Controller('contabilidad')
@@ -117,7 +114,7 @@ export class ContabilidadController {
   }
 
   @Put('closes/:id')
-  @Roles(...CLOSING_ROLES)
+  @Roles(Role.ADMIN)
   async updateClose(
     @Param('id') id: string,
     @Body() dto: UpdateCloseDto,
@@ -158,7 +155,7 @@ export class ContabilidadController {
   }
 
   @Post('closes/:id/approve')
-  @Roles('ADMIN', 'ASISTENTE')
+  @Roles(Role.ADMIN)
   async approveClose(
     @Param('id') id: string,
     @Req() req: Request,
@@ -173,7 +170,7 @@ export class ContabilidadController {
   }
 
   @Post('closes/:id/reject')
-  @Roles('ADMIN', 'ASISTENTE')
+  @Roles(Role.ADMIN)
   async rejectClose(
     @Param('id') id: string,
     @Req() req: Request,
@@ -188,7 +185,7 @@ export class ContabilidadController {
   }
 
   @Post('closes/:id/ai-report')
-  @Roles('ADMIN', 'ASISTENTE')
+  @Roles(Role.ADMIN)
   async aiReport(@Param('id') id: string, @Req() req: Request) {
     return this.contabilidadService.generateAiReport(
       id,

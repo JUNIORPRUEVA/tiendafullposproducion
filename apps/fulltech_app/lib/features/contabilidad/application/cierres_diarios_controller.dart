@@ -169,24 +169,29 @@ class CierresDiariosController extends StateNotifier<CierresDiariosState> {
     String? notes,
     CloseTransferVoucherModel? posVoucher,
     List<Map<String, dynamic>> expenseDetails = const [],
+    String? correctionOfCloseId,
+    String? correctionReason,
   }) async {
     state = state.copyWith(saving: true, clearError: true);
 
     try {
       final editing = state.editingClose;
       if (editing == null) {
-        final day = DateTime(date.year, date.month, date.day);
-        final sameDayRows = await ref
-            .read(contabilidadRepositoryProvider)
-            .listCloses(from: day, to: day, type: type);
-        final alreadyExists = sameDayRows.any((row) => !row.isRejected);
-        if (alreadyExists) {
-          state = state.copyWith(
-            saving: false,
-            error:
-                'Ya existe un cierre activo para esta categoria en esa fecha. Selecciona otra fecha o categoria.',
-          );
-          return;
+        final isCorrection = (correctionOfCloseId ?? '').trim().isNotEmpty;
+        if (!isCorrection) {
+          final day = DateTime(date.year, date.month, date.day);
+          final sameDayRows = await ref
+              .read(contabilidadRepositoryProvider)
+              .listCloses(from: day, to: day, type: type);
+          final alreadyExists = sameDayRows.any((row) => !row.isRejected);
+          if (alreadyExists) {
+            state = state.copyWith(
+              saving: false,
+              error:
+                  'Ya existe un cierre activo para esta categoria en esa fecha. Selecciona otra fecha o categoria.',
+            );
+            return;
+          }
         }
 
         await ref
@@ -208,6 +213,8 @@ class CierresDiariosController extends StateNotifier<CierresDiariosState> {
               evidenceStorageKey: posVoucher?.storageKey,
               evidenceMimeType: posVoucher?.mimeType,
               expenseDetails: expenseDetails,
+              correctionOfCloseId: correctionOfCloseId,
+              correctionReason: correctionReason,
             );
       } else {
         if (!editing.isPending) {

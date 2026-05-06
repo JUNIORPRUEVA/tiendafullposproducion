@@ -143,6 +143,14 @@ export class CreateCloseDto {
   @Type(() => CloseExpenseDetailDto)
   @IsOptional()
   expenseDetails?: CloseExpenseDetailDto[];
+
+  @IsUUID()
+  @IsOptional()
+  correctionOfCloseId?: string;
+
+  @IsString()
+  @IsOptional()
+  correctionReason?: string;
 }
 
 export class UpdateCloseDto {

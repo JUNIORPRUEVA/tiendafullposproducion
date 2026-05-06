@@ -31,6 +31,32 @@ BoxDecoration _desktopSurfaceDecoration(ThemeData theme) {
   );
 }
 
+class DesktopShellActionItem {
+  const DesktopShellActionItem({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+    this.selectedIcon,
+    this.selected = false,
+  });
+
+  final IconData icon;
+  final IconData? selectedIcon;
+  final String tooltip;
+  final VoidCallback onPressed;
+  final bool selected;
+}
+
+class DesktopShellRouteActions {
+  const DesktopShellRouteActions({required this.route, required this.actions});
+
+  final String route;
+  final List<DesktopShellActionItem> actions;
+}
+
+final desktopShellRouteActionsProvider =
+    StateProvider<DesktopShellRouteActions?>((ref) => null);
+
 class ResponsiveShell extends ConsumerStatefulWidget {
   const ResponsiveShell({super.key, required this.child});
 
@@ -65,6 +91,10 @@ class _ResponsiveShellState extends ConsumerState<ResponsiveShell> {
     final location = safeCurrentLocation(context);
     final title = resolveNavigationTitle(location, sections);
     final showShellAppBar = desktopShellShouldShowOwnAppBar(location);
+    final routeActions = ref.watch(desktopShellRouteActionsProvider);
+    final shellActions = routeActions?.route == location
+        ? routeActions!.actions
+        : const <DesktopShellActionItem>[];
 
     // Auto-collapse when the user navigates to a different screen.
     if (_lastKnownLocation.isNotEmpty && _lastKnownLocation != location) {
@@ -102,6 +132,7 @@ class _ResponsiveShellState extends ConsumerState<ResponsiveShell> {
                       title: title,
                       currentUser: user,
                       onToggleSidebar: effectiveToggle,
+                      extraActions: shellActions,
                     ),
                   ),
                 Expanded(
@@ -202,12 +233,14 @@ class DesktopShellAppBar extends ConsumerWidget {
     required this.title,
     required this.currentUser,
     required this.onToggleSidebar,
+    this.extraActions = const <DesktopShellActionItem>[],
   });
 
   final bool collapsed;
   final String title;
   final UserModel? currentUser;
   final VoidCallback onToggleSidebar;
+  final List<DesktopShellActionItem> extraActions;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -240,7 +273,8 @@ class DesktopShellAppBar extends ConsumerWidget {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final availableWidth = constraints.maxWidth;
-          final showRangeBadge = !collapsed && availableWidth >= 1120;
+          final showRangeBadge =
+              !collapsed && availableWidth >= 1120 && extraActions.isEmpty;
           final showUserMeta = !collapsed && availableWidth >= 860;
 
           return Row(
@@ -327,6 +361,10 @@ class DesktopShellAppBar extends ConsumerWidget {
                   ),
                 ),
               ],
+              if (extraActions.isNotEmpty) ...[
+                const SizedBox(width: 10),
+                _DesktopShellActionGroup(actions: extraActions),
+              ],
               const SizedBox(width: 10),
               ConstrainedBox(
                 constraints: BoxConstraints(
@@ -349,7 +387,8 @@ class DesktopShellAppBar extends ConsumerWidget {
                       if (showPendingWarningsIcon) ...[
                         _PendingWarningsIconButton(
                           count: pendingWarningsCount,
-                          onTap: () => context.go(Routes.misAmonestacionesPendientes),
+                          onTap: () =>
+                              context.go(Routes.misAmonestacionesPendientes),
                         ),
                         const SizedBox(width: 8),
                       ],
@@ -408,10 +447,7 @@ class DesktopShellAppBar extends ConsumerWidget {
 }
 
 class _PendingWarningsIconButton extends StatelessWidget {
-  const _PendingWarningsIconButton({
-    required this.count,
-    required this.onTap,
-  });
+  const _PendingWarningsIconButton({required this.count, required this.onTap});
 
   final int count;
   final VoidCallback onTap;
@@ -473,6 +509,55 @@ class _PendingWarningsIconButton extends StatelessWidget {
   }
 }
 
+class _DesktopShellActionGroup extends StatelessWidget {
+  const _DesktopShellActionGroup({required this.actions});
+
+  final List<DesktopShellActionItem> actions;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (final action in actions)
+            Tooltip(
+              message: action.tooltip,
+              child: InkWell(
+                onTap: action.onPressed,
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  width: 34,
+                  height: 34,
+                  margin: const EdgeInsets.symmetric(horizontal: 1),
+                  decoration: BoxDecoration(
+                    color: action.selected
+                        ? Colors.white.withValues(alpha: 0.20)
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    action.selected
+                        ? action.selectedIcon ?? action.icon
+                        : action.icon,
+                    size: 19,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 class _SidebarMenuGroup {
   const _SidebarMenuGroup({
     required this.key,
@@ -487,15 +572,35 @@ class _SidebarMenuGroup {
   final List<AppNavigationItem> items;
 }
 
-List<_SidebarMenuGroup> _buildDesktopSidebarGroups(
+const List<String> _desktopSidebarFooterRoutes = <String>[
+  Routes.configuracion,
+  Routes.users,
+];
+
+Map<String, AppNavigationItem> _desktopRouteToItem(
   List<AppNavigationSection> sections,
 ) {
   final allItems = <AppNavigationItem>[
     for (final section in sections) ...section.items,
   ];
-  final routeToItem = {
-    for (final item in allItems) item.route: item,
-  };
+  return {for (final item in allItems) item.route: item};
+}
+
+List<AppNavigationItem> _buildDesktopSidebarFooterItems(
+  List<AppNavigationSection> sections,
+) {
+  final routeToItem = _desktopRouteToItem(sections);
+  return [
+    for (final route in _desktopSidebarFooterRoutes)
+      if (routeToItem.containsKey(route)) routeToItem[route]!,
+  ];
+}
+
+List<_SidebarMenuGroup> _buildDesktopSidebarGroups(
+  List<AppNavigationSection> sections,
+) {
+  final routeToItem = _desktopRouteToItem(sections);
+  final allItems = routeToItem.values.toList(growable: false);
 
   List<AppNavigationItem> pick(List<String> routes) {
     return [
@@ -526,7 +631,6 @@ List<_SidebarMenuGroup> _buildDesktopSidebarGroups(
         Routes.nomina,
         Routes.serviceOrderCommissions,
         Routes.misPagos,
-        Routes.users,
         Routes.amonestaciones,
         Routes.administracion,
       ]),
@@ -535,34 +639,24 @@ List<_SidebarMenuGroup> _buildDesktopSidebarGroups(
       key: 'contabilidad',
       title: 'Contabilidad',
       icon: Icons.account_balance_outlined,
-      items: pick([
-        Routes.contabilidad,
-        Routes.documentFlows,
-      ]),
+      items: pick([Routes.contabilidad, Routes.documentFlows]),
     ),
     _SidebarMenuGroup(
       key: 'comunicacion',
       title: 'Comunicación',
       icon: Icons.chat_bubble_outline_rounded,
-      items: pick([
-        Routes.whatsapp,
-        Routes.whatsappCrm,
-        Routes.mediaGallery,
-      ]),
+      items: pick([Routes.whatsapp, Routes.whatsappCrm, Routes.mediaGallery]),
     ),
     _SidebarMenuGroup(
       key: 'sistema',
       title: 'Sistema',
       icon: Icons.settings_suggest_outlined,
-      items: pick([
-        Routes.ai,
-        Routes.manualInterno,
-        Routes.configuracion,
-      ]),
+      items: pick([Routes.ai, Routes.manualInterno]),
     ),
   ];
 
   final knownRoutes = <String>{
+    ..._desktopSidebarFooterRoutes,
     for (final group in groups)
       for (final item in group.items) item.route,
   };
@@ -582,7 +676,9 @@ List<_SidebarMenuGroup> _buildDesktopSidebarGroups(
     }
   }
 
-  return groups.where((group) => group.items.isNotEmpty).toList(growable: false);
+  return groups
+      .where((group) => group.items.isNotEmpty)
+      .toList(growable: false);
 }
 
 String? _resolveActiveGroupKey(
@@ -670,6 +766,7 @@ class _DesktopSidebarState extends ConsumerState<DesktopSidebar> {
     const slate400 = Color(0xFF94A3B8);
     const slate500 = Color(0xFF64748B);
     final groups = _buildDesktopSidebarGroups(widget.sections);
+    final footerItems = _buildDesktopSidebarFooterItems(widget.sections);
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 220),
@@ -859,7 +956,8 @@ class _DesktopSidebarState extends ConsumerState<DesktopSidebar> {
                                           widget.currentLocation,
                                           item.route,
                                         ),
-                                        onTap: () => widget.onNavigate(item.route),
+                                        onTap: () =>
+                                            widget.onNavigate(item.route),
                                       ),
                                   ],
                                 ),
@@ -884,6 +982,20 @@ class _DesktopSidebarState extends ConsumerState<DesktopSidebar> {
               ),
               child: Column(
                 children: [
+                  for (final item in footerItems) ...[
+                    _SidebarFooterButton(
+                      collapsed: widget.collapsed,
+                      tooltip: item.title,
+                      icon: item.icon,
+                      label: item.title,
+                      selected: isNavigationRouteActive(
+                        widget.currentLocation,
+                        item.route,
+                      ),
+                      onTap: () => widget.onNavigate(item.route),
+                    ),
+                    const SizedBox(height: 4),
+                  ],
                   // Profile
                   _SidebarFooterButton(
                     collapsed: widget.collapsed,
@@ -893,6 +1005,10 @@ class _DesktopSidebarState extends ConsumerState<DesktopSidebar> {
                     sublabel: branding.departmentName,
                     useAvatar: true,
                     avatarInitials: userInitials(widget.currentUser),
+                    selected: isNavigationRouteActive(
+                      widget.currentLocation,
+                      Routes.profile,
+                    ),
                     onTap: () => context.push(Routes.profile),
                   ),
                   const SizedBox(height: 4),
@@ -1040,7 +1156,10 @@ class _DesktopSidebarCollapsedGroupButtonState
                   Icon(item.icon, size: 18),
                   const SizedBox(width: 10),
                   Expanded(child: Text(item.title)),
-                  if (isNavigationRouteActive(widget.currentLocation, item.route))
+                  if (isNavigationRouteActive(
+                    widget.currentLocation,
+                    item.route,
+                  ))
                     const Padding(
                       padding: EdgeInsets.only(left: 8),
                       child: Icon(Icons.check_rounded, size: 16),
@@ -1159,6 +1278,7 @@ class _SidebarFooterButton extends StatefulWidget {
     this.useAvatar = false,
     this.avatarInitials = '',
     this.isDestructive = false,
+    this.selected = false,
     required this.onTap,
   });
 
@@ -1170,6 +1290,7 @@ class _SidebarFooterButton extends StatefulWidget {
   final bool useAvatar;
   final String avatarInitials;
   final bool isDestructive;
+  final bool selected;
   final VoidCallback onTap;
 
   @override
@@ -1184,10 +1305,16 @@ class _SidebarFooterButtonState extends State<_SidebarFooterButton> {
     final theme = Theme.of(context);
     const onBase = Colors.white;
     const slate400 = Color(0xFF94A3B8);
-    final bg = _hovered
-      ? Colors.white.withValues(alpha: widget.isDestructive ? 0.08 : 0.07)
-      : Colors.transparent;
-    final fgColor = widget.isDestructive ? Colors.red.shade200 : slate400;
+    final bg = widget.selected
+        ? theme.colorScheme.primary.withValues(alpha: 0.22)
+        : _hovered
+        ? Colors.white.withValues(alpha: widget.isDestructive ? 0.08 : 0.07)
+        : Colors.transparent;
+    final fgColor = widget.selected
+        ? onBase
+        : widget.isDestructive
+        ? Colors.red.shade200
+        : slate400;
 
     Widget content = Container(
       height: 40,
@@ -1195,6 +1322,9 @@ class _SidebarFooterButtonState extends State<_SidebarFooterButton> {
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(10),
+        border: widget.selected
+            ? Border.all(color: Colors.white.withValues(alpha: 0.10))
+            : null,
       ),
       child: widget.collapsed
           ? Center(child: Icon(widget.icon, size: 18, color: fgColor))
@@ -1370,9 +1500,7 @@ class _DesktopSidebarItemState extends State<_DesktopSidebarItem> {
           duration: const Duration(milliseconds: 170),
           curve: Curves.easeOut,
           margin: const EdgeInsets.symmetric(vertical: 2),
-          padding: EdgeInsets.symmetric(
-            horizontal: widget.isSubItem ? 10 : 12,
-          ),
+          padding: EdgeInsets.symmetric(horizontal: widget.isSubItem ? 10 : 12),
           decoration: BoxDecoration(
             color: itemBg,
             borderRadius: BorderRadius.circular(10),
@@ -1384,7 +1512,9 @@ class _DesktopSidebarItemState extends State<_DesktopSidebarItem> {
                 width: 3,
                 height: 24,
                 decoration: BoxDecoration(
-                  color: selected ? theme.colorScheme.primary : Colors.transparent,
+                  color: selected
+                      ? theme.colorScheme.primary
+                      : Colors.transparent,
                   borderRadius: BorderRadius.circular(999),
                 ),
               ),

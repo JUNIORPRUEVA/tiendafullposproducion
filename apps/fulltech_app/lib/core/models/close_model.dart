@@ -81,6 +81,8 @@ class CloseModel {
   final String? aiReportSummary;
   final Map<String, dynamic>? aiReportJson;
   final DateTime? aiGeneratedAt;
+  final String? correctionOfCloseId;
+  final String? correctionReason;
   final List<CloseTransferModel> transfers;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -120,6 +122,8 @@ class CloseModel {
     this.aiReportSummary,
     this.aiReportJson,
     this.aiGeneratedAt,
+    this.correctionOfCloseId,
+    this.correctionReason,
     this.transfers = const [],
     required this.createdAt,
     required this.updatedAt,
@@ -205,6 +209,8 @@ class CloseModel {
       aiReportSummary: json['aiReportSummary'] as String?,
       aiReportJson: (json['aiReportJson'] as Map?)?.cast<String, dynamic>(),
       aiGeneratedAt: _asNullableDate(json['aiGeneratedAt']),
+      correctionOfCloseId: json['correctionOfCloseId'] as String?,
+      correctionReason: json['correctionReason'] as String?,
       transfers: (json['transfers'] as List? ?? const [])
           .whereType<Map>()
           .map(
@@ -223,6 +229,7 @@ class CloseModel {
   bool get isPending => status == 'pending';
   bool get isApproved => status == 'approved';
   bool get isRejected => status == 'rejected';
+  bool get isCorrection => (correctionOfCloseId ?? '').trim().isNotEmpty;
 }
 
 class CloseTransferModel {

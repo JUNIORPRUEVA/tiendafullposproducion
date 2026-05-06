@@ -18,8 +18,11 @@ import '../../core/auth/auth_provider.dart';
 import '../../core/auth/app_role.dart';
 import '../../core/realtime/operations_realtime_service.dart';
 import '../../core/routing/route_access.dart';
+import '../../core/routing/routes.dart';
 import '../../core/widgets/app_drawer.dart';
+import '../../core/widgets/app_navigation.dart' show kDesktopShellBreakpoint;
 import '../../core/widgets/custom_app_bar.dart';
+import '../../core/widgets/responsive_shell.dart';
 import '../../core/widgets/user_avatar.dart';
 import '../whatsapp_crm/application/wa_crm_controller.dart';
 import '../whatsapp_crm/data/wa_crm_repository.dart';
@@ -259,6 +262,8 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
   ProviderSubscription<WaCrmState>? _waCrmSubscription;
   StreamSubscription<Map<String, dynamic>>? _whatsappSub;
   Timer? _autoRefreshTimer;
+  bool _autoRefreshInFlight = false;
+  String _lastShellActionsSignature = '';
   bool _showActionPanel = true;
   bool _showAiPanel = false;
   bool _showNewMessagesButton = false;
@@ -324,14 +329,30 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
 
   void _startAutoRefresh() {
     _autoRefreshTimer?.cancel();
-    _autoRefreshTimer = Timer.periodic(const Duration(seconds: 45), (_) {
+    _autoRefreshTimer = Timer.periodic(const Duration(seconds: 45), (_) async {
       if (!mounted) return;
-      ref.read(waCrmControllerProvider.notifier).refreshActiveView();
+      if (_autoRefreshInFlight) return;
+      final state = ref.read(waCrmControllerProvider);
+      if (state.loadingConversations ||
+          state.loadingMessages ||
+          state.syncingInBackground) {
+        return;
+      }
+      _autoRefreshInFlight = true;
+      try {
+        await ref.read(waCrmControllerProvider.notifier).refreshActiveView();
+      } finally {
+        _autoRefreshInFlight = false;
+      }
     });
   }
 
   @override
   void dispose() {
+    final shellActions = ref.read(desktopShellRouteActionsProvider.notifier);
+    if (shellActions.state?.route == Routes.whatsappCrm) {
+      shellActions.state = null;
+    }
     _autoRefreshTimer?.cancel();
     _whatsappSub?.cancel();
     _waCrmSubscription?.close();
@@ -345,6 +366,57 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
     if (_showNewMessagesButton && _isChatNearBottom()) {
       setState(() => _showNewMessagesButton = false);
     }
+  }
+
+  void _publishDesktopShellActions({required bool enabled}) {
+    final signature = enabled
+        ? '${Routes.whatsappCrm}:$_showActionPanel:$_showAiPanel'
+        : '${Routes.whatsappCrm}:disabled';
+    if (_lastShellActionsSignature == signature) return;
+    _lastShellActionsSignature = signature;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final notifier = ref.read(desktopShellRouteActionsProvider.notifier);
+      if (!enabled) {
+        if (notifier.state?.route == Routes.whatsappCrm) notifier.state = null;
+        return;
+      }
+
+      notifier.state = DesktopShellRouteActions(
+        route: Routes.whatsappCrm,
+        actions: [
+          DesktopShellActionItem(
+            icon: Icons.view_sidebar_outlined,
+            selectedIcon: Icons.view_sidebar,
+            selected: _showActionPanel,
+            tooltip: _showActionPanel
+                ? 'Ocultar panel derecho'
+                : 'Mostrar panel derecho',
+            onPressed: () {
+              if (!mounted) return;
+              setState(() => _showActionPanel = !_showActionPanel);
+              _lastShellActionsSignature = '';
+            },
+          ),
+          DesktopShellActionItem(
+            icon: Icons.auto_awesome_outlined,
+            selectedIcon: Icons.auto_awesome,
+            selected: _showAiPanel,
+            tooltip: _showAiPanel ? 'Ocultar IA' : 'Mostrar IA',
+            onPressed: () {
+              if (!mounted) return;
+              setState(() => _showAiPanel = !_showAiPanel);
+              _lastShellActionsSignature = '';
+            },
+          ),
+        ],
+      );
+    });
+  }
+
+  void _refreshActiveView() {
+    ref.read(waCrmControllerProvider.notifier).refreshActiveView();
   }
 
   bool _isChatNearBottom() {
@@ -361,6 +433,13 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
       if (!_scrollController.position.hasContentDimensions) return;
       if (!force && !_isChatNearBottom()) return;
       final target = _scrollController.position.maxScrollExtent;
+      final current = _scrollController.position.pixels;
+      if ((current - target).abs() < 1) {
+        if (_showNewMessagesButton && mounted) {
+          setState(() => _showNewMessagesButton = false);
+        }
+        return;
+      }
       if (animated) {
         _scrollController.animateTo(
           target,
@@ -385,6 +464,9 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
     final isMobile = size.width < _kMobileBreak;
     final isTablet = size.width >= _kMobileBreak && size.width < _kTabletBreak;
     final canShowSidePanels = size.width >= _kTabletBreak;
+    final usesDesktopShellAppBar = size.width >= kDesktopShellBreakpoint;
+
+    _publishDesktopShellActions(enabled: usesDesktopShellAppBar);
 
     // ── Listen for new messages to scroll ──────────────────────────────────
     Widget body;
@@ -397,39 +479,44 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
     }
 
     return Scaffold(
-      appBar: CustomAppBar(
-        title: 'CRM WhatsApp',
-        showLogo: false,
-        showDepartmentLabel: false,
-        actions: [
-          if (canShowSidePanels)
-            IconButton(
-              icon: Icon(
-                _showActionPanel
-                    ? Icons.view_sidebar_outlined
-                    : Icons.view_sidebar,
-              ),
-              tooltip: _showActionPanel ? 'Ocultar panel' : 'Mostrar panel',
-              onPressed: () =>
-                  setState(() => _showActionPanel = !_showActionPanel),
+      appBar: usesDesktopShellAppBar
+          ? null
+          : CustomAppBar(
+              title: 'CRM WhatsApp',
+              showLogo: false,
+              showDepartmentLabel: false,
+              actions: [
+                if (canShowSidePanels)
+                  IconButton(
+                    icon: Icon(
+                      _showActionPanel
+                          ? Icons.view_sidebar_outlined
+                          : Icons.view_sidebar,
+                    ),
+                    tooltip: _showActionPanel
+                        ? 'Ocultar panel'
+                        : 'Mostrar panel',
+                    onPressed: () =>
+                        setState(() => _showActionPanel = !_showActionPanel),
+                  ),
+                if (canShowSidePanels)
+                  IconButton(
+                    icon: Icon(
+                      _showAiPanel
+                          ? Icons.auto_awesome
+                          : Icons.auto_awesome_outlined,
+                    ),
+                    tooltip: _showAiPanel ? 'Ocultar IA' : 'Resumen IA del dia',
+                    onPressed: () =>
+                        setState(() => _showAiPanel = !_showAiPanel),
+                  ),
+                IconButton(
+                  icon: const Icon(Icons.refresh_rounded),
+                  tooltip: 'Actualizar',
+                  onPressed: _refreshActiveView,
+                ),
+              ],
             ),
-          if (canShowSidePanels)
-            IconButton(
-              icon: Icon(
-                _showAiPanel ? Icons.auto_awesome : Icons.auto_awesome_outlined,
-              ),
-              tooltip: _showAiPanel ? 'Ocultar IA' : 'Resumen IA del dia',
-              onPressed: () => setState(() => _showAiPanel = !_showAiPanel),
-            ),
-          IconButton(
-            icon: const Icon(Icons.refresh_rounded),
-            tooltip: 'Actualizar',
-            onPressed: () {
-              ref.read(waCrmControllerProvider.notifier).refreshActiveView();
-            },
-          ),
-        ],
-      ),
       drawer: buildAdaptiveDrawer(context, currentUser: user),
       body: SafeArea(child: body),
     );
@@ -445,7 +532,7 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final maxWidth = constraints.maxWidth;
-        final conversationWidth = maxWidth < 1320 ? 252.0 : 280.0;
+        final conversationWidth = maxWidth < 1320 ? 236.0 : 264.0;
         final actionWidth = maxWidth < 1320 ? 232.0 : 260.0;
         final aiWidth = maxWidth < 1320 ? 320.0 : 360.0;
         const minChatWidth = 430.0;
@@ -563,7 +650,7 @@ class _WhatsappCrmScreenState extends ConsumerState<WhatsappCrmScreen> {
     return Row(
       children: [
         SizedBox(
-          width: 240,
+          width: 228,
           child: _ConversationsPanel(
             state: state,
             scrollController: _conversationScrollController,
@@ -1044,12 +1131,19 @@ class _ConversationsPanel extends StatefulWidget {
 }
 
 class _ConversationsPanelState extends State<_ConversationsPanel> {
-  bool _showInstances = true;
+  bool _showInstances = false;
+  WaCrmMessageDateFilter _chatDateFilter = WaCrmMessageDateFilter.all;
+  DateTime? _customChatDate;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final state = widget.state;
+    final filteredConversations = _filterConversationsByDate(
+      state.conversations,
+      _chatDateFilter,
+      _customChatDate,
+    );
 
     return Column(
       children: [
@@ -1064,9 +1158,9 @@ class _ConversationsPanelState extends State<_ConversationsPanel> {
         const Divider(height: 1),
         // ── User selector for conversations ──────────────────────────
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           color: theme.colorScheme.surfaceContainerHighest.withValues(
-            alpha: 0.4,
+            alpha: 0.28,
           ),
           child: _UserSelectorDropdown(
             users: state.users,
@@ -1076,9 +1170,30 @@ class _ConversationsPanelState extends State<_ConversationsPanel> {
           ),
         ),
         const Divider(height: 1),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(10, 5, 10, 5),
+          child: _DateFilterBar(
+            selected: _chatDateFilter,
+            customDate: _customChatDate,
+            helpText: 'Filtrar chats por fecha',
+            onChanged: (filter, {customDate}) {
+              setState(() {
+                _chatDateFilter = filter;
+                _customChatDate = customDate;
+              });
+            },
+            onClear: () {
+              setState(() {
+                _chatDateFilter = WaCrmMessageDateFilter.all;
+                _customChatDate = null;
+              });
+            },
+          ),
+        ),
+        const Divider(height: 1),
         _ConversationStatsStrip(
-          chats: state.conversations.length,
-          unread: state.conversations.fold<int>(
+          chats: filteredConversations.length,
+          unread: filteredConversations.fold<int>(
             0,
             (sum, conv) => sum + conv.unreadCount,
           ),
@@ -1091,12 +1206,17 @@ class _ConversationsPanelState extends State<_ConversationsPanel> {
               ? const Center(child: CircularProgressIndicator())
               : state.conversations.isEmpty
               ? _EmptyConvState(loading: state.loadingUsers)
+              : filteredConversations.isEmpty
+              ? const _EmptyConvState(
+                  loading: false,
+                  emptyLabel: 'Sin chats para este filtro',
+                )
               : ListView.builder(
                   key: const PageStorageKey<String>('wa-conversations-list'),
                   controller: widget.scrollController,
-                  itemCount: state.conversations.length,
+                  itemCount: filteredConversations.length,
                   itemBuilder: (context, i) {
-                    final conv = state.conversations[i];
+                    final conv = filteredConversations[i];
                     final isSelected =
                         state.selectedConversation?.id == conv.id;
                     return KeyedSubtree(
@@ -1135,14 +1255,14 @@ class _ConversationStatsStrip extends StatelessWidget {
     final theme = Theme.of(context);
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       color: theme.colorScheme.surface,
       child: Row(
         children: [
           _MiniStat(label: 'Chats', value: '$chats'),
-          const SizedBox(width: 10),
-          _MiniStat(label: 'Sin responder', value: '$unread'),
-          const SizedBox(width: 10),
+          const SizedBox(width: 8),
+          _MiniStat(label: 'Pend.', value: '$unread'),
+          const SizedBox(width: 8),
           _MiniStat(label: 'Mensajes', value: '$selectedMessages'),
         ],
       ),
@@ -1204,32 +1324,39 @@ class _InstancesSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final connected = instances.where((item) {
+      final status = item.status.toLowerCase();
+      return status == 'open' || status == 'connected';
+    }).length;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        // Header
         InkWell(
           onTap: onToggleExpanded,
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            color: theme.colorScheme.primaryContainer.withValues(alpha: 0.25),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            color: theme.colorScheme.primaryContainer.withValues(alpha: 0.18),
             child: Row(
               children: [
                 Icon(
                   Icons.wifi_tethering_rounded,
-                  size: 15,
+                  size: 14,
                   color: theme.colorScheme.primary,
                 ),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    'Instancias (${instances.length})',
+                    expanded
+                        ? 'Instancias (${instances.length})'
+                        : 'Instancias · $connected/${instances.length} activas',
                     style: theme.textTheme.labelSmall?.copyWith(
                       color: theme.colorScheme.primary,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 0.5,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.2,
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
                 if (loading)
@@ -1253,7 +1380,7 @@ class _InstancesSection extends StatelessWidget {
         if (expanded) ...[
           if (instances.isEmpty && !loading)
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               child: Text(
                 'Sin instancias configuradas',
                 style: theme.textTheme.bodySmall?.copyWith(
@@ -1281,11 +1408,11 @@ class _InstanceRow extends ConsumerWidget {
     final theme = Theme.of(context);
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       child: Row(
         children: [
           _StatusDot(status: instance.status),
-          const SizedBox(width: 8),
+          const SizedBox(width: 7),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1307,7 +1434,8 @@ class _InstanceRow extends ConsumerWidget {
                         _waText(instance.userName),
                         style: theme.textTheme.bodySmall?.copyWith(
                           fontWeight: FontWeight.w500,
-                          fontSize: 11.5,
+                          fontSize: 11,
+                          height: 1.05,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -1318,7 +1446,8 @@ class _InstanceRow extends ConsumerWidget {
                 Text(
                   _waText(instance.instanceName),
                   style: theme.textTheme.bodySmall?.copyWith(
-                    fontSize: 10,
+                    fontSize: 9.5,
+                    height: 1.05,
                     color: theme.colorScheme.onSurface.withValues(alpha: 0.45),
                   ),
                   maxLines: 1,
@@ -1335,7 +1464,7 @@ class _InstanceRow extends ConsumerWidget {
             child: IconButton(
               iconSize: 18,
               padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+              constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
               icon: Icon(
                 instance.webhookEnabled
                     ? Icons.webhook_rounded
@@ -1755,51 +1884,40 @@ class _ConversationTile extends StatelessWidget {
         ? 'Sin mensajes'
         : '${last.isOutgoing ? 'Tu: ' : ''}${last.previewText}'.trim();
     final unread = conv.unreadCount > 0;
+    final activeColor = theme.colorScheme.primary;
+    final rowColor = isSelected
+        ? activeColor.withValues(alpha: 0.14)
+        : isHighlighted
+        ? activeColor.withValues(alpha: 0.06)
+        : null;
+    final railColor = isSelected
+        ? activeColor
+        : isHighlighted
+        ? activeColor.withValues(alpha: 0.72)
+        : unread
+        ? activeColor.withValues(alpha: 0.55)
+        : Colors.transparent;
 
     return InkWell(
       onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 260),
-        curve: Curves.easeOutCubic,
+      child: Container(
         decoration: BoxDecoration(
-          color: isSelected
-              ? theme.colorScheme.primaryContainer.withValues(alpha: 0.35)
-              : isHighlighted
-              ? theme.colorScheme.primary.withValues(alpha: 0.08)
-              : null,
-          border: Border(
-            left: BorderSide(
-              width: isHighlighted || unread ? 3 : 0,
-              color: isHighlighted
-                  ? theme.colorScheme.primary
-                  : unread
-                  ? theme.colorScheme.primary.withValues(alpha: 0.65)
-                  : Colors.transparent,
-            ),
-          ),
+          color: rowColor,
+          border: Border(left: BorderSide(width: 4, color: railColor)),
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        padding: const EdgeInsets.fromLTRB(6, 7, 10, 7),
         child: Row(
           children: [
             SizedBox(
-              width: 18,
-              child: TweenAnimationBuilder<double>(
-                tween: Tween(begin: isHighlighted ? 0.92 : 1, end: 1),
-                duration: const Duration(milliseconds: 420),
-                curve: Curves.easeOutCubic,
-                builder: (context, value, child) => Transform.scale(
-                  scale: value,
-                  child: AnimatedOpacity(
-                    opacity: isHighlighted ? 1 : 0,
-                    duration: const Duration(milliseconds: 180),
-                    child: child,
-                  ),
-                ),
-                child: Icon(
-                  Icons.fiber_manual_record_rounded,
-                  size: 10,
-                  color: theme.colorScheme.primary,
-                ),
+              width: 10,
+              child: Icon(
+                isSelected
+                    ? Icons.check_circle_rounded
+                    : Icons.fiber_manual_record_rounded,
+                size: isSelected ? 12 : 8,
+                color: isSelected || isHighlighted
+                    ? activeColor
+                    : Colors.transparent,
               ),
             ),
             Material(
@@ -1810,7 +1928,7 @@ class _ConversationTile extends StatelessWidget {
                 onTap: () => _showChatAvatarPreview(context, conv),
                 child: UserAvatar(
                   imageUrl: conv.remoteAvatarUrl,
-                  radius: 22,
+                  radius: 19,
                   backgroundColor: theme.colorScheme.primary.withValues(
                     alpha: 0.15,
                   ),
@@ -1824,12 +1942,14 @@ class _ConversationTile extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 9),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
                       Expanded(
                         child: Text(
@@ -1838,11 +1958,36 @@ class _ConversationTile extends StatelessWidget {
                             fontWeight: unread
                                 ? FontWeight.bold
                                 : FontWeight.w600,
+                            fontSize: 13,
+                            height: 1.1,
+                            color: isSelected ? activeColor : null,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
+                      if (isSelected) ...[
+                        const SizedBox(width: 5),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 5,
+                            vertical: 1.5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: activeColor,
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            'Activo',
+                            style: TextStyle(
+                              color: theme.colorScheme.onPrimary,
+                              fontSize: 8.5,
+                              fontWeight: FontWeight.w800,
+                              height: 1,
+                            ),
+                          ),
+                        ),
+                      ],
                       if (timeStr.isNotEmpty)
                         Text(
                           timeStr,
@@ -1850,18 +1995,20 @@ class _ConversationTile extends StatelessWidget {
                             color: theme.colorScheme.onSurface.withValues(
                               alpha: 0.5,
                             ),
-                            fontSize: 11,
+                            fontSize: 10.5,
+                            height: 1,
                           ),
                         ),
                     ],
                   ),
-                  const SizedBox(height: 2),
+                  const SizedBox(height: 3),
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
                       if (mediaIcon != null) ...[
                         Icon(
                           mediaIcon,
-                          size: 14,
+                          size: 13,
                           color: theme.colorScheme.onSurface.withValues(
                             alpha: unread ? 0.75 : 0.52,
                           ),
@@ -1876,6 +2023,8 @@ class _ConversationTile extends StatelessWidget {
                               alpha: unread ? 0.82 : 0.58,
                             ),
                             fontWeight: unread ? FontWeight.w600 : null,
+                            fontSize: 11.5,
+                            height: 1.12,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -1885,8 +2034,8 @@ class _ConversationTile extends StatelessWidget {
                         Container(
                           margin: const EdgeInsets.only(left: 4),
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 2,
+                            horizontal: 5,
+                            vertical: 1.5,
                           ),
                           decoration: BoxDecoration(
                             color: theme.colorScheme.primary,
@@ -1906,8 +2055,9 @@ class _ConversationTile extends StatelessWidget {
                                 : '${conv.unreadCount}',
                             style: TextStyle(
                               color: theme.colorScheme.onPrimary,
-                              fontSize: 10,
+                              fontSize: 9.5,
                               fontWeight: FontWeight.bold,
+                              height: 1,
                             ),
                           ),
                         ),
@@ -2150,6 +2300,38 @@ List<WaCrmMessage> _filterMessagesByDate(
   return messages.where(matches).toList();
 }
 
+List<WaCrmConversation> _filterConversationsByDate(
+  List<WaCrmConversation> conversations,
+  WaCrmMessageDateFilter filter,
+  DateTime? customDate,
+) {
+  if (filter == WaCrmMessageDateFilter.all) return conversations;
+  final today = _dayOnly(DateTime.now());
+
+  bool matches(WaCrmConversation conv) {
+    final value = conv.activityAt;
+    if (value.millisecondsSinceEpoch == 0) return false;
+    final day = _dayOnly(value);
+    switch (filter) {
+      case WaCrmMessageDateFilter.today:
+        return day == today;
+      case WaCrmMessageDateFilter.yesterday:
+        return day == today.subtract(const Duration(days: 1));
+      case WaCrmMessageDateFilter.last7Days:
+        return !day.isBefore(today.subtract(const Duration(days: 6))) &&
+            !day.isAfter(today);
+      case WaCrmMessageDateFilter.thisMonth:
+        return day.year == today.year && day.month == today.month;
+      case WaCrmMessageDateFilter.custom:
+        return customDate != null && day == _dayOnly(customDate);
+      case WaCrmMessageDateFilter.all:
+        return true;
+    }
+  }
+
+  return conversations.where(matches).toList();
+}
+
 String _dateSeparatorLabel(DateTime value) {
   final day = _dayOnly(value);
   final today = _dayOnly(DateTime.now());
@@ -2164,6 +2346,7 @@ class _DateFilterBar extends StatelessWidget {
     required this.customDate,
     required this.onChanged,
     required this.onClear,
+    this.helpText = 'Filtrar mensajes por fecha',
   });
 
   final WaCrmMessageDateFilter selected;
@@ -2171,12 +2354,13 @@ class _DateFilterBar extends StatelessWidget {
   final void Function(WaCrmMessageDateFilter filter, {DateTime? customDate})
   onChanged;
   final VoidCallback onClear;
+  final String helpText;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return SizedBox(
-      height: 34,
+      height: 30,
       child: ListView(
         scrollDirection: Axis.horizontal,
         children: [
@@ -2212,7 +2396,7 @@ class _DateFilterBar extends StatelessWidget {
                 initialDate: customDate ?? DateTime.now(),
                 firstDate: DateTime.now().subtract(const Duration(days: 730)),
                 lastDate: DateTime.now(),
-                helpText: 'Filtrar mensajes por fecha',
+                helpText: helpText,
               );
               if (picked != null) {
                 onChanged(WaCrmMessageDateFilter.custom, customDate: picked);
@@ -2272,8 +2456,11 @@ class _FilterChipButton extends StatelessWidget {
         onSelected: (_) => onTap(),
         labelStyle: theme.textTheme.labelSmall?.copyWith(
           fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+          fontSize: 11,
+          height: 1,
         ),
-        visualDensity: VisualDensity.compact,
+        visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
+        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
       ),
     );
   }
@@ -2430,16 +2617,14 @@ class _ChatPanel extends StatelessWidget {
       children: [
         // Header
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+          padding: const EdgeInsets.fromLTRB(14, 7, 14, 6),
           decoration: BoxDecoration(
             color: theme.colorScheme.surface,
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.06),
-                blurRadius: 4,
-                offset: const Offset(0, 2),
+            border: Border(
+              bottom: BorderSide(
+                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.65),
               ),
-            ],
+            ),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -2454,7 +2639,7 @@ class _ChatPanel extends StatelessWidget {
                       onTap: () => _showChatAvatarPreview(context, conv),
                       child: UserAvatar(
                         imageUrl: conv.remoteAvatarUrl,
-                        radius: 18,
+                        radius: 17,
                         backgroundColor: theme.colorScheme.primary.withValues(
                           alpha: 0.15,
                         ),
@@ -2468,7 +2653,7 @@ class _ChatPanel extends StatelessWidget {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 9),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2477,6 +2662,8 @@ class _ChatPanel extends StatelessWidget {
                           _waText(conv.displayName),
                           style: theme.textTheme.titleSmall?.copyWith(
                             fontWeight: FontWeight.w700,
+                            fontSize: 13.5,
+                            height: 1.1,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -2492,6 +2679,8 @@ class _ChatPanel extends StatelessWidget {
                             color: theme.colorScheme.onSurface.withValues(
                               alpha: 0.55,
                             ),
+                            fontSize: 11,
+                            height: 1.15,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -2501,7 +2690,7 @@ class _ChatPanel extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 5),
               _DateFilterBar(
                 selected: state.messageDateFilter,
                 customDate: state.customMessageDate,
@@ -2511,40 +2700,6 @@ class _ChatPanel extends StatelessWidget {
             ],
           ),
         ),
-        if (state.isOffline || state.syncingInBackground)
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
-            color: state.isOffline
-                ? theme.colorScheme.errorContainer.withValues(alpha: 0.45)
-                : theme.colorScheme.primaryContainer.withValues(alpha: 0.35),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  state.isOffline
-                      ? Icons.cloud_off_outlined
-                      : Icons.sync_rounded,
-                  size: 14,
-                  color: state.isOffline
-                      ? theme.colorScheme.onErrorContainer
-                      : theme.colorScheme.primary,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  state.isOffline
-                      ? 'Sin conexión: mostrando datos guardados'
-                      : 'Sincronizando en segundo plano',
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: state.isOffline
-                        ? theme.colorScheme.onErrorContainer
-                        : theme.colorScheme.primary,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
         // Messages
         Expanded(
           child: Stack(
@@ -2815,62 +2970,94 @@ class _MediaUnavailable extends StatelessWidget {
   }
 }
 
-class _ImageContent extends ConsumerWidget {
+class _ImageContent extends ConsumerStatefulWidget {
   const _ImageContent({required this.msg, required this.textColor});
+
   final WaCrmMessage msg;
   final Color textColor;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final url = _mediaUrlForMessage(msg);
+  ConsumerState<_ImageContent> createState() => _ImageContentState();
+}
+
+class _ImageContentState extends ConsumerState<_ImageContent> {
+  Future<Uint8List>? _bytesFuture;
+  String? _url;
+
+  @override
+  void initState() {
+    super.initState();
+    _setFutureIfNeeded();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ImageContent oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.msg.id != widget.msg.id ||
+        oldWidget.msg.mediaUrl != widget.msg.mediaUrl) {
+      _setFutureIfNeeded();
+    }
+  }
+
+  void _setFutureIfNeeded() {
+    _url = _mediaUrlForMessage(widget.msg);
+    if (_url == null || widget.msg.mediaFailed) {
+      _bytesFuture = null;
+      return;
+    }
     final downloadBytes = ref.read(waCrmRepositoryProvider).downloadMediaBytes;
-    if (msg.mediaFailed) {
+    _bytesFuture = _bytesFromMediaUrl(_url!, downloadBytes: downloadBytes);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final downloadBytes = ref.read(waCrmRepositoryProvider).downloadMediaBytes;
+    if (widget.msg.mediaFailed) {
       return _MediaUnavailable(
         icon: Icons.image_not_supported_outlined,
-        textColor: textColor,
+        textColor: widget.textColor,
       );
     }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (url != null)
+        if (_url != null && _bytesFuture != null)
           ClipRRect(
             borderRadius: BorderRadius.circular(8),
             child: GestureDetector(
-              onTap: () => _showFullImage(context, url, downloadBytes),
-              child: _buildImageWidget(url, downloadBytes),
+              onTap: () => _showFullImage(context, _url!, downloadBytes),
+              child: _buildImageWidget(_bytesFuture!),
             ),
           )
         else
           _MediaUnavailable(
             icon: Icons.image_not_supported_outlined,
-            textColor: textColor,
+            textColor: widget.textColor,
           ),
-        if (msg.caption?.isNotEmpty == true)
+        if (widget.msg.caption?.isNotEmpty == true)
           Padding(
             padding: const EdgeInsets.only(top: 4),
             child: Text(
-              _waText(msg.caption),
-              style: TextStyle(color: textColor, fontSize: 13),
+              _waText(widget.msg.caption),
+              style: TextStyle(color: widget.textColor, fontSize: 13),
             ),
           ),
       ],
     );
   }
 
-  Widget _buildImageWidget(
-    String url,
-    Future<Uint8List> Function(String mediaUrl) downloadBytes,
-  ) {
+  Widget _buildImageWidget(Future<Uint8List> future) {
     return FutureBuilder<Uint8List>(
-      future: _bytesFromMediaUrl(url, downloadBytes: downloadBytes),
+      future: future,
       builder: (context, snapshot) {
         if (snapshot.connectionState != ConnectionState.done) {
           return Container(
             width: 220,
             height: 120,
             color: Colors.grey.shade200,
-            child: const Center(child: CircularProgressIndicator()),
+            child: const Center(
+              child: Icon(Icons.image_outlined, size: 26, color: Colors.grey),
+            ),
           );
         }
         final bytes = snapshot.data;
@@ -2882,6 +3069,7 @@ class _ImageContent extends ConsumerWidget {
           width: 220,
           height: 120,
           fit: BoxFit.cover,
+          gaplessPlayback: true,
           errorBuilder: (_, __, ___) => _brokenImage(),
         );
       },
@@ -2900,6 +3088,7 @@ class _ImageContent extends ConsumerWidget {
     String url,
     Future<Uint8List> Function(String mediaUrl) downloadBytes,
   ) {
+    final imageFuture = _bytesFromMediaUrl(url, downloadBytes: downloadBytes);
     showDialog(
       context: context,
       builder: (ctx) => Dialog(
@@ -2908,7 +3097,7 @@ class _ImageContent extends ConsumerWidget {
           onTap: () => Navigator.of(ctx).pop(),
           child: InteractiveViewer(
             child: FutureBuilder<Uint8List>(
-              future: _bytesFromMediaUrl(url, downloadBytes: downloadBytes),
+              future: imageFuture,
               builder: (context, snapshot) {
                 final bytes = snapshot.data;
                 if (snapshot.connectionState != ConnectionState.done) {
@@ -2940,6 +3129,9 @@ class _AudioContent extends ConsumerStatefulWidget {
 }
 
 class _AudioContentState extends ConsumerState<_AudioContent> {
+  static const double _minPlayerWidth = 188;
+  static const double _maxPlayerWidth = 260;
+
   media_kit.Player? _player;
   StreamSubscription<bool>? _playingSub;
   StreamSubscription<Duration>? _positionSub;
@@ -3027,6 +3219,23 @@ class _AudioContentState extends ConsumerState<_AudioContent> {
     return '$m:$s';
   }
 
+  double _audioWidthFor(BoxConstraints constraints) {
+    final maxWidth =
+        constraints.hasBoundedWidth && constraints.maxWidth.isFinite
+        ? constraints.maxWidth
+        : _maxPlayerWidth;
+    if (maxWidth <= _minPlayerWidth) return maxWidth.toDouble();
+    return maxWidth.clamp(_minPlayerWidth, _maxPlayerWidth).toDouble();
+  }
+
+  Future<void> _seekFromLocalDx(double dx, double width) async {
+    final player = _player;
+    if (player == null || _duration <= Duration.zero || width <= 0) return;
+    final progress = (dx / width).clamp(0.0, 1.0);
+    final ms = (progress * _duration.inMilliseconds).round();
+    await player.seek(Duration(milliseconds: ms));
+  }
+
   @override
   Widget build(BuildContext context) {
     final color = widget.textColor;
@@ -3046,144 +3255,209 @@ class _AudioContentState extends ConsumerState<_AudioContent> {
       );
     }
 
-    // Not yet loaded — show tap-to-play
     if (!_initialized) {
-      return GestureDetector(
-        onTap: _ensureInitialized,
-        child: SizedBox(
-          width: 220,
-          height: 40,
-          child: Row(
-            children: [
-              _initializing
-                  ? SizedBox(
-                      width: 36,
-                      height: 36,
-                      child: Padding(
-                        padding: const EdgeInsets.all(7),
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2.5,
-                          color: color,
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          final width = _audioWidthFor(constraints);
+          return GestureDetector(
+            onTap: _ensureInitialized,
+            child: SizedBox(
+              width: width,
+              height: 44,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  SizedBox.square(
+                    dimension: 34,
+                    child: _initializing
+                        ? Padding(
+                            padding: const EdgeInsets.all(7),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.4,
+                              color: color,
+                            ),
+                          )
+                        : DecoratedBox(
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: color.withValues(alpha: 0.15),
+                            ),
+                            child: Icon(
+                              Icons.play_arrow_rounded,
+                              color: color,
+                              size: 21,
+                            ),
+                          ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Audio',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: color,
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                            height: 1.05,
+                          ),
                         ),
-                      ),
-                    )
-                  : Container(
-                      width: 36,
-                      height: 36,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: color.withValues(alpha: 0.15),
-                      ),
-                      child: Icon(
-                        Icons.play_arrow_rounded,
-                        color: color,
-                        size: 22,
-                      ),
+                        const SizedBox(height: 5),
+                        _StaticWaveform(color: color),
+                      ],
                     ),
-              const SizedBox(width: 10),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+    }
+
+    final progress = _duration.inMilliseconds > 0
+        ? (_position.inMilliseconds / _duration.inMilliseconds).clamp(0.0, 1.0)
+        : 0.0;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = _audioWidthFor(constraints);
+        return SizedBox(
+          width: width,
+          height: 46,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              GestureDetector(
+                onTap: _togglePlayPause,
+                child: Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: color.withValues(alpha: 0.15),
+                  ),
+                  child: Icon(
+                    _playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                    color: color,
+                    size: 21,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 9),
               Expanded(
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text(
-                      'Audio',
-                      style: TextStyle(
-                        color: color,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
+                    LayoutBuilder(
+                      builder: (context, barConstraints) {
+                        final barWidth = barConstraints.maxWidth;
+                        final thumbTravel = (barWidth - 10).clamp(
+                          0.0,
+                          barWidth,
+                        );
+                        return GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTapDown: (details) => _seekFromLocalDx(
+                            details.localPosition.dx,
+                            barWidth,
+                          ),
+                          onHorizontalDragUpdate: (details) => _seekFromLocalDx(
+                            details.localPosition.dx,
+                            barWidth,
+                          ),
+                          child: SizedBox(
+                            height: 24,
+                            child: Center(
+                              child: Stack(
+                                alignment: Alignment.centerLeft,
+                                children: [
+                                  Container(
+                                    height: 3,
+                                    decoration: BoxDecoration(
+                                      color: color.withValues(alpha: 0.24),
+                                      borderRadius: BorderRadius.circular(999),
+                                    ),
+                                  ),
+                                  FractionallySizedBox(
+                                    widthFactor: progress.toDouble(),
+                                    child: Container(
+                                      height: 3,
+                                      decoration: BoxDecoration(
+                                        color: color,
+                                        borderRadius: BorderRadius.circular(
+                                          999,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  Positioned(
+                                    left: (thumbTravel * progress).clamp(
+                                      0.0,
+                                      thumbTravel,
+                                    ),
+                                    child: Container(
+                                      width: 10,
+                                      height: 10,
+                                      decoration: BoxDecoration(
+                                        color: color,
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 1),
+                    SizedBox(
+                      height: 12,
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              _fmt(_position),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: color.withValues(alpha: 0.7),
+                                fontSize: 9.5,
+                                height: 1,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              _fmt(_duration),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.right,
+                              style: TextStyle(
+                                color: color.withValues(alpha: 0.7),
+                                fontSize: 9.5,
+                                height: 1,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 2),
-                    // Fake waveform bar
-                    _StaticWaveform(color: color),
                   ],
                 ),
               ),
             ],
           ),
-        ),
-      );
-    }
-
-    // Initialized — show inline player
-    final player = _player!;
-    final progress = _duration.inMilliseconds > 0
-        ? (_position.inMilliseconds / _duration.inMilliseconds).clamp(0.0, 1.0)
-        : 0.0;
-
-    return SizedBox(
-      width: 230,
-      height: 48,
-      child: Row(
-        children: [
-          GestureDetector(
-            onTap: _togglePlayPause,
-            child: Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: color.withValues(alpha: 0.15),
-              ),
-              child: Icon(
-                _playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                color: color,
-                size: 22,
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SliderTheme(
-                  data: SliderThemeData(
-                    trackHeight: 2.5,
-                    thumbShape: const RoundSliderThumbShape(
-                      enabledThumbRadius: 5,
-                    ),
-                    overlayShape: SliderComponentShape.noOverlay,
-                    activeTrackColor: color,
-                    inactiveTrackColor: color.withValues(alpha: 0.25),
-                    thumbColor: color,
-                  ),
-                  child: Slider(
-                    value: progress.toDouble(),
-                    onChanged: (v) {
-                      final ms = (v * _duration.inMilliseconds).round();
-                      player.seek(Duration(milliseconds: ms));
-                    },
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        _fmt(_position),
-                        style: TextStyle(
-                          color: color.withValues(alpha: 0.7),
-                          fontSize: 9,
-                        ),
-                      ),
-                      Text(
-                        _fmt(_duration),
-                        style: TextStyle(
-                          color: color.withValues(alpha: 0.7),
-                          fontSize: 9,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -3216,25 +3490,43 @@ class _StaticWaveform extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 20,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: _heights
-            .map(
-              (h) => Container(
-                width: 3,
-                height: h,
-                margin: const EdgeInsets.symmetric(horizontal: 1),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.5),
-                  borderRadius: BorderRadius.circular(2),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final availableWidth = constraints.hasBoundedWidth
+            ? constraints.maxWidth
+            : _heights.length * 5.0;
+        final visibleCount = (availableWidth / 5).floor().clamp(
+          4,
+          _heights.length,
+        );
+        final heights = _heights.take(visibleCount).toList(growable: false);
+
+        return SizedBox(
+          height: 16,
+          child: Row(
+            mainAxisSize: MainAxisSize.max,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              for (var index = 0; index < heights.length; index++) ...[
+                Flexible(
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Container(
+                      width: 3,
+                      height: heights[index].clamp(3.0, 14.0),
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: 0.5),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
                 ),
-              ),
-            )
-            .toList(),
-      ),
+                if (index < heights.length - 1) const SizedBox(width: 2),
+              ],
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -4590,104 +4882,156 @@ class _ActionsPanel extends StatelessWidget {
         : (conv.messageCount > 0 ? conv.messageCount : state.messages.length);
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Información',
-            style: theme.textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 12),
           if (conv != null) ...[
-            _InfoRow(
-              icon: Icons.person_outline_rounded,
-              label: 'Contacto',
-              value: _waText(conv.displayName),
-            ),
-            if (conv.displayPhone != null)
-              _InfoRow(
-                icon: Icons.phone_outlined,
-                label: 'Teléfono',
-                value: _waText(conv.displayPhone),
-              ),
-            if (conv.lastMessageAt != null)
-              _InfoRow(
-                icon: Icons.access_time_rounded,
-                label: 'Último mensaje',
-                value: DateFormat(
-                  'dd/MM HH:mm',
-                ).format(conv.lastMessageAt!.toLocal()),
-              ),
-            if (last != null)
-              _InfoRow(
-                icon: Icons.short_text_rounded,
-                label: 'Vista previa',
-                value: '${last.isOutgoing ? 'Tu: ' : ''}${last.previewText}',
-              ),
-            const SizedBox(height: 20),
-            Divider(color: theme.colorScheme.outlineVariant),
-            const SizedBox(height: 12),
-            Text(
-              'Estadísticas',
-              style: theme.textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+            _PanelSection(
+              title: 'Información',
+              icon: Icons.info_outline_rounded,
+              children: [
+                _InfoRow(
+                  icon: Icons.person_outline_rounded,
+                  label: 'Contacto',
+                  value: _waText(conv.displayName),
+                ),
+                if (conv.displayPhone != null)
+                  _InfoRow(
+                    icon: Icons.phone_outlined,
+                    label: 'Teléfono',
+                    value: _waText(conv.displayPhone),
+                  ),
+                if (conv.lastMessageAt != null)
+                  _InfoRow(
+                    icon: Icons.access_time_rounded,
+                    label: 'Último mensaje',
+                    value: DateFormat(
+                      'dd/MM HH:mm',
+                    ).format(conv.lastMessageAt!.toLocal()),
+                  ),
+                if (last != null)
+                  _InfoRow(
+                    icon: Icons.short_text_rounded,
+                    label: 'Vista previa',
+                    value:
+                        '${last.isOutgoing ? 'Tu: ' : ''}${last.previewText}',
+                    maxLines: 2,
+                  ),
+              ],
             ),
             const SizedBox(height: 10),
-            _InfoRow(
-              icon: Icons.mark_unread_chat_alt_outlined,
-              label: 'Sin leer',
-              value: '${conv.unreadCount}',
-            ),
-            _InfoRow(
-              icon: Icons.chat_bubble_outline_rounded,
-              label: 'Mensajes',
-              value: '$totalMessages',
-            ),
-            _InfoRow(
-              icon: Icons.perm_media_outlined,
-              label: 'Media cargada',
-              value:
-                  '${state.messages.where((m) => m.messageType != WaMessageType.text).length}',
+            _PanelSection(
+              title: 'Estadísticas',
+              icon: Icons.query_stats_rounded,
+              children: [
+                _InfoRow(
+                  icon: Icons.mark_unread_chat_alt_outlined,
+                  label: 'Sin leer',
+                  value: '${conv.unreadCount}',
+                ),
+                _InfoRow(
+                  icon: Icons.chat_bubble_outline_rounded,
+                  label: 'Mensajes',
+                  value: '$totalMessages',
+                ),
+                _InfoRow(
+                  icon: Icons.perm_media_outlined,
+                  label: 'Media cargada',
+                  value:
+                      '${state.messages.where((m) => m.messageType != WaMessageType.text).length}',
+                ),
+              ],
             ),
           ] else
-            Text(
-              'Selecciona una conversación para ver detalles.',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-              ),
+            _PanelSection(
+              title: 'Información',
+              icon: Icons.info_outline_rounded,
+              children: [
+                Text(
+                  'Selecciona una conversación para ver detalles.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.58),
+                  ),
+                ),
+              ],
             ),
-          const SizedBox(height: 20),
-          if (state.selectedUser != null) ...[
-            Divider(color: theme.colorScheme.outlineVariant),
-            const SizedBox(height: 12),
-            Text(
-              'Instancia activa',
-              style: theme.textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 10),
-            _InfoRow(
-              icon: Icons.account_circle_outlined,
-              label: 'Usuario',
-              value: _waText(state.selectedUser!.name),
-            ),
-            _InfoRow(
+          const SizedBox(height: 10),
+          if (state.selectedUser != null)
+            _PanelSection(
+              title: 'Instancia activa',
               icon: Icons.wifi_tethering_rounded,
-              label: 'Estado',
-              value: _waText(state.selectedUser!.instanceStatus, 'N/A'),
+              children: [
+                _InfoRow(
+                  icon: Icons.account_circle_outlined,
+                  label: 'Usuario',
+                  value: _waText(state.selectedUser!.name),
+                ),
+                _InfoRow(
+                  icon: Icons.circle_rounded,
+                  label: 'Estado',
+                  value: _waText(state.selectedUser!.instanceStatus, 'N/A'),
+                ),
+                if (state.selectedUser!.phone != null)
+                  _InfoRow(
+                    icon: Icons.sim_card_outlined,
+                    label: 'Número',
+                    value: _waText(state.selectedUser!.phone),
+                  ),
+              ],
             ),
-            if (state.selectedUser!.phone != null)
-              _InfoRow(
-                icon: Icons.sim_card_outlined,
-                label: 'Número',
-                value: _waText(state.selectedUser!.phone),
+        ],
+      ),
+    );
+  }
+}
+
+class _PanelSection extends StatelessWidget {
+  const _PanelSection({
+    required this.title,
+    required this.icon,
+    required this.children,
+  });
+
+  final String title;
+  final IconData icon;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.55),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 15, color: theme.colorScheme.primary),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  title,
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 12.5,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
-          ],
+            ],
+          ),
+          const SizedBox(height: 8),
+          ...children,
         ],
       ),
     );
@@ -4699,26 +5043,28 @@ class _InfoRow extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.value,
+    this.maxLines = 1,
   });
 
   final IconData icon;
   final String label;
   final String value;
+  final int maxLines;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
+      padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(
             icon,
-            size: 16,
+            size: 14,
             color: theme.colorScheme.primary.withValues(alpha: 0.8),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 7),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -4727,9 +5073,21 @@ class _InfoRow extends StatelessWidget {
                   _waText(label),
                   style: theme.textTheme.labelSmall?.copyWith(
                     color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
+                    fontSize: 10.5,
+                    height: 1,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-                Text(_waText(value), style: theme.textTheme.bodySmall),
+                Text(
+                  _waText(value),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontSize: 11.5,
+                    height: 1.2,
+                  ),
+                  maxLines: maxLines,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ],
             ),
           ),
@@ -4742,8 +5100,10 @@ class _InfoRow extends StatelessWidget {
 // ─── Empty state ──────────────────────────────────────────────────────────────
 
 class _EmptyConvState extends StatelessWidget {
-  const _EmptyConvState({required this.loading});
+  const _EmptyConvState({required this.loading, this.emptyLabel});
+
   final bool loading;
+  final String? emptyLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -4759,7 +5119,7 @@ class _EmptyConvState extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            loading ? 'Cargando...' : 'Sin conversaciones',
+            loading ? 'Cargando...' : emptyLabel ?? 'Sin conversaciones',
             style: theme.textTheme.bodyMedium?.copyWith(
               color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
             ),

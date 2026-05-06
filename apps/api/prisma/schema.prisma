@@ -1378,15 +1378,20 @@ model Close {
   aiReportSummary String?
   aiReportJson  Json?
   aiGeneratedAt DateTime?
+  correctionOfCloseId String? @db.Uuid
+  correctionReason String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   transfers     CloseTransfer[]
+  correctionOf  Close?    @relation("CloseCorrections", fields: [correctionOfCloseId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  corrections    Close[]   @relation("CloseCorrections")
 
   @@index([date])
   @@index([type])
   @@index([status])
   @@index([createdById])
   @@index([reviewedById])
+  @@index([correctionOfCloseId])
 }
 
 model CloseTransfer {

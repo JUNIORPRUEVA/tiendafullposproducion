@@ -120,7 +120,7 @@ export class ContabilidadService {
     this.normalizeRoleGuard(actor);
     if ((actor.role ?? '').toUpperCase() !== 'ADMIN') {
       throw new ForbiddenException(
-        'Solo administración puede editar o eliminar depósitos',
+        'Solo administración puede realizar esta acción.',
       );
     }
   }
@@ -128,16 +128,16 @@ export class ContabilidadService {
   private ensureReviewer(actor: Actor) {
     this.normalizeRoleGuard(actor);
     const role = (actor.role ?? '').toUpperCase();
-    if (role !== 'ADMIN' && role !== 'ASISTENTE') {
+    if (role !== 'ADMIN') {
       throw new ForbiddenException(
-        'Solo administraciÃ³n o contabilidad puede revisar cierres',
+        'Solo administración puede aprobar o rechazar cierres.',
       );
     }
   }
 
   private isReviewer(actor: Actor) {
     const role = (actor.role ?? '').toUpperCase();
-    return role === 'ADMIN' || role === 'ASISTENTE';
+    return role === 'ADMIN';
   }
 
   private accountingDay(input: Date) {
@@ -325,6 +325,37 @@ export class ContabilidadService {
     return close;
   }
 
+  private async resolveCorrectionMetadata(dto: CreateCloseDto, actor: Actor) {
+    const correctionOfCloseId = this.toNullableTrimmed(
+      dto.correctionOfCloseId,
+    );
+    if (!correctionOfCloseId) {
+      return { correctionOfCloseId: null, correctionReason: null };
+    }
+
+    const correctionReason = this.toNullableTrimmed(dto.correctionReason);
+    if (!correctionReason) {
+      throw new BadRequestException(
+        'Debes indicar el motivo de la corrección.',
+      );
+    }
+
+    const original = await this.prisma.close.findUnique({
+      where: { id: correctionOfCloseId },
+      select: { id: true, createdById: true },
+    });
+    if (!original) {
+      throw new BadRequestException('El cierre a corregir no existe.');
+    }
+    if (!this.isReviewer(actor) && original.createdById !== actor.id) {
+      throw new ForbiddenException(
+        'No puedes corregir cierres creados por otro usuario.',
+      );
+    }
+
+    return { correctionOfCloseId, correctionReason };
+  }
+
   async createClose(dto: CreateCloseDto, actor: Actor) {
     this.normalizeRoleGuard(actor);
 
@@ -348,14 +379,17 @@ export class ContabilidadService {
       cashDelivered,
     });
     const date = this.accountingDay(new Date(dto.date));
-    const existing = await this.prisma.close.findFirst({
-      where: { type: dto.type, date, status: { not: CloseStatus.REJECTED } },
-      select: { id: true },
-    });
-    if (existing) {
-      throw new BadRequestException(
-        'Ya existe un cierre activo para esta unidad de negocio en esa fecha.',
-      );
+    const correction = await this.resolveCorrectionMetadata(dto, actor);
+    if (!correction.correctionOfCloseId) {
+      const existing = await this.prisma.close.findFirst({
+        where: { type: dto.type, date, status: { not: CloseStatus.REJECTED } },
+        select: { id: true },
+      });
+      if (existing) {
+        throw new BadRequestException(
+          'Ya existe un cierre activo para esta unidad de negocio en esa fecha.',
+        );
+      }
     }
 
     const close = await this.prisma.close.create({
@@ -379,6 +413,8 @@ export class ContabilidadService {
         evidenceStorageKey: this.toNullableTrimmed(dto.evidenceStorageKey),
         evidenceMimeType: this.toNullableTrimmed(dto.evidenceMimeType),
         expenseDetails: (this.normalizeExpenseDetails(dto.expenseDetails) ?? Prisma.JsonNull) as Prisma.NullableJsonNullValueInput | Prisma.InputJsonValue,
+        correctionOfCloseId: correction.correctionOfCloseId,
+        correctionReason: correction.correctionReason,
         createdById: actor.id!,
         createdByName: creator?.nombreCompleto ?? null,
         transfers: {
@@ -650,6 +686,7 @@ export class ContabilidadService {
 
   async updateClose(id: string, dto: UpdateCloseDto, actor: Actor) {
     this.normalizeRoleGuard(actor);
+    this.ensureAdmin(actor);
 
     const close = await this.prisma.close.findUnique({ where: { id } });
     if (!close) throw new NotFoundException('Cierre no encontrado');
