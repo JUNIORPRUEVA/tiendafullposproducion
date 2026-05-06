@@ -1976,37 +1976,88 @@ export class ContabilidadService {
   }
 
   async getDepositOrders(query: DepositOrdersQueryDto, actor: Actor) {
-    this.normalizeRoleGuard(actor);
-    const where: Record<string, unknown> = {};
+    const from = query.from ? new Date(query.from) : null;
+    const to = query.to ? new Date(query.to) : null;
 
-    if (!this.isReviewer(actor)) {
-      where.createdById = actor.id;
-    }
-
-    if (query.from || query.to) {
-      const from = query.from ? new Date(query.from) : null;
-      const to = query.to ? new Date(query.to) : null;
-      if (from != null && to != null) {
-        where.AND = [
-          { windowFrom: { lte: to } },
-          { windowTo: { gte: from } },
-        ];
-      } else if (from != null) {
-        where.windowTo = { gte: from };
-      } else if (to != null) {
-        where.windowFrom = { lte: to };
-      }
-    }
-
-    if (query.status) {
-      where.status = query.status;
-    }
-
-    const rows = await this.findManyDepositOrdersWithFallback({
-      where,
-      orderBy: [{ createdAt: 'desc' }],
+    // Temporary diagnostics for persistent 500 on deposit list.
+    // eslint-disable-next-line no-console
+    console.log('[deposit-orders][service] getDepositOrders:start', {
+      actorId: actor.id ?? null,
+      actorRole: actor.role ?? null,
+      from: query.from ?? null,
+      to: query.to ?? null,
+      status: query.status ?? null,
+      parsedFrom: from?.toISOString() ?? null,
+      parsedTo: to?.toISOString() ?? null,
     });
-    return rows.map((row) => this.enrichDepositOrderRow(row));
+
+    try {
+      this.normalizeRoleGuard(actor);
+      const where: Record<string, unknown> = {};
+
+      if (!this.isReviewer(actor)) {
+        where.createdById = actor.id;
+      }
+
+      if (from != null || to != null) {
+        if (from != null && to != null) {
+          where.AND = [
+            { windowFrom: { lte: to } },
+            { windowTo: { gte: from } },
+          ];
+        } else if (from != null) {
+          where.windowTo = { gte: from };
+        } else if (to != null) {
+          where.windowFrom = { lte: to };
+        }
+      }
+
+      if (query.status) {
+        where.status = query.status;
+      }
+
+      // eslint-disable-next-line no-console
+      console.log('[deposit-orders][service] getDepositOrders:query', {
+        actorId: actor.id ?? null,
+        actorRole: actor.role ?? null,
+        where,
+        orderBy: [{ createdAt: 'desc' }],
+      });
+
+      const rows = await this.findManyDepositOrdersWithFallback({
+        where,
+        orderBy: [{ createdAt: 'desc' }],
+      });
+      // eslint-disable-next-line no-console
+      console.log('[deposit-orders][service] getDepositOrders:success', {
+        actorId: actor.id ?? null,
+        actorRole: actor.role ?? null,
+        resultCount: rows.length,
+      });
+      return rows.map((row) => this.enrichDepositOrderRow(row));
+    } catch (error: unknown) {
+      const err = error as {
+        name?: unknown;
+        message?: unknown;
+        code?: unknown;
+        meta?: unknown;
+        stack?: unknown;
+      };
+      // eslint-disable-next-line no-console
+      console.error('[deposit-orders][service] getDepositOrders:error', {
+        actorId: actor.id ?? null,
+        actorRole: actor.role ?? null,
+        from: query.from ?? null,
+        to: query.to ?? null,
+        status: query.status ?? null,
+        errorName: err?.name,
+        errorMessage: err?.message,
+        errorCode: err?.code,
+        errorMeta: err?.meta,
+        errorStack: err?.stack,
+      });
+      throw error;
+    }
   }
 
   async getDepositOrderById(id: string, actor: Actor) {

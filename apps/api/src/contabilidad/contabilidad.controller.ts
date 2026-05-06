@@ -279,10 +279,46 @@ export class ContabilidadController {
   @Get('deposit-orders')
   @Roles(...DEPOSIT_ROLES)
   async getDepositOrders(@Query() query: DepositOrdersQueryDto, @Req() req: Request) {
-    return this.contabilidadService.getDepositOrders(
-      query,
-      (req.user ?? {}) as RequestActor,
-    );
+    const actor = (req.user ?? {}) as RequestActor;
+    // Temporary diagnostics for persistent 500 on deposit list.
+    // eslint-disable-next-line no-console
+    console.log('[deposit-orders][controller] GET /contabilidad/deposit-orders', {
+      actorId: actor.id ?? null,
+      actorRole: actor.role ?? null,
+      queryParams: req.query ?? {},
+      from: query.from ?? null,
+      to: query.to ?? null,
+      status: query.status ?? null,
+    });
+    try {
+      return await this.contabilidadService.getDepositOrders(
+        query,
+        actor,
+      );
+    } catch (error: unknown) {
+      const err = error as {
+        name?: unknown;
+        message?: unknown;
+        code?: unknown;
+        meta?: unknown;
+        stack?: unknown;
+      };
+      // eslint-disable-next-line no-console
+      console.error('[deposit-orders][controller] ERROR GET /contabilidad/deposit-orders', {
+        actorId: actor.id ?? null,
+        actorRole: actor.role ?? null,
+        queryParams: req.query ?? {},
+        from: query.from ?? null,
+        to: query.to ?? null,
+        status: query.status ?? null,
+        errorName: err?.name,
+        errorMessage: err?.message,
+        errorCode: err?.code,
+        errorMeta: err?.meta,
+        errorStack: err?.stack,
+      });
+      throw error;
+    }
   }
 
   @Get('deposit-orders/:id')
