@@ -4,7 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { MarketingCreativeComposerService } from './marketing-creative-composer.service';
 import { MarketingImageGenerationService } from './marketing-image-generation.service';
 import { MarketingMediaAssetService } from './marketing-media-asset.service';
-import { MarketingMediaSelectorService } from './marketing-media-selector.service';
+import { MarketingMediaSelectorService, SelectedMedia } from './marketing-media-selector.service';
 import { MarketingStorageService } from './marketing-storage.service';
 
 type StoryTemplate = {
@@ -780,11 +780,13 @@ export class MarketingGenerationService {
     const mainServices: string[] = this.safeStringArray(input.researchConfig?.mainServices);
     const recommendedServiceHint = products[0] || mainServices[0] || input.researchConfig?.priorityServices?.[0] || '';
 
-    let selected = input.forceAssetId
-      ? await this.prisma.marketingMediaAsset.findFirst({
-          where: { id: input.forceAssetId, companyId: input.companyId, isActive: true },
-        })
-      : null;
+    let selected: SelectedMedia | null = null;
+    if (input.forceAssetId) {
+      const asset = await this.prisma.marketingMediaAsset.findFirst({
+        where: { id: input.forceAssetId, companyId: input.companyId, isActive: true },
+      });
+      if (asset) selected = { ...asset, sourceType: 'gallery' as const };
+    }
 
     if (!selected) {
       selected = await this.mediaSelector.select({
@@ -899,11 +901,13 @@ export class MarketingGenerationService {
     const mainServices: string[] = this.safeStringArray(input.researchConfig?.mainServices);
     const recommendedServiceHint = products[0] || mainServices[0] || input.researchConfig?.priorityServices?.[0] || '';
 
-    let selected = input.forceAssetId
-      ? await this.prisma.marketingMediaAsset.findFirst({
-          where: { id: input.forceAssetId, companyId: input.companyId, isActive: true },
-        })
-      : null;
+    let selected: SelectedMedia | null = null;
+    if (input.forceAssetId) {
+      const asset = await this.prisma.marketingMediaAsset.findFirst({
+        where: { id: input.forceAssetId, companyId: input.companyId, isActive: true },
+      });
+      if (asset) selected = { ...asset, sourceType: 'gallery' as const };
+    }
 
     if (!selected) {
       selected = await this.mediaSelector.select({

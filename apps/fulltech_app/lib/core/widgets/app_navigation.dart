@@ -131,12 +131,6 @@ List<AppNavigationSection> buildAppNavigationSections(
             title: 'Publicidad',
             route: Routes.publicidad,
           ),
-        if (can(AppPermission.viewGaleriaPublicidad))
-          const AppNavigationItem(
-            icon: Icons.collections_outlined,
-            title: 'Galería de Publicidad',
-            route: Routes.galeriaPublicidad,
-          ),
       ],
     ),
     AppNavigationSection(title: 'Administración', items: const []),
