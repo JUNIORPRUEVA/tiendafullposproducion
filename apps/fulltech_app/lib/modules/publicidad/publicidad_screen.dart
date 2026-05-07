@@ -1567,19 +1567,9 @@ class _DailyStoriesTab extends StatelessWidget {
       );
     }
 
-    final duplicateBaseIds = _findDuplicateBaseAssetIds(stories);
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (duplicateBaseIds.isNotEmpty)
-          const Padding(
-            padding: EdgeInsets.only(bottom: 8),
-            child: _ErrorBanner(
-              message:
-                  'Validacion: hay estados usando la misma imagen base. Regenera o cambia imagen para mantener variedad.',
-            ),
-          ),
         LayoutBuilder(
           builder: (context, constraints) {
             const spacing = 12.0;
@@ -1657,19 +1647,6 @@ class _DailyStoriesTab extends StatelessWidget {
       if (item.id == target) return item;
     }
     return null;
-  }
-
-  Set<String> _findDuplicateBaseAssetIds(List<MarketingStory> rows) {
-    final seen = <String>{};
-    final duplicates = <String>{};
-    for (final row in rows) {
-      final id = row.mediaAssetId?.trim() ?? '';
-      if (id.isEmpty) continue;
-      if (!seen.add(id)) {
-        duplicates.add(id);
-      }
-    }
-    return duplicates;
   }
 }
 
@@ -4217,7 +4194,12 @@ class _GalleryAssetCard extends StatelessWidget {
                           ),
                         );
                         if (confirmed == true) {
-                          await onDelete();
+                          WidgetsBinding.instance.addPostFrameCallback((
+                            _,
+                          ) async {
+                            if (!context.mounted) return;
+                            await onDelete();
+                          });
                         }
                       },
                 child: const Text('Eliminar'),
