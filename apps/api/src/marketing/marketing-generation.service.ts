@@ -795,6 +795,8 @@ export class MarketingGenerationService {
         recommendedProduct: recommendedServiceHint,
         recommendedService: recommendedServiceHint,
         usedAssetIds: [...input.usedAssetIds],
+        imagePrompt: input.content.imagePrompt,
+        copyText: input.content.shortText,
       });
     }
 
@@ -917,6 +919,8 @@ export class MarketingGenerationService {
         recommendedProduct: recommendedServiceHint,
         recommendedService: recommendedServiceHint,
         usedAssetIds: [...input.usedAssetIds],
+        imagePrompt: input.content.imagePrompt,
+        copyText: input.content.shortText,
       });
     }
 

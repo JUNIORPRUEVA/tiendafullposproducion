@@ -53,6 +53,10 @@ type SelectorInput = {
   recommendedService?: string | null;
   recommendedProduct?: string | null;
   usedAssetIds: string[];
+  /** Visual description of what the AI image should show — used to smart-match catalog products */
+  imagePrompt?: string | null;
+  /** Copy text of the story — used as additional context for product matching */
+  copyText?: string | null;
 };
 
 @Injectable()
@@ -161,6 +165,17 @@ export class MarketingMediaSelectorService {
         });
     }
 
+    // Smart GPT pick: if imagePrompt is provided AND catalog products exist,
+    // ask GPT-4o-mini to find the catalog product that best matches the visual description.
+    // This runs BEFORE the scoring algorithm so the selected product gets maximum priority.
+    const catalogPool = primaryProductMedia.length > 0 ? primaryProductMedia : fallbackProductMedia;
+    if (catalogPool.length > 0 && (input.imagePrompt || input.copyText)) {
+      const smartIdx = await this.smartPickProduct(catalogPool, input.imagePrompt ?? '', input.copyText ?? '');
+      if (smartIdx !== null) {
+        return catalogPool[smartIdx];
+      }
+    }
+
     const allMedia = [...primaryProductMedia, ...galleryMedia, ...fallbackProductMedia];
     if (allMedia.length === 0) return null;
 
@@ -182,8 +197,65 @@ export class MarketingMediaSelectorService {
     return top[randomIndex]?.row ?? candidates[0].row;
   }
 
+  /**
+   * Uses GPT-4o-mini to intelligently match a catalog product to the story's visual prompt.
+   * Sends a lightweight text request asking which product best represents the desired image.
+   * Returns the index into `catalogPool`, or null if the call fails or returns an invalid result.
+   */
+  private async smartPickProduct(
+    catalogPool: SelectedMedia[],
+    imagePrompt: string,
+    copyText: string,
+  ): Promise<number | null> {
+    const openaiKey =
+      this.config.get<string>('OPENAI_API_KEY') ?? process.env.OPENAI_API_KEY ?? '';
+    if (!openaiKey || catalogPool.length === 0) return null;
+
+    // Build a compact product list (name + category) for the model
+    const productList = catalogPool
+      .map(
+        (p, i) =>
+          `${i}: "${p.relatedService ?? 'Producto'}" (categoría: ${p.category || 'Sin categoría'})`,
+      )
+      .join('\n');
+
+    const userMessage =
+      `Eres un selector de imágenes para anuncios de marketing. Tu única tarea es elegir qué producto del catálogo serviría mejor como IMAGEN BASE para el diseño del anuncio.\n\n` +
+      `Descripción visual del anuncio:\n"${imagePrompt}"\n\n` +
+      `Texto del anuncio:\n"${copyText}"\n\n` +
+      `Productos disponibles (índice: nombre - categoría):\n${productList}\n\n` +
+      `Responde SOLO con el número del índice del producto más relevante. Sin explicación, solo el número.`;
+
+    try {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${openaiKey}`,
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [{ role: 'user', content: userMessage }],
+          max_tokens: 5,
+          temperature: 0,
+        }),
+      });
+
+      if (!response.ok) return null;
+
+      const data = (await response.json()) as {
+        choices?: Array<{ message?: { content?: string } }>;
+      };
+      const text = (data.choices?.[0]?.message?.content ?? '').trim();
+      const idx = parseInt(text, 10);
+      if (!isNaN(idx) && idx >= 0 && idx < catalogPool.length) return idx;
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
   private resolveImageUrl(url: string): string {
-    if (/^https?:\/\//i.test(url)) return url;
     const normalized = url.startsWith('/') ? url : '/' + url;
     return this.publicBaseUrl + normalized;
   }
