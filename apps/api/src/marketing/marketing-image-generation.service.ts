@@ -144,7 +144,7 @@ export class MarketingImageGenerationService {
     let mode: string;
 
     if (baseImageUrl.startsWith('http://') || baseImageUrl.startsWith('https://')) {
-      // Image-guided generation using product image as structure reference
+      // Image-guided generation: the product image IS the reference — preserve its structure
       const imageResponse = await this.fetchWithTimeout(baseImageUrl, undefined, 25000);
       if (!imageResponse.ok) {
         throw new Error(`Cannot download base image for Stability AI: HTTP ${imageResponse.status}`);
@@ -153,7 +153,8 @@ export class MarketingImageGenerationService {
 
       const formData = new FormData();
       formData.append('prompt', prompt);
-      formData.append('control_strength', '0.65');
+      // 0.75 control strength: strongly preserve product shape and identity
+      formData.append('control_strength', '0.75');
       formData.append('aspect_ratio', '9:16');
       formData.append('output_format', 'jpeg');
       formData.append('image', new Blob([imageBuffer], { type: 'image/jpeg' }), 'product.jpg');
@@ -243,27 +244,38 @@ export class MarketingImageGenerationService {
     const colors = input.brandColors.length > 0
       ? input.brandColors.join(', ')
       : 'deep navy blue #0D1B2A, clean white, electric cyan #00B4D8';
+    const hasProductImage = !!(input.baseImageUrl || '').trim();
+    // Core constraint when a real product image is the reference
+    const productPreservation = hasProductImage
+      ? `CRITICAL PRODUCT RULE: The exact product from the reference image MUST remain the undisputed hero of this image. Preserve the product's exact model, shape, form factor, and visual identity completely — it must be 100% recognizable. You may: completely replace/improve the background, add professional lighting, add environmental context (installation scene, office, home), add a technician or person using the product. You MUST NOT: remove the product, replace it with a different product model, substantially distort its shape, or make it unrecognizable. The product is the reason this image exists — keep it as the main subject always.`
+      : '';
 
     if (storyType === 'TRUST') {
       return [
+        productPreservation,
         `Ultra-realistic professional editorial advertisement photography, strict vertical 9:16 portrait format.`,
-        `Subject: A confident professional service technician (30s, Dominican/Latino appearance, neat professional uniform) actively performing installation or service demonstration of ${service} in a modern commercial or upscale residential environment.`,
+        hasProductImage
+          ? `Subject: The product from the reference image as the clear hero, with a confident professional service technician (30s, Dominican/Latino appearance, neat professional uniform) actively demonstrating or installing it in a modern commercial or upscale residential environment in ${city}, ${country}.`
+          : `Subject: A confident professional service technician (30s, Dominican/Latino appearance, neat professional uniform) actively performing installation or service demonstration of ${service} in a modern commercial or upscale residential environment.`,
         `People: Real photographic quality human figure, natural authentic expression, professional body language, NOT posed artificially. Clean dark branded work uniform.`,
         `Environment: Modern organized interior space (commercial office, upscale home, or clean workshop). Contemporary Dominican urban setting. Good quality window light entering from side.`,
-        `Composition: Technician and product as main subjects filling 65% of frame, authentic action moment captured, upper zone clean for brand placement, product visibly identified.`,
+        `Composition: Product and technician as main subjects filling 65% of frame, authentic action moment captured, upper zone clean for brand placement, product prominently visible.`,
         `Lighting: Natural editorial daylight quality, side window key light, clean warm fill, soft professional shadows. Authentic corporate service advertising photography.`,
         `Atmosphere: Premium professional services brand. Trust, reliability, human expertise. Similar to Hikvision/Axis partner installation imagery.`,
         `Quality: Commercial editorial photography at magazine ad quality. Photorealistic. Zero AI cartoon style. Genuine human faces only.`,
         `Color palette: Natural professional tones, clean whites, deep blues. ${colors}.`,
         `Context: Technology security company in ${city}, ${country}. Sales angle: ${angle}.`,
         `STRICT: No text in image. No watermarks. Photorealistic humans only. No deformed faces or hands. Natural professional scene.`,
-      ].join(' ');
+      ].filter(Boolean).join(' ');
     }
 
     if (storyType === 'EDUCATIONAL') {
       return [
+        productPreservation,
         `Ultra-realistic professional educational advertisement photography, strict vertical 9:16 portrait format.`,
-        `Subject: ${service} displayed as the clear visual focus in a clean professional studio or modern office environment.`,
+        hasProductImage
+          ? `Subject: The exact product from the reference image as the clear visual focus in a clean professional studio or modern office environment.`
+          : `Subject: ${service} displayed as the clear visual focus in a clean professional studio or modern office environment.`,
         `Background: Clean white, soft warm pearl gray gradient, or modern light minimalist office surface. Bright, airy, spacious feel.`,
         `Composition: Product centered as primary subject with generous negative space at top (20%) and bottom (25%) for text overlay. Clean product photography perspective. Full product visibility with all features identifiable.`,
         `Lighting: Bright even studio lighting. Three soft box studio lights. Product perfectly illuminated without harsh shadows. Professional product photography standard.`,
@@ -273,16 +285,19 @@ export class MarketingImageGenerationService {
         `Color palette: Clean whites, light pearl grays, soft electric blue technology accents. ${colors}.`,
         `Technology context: ${service} for ${city}, ${country} smart technology and security systems.`,
         `Visual concept: ${input.visualConcept || 'Clear educational product showcase'}.`,
-        `STRICT: No text in image. Photorealistic product only. No people. No cluttered background.`,
-      ].join(' ');
+        `STRICT: No text in image. Photorealistic product only. No cluttered background.`,
+      ].filter(Boolean).join(' ');
     }
 
-    // SALES (direct sales ad - the premium hero product shot)
+    // SALES (direct sales ad - premium hero product shot)
     return [
+      productPreservation,
       `Ultra-realistic premium hero product advertisement photography, strict vertical 9:16 portrait format. Direct sales commercial ad.`,
-      `Hero product: ${service} displayed as the undisputed star of the shot in a dramatic premium studio environment.`,
+      hasProductImage
+        ? `Hero product: The exact product from the reference image, elevated to premium commercial advertising quality, displayed as the undisputed star of the shot in a dramatic premium studio environment.`
+        : `Hero product: ${service} displayed as the undisputed star of the shot in a dramatic premium studio environment.`,
       `Background: Deep dark gradient from deep navy blue (#0A1628) at edges transitioning to rich charcoal (#1a1a2e) behind product center, with subtle atmospheric electric blue-cyan backlight glow emanating from behind the product giving depth and premium atmosphere.`,
-      `Product presentation: ${service} at slight elevated angle (15-20 degrees from eye level), ultra-sharp detail across entire product surface, perfect professional product isolation, subtle clean shadow directly beneath product.`,
+      `Product presentation: ${hasProductImage ? 'The reference product' : service} at slight elevated angle (15-20 degrees from eye level), ultra-sharp detail across entire product surface, perfect professional product isolation, subtle clean shadow directly beneath product.`,
       `Lighting: Professional cinematic three-point studio setup: strong warm key light from upper-right creating product depth highlights, soft blue fill from left preventing pure shadow, electric blue-cyan rim backlight from behind product creating premium separation glow from background.`,
       `Surface: Dark premium reflective surface (like black granite or dark tempered glass) below product showing clean subtle product reflection.`,
       `Color accents: Electric blue LED ambient glow (#00B4D8), ultra clean white product edge highlights, subtle cyan technology atmosphere. Brand palette: ${colors}.`,
@@ -292,7 +307,7 @@ export class MarketingImageGenerationService {
       `Offer context: ${offer}. Sales angle: ${angle}.`,
       `Technology category: ${service} for ${city}, ${country} security and technology market.`,
       `STRICT: No text in image. No watermarks. Pure photorealistic product photography. Advertising ready. Leave clean text zones.`,
-    ].join(' ');
+    ].filter(Boolean).join(' ');
   }
 
   // ── OpenAI Providers ───────────────────────────────────────────────────────
@@ -507,8 +522,9 @@ export class MarketingImageGenerationService {
     return [
       `Transform this product image into a premium vertical 9:16 commercial advertisement for FULLTECH SRL in ${input.city}, ${input.country}.`,
       `Product: ${service}.`,
+      `CRITICAL: The product in this reference image is the MAIN HERO — preserve it completely. Keep the exact product model, shape, and visual identity 100% intact and recognizable. Only change: background, lighting, environment, atmosphere. You may add people, installation context, premium studio setting. DO NOT remove, replace, or significantly alter the product itself.`,
       typeDirection,
-      `Keep product identity 100% recognizable and elevate to commercial advertising photography quality.`,
+      `Product identity preservation: 100% required. The product must be the undisputed focal point of the final image.`,
       `Brand palette: ${colors}.`,
       `Story objective: ${input.visualConcept}.`,
       `Advertising angle: ${input.usedResearchAngle}.`,

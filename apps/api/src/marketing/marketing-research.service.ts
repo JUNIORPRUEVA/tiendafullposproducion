@@ -8,7 +8,17 @@ import { GenerateResearchDto, UpdateMarketingResearchConfigDto } from './dto/mar
 export class MarketingResearchService {
   private readonly logger = new Logger(MarketingResearchService.name);
 
-  private readonly defaultPrompt = `Investigar el mercado de publicidad en República Dominicana para servicios de seguridad e instalación, dando prioridad a automatización de motores de portones eléctricos. Analizar también sistemas de cámaras de seguridad, cercos eléctricos, intercoms, alarmas y soluciones tecnológicas para negocios y residencias. Revisar cómo están publicando los competidores, qué ofertas usan, qué precios comunican, qué textos llaman más la atención, qué formatos parecen más efectivos, qué ángulos de venta se repiten, qué objeciones tienen los clientes y qué oportunidades puede aprovechar FULLTECH SRL en Higüey y República Dominicana.`;
+  private readonly defaultPrompt = `Realizar una investigación de mercado profunda y actualizada para FULLTECH SRL en la provincia La Altagracia (Higüey), República Dominicana.
+
+Focos de investigación:
+1. SISTEMAS DE SEGURIDAD Y VIGILANCIA: Instalaciones de sistemas de cámaras CCTV, NVR, DVR, videovigilancia IP. ¿Qué marcas se instalan más? ¿Cuánto cobran? ¿Qué zonas están demandando más?
+2. MOTORES Y AUTOMATIZACIÓN DE PORTONES: Cómo están promoviendo los instaladores locales. Qué motores prefieren los clientes. Precios observados. Objeciones frecuentes.
+3. COMPORTAMIENTO DE CLIENTES LOCALES: Cómo reaccionan los clientes ante estos productos. Qué les genera más confianza. Qué preguntan antes de comprar. Cuál es el perfil del comprador ideal en La Altagracia.
+4. PUBLICACIONES Y CONTENIDO EFECTIVO: Qué tipo de contenido genera más engagement en el mercado de La Altagracia y provincia. Qué formatos de anuncio funcionan (fotos de instalación, videos, testimonios, precios directos). Qué horarios. Qué tonos de mensaje atraen más.
+5. COMPETENCIA LOCAL: Cómo están publicando los competidores en Higüey y zonas cercanas. Qué ofertas usan. Qué debilidades tienen que FULLTECH puede aprovechar.
+6. OPORTUNIDADES DE CONTENIDO: Qué ángulos de venta están sin explotar. Qué ganchos generarían más conversiones ahora mismo en este mercado específico.
+
+Entrega análisis accionable con hooks concretos, CTAs que funcionen en este mercado, ángulos de venta fuertes y recomendaciones de productos a destacar.`;
 
   constructor(
     private readonly prisma: PrismaService,

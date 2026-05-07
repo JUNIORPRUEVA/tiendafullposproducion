@@ -823,6 +823,7 @@ export class MarketingGenerationService {
       imageCategory: selected?.category ?? this.galleryCategoryForType(input.type),
       serviceOrProduct: primaryService || selected?.relatedService || selected?.category || this.galleryCategoryForType(input.type),
       usedResearchAngle,
+      storyType: input.type as 'SALES' | 'TRUST' | 'EDUCATIONAL',
       });
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
