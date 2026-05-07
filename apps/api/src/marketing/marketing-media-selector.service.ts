@@ -1,4 +1,5 @@
 ﻿import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { MarketingStoryType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -31,7 +32,10 @@ type SelectorInput = {
 
 @Injectable()
 export class MarketingMediaSelectorService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+  ) {}
 
   async select(input: SelectorInput): Promise<SelectedMedia | null> {
     const galleryRows = await this.prisma.marketingMediaAsset.findMany({
@@ -63,6 +67,17 @@ export class MarketingMediaSelectorService {
     );
     const pool = nonRepeated.length > 0 ? nonRepeated : galleryMedia;
 
+    if (pool.length > 0 && (input.imagePrompt || input.copyText)) {
+      const smartIdx = await this.smartPickGalleryAsset(
+        pool,
+        input.imagePrompt ?? '',
+        input.copyText ?? '',
+      );
+      if (smartIdx !== null) {
+        return pool[smartIdx];
+      }
+    }
+
     const candidates = pool
       .map((row) => ({ row, score: this.scoreAsset(row, input.type, product, service) }))
       .sort((a, b) => b.score - a.score);
@@ -72,6 +87,62 @@ export class MarketingMediaSelectorService {
     const top = candidates.slice(0, Math.min(3, candidates.length));
     const randomIndex = Math.floor(Math.random() * top.length);
     return top[randomIndex]?.row ?? candidates[0].row;
+  }
+
+  private async smartPickGalleryAsset(
+    galleryPool: SelectedMedia[],
+    imagePrompt: string,
+    copyText: string,
+  ): Promise<number | null> {
+    const openaiKey =
+      this.config.get<string>('OPENAI_API_KEY') ?? process.env.OPENAI_API_KEY ?? '';
+    if (!openaiKey || galleryPool.length === 0) return null;
+
+    const assetList = galleryPool
+      .map((asset, index) => {
+        const tags = Array.isArray(asset.tags)
+          ? asset.tags.map((item) => String(item).trim()).filter((item) => item.length > 0)
+          : [];
+        return `${index}: nombre="${asset.relatedService ?? 'Sin nombre'}" categoria="${asset.category}" tags="${tags.join(', ')}" destacada=${asset.isFeatured ? 'si' : 'no'}`;
+      })
+      .join('\n');
+
+    const userMessage =
+      `Eres un selector de imagen base para anuncios de marketing. Debes elegir una sola imagen desde la galería interna de publicidad.\n\n` +
+      `Prompt visual del anuncio:\n"${imagePrompt}"\n\n` +
+      `Texto/copy del anuncio:\n"${copyText}"\n\n` +
+      `Galería disponible:\n${assetList}\n\n` +
+      `Responde SOLO con el número del índice de la imagen más relevante. Sin explicación.`;
+
+    try {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${openaiKey}`,
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [{ role: 'user', content: userMessage }],
+          max_tokens: 5,
+          temperature: 0,
+        }),
+      });
+
+      if (!response.ok) return null;
+
+      const data = (await response.json()) as {
+        choices?: Array<{ message?: { content?: string } }>;
+      };
+      const text = (data.choices?.[0]?.message?.content ?? '').trim();
+      const idx = parseInt(text, 10);
+      if (!isNaN(idx) && idx >= 0 && idx < galleryPool.length) {
+        return idx;
+      }
+      return null;
+    } catch {
+      return null;
+    }
   }
 
   private scoreAsset(
