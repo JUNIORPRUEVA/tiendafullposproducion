@@ -342,7 +342,7 @@ export class MarketingImageGenerationService {
     const formData = new FormData();
     formData.append('model', 'gpt-image-1');
     formData.append('prompt', prompt);
-    formData.append('size', '1024x1792');
+    formData.append('size', '1024x1536'); // portrait 2:3 — closest to 9:16 supported by gpt-image-1 edit
     formData.append('quality', 'high');
     formData.append('image', new Blob([baseBuffer], { type: baseContentType }), `base.${baseExt}`);
 
@@ -390,7 +390,7 @@ export class MarketingImageGenerationService {
       metadata: {
         mode: 'gpt-image-1-edit',
         model: 'gpt-image-1',
-        size: '1024x1792',
+        size: '1024x1536',
         quality: 'high',
         baseImageUrl: input.baseImageUrl,
         format: '9:16',

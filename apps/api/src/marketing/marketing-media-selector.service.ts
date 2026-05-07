@@ -4,10 +4,16 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 
 /**
- * PRIMARY source: products from the "Sistema de Vigilancia" catalog category.
+ * PRIMARY source: products from the "Videovigilancia" / "Sistema de Vigilancia" catalog category.
  * These are the exact products FULLTECH sells and are the preferred base images.
+ * Matches: "Videovigilancia", "Video Vigilancia", "Sistema de Vigilancia", "Video de Vigilancia"
  */
-const PRIMARY_PRODUCT_KEYWORDS = ['sistema de vigilancia'];
+const PRIMARY_PRODUCT_KEYWORDS = [
+  'videovigilancia',
+  'video vigilancia',
+  'video de vigilancia',
+  'sistema de vigilancia',
+];
 
 /**
  * FALLBACK product keywords: if no "sistema de vigilancia" products have images,
