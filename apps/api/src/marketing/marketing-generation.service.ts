@@ -141,6 +141,12 @@ export class MarketingGenerationService {
         .map((item) => (item as any).mediaAssetId as string | null)
         .filter((item): item is string => !!item),
     );
+    // Track base image URLs already in use today (handles catalog products that have id=null)
+    const usedFileUrls = new Set(
+      existing
+        .map((item) => `${(item as any).imageUrl ?? ''}`.trim())
+        .filter((url) => url.length > 0),
+    );
 
     const generated: string[] = [];
 
@@ -155,6 +161,7 @@ export class MarketingGenerationService {
           research,
           researchConfig,
           usedAssetIds,
+          usedFileUrls,
         });
         await this.prisma.marketingDailyStory.create({
           data: {
@@ -191,6 +198,7 @@ export class MarketingGenerationService {
             date: this.toDateOnly(date),
           });
         }
+        if (visualData.selectedFileUrl) usedFileUrls.add(visualData.selectedFileUrl);
         generated.push(type);
         continue;
       }
@@ -207,6 +215,7 @@ export class MarketingGenerationService {
         research,
         researchConfig,
         usedAssetIds,
+        usedFileUrls,
       });
       await this.prisma.marketingDailyStory.update({
         where: { id: current.id },
@@ -245,6 +254,7 @@ export class MarketingGenerationService {
           mode: 'regenerated',
         });
       }
+      if (visualData.selectedFileUrl) usedFileUrls.add(visualData.selectedFileUrl);
       generated.push(type);
     }
 
@@ -296,6 +306,7 @@ export class MarketingGenerationService {
       research,
       researchConfig,
       usedAssetIds: new Set<string>(story.mediaAssetId ? [story.mediaAssetId] : []),
+      usedFileUrls: new Set<string>(`${(story as any).imageUrl ?? ''}`.trim() ? [`${(story as any).imageUrl}`.trim()] : []),
     });
     const updated = await this.prisma.marketingDailyStory.update({
       where: { id: story.id },
@@ -893,6 +904,7 @@ export class MarketingGenerationService {
     research: any | null;
     researchConfig: any | null;
     usedAssetIds: Set<string>;
+    usedFileUrls: Set<string>;
     forceAssetId?: string;
     forcedPrompt?: string;
   }) {
@@ -919,6 +931,7 @@ export class MarketingGenerationService {
         recommendedProduct: recommendedServiceHint,
         recommendedService: recommendedServiceHint,
         usedAssetIds: [...input.usedAssetIds],
+        usedFileUrls: [...input.usedFileUrls],
         imagePrompt: input.content.imagePrompt,
         copyText: input.content.shortText,
       });
@@ -935,6 +948,7 @@ export class MarketingGenerationService {
 
     return {
       mediaAssetId: selected?.id ?? null,
+      selectedFileUrl: baseImageUrl,
       imagePrompt: input.forcedPrompt || input.content.imagePrompt,
       imageUrl: baseImageUrl,
       visualConcept,

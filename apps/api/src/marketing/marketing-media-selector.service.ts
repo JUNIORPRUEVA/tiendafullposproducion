@@ -53,6 +53,8 @@ type SelectorInput = {
   recommendedService?: string | null;
   recommendedProduct?: string | null;
   usedAssetIds: string[];
+  /** fileUrls already used in other stories today — prevents repeating the same product image */
+  usedFileUrls?: string[];
   /** Visual description of what the AI image should show — used to smart-match catalog products */
   imagePrompt?: string | null;
   /** Copy text of the story — used as additional context for product matching */
@@ -168,12 +170,19 @@ export class MarketingMediaSelectorService {
     // Smart GPT pick: if imagePrompt is provided AND catalog products exist,
     // ask GPT-4o-mini to find the catalog product that best matches the visual description.
     // This runs BEFORE the scoring algorithm so the selected product gets maximum priority.
-    const catalogPool = primaryProductMedia.length > 0 ? primaryProductMedia : fallbackProductMedia;
-    if (catalogPool.length > 0 && (input.imagePrompt || input.copyText)) {
-      const smartIdx = await this.smartPickProduct(catalogPool, input.imagePrompt ?? '', input.copyText ?? '');
+    // Catalog products already used today are excluded to ensure variety across stories.
+    const usedUrls = new Set(input.usedFileUrls ?? []);
+    const rawCatalogPool = primaryProductMedia.length > 0 ? primaryProductMedia : fallbackProductMedia;
+    // Remove already-used images — prefer unused, but fall back to full pool if all used
+    const catalogPool = rawCatalogPool.filter((p) => !usedUrls.has(p.fileUrl));
+    const catalogPoolForPick = catalogPool.length > 0 ? catalogPool : rawCatalogPool;
+    if (catalogPoolForPick.length > 0 && (input.imagePrompt || input.copyText)) {
+      const smartIdx = await this.smartPickProduct(catalogPoolForPick, input.imagePrompt ?? '', input.copyText ?? '');
       if (smartIdx !== null) {
-        return catalogPool[smartIdx];
+        return catalogPoolForPick[smartIdx];
       }
+      // GPT failed — return first unused catalog product to still guarantee variety
+      return catalogPoolForPick[0];
     }
 
     const allMedia = [...primaryProductMedia, ...galleryMedia, ...fallbackProductMedia];
