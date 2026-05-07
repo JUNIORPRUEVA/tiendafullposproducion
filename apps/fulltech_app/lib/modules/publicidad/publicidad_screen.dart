@@ -124,8 +124,8 @@ class PublicidadController extends StateNotifier<PublicidadState> {
   }
 
   final MarketingApi _api;
-  static const Duration _imagePollInterval = Duration(seconds: 4);
-  static const Duration _imagePollTimeout = Duration(minutes: 2);
+  static const Duration _imagePollInterval = Duration(seconds: 5);
+  static const Duration _imagePollTimeout = Duration(minutes: 5);
   Future<void>? _imagePollingTask;
   DateTime? _imagePollingDeadline;
   final Set<String> _pollingStoryIds = <String>{};
@@ -587,11 +587,20 @@ class PublicidadController extends StateNotifier<PublicidadState> {
         if (deadline == null || DateTime.now().isAfter(deadline)) {
           final timedOutIds = {..._pollingStoryIds};
           _pollingStoryIds.clear();
+          // Do a final refresh so the UI shows the real server state, not a stale one
+          if (!_disposed) {
+            try {
+              await _refresh(keepLoading: false);
+            } catch (_) {}
+          }
+          final stillActive = timedOutIds
+              .where((id) => _storyHasActiveImageStatus(id, state.dailyStories))
+              .toSet();
           state = state.copyWith(
-            imageBusyStoryIds: {...state.imageBusyStoryIds}
-              ..removeAll(timedOutIds),
-            error:
-                'La imagen sigue en proceso. Actualiza en unos momentos si todavía no aparece.',
+            imageBusyStoryIds: {...state.imageBusyStoryIds}..removeAll(timedOutIds),
+            error: stillActive.isNotEmpty
+                ? 'La imagen sigue en proceso. Actualiza en unos momentos si todavía no aparece.'
+                : null,
           );
           break;
         }

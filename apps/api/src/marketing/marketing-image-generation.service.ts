@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+﻿import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { R2Service } from '../storage/r2.service';
@@ -46,7 +46,7 @@ export class MarketingImageGenerationService {
     const failures: string[] = [];
     const storyType = this.inferStoryType(input);
 
-    // ── Provider 1: Stability AI (PRIMARY — no billing issues) ─────────────
+    // â”€â”€ Provider 1: Stability AI (PRIMARY â€” no billing issues) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const stabilityKey = await this.resolveStabilityApiKey();
     if (stabilityKey) {
       this.logger.log(
@@ -62,7 +62,7 @@ export class MarketingImageGenerationService {
       }
     }
 
-    // ── Provider 2: OpenAI (FALLBACK) ───────────────────────────────────────
+    // â”€â”€ Provider 2: OpenAI (FALLBACK) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const apiKey = await this.resolveOpenAiApiKey();
     this.logger.log(
       `[marketing-image] provider=OPENAI configured=${apiKey ? 'true' : 'false'} category=${input.imageCategory}`,
@@ -70,7 +70,7 @@ export class MarketingImageGenerationService {
 
     if (!apiKey && !stabilityKey) {
       throw new BadRequestException(
-        'No hay proveedor de imágenes configurado. Configura STABILITY_API_KEY o OPENAI_API_KEY.',
+        'No hay proveedor de imÃ¡genes configurado. Configura STABILITY_API_KEY o OPENAI_API_KEY.',
       );
     }
 
@@ -130,7 +130,7 @@ export class MarketingImageGenerationService {
     return 'SALES';
   }
 
-  // ── Stability AI Provider ──────────────────────────────────────────────────
+  // â”€â”€ Stability AI Provider â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   private async generateWithStabilityAi(
     input: ImageGenerationInput,
@@ -144,7 +144,7 @@ export class MarketingImageGenerationService {
     let mode: string;
 
     if (baseImageUrl.startsWith('http://') || baseImageUrl.startsWith('https://')) {
-      // Image-guided generation: the product image IS the reference — preserve its structure
+      // Image-guided generation: the product image IS the reference â€” preserve its structure
       const imageResponse = await this.fetchWithTimeout(baseImageUrl, undefined, 25000);
       if (!imageResponse.ok) {
         throw new Error(`Cannot download base image for Stability AI: HTTP ${imageResponse.status}`);
@@ -166,7 +166,7 @@ export class MarketingImageGenerationService {
           Accept: 'application/json',
         },
         body: formData,
-      }, 45000);
+      }, 90000);
       mode = 'stability-structure';
     } else {
       // Pure text-to-image
@@ -182,7 +182,7 @@ export class MarketingImageGenerationService {
           Accept: 'application/json',
         },
         body: formData,
-      }, 45000);
+      }, 90000);
       mode = 'stability-ultra';
     }
 
@@ -231,13 +231,13 @@ export class MarketingImageGenerationService {
     return envKey || null;
   }
 
-  /** Premium prompt builder for Stability AI — type-specific commercial ad direction */
+  /** Premium prompt builder for Stability AI â€” type-specific commercial ad direction */
   private buildStabilityPrompt(
     input: ImageGenerationInput,
     storyType: 'SALES' | 'TRUST' | 'EDUCATIONAL',
   ): string {
     const service = input.serviceOrProduct || input.imageCategory || 'security and automation technology system';
-    const city = input.city || 'Higüey';
+    const city = input.city || 'HigÃ¼ey';
     const country = input.country || 'Dominican Republic';
     const angle = input.usedResearchAngle || 'reliability, professionalism, and real results';
     const offer = input.offer || 'personalized consultation, professional installation included';
@@ -247,7 +247,7 @@ export class MarketingImageGenerationService {
     const hasProductImage = !!(input.baseImageUrl || '').trim();
     // Core constraint when a real product image is the reference
     const productPreservation = hasProductImage
-      ? `CRITICAL PRODUCT RULE: The exact product from the reference image MUST remain the undisputed hero of this image. Preserve the product's exact model, shape, form factor, and visual identity completely — it must be 100% recognizable. You may: completely replace/improve the background, add professional lighting, add environmental context (installation scene, office, home), add a technician or person using the product. You MUST NOT: remove the product, replace it with a different product model, substantially distort its shape, or make it unrecognizable. The product is the reason this image exists — keep it as the main subject always.`
+      ? `CRITICAL PRODUCT RULE: The exact product from the reference image MUST remain the undisputed hero of this image. Preserve the product's exact model, shape, form factor, and visual identity completely â€” it must be 100% recognizable. You may: completely replace/improve the background, add professional lighting, add environmental context (installation scene, office, home), add a technician or person using the product. You MUST NOT: remove the product, replace it with a different product model, substantially distort its shape, or make it unrecognizable. The product is the reason this image exists â€” keep it as the main subject always.`
       : '';
 
     if (storyType === 'TRUST') {
@@ -310,7 +310,7 @@ export class MarketingImageGenerationService {
     ].filter(Boolean).join(' ');
   }
 
-  // ── OpenAI Providers ───────────────────────────────────────────────────────
+  // â”€â”€ OpenAI Providers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   private async generateWithGptImageEdit(
     input: ImageGenerationInput,
@@ -342,7 +342,7 @@ export class MarketingImageGenerationService {
     const formData = new FormData();
     formData.append('model', 'gpt-image-1');
     formData.append('prompt', prompt);
-    formData.append('size', '1024x1536'); // portrait 2:3 — closest to 9:16 supported by gpt-image-1 edit
+    formData.append('size', '1024x1536'); // portrait 2:3 â€” closest to 9:16 supported by gpt-image-1 edit
     formData.append('quality', 'high');
     formData.append('image', new Blob([baseBuffer], { type: baseContentType }), `base.${baseExt}`);
 
@@ -352,7 +352,7 @@ export class MarketingImageGenerationService {
         Authorization: `Bearer ${apiKey}`,
       },
       body: formData,
-    }, 45000);
+    }, 90000);
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
@@ -423,7 +423,7 @@ export class MarketingImageGenerationService {
         style: 'natural',
         response_format: 'url',
       }),
-    }, 45000);
+    }, 90000);
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
@@ -522,7 +522,7 @@ export class MarketingImageGenerationService {
     return [
       `Transform this product image into a premium vertical 9:16 commercial advertisement for FULLTECH SRL in ${input.city}, ${input.country}.`,
       `Product: ${service}.`,
-      `CRITICAL: The product in this reference image is the MAIN HERO — preserve it completely. Keep the exact product model, shape, and visual identity 100% intact and recognizable. Only change: background, lighting, environment, atmosphere. You may add people, installation context, premium studio setting. DO NOT remove, replace, or significantly alter the product itself.`,
+      `CRITICAL: The product in this reference image is the MAIN HERO â€” preserve it completely. Keep the exact product model, shape, and visual identity 100% intact and recognizable. Only change: background, lighting, environment, atmosphere. You may add people, installation context, premium studio setting. DO NOT remove, replace, or significantly alter the product itself.`,
       typeDirection,
       `Product identity preservation: 100% required. The product must be the undisputed focal point of the final image.`,
       `Brand palette: ${colors}.`,
@@ -598,17 +598,17 @@ export class MarketingImageGenerationService {
   buildPrompt(input: ImageGenerationInput) {
     const colors = input.brandColors.length > 0 ? input.brandColors.join(', ') : 'azul oscuro, blanco, turquesa';
     return [
-      `Crear diseño publicitario vertical 9:16 para historia de Instagram/Facebook de ${input.companyName} en ${input.city}, ${input.country}.`,
-      `Servicio/producto: ${input.serviceOrProduct || input.imageCategory || 'servicio de seguridad tecnológica'}.`,
-      `Estilo ${input.brandTone || 'tecnológico, limpio y profesional'}.`,
+      `Crear diseÃ±o publicitario vertical 9:16 para historia de Instagram/Facebook de ${input.companyName} en ${input.city}, ${input.country}.`,
+      `Servicio/producto: ${input.serviceOrProduct || input.imageCategory || 'servicio de seguridad tecnolÃ³gica'}.`,
+      `Estilo ${input.brandTone || 'tecnolÃ³gico, limpio y profesional'}.`,
       `Concepto visual: ${input.visualConcept}.`,
-      `Ángulo de venta: ${input.usedResearchAngle || 'confiabilidad y resultados reales'}.`,
-      `Oferta recomendada: ${input.offer || 'asesoría y cotización personalizada'}.`,
+      `Ãngulo de venta: ${input.usedResearchAngle || 'confiabilidad y resultados reales'}.`,
+      `Oferta recomendada: ${input.offer || 'asesorÃ­a y cotizaciÃ³n personalizada'}.`,
       `Texto principal: "${input.title}".`,
       `CTA: "${input.cta}".`,
       `Colores de marca: ${colors}.`,
-      `Notas de diseño: ${input.designNotes}.`,
-      'Diseño moderno, alta confianza, sin saturar, legible en móvil.',
+      `Notas de diseÃ±o: ${input.designNotes}.`,
+      'DiseÃ±o moderno, alta confianza, sin saturar, legible en mÃ³vil.',
     ].join(' ');
   }
 }

@@ -2,6 +2,7 @@
 import { MarketingStoryType } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import { CatalogProductsService } from '../products/catalog-products.service';
 
 /**
  * PRIMARY source: products from the "Videovigilancia" / "Sistema de Vigilancia" catalog category.
@@ -61,6 +62,7 @@ export class MarketingMediaSelectorService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly catalogProducts: CatalogProductsService,
   ) {
     this.publicBaseUrl = (
       this.config.get<string>('PUBLIC_BASE_URL') ??
@@ -74,30 +76,47 @@ export class MarketingMediaSelectorService {
   }
 
   async select(input: SelectorInput): Promise<SelectedMedia | null> {
-    // Source 1 (PRIMARY): Productos de la categoria "Sistema de Vigilancia"
-    const primaryProductRows = await this.prisma.product.findMany({
-      where: {
-        OR: PRIMARY_PRODUCT_KEYWORDS.map((kw) => ({
-          categoria: { contains: kw, mode: 'insensitive' as const },
-        })),
-        imagen: { not: null },
-      },
-      select: { id: true, nombre: true, categoria: true, imagen: true },
-      take: 40,
-    });
+    // Load full product catalog from FullPOS (source of truth for FULLTECH products)
+    let catalogItems: { id: string; nombre: string; categoria: string | null; categoriaNombre: string | null; imagen: string | null; fotoUrl: string | null }[] = [];
+    try {
+      const catalog = await this.catalogProducts.findAll();
+      catalogItems = catalog.items;
+    } catch {
+      // If FullPOS is unavailable, continue with gallery only
+    }
 
-    const primaryProductMedia: SelectedMedia[] = primaryProductRows
-      .filter((p) => p.imagen && p.imagen.trim().length > 0)
-      .map((p) => ({
-        id: null,
-        fileUrl: this.resolveImageUrl(p.imagen!),
-        category: p.categoria,
-        relatedService: p.nombre,
-        tags: ['producto', 'sistema de vigilancia', 'seguridad', p.categoria.toLowerCase()],
-        isFeatured: false,
-        useCount: 0,
-        sourceType: 'product-catalog-primary' as const,
-      }));
+    const isMatchPrimary = (cat: string | null) => {
+      if (!cat) return false;
+      const c = cat.toLowerCase();
+      return PRIMARY_PRODUCT_KEYWORDS.some((kw) => c.includes(kw));
+    };
+    const isMatchFallback = (cat: string | null) => {
+      if (!cat) return false;
+      const c = cat.toLowerCase();
+      return FALLBACK_PRODUCT_KEYWORDS.some((kw) => c.includes(kw));
+    };
+
+    // Source 1 (PRIMARY): Productos de la categoria "Sistema de Vigilancia" del FullPOS
+    const primaryProductMedia: SelectedMedia[] = catalogItems
+      .filter((p) => {
+        const cat = p.categoriaNombre ?? p.categoria;
+        const imgUrl = p.fotoUrl ?? p.imagen;
+        return isMatchPrimary(cat) && imgUrl && imgUrl.trim().length > 0;
+      })
+      .map((p) => {
+        const cat = p.categoriaNombre ?? p.categoria ?? '';
+        const imgUrl = p.fotoUrl ?? p.imagen ?? '';
+        return {
+          id: null,
+          fileUrl: imgUrl,
+          category: cat,
+          relatedService: p.nombre,
+          tags: ['producto', 'sistema de vigilancia', 'seguridad', cat.toLowerCase()],
+          isFeatured: false,
+          useCount: 0,
+          sourceType: 'product-catalog-primary' as const,
+        };
+      });
 
     // Source 2 (SECONDARY): Galeria de Publicidad
     const galleryRows = await this.prisma.marketingMediaAsset.findMany({
@@ -120,34 +139,26 @@ export class MarketingMediaSelectorService {
     // Source 3 (FALLBACK): Other security product categories — only if primary is empty
     let fallbackProductMedia: SelectedMedia[] = [];
     if (primaryProductMedia.length === 0) {
-      const fallbackRows = await this.prisma.product.findMany({
-        where: {
-          OR: FALLBACK_PRODUCT_KEYWORDS.map((kw) => ({
-            categoria: { contains: kw, mode: 'insensitive' as const },
-          })),
-          imagen: { not: null },
-          NOT: {
-            OR: PRIMARY_PRODUCT_KEYWORDS.map((kw) => ({
-              categoria: { contains: kw, mode: 'insensitive' as const },
-            })),
-          },
-        },
-        select: { id: true, nombre: true, categoria: true, imagen: true },
-        take: 30,
-      });
-
-      fallbackProductMedia = fallbackRows
-        .filter((p) => p.imagen && p.imagen.trim().length > 0)
-        .map((p) => ({
-          id: null,
-          fileUrl: this.resolveImageUrl(p.imagen!),
-          category: p.categoria,
-          relatedService: p.nombre,
-          tags: ['producto', 'seguridad', p.categoria.toLowerCase()],
-          isFeatured: false,
-          useCount: 0,
-          sourceType: 'product-catalog-fallback' as const,
-        }));
+      fallbackProductMedia = catalogItems
+        .filter((p) => {
+          const cat = p.categoriaNombre ?? p.categoria;
+          const imgUrl = p.fotoUrl ?? p.imagen;
+          return !isMatchPrimary(cat) && isMatchFallback(cat) && imgUrl && imgUrl.trim().length > 0;
+        })
+        .map((p) => {
+          const cat = p.categoriaNombre ?? p.categoria ?? '';
+          const imgUrl = p.fotoUrl ?? p.imagen ?? '';
+          return {
+            id: null,
+            fileUrl: imgUrl,
+            category: cat,
+            relatedService: p.nombre,
+            tags: ['producto', 'seguridad', cat.toLowerCase()],
+            isFeatured: false,
+            useCount: 0,
+            sourceType: 'product-catalog-fallback' as const,
+          };
+        });
     }
 
     const allMedia = [...primaryProductMedia, ...galleryMedia, ...fallbackProductMedia];

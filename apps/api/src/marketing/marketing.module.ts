@@ -16,9 +16,10 @@ import { MarketingResearchSourceService } from './marketing-research-source.serv
 import { MarketingService } from './marketing.service';
 import { MarketingStorageService } from './marketing-storage.service';
 import { StorageModule } from '../storage/storage.module';
+import { ProductsModule } from '../products/products.module';
 
 @Module({
-  imports: [StorageModule],
+  imports: [StorageModule, ProductsModule],
   controllers: [MarketingController, MarketingDebugController],
   providers: [
     MarketingService,
