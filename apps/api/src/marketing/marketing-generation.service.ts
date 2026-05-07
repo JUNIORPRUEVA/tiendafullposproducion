@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { MarketingStoryType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { MarketingCreativeComposerService } from './marketing-creative-composer.service';
 import { MarketingImageGenerationService } from './marketing-image-generation.service';
 import { MarketingMediaAssetService } from './marketing-media-asset.service';
 import { MarketingMediaSelectorService } from './marketing-media-selector.service';
@@ -21,6 +22,7 @@ export class MarketingGenerationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly mediaSelector: MarketingMediaSelectorService,
+    private readonly creativeComposer: MarketingCreativeComposerService,
     private readonly imageGeneration: MarketingImageGenerationService,
     private readonly mediaAssets: MarketingMediaAssetService,
     private readonly marketingStorage: MarketingStorageService,
@@ -33,9 +35,9 @@ export class MarketingGenerationService {
   ];
 
   private readonly localHooks = {
-    SALES: ['No te compliques', 'Mira esto', 'Atencion negocio', 'Te conviene hoy'],
-    TRUST: ['Asi es que se hace', 'Con respaldo de verdad', 'Trabajo limpio y serio', 'Aqui respondemos'],
-    EDUCATIONAL: ['Dato rapido', 'Tip que si funciona', 'Aprende esto', 'Evita este error'],
+    SALES: ['Solucion premium', 'Proteccion inteligente', 'Tecnologia que vende', 'Seguridad profesional'],
+    TRUST: ['Respaldo profesional', 'Instalacion certificada', 'Experiencia real', 'Soporte confiable'],
+    EDUCATIONAL: ['Guia practica', 'Recomendacion clave', 'Dato util', 'Mejor decision'],
   } as const;
 
   private readonly templates: Record<MarketingStoryType, StoryTemplate[]> = {
@@ -505,32 +507,65 @@ export class MarketingGenerationService {
         })
       : null;
 
-    const generated = await this.imageGeneration.generateOrPrepare({
-      companyName: researchConfig?.businessName ?? 'FULLTECH SRL',
-      city: researchConfig?.city ?? 'Higüey',
-      country: researchConfig?.country ?? 'República Dominicana',
-      brandTone: researchConfig?.brandTone ?? 'tecnológico, limpio y profesional',
-      brandColors: this.safeStringArray(researchConfig?.brandColors),
+    const serviceOrProduct =
+      `${story.mediaAsset?.relatedService ?? ''}`.trim() ||
+      usedOffer ||
+      story.mediaAsset?.category ||
+      this.galleryCategoryForType(story.type);
+    const brandColors = this.safeStringArray(researchConfig?.brandColors);
+
+    let generated;
+    let providerError: string | null = null;
+    try {
+      generated = await this.imageGeneration.generateOrPrepare({
+        companyName: researchConfig?.businessName ?? 'FULLTECH SRL',
+        city: researchConfig?.city ?? 'Higüey',
+        country: researchConfig?.country ?? 'República Dominicana',
+        brandTone: researchConfig?.brandTone ?? 'tecnológico, limpio y profesional',
+        brandColors,
+        title: story.title,
+        cta: usedCTA,
+        offer: usedOffer,
+        visualConcept,
+        designNotes,
+        baseImageUrl: baseImageSourceUrl,
+        imageCategory: story.mediaAsset?.category ?? this.galleryCategoryForType(story.type),
+        serviceOrProduct,
+        usedResearchAngle,
+        storyType: story.type as 'SALES' | 'TRUST' | 'EDUCATIONAL',
+      });
+    } catch (error) {
+      providerError = error instanceof Error ? error.message : String(error);
+      generated = {
+        imageStatus: 'PENDING' as const,
+        generatedImageUrl: null,
+        generatedImageProvider: 'LAYOUT_ONLY',
+        prompt: customPrompt?.trim() || story.imagePrompt || '',
+        visualConcept,
+        designNotes,
+        metadata: {
+          providerError,
+          fallbackMode: 'layout-only',
+        },
+      };
+    }
+
+    const composedCreative = await this.creativeComposer.compose({
+      storyType: story.type as 'SALES' | 'TRUST' | 'EDUCATIONAL',
       title: story.title,
+      shortText: story.shortText,
       cta: usedCTA,
       offer: usedOffer,
-      visualConcept,
-      designNotes,
-      baseImageUrl: baseImageSourceUrl,
-      imageCategory: story.mediaAsset?.category ?? this.galleryCategoryForType(story.type),
-      serviceOrProduct:
-        `${story.mediaAsset?.relatedService ?? ''}`.trim() ||
-        usedOffer ||
-        story.mediaAsset?.category ||
-        this.galleryCategoryForType(story.type),
-      usedResearchAngle,
-      storyType: story.type as 'SALES' | 'TRUST' | 'EDUCATIONAL',
+      serviceOrProduct,
+      brandColors,
+      backgroundImageUrl: generated.generatedImageUrl || baseImageSourceUrl,
+      baseImageUrl: `${baseImage?.url ?? baseImageSourceUrl}`.trim(),
     });
 
     const savedGenerated = await this.marketingStorage.saveGeneratedImage({
       companyId,
       storyType: this.storyTypeSlug(story.type),
-      sourceUrl: generated.generatedImageUrl || '',
+      sourceUrl: composedCreative.dataUrl,
     });
     const finalGeneratedUrl = `${savedGenerated?.url ?? ''}`.trim();
     if (!finalGeneratedUrl) {
@@ -552,6 +587,9 @@ export class MarketingGenerationService {
         imageGenerationMetadata: {
           ...generated.metadata,
           processedAt: new Date().toISOString(),
+          compositionLayout: composedCreative.layout,
+          compositionMode: 'server-side-premium-layout',
+          providerError,
           baseImageSavedUrl: `${baseImage?.url ?? story.imageUrl ?? ''}`.trim() || null,
           generatedImageSavedUrl: finalGeneratedUrl,
           finalImageUrl: finalGeneratedUrl,
@@ -563,15 +601,23 @@ export class MarketingGenerationService {
         mediaAsset: true,
       },
     }).then(async (updated) => {
-      await this.prisma.marketingActivityLog.create({
-        data: {
-          companyId,
-          action: 'MARKETING_STORY_IMAGE_GENERATED',
-          description: `Imagen generada en background para contenido ${storyId}`,
-          userId,
-          metadata: { storyId, generatedImageUrl: finalGeneratedUrl },
-        },
-      });
+      try {
+        await this.prisma.marketingActivityLog.create({
+          data: {
+            companyId,
+            action: 'MARKETING_STORY_IMAGE_GENERATED',
+            description: `Imagen generada en background para contenido ${storyId}`,
+            userId,
+            metadata: { storyId, generatedImageUrl: finalGeneratedUrl },
+          },
+        });
+      } catch (error) {
+        const code = (error as { code?: string })?.code;
+        if (code !== 'P2003' && code !== 'P2023') {
+          throw error;
+        }
+        this.logger.warn(`[marketing-image] activity-log skipped for story ${storyId}: userId invalido (${userId})`);
+      }
       return updated;
     });
   }
@@ -694,42 +740,14 @@ export class MarketingGenerationService {
   }
 
   private withDominicanVariation(type: MarketingStoryType, input: StoryTemplate): StoryTemplate {
-    const pool =
-      type === MarketingStoryType.SALES
-        ? this.localHooks.SALES
-        : type === MarketingStoryType.TRUST
-          ? this.localHooks.TRUST
-          : this.localHooks.EDUCATIONAL;
-
-    const hook = pool[Math.floor(Math.random() * pool.length)] || 'Mira esto';
     const head = this.ensurePunctuation(this.compact(input.title));
     const short = this.ensurePunctuation(this.compact(input.shortText));
     const long = this.compact(input.longText);
-
-    const style = Math.floor(Math.random() * 3);
-    if (style === 0) {
-      return {
-        ...input,
-        title: `${hook}: ${head}`,
-        shortText: short,
-        longText: `${hook}. ${this.ensurePunctuation(long)}`,
-      };
-    }
-
-    if (style === 1) {
-      return {
-        ...input,
-        title: head,
-        shortText: `${hook}. ${short}`,
-        longText: this.ensurePunctuation(long),
-      };
-    }
-
     return {
       ...input,
-      title: `${hook} - ${head}`,
+      title: this.compact(head.replace(/[.!?]+$/, '')),
       shortText: short,
-      longText: `${this.ensurePunctuation(long)} ${this.ensurePunctuation('Escribenos y te orientamos sin vueltas')}`,
+      longText: this.ensurePunctuation(long),
     };
   }
 
@@ -761,11 +779,7 @@ export class MarketingGenerationService {
     const strong: string[] = this.safeStringArray(input.research?.strongAngles);
     const products: string[] = this.safeStringArray(input.research?.recommendedProducts);
     const mainServices: string[] = this.safeStringArray(input.researchConfig?.mainServices);
-
-    const usedResearchAngle = strong[0] || hooks[0] || input.content.shortText;
-    const usedOffer = offers[0] || input.content.shortText;
-    const usedCTA = this.pickNaturalCta(ctas, input.researchConfig?.defaultCTA || 'Cotiza por WhatsApp hoy');
-    const primaryService = products[0] || mainServices[0] || input.researchConfig?.priorityServices?.[0] || '';
+    const recommendedServiceHint = products[0] || mainServices[0] || input.researchConfig?.priorityServices?.[0] || '';
 
     let selected = input.forceAssetId
       ? await this.prisma.marketingMediaAsset.findFirst({
@@ -777,11 +791,16 @@ export class MarketingGenerationService {
       selected = await this.mediaSelector.select({
         companyId: input.companyId,
         type: input.type,
-        recommendedProduct: primaryService,
-        recommendedService: primaryService,
+        recommendedProduct: recommendedServiceHint,
+        recommendedService: recommendedServiceHint,
         usedAssetIds: [...input.usedAssetIds],
       });
     }
+
+    const primaryService = selected?.relatedService || recommendedServiceHint || input.content.shortText;
+    const usedResearchAngle = strong[0] || hooks[0] || primaryService || input.content.shortText;
+    const usedOffer = offers[0] || primaryService || input.content.shortText;
+    const usedCTA = this.pickNaturalCta(ctas, input.researchConfig?.defaultCTA || 'Cotiza por WhatsApp hoy');
 
     const visualConcept = this.buildVisualConcept(input.type, usedResearchAngle, primaryService);
     const designNotes = this.buildDesignNotes(input.type, usedCTA);
@@ -879,11 +898,7 @@ export class MarketingGenerationService {
     const strong: string[] = this.safeStringArray(input.research?.strongAngles);
     const products: string[] = this.safeStringArray(input.research?.recommendedProducts);
     const mainServices: string[] = this.safeStringArray(input.researchConfig?.mainServices);
-
-    const usedResearchAngle = strong[0] || hooks[0] || input.content.shortText;
-    const usedOffer = offers[0] || input.content.shortText;
-    const usedCTA = this.pickNaturalCta(ctas, input.researchConfig?.defaultCTA || 'Cotiza por WhatsApp hoy');
-    const primaryService = products[0] || mainServices[0] || input.researchConfig?.priorityServices?.[0] || '';
+    const recommendedServiceHint = products[0] || mainServices[0] || input.researchConfig?.priorityServices?.[0] || '';
 
     let selected = input.forceAssetId
       ? await this.prisma.marketingMediaAsset.findFirst({
@@ -895,11 +910,16 @@ export class MarketingGenerationService {
       selected = await this.mediaSelector.select({
         companyId: input.companyId,
         type: input.type,
-        recommendedProduct: primaryService,
-        recommendedService: primaryService,
+        recommendedProduct: recommendedServiceHint,
+        recommendedService: recommendedServiceHint,
         usedAssetIds: [...input.usedAssetIds],
       });
     }
+
+    const primaryService = selected?.relatedService || recommendedServiceHint || input.content.shortText;
+    const usedResearchAngle = strong[0] || hooks[0] || primaryService || input.content.shortText;
+    const usedOffer = offers[0] || primaryService || input.content.shortText;
+    const usedCTA = this.pickNaturalCta(ctas, input.researchConfig?.defaultCTA || 'Cotiza por WhatsApp hoy');
 
     const visualConcept = this.buildVisualConcept(input.type, usedResearchAngle, primaryService);
     const designNotes = this.buildDesignNotes(input.type, usedCTA);

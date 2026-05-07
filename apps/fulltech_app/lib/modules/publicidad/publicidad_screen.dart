@@ -344,16 +344,23 @@ class PublicidadController extends StateNotifier<PublicidadState> {
     await _runBusy(() async {
       final imageUrl = _resolvePublishedImageUrl(item);
       if (imageUrl.isEmpty) {
-        throw StateError('No se pudo duplicar: el anuncio publicado no tiene imagen válida.');
+        throw StateError(
+          'No se pudo duplicar: el anuncio publicado no tiene imagen válida.',
+        );
       }
 
       final cleanType = _storyTypeLabelFromCode(item.storyType);
       final baseName = item.headline.trim().isEmpty
           ? 'anuncio-publicado'
-          : item.headline.trim().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '-');
+          : item.headline.trim().toLowerCase().replaceAll(
+              RegExp(r'[^a-z0-9]+'),
+              '-',
+            );
       final safeName = '$baseName-${DateTime.now().millisecondsSinceEpoch}.jpg';
       final tags = <String>{
-        ...item.hashtags.where((tag) => tag.trim().isNotEmpty).map((tag) => tag.trim()),
+        ...item.hashtags
+            .where((tag) => tag.trim().isNotEmpty)
+            .map((tag) => tag.trim()),
         'publicado',
         cleanType.toLowerCase(),
       };
@@ -385,7 +392,9 @@ class PublicidadController extends StateNotifier<PublicidadState> {
 
       final imageUrl = _resolvePublishedImageUrl(asset);
       if (imageUrl.isEmpty) {
-        throw StateError('No se puede reutilizar este anuncio: no tiene imagen válida.');
+        throw StateError(
+          'No se puede reutilizar este anuncio: no tiene imagen válida.',
+        );
       }
 
       final tempFileName = 'reuse-${DateTime.now().millisecondsSinceEpoch}.jpg';
@@ -396,11 +405,7 @@ class PublicidadController extends StateNotifier<PublicidadState> {
         category: 'Instalaciones reales',
         relatedService: _storyTypeLabelFromCode(asset.storyType),
         description: asset.shortText,
-        tags: [
-          ...asset.hashtags,
-          'reutilizado',
-          'publicado',
-        ],
+        tags: [...asset.hashtags, 'reutilizado', 'publicado'],
       );
 
       await _api.changeBaseImage(storyId, created.id);
@@ -552,7 +557,10 @@ class PublicidadController extends StateNotifier<PublicidadState> {
   }
 
   void _ensureStoryImagePolling(Set<String> storyIds) {
-    final normalized = storyIds.map((item) => item.trim()).where((item) => item.isNotEmpty).toSet();
+    final normalized = storyIds
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty)
+        .toSet();
     if (normalized.isEmpty) {
       return;
     }
@@ -579,8 +587,10 @@ class PublicidadController extends StateNotifier<PublicidadState> {
           final timedOutIds = {..._pollingStoryIds};
           _pollingStoryIds.clear();
           state = state.copyWith(
-            imageBusyStoryIds: {...state.imageBusyStoryIds}..removeAll(timedOutIds),
-            error: 'La imagen sigue en proceso. Actualiza en unos momentos si todavía no aparece.',
+            imageBusyStoryIds: {...state.imageBusyStoryIds}
+              ..removeAll(timedOutIds),
+            error:
+                'La imagen sigue en proceso. Actualiza en unos momentos si todavía no aparece.',
           );
           break;
         }
@@ -614,7 +624,10 @@ class PublicidadController extends StateNotifier<PublicidadState> {
         .toSet();
   }
 
-  bool _storyHasActiveImageStatus(String storyId, List<MarketingStory> stories) {
+  bool _storyHasActiveImageStatus(
+    String storyId,
+    List<MarketingStory> stories,
+  ) {
     for (final story in stories) {
       if (story.id == storyId) {
         return _isActiveImageStatus(story.imageStatus);
@@ -659,7 +672,9 @@ class PublicidadController extends StateNotifier<PublicidadState> {
 
   Future<T> _runBusyValue<T>(Future<T> Function() task) async {
     if (state.busy) {
-      throw ApiException('Ya hay una accion en proceso. Intentalo nuevamente en unos segundos.');
+      throw ApiException(
+        'Ya hay una accion en proceso. Intentalo nuevamente en unos segundos.',
+      );
     }
     try {
       state = state.copyWith(busy: true, clearError: true);
@@ -679,7 +694,10 @@ class PublicidadController extends StateNotifier<PublicidadState> {
     }
   }
 
-  Future<void> _runStoryImageBusy(String storyId, Future<void> Function() task) async {
+  Future<void> _runStoryImageBusy(
+    String storyId,
+    Future<void> Function() task,
+  ) async {
     final nextBusy = {...state.imageBusyStoryIds, storyId};
     state = state.copyWith(imageBusyStoryIds: nextBusy, clearError: true);
     try {
@@ -689,7 +707,10 @@ class PublicidadController extends StateNotifier<PublicidadState> {
         error,
         fallback: 'No se pudo completar la generación de imagen.',
       );
-      state = state.copyWith(error: message, imageBusyStoryIds: {...state.imageBusyStoryIds}..remove(storyId));
+      state = state.copyWith(
+        error: message,
+        imageBusyStoryIds: {...state.imageBusyStoryIds}..remove(storyId),
+      );
       rethrow;
     }
     final busyIds = {...state.imageBusyStoryIds};
@@ -805,12 +826,18 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
       final message = hasErrors
           ? 'Reparados ${summary.repaired}/${summary.targeted}. Fallaron ${summary.failed.length}.'
           : 'Reparados ${summary.repaired}/${summary.targeted} anuncios incompletos.';
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
     } on ApiException catch (error) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(error.message.trim().isEmpty ? 'No se pudo ejecutar la reparación automática.' : error.message),
+          content: Text(
+            error.message.trim().isEmpty
+                ? 'No se pudo ejecutar la reparación automática.'
+                : error.message,
+          ),
         ),
       );
     }
@@ -848,7 +875,11 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(error.message.trim().isEmpty ? 'No se pudo ejecutar el reset limpio.' : error.message),
+          content: Text(
+            error.message.trim().isEmpty
+                ? 'No se pudo ejecutar el reset limpio.'
+                : error.message,
+          ),
         ),
       );
     }
@@ -924,8 +955,16 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
                                 onActivate: controller.activateFlow,
                                 onPause: controller.pauseFlow,
                                 onGenerateNow: controller.generateNow,
-                                onRepairIncomplete: () => _handleRepairIncomplete(context, controller),
-                                onResetClean: () => _handleResetClean(context, controller, state.date),
+                                onRepairIncomplete: () =>
+                                    _handleRepairIncomplete(
+                                      context,
+                                      controller,
+                                    ),
+                                onResetClean: () => _handleResetClean(
+                                  context,
+                                  controller,
+                                  state.date,
+                                ),
                                 onApprove: controller.approve,
                                 onRegenerate: controller.regenerate,
                                 onRegenerateImage: controller.regenerateImage,
@@ -946,7 +985,8 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
                                 publishedAssets: state.publishedAssets,
                                 busy: state.busy,
                                 onToggleActive: controller.toggleAssetActive,
-                                onToggleFeatured: controller.toggleAssetFeatured,
+                                onToggleFeatured:
+                                    controller.toggleAssetFeatured,
                                 onUpdateMeta: controller.updateAssetMeta,
                                 onDelete: controller.deleteMediaAsset,
                               ),
@@ -1055,9 +1095,9 @@ class _TopToolbar extends StatelessWidget {
             children: [
               Text(
                 'Flujo de contenidos diarios',
-                style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -1073,27 +1113,45 @@ class _TopToolbar extends StatelessWidget {
                       segments: const [
                         ButtonSegment(
                           value: _PublicidadTab.dashboard,
-                          label: Text('Dashboard', style: TextStyle(fontSize: 12)),
+                          label: Text(
+                            'Dashboard',
+                            style: TextStyle(fontSize: 12),
+                          ),
                         ),
                         ButtonSegment(
                           value: _PublicidadTab.investigacion,
-                          label: Text('Investigación', style: TextStyle(fontSize: 12)),
+                          label: Text(
+                            'Investigación',
+                            style: TextStyle(fontSize: 12),
+                          ),
                         ),
                         ButtonSegment(
                           value: _PublicidadTab.galeria,
-                          label: Text('Galería Publicitaria', style: TextStyle(fontSize: 12)),
+                          label: Text(
+                            'Galería Publicitaria',
+                            style: TextStyle(fontSize: 12),
+                          ),
                         ),
                         ButtonSegment(
                           value: _PublicidadTab.estados,
-                          label: Text('Estados diarios', style: TextStyle(fontSize: 12)),
+                          label: Text(
+                            'Estados diarios',
+                            style: TextStyle(fontSize: 12),
+                          ),
                         ),
                         ButtonSegment(
                           value: _PublicidadTab.historial,
-                          label: Text('Historial', style: TextStyle(fontSize: 12)),
+                          label: Text(
+                            'Historial',
+                            style: TextStyle(fontSize: 12),
+                          ),
                         ),
                         ButtonSegment(
                           value: _PublicidadTab.configuracion,
-                          label: Text('Configuración', style: TextStyle(fontSize: 12)),
+                          label: Text(
+                            'Configuración',
+                            style: TextStyle(fontSize: 12),
+                          ),
                         ),
                       ],
                       selected: {tab},
@@ -1126,7 +1184,10 @@ class _TopToolbar extends StatelessWidget {
                       },
                 style: OutlinedButton.styleFrom(
                   visualDensity: VisualDensity.compact,
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
                 ),
                 icon: const Icon(Icons.calendar_today_rounded, size: 16),
                 label: Text(
@@ -1205,7 +1266,9 @@ class _ResetCleanDialogState extends State<_ResetCleanDialog> {
             SwitchListTile.adaptive(
               contentPadding: EdgeInsets.zero,
               value: _includeGeneratedImages,
-              title: const Text('Limpiar también imágenes generadas temporales'),
+              title: const Text(
+                'Limpiar también imágenes generadas temporales',
+              ),
               onChanged: (v) => setState(() => _includeGeneratedImages = v),
             ),
           ],
@@ -1277,26 +1340,26 @@ class _DashboardTab extends StatelessWidget {
     final completeStories = stories.where(_isCompleteStory).length;
     final incompleteStories = stories.length - completeStories;
     final generatedImages = stories
-      .where(
-        (s) =>
-            s.imageStatus == MarketingImageStatus.generated &&
-            _safeImageUrl(s.generatedImageUrl).isNotEmpty,
-      )
-      .length;
+        .where(
+          (s) =>
+              s.imageStatus == MarketingImageStatus.generated &&
+              _safeImageUrl(s.generatedImageUrl).isNotEmpty,
+        )
+        .length;
     final imagesUsedToday = stories
-      .where((s) => _resolveBaseImageUrl(s).isNotEmpty)
-      .length;
+        .where((s) => _resolveBaseImageUrl(s).isNotEmpty)
+        .length;
     final imagesWithoutLoad = stories
-      .where((s) => _safeImageUrl(s.generatedImageUrl).isEmpty)
-      .length;
+        .where((s) => _safeImageUrl(s.generatedImageUrl).isEmpty)
+        .length;
     final generatedCopies = stories
-      .where(
-        (s) =>
-          s.title.trim().isNotEmpty &&
-          s.shortText.trim().isNotEmpty &&
-          s.usedCTA.trim().isNotEmpty,
-      )
-      .length;
+        .where(
+          (s) =>
+              s.title.trim().isNotEmpty &&
+              s.shortText.trim().isNotEmpty &&
+              s.usedCTA.trim().isNotEmpty,
+        )
+        .length;
     final keyMetrics = [
       ('Flujo', dashboard?.flowStatus ?? 'INACTIVO'),
       ('Pendientes', '${dashboard?.pendingApprovalCount ?? 0}'),
@@ -1308,7 +1371,10 @@ class _DashboardTab extends StatelessWidget {
       ('Imágenes sin cargar', '$imagesWithoutLoad'),
       ('Pendientes aprobación', '${dashboard?.pendingApprovalCount ?? 0}'),
       ('Copys', '$generatedCopies'),
-      ('Investigación', dashboard?.researchUsable == true ? 'Usable' : 'No usable'),
+      (
+        'Investigación',
+        dashboard?.researchUsable == true ? 'Usable' : 'No usable',
+      ),
       ('Última', _formatDateTime(dashboard?.lastGenerationAt)),
       ('Próxima', _formatDateTime(dashboard?.nextSuggestedGeneration)),
     ];
@@ -1320,7 +1386,10 @@ class _DashboardTab extends StatelessWidget {
           scrollDirection: Axis.horizontal,
           child: Row(
             children: [
-              _MetaChip(label: 'Flujo', value: dashboard?.flowStatus ?? 'INACTIVO'),
+              _MetaChip(
+                label: 'Flujo',
+                value: dashboard?.flowStatus ?? 'INACTIVO',
+              ),
               const SizedBox(width: 8),
               FilledButton.icon(
                 onPressed: busy ? null : onGenerateNow,
@@ -1461,7 +1530,11 @@ class _DailyStoriesTab extends StatelessWidget {
           builder: (context, constraints) {
             const spacing = 12.0;
             final width = constraints.maxWidth;
-            final columns = width >= 1380 ? 3 : width >= 860 ? 2 : 1;
+            final columns = width >= 1380
+                ? 3
+                : width >= 860
+                ? 2
+                : 1;
             final cardWidth = (width - (spacing * (columns - 1))) / columns;
             return Wrap(
               spacing: spacing,
@@ -1476,7 +1549,9 @@ class _DailyStoriesTab extends StatelessWidget {
                         color: Theme.of(context).colorScheme.surface,
                         borderRadius: BorderRadius.circular(14),
                         border: Border.all(
-                          color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.35),
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.outlineVariant.withValues(alpha: 0.35),
                         ),
                       ),
                       child: _StoryCard(
@@ -1579,7 +1654,8 @@ class _StoryCard extends StatelessWidget {
     final imageError = _storyImageError(story);
     final showImageDebug = Env.marketingDebugUiEnabled;
     final compact = compactActions;
-    final relatedService = (story.mediaAsset?.relatedService ?? story.usedOffer).trim();
+    final relatedService = (story.mediaAsset?.relatedService ?? story.usedOffer)
+        .trim();
     final cta = story.usedCTA.trim().isEmpty
         ? 'Escribenos por WhatsApp para cotizar'
         : story.usedCTA.trim();
@@ -1610,7 +1686,11 @@ class _StoryCard extends StatelessWidget {
             _ImageStatusPill(status: story.imageStatus),
             if (approved) ...[
               const SizedBox(width: 8),
-              const Icon(Icons.verified_rounded, color: Color(0xFF16A34A), size: 20),
+              const Icon(
+                Icons.verified_rounded,
+                color: Color(0xFF16A34A),
+                size: 20,
+              ),
               const SizedBox(width: 4),
               const Text(
                 'Aprobado',
@@ -1628,7 +1708,12 @@ class _StoryCard extends StatelessWidget {
             width: compact ? 160 : 210,
             child: InkWell(
               borderRadius: BorderRadius.circular(18),
-              onTap: () => _openFullscreenPreview(context, story, generatedImage, baseImage),
+              onTap: () => _openFullscreenPreview(
+                context,
+                story,
+                generatedImage,
+                baseImage,
+              ),
               child: _StoryPreviewFrame(
                 label: 'Preview final listo para publicar',
                 imageUrl: finalImage,
@@ -1650,7 +1735,8 @@ class _StoryCard extends StatelessWidget {
           Align(
             alignment: Alignment.center,
             child: OutlinedButton.icon(
-              onPressed: busy || imageBusy || _isImageStatusLoading(story.imageStatus)
+              onPressed:
+                  busy || imageBusy || _isImageStatusLoading(story.imageStatus)
                   ? null
                   : onRegenerateImage,
               icon: const Icon(Icons.auto_fix_high_rounded, size: 18),
@@ -1702,7 +1788,8 @@ class _StoryCard extends StatelessWidget {
                     child: Image.network(
                       baseImage,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => const _BrokenImagePlaceholder(),
+                      errorBuilder: (_, __, ___) =>
+                          const _BrokenImagePlaceholder(),
                     ),
                   ),
                 ),
@@ -1711,7 +1798,9 @@ class _StoryCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   'Imagen base usada',
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w700),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w700),
                 ),
               ),
             ],
@@ -1722,8 +1811,14 @@ class _StoryCard extends StatelessWidget {
           runSpacing: 4,
           children: [
             _MetaChip(label: 'Estado', value: story.status.name),
-            _MetaChip(label: 'Servicio', value: relatedService.isEmpty ? '-' : relatedService),
-            _MetaChip(label: 'Fecha generación', value: _formatDateTime(story.updatedAt ?? story.date)),
+            _MetaChip(
+              label: 'Servicio',
+              value: relatedService.isEmpty ? '-' : relatedService,
+            ),
+            _MetaChip(
+              label: 'Fecha generación',
+              value: _formatDateTime(story.updatedAt ?? story.date),
+            ),
           ],
         ),
         const SizedBox(height: 6),
@@ -1731,7 +1826,9 @@ class _StoryCard extends StatelessWidget {
           story.title.trim().isEmpty ? '-' : story.title.trim(),
           maxLines: compact ? 2 : 3,
           overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+          style: Theme.of(
+            context,
+          ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: 4),
         Text(
@@ -1745,7 +1842,9 @@ class _StoryCard extends StatelessWidget {
           cta,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w700),
+          style: Theme.of(
+            context,
+          ).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: 4),
         Text(
@@ -1755,9 +1854,21 @@ class _StoryCard extends StatelessWidget {
           style: Theme.of(context).textTheme.labelSmall,
         ),
         const SizedBox(height: 4),
-        _InfoLine(label: 'Prompt imagen', value: story.imagePrompt, maxLines: 2),
-        _InfoLine(label: 'Concepto visual', value: story.visualConcept, maxLines: 2),
-        _InfoLine(label: 'Investigación usada', value: usedResearch?.mainFocus ?? '-', maxLines: 1),
+        _InfoLine(
+          label: 'Prompt imagen',
+          value: story.imagePrompt,
+          maxLines: 2,
+        ),
+        _InfoLine(
+          label: 'Concepto visual',
+          value: story.visualConcept,
+          maxLines: 2,
+        ),
+        _InfoLine(
+          label: 'Investigación usada',
+          value: usedResearch?.mainFocus ?? '-',
+          maxLines: 1,
+        ),
         const SizedBox(height: 8),
         Wrap(
           spacing: 6,
@@ -1782,7 +1893,12 @@ class _StoryCard extends StatelessWidget {
                 child: const Text('Cambiar imagen manual'),
               ),
             OutlinedButton.icon(
-              onPressed: () => _openFullscreenPreview(context, story, generatedImage, baseImage),
+              onPressed: () => _openFullscreenPreview(
+                context,
+                story,
+                generatedImage,
+                baseImage,
+              ),
               icon: const Icon(Icons.open_in_full_rounded, size: 18),
               label: const Text('Ver completo'),
             ),
@@ -1813,9 +1929,7 @@ class _StoryCard extends StatelessWidget {
     String generatedImage,
     String baseImage,
   ) {
-    final image = generatedImage.isNotEmpty
-        ? generatedImage
-        : baseImage;
+    final image = generatedImage.isNotEmpty ? generatedImage : baseImage;
     final missing = _missingFields(story);
     final canApprove = missing.isEmpty && !busy;
     Navigator.of(context).push(
@@ -1848,13 +1962,32 @@ class _StoryCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _InfoLine(label: 'Texto largo', value: story.longText, maxLines: 8),
-                _InfoLine(label: 'Prompt', value: story.imagePrompt, maxLines: 4),
-                _InfoLine(label: 'Concepto visual', value: story.visualConcept, maxLines: 4),
-                _InfoLine(label: 'Notas de diseño', value: story.designNotes, maxLines: 4),
-                _InfoLine(label: 'Hashtags', value: story.hashtags.join(' '), maxLines: 3),
-                if (usedResearch != null)
-                  const SizedBox(height: 8),
+                _InfoLine(
+                  label: 'Texto largo',
+                  value: story.longText,
+                  maxLines: 8,
+                ),
+                _InfoLine(
+                  label: 'Prompt',
+                  value: story.imagePrompt,
+                  maxLines: 4,
+                ),
+                _InfoLine(
+                  label: 'Concepto visual',
+                  value: story.visualConcept,
+                  maxLines: 4,
+                ),
+                _InfoLine(
+                  label: 'Notas de diseño',
+                  value: story.designNotes,
+                  maxLines: 4,
+                ),
+                _InfoLine(
+                  label: 'Hashtags',
+                  value: story.hashtags.join(' '),
+                  maxLines: 3,
+                ),
+                if (usedResearch != null) const SizedBox(height: 8),
                 if (usedResearch != null)
                   OutlinedButton.icon(
                     onPressed: () {
@@ -1965,10 +2098,14 @@ class _DebugImageInfo extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+        color: Theme.of(
+          context,
+        ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
         borderRadius: BorderRadius.circular(10),
         border: Border.all(
-          color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.35),
+          color: Theme.of(
+            context,
+          ).colorScheme.outlineVariant.withValues(alpha: 0.35),
         ),
       ),
       child: Column(
@@ -1994,7 +2131,10 @@ class _DebugImageInfo extends StatelessWidget {
           if (error.isNotEmpty)
             SelectableText(
               'error=$error',
-              style: theme.bodySmall?.copyWith(color: const Color(0xFFB91C1C), fontWeight: FontWeight.w700),
+              style: theme.bodySmall?.copyWith(
+                color: const Color(0xFFB91C1C),
+                fontWeight: FontWeight.w700,
+              ),
             ),
         ],
       ),
@@ -2051,13 +2191,7 @@ String _imageActionLabel(MarketingStory story, bool imageBusy) {
 String _storyImageError(MarketingStory story) {
   final metadata = story.imageGenerationMetadata;
   if (metadata.isEmpty) return '';
-  const keys = [
-    'lastError',
-    'reason',
-    'error',
-    'retryReason',
-    'providerError',
-  ];
+  const keys = ['lastError', 'reason', 'error', 'retryReason', 'providerError'];
   for (final key in keys) {
     final raw = '${metadata[key] ?? ''}'.trim();
     if (raw.isNotEmpty) return _compactImageError(raw);
@@ -2071,7 +2205,8 @@ String _compactImageError(String raw) {
       lower.contains('billing hard limit has been reached')) {
     return 'Límite de facturación OpenAI agotado. Configura Stability AI (STABILITY_API_KEY).';
   }
-  if (lower.contains('stability_api_key') || lower.contains('stability ai') ||
+  if (lower.contains('stability_api_key') ||
+      lower.contains('stability ai') ||
       (lower.contains('no hay proveedor') && lower.contains('configurado'))) {
     return 'No hay proveedor de imágenes configurado. Agrega STABILITY_API_KEY o OPENAI_API_KEY.';
   }
@@ -2155,10 +2290,12 @@ class _StoryImageView extends StatelessWidget {
     if (url.startsWith('data:image/') && url.contains(';base64,')) {
       try {
         final payload = url.split(';base64,').last;
-        return Image.memory(
-          base64Decode(payload),
-          fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => const _BrokenImagePlaceholder(),
+        return _StoryImageCanvas(
+          child: Image.memory(
+            base64Decode(payload),
+            fit: BoxFit.contain,
+            errorBuilder: (_, __, ___) => const _BrokenImagePlaceholder(),
+          ),
         );
       } catch (_) {
         return const _BrokenImagePlaceholder();
@@ -2166,14 +2303,38 @@ class _StoryImageView extends StatelessWidget {
     }
 
     if (url.startsWith('http://') || url.startsWith('https://')) {
-      return Image.network(
-        url,
-        fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => const _BrokenImagePlaceholder(),
+      return _StoryImageCanvas(
+        child: Image.network(
+          url,
+          fit: BoxFit.contain,
+          errorBuilder: (_, __, ___) => const _BrokenImagePlaceholder(),
+        ),
       );
     }
 
     return const _BrokenImagePlaceholder();
+  }
+}
+
+class _StoryImageCanvas extends StatelessWidget {
+  const _StoryImageCanvas({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF08111F), Color(0xFF14253F)],
+        ),
+      ),
+      child: Center(
+        child: Padding(padding: const EdgeInsets.all(10), child: child),
+      ),
+    );
   }
 }
 
@@ -2211,7 +2372,10 @@ class _StoryVisualOverlay extends StatelessWidget {
           end: Alignment.bottomCenter,
           colors: [
             const Color(0x08000000),
-            Color.alphaBlend(accent.withValues(alpha: 0.16), const Color(0x66000000)),
+            Color.alphaBlend(
+              accent.withValues(alpha: 0.16),
+              const Color(0x66000000),
+            ),
           ],
         ),
       ),
@@ -2240,7 +2404,10 @@ class _StoryVisualOverlay extends StatelessWidget {
               const SizedBox(width: 6),
               if (fallbackLabel != null)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xCC7C2D12),
                     borderRadius: BorderRadius.circular(999),
@@ -2256,7 +2423,11 @@ class _StoryVisualOverlay extends StatelessWidget {
                 ),
               const Spacer(),
               if (approved)
-                const Icon(Icons.check_circle_rounded, color: Color(0xFF22C55E), size: 24),
+                const Icon(
+                  Icons.check_circle_rounded,
+                  color: Color(0xFF22C55E),
+                  size: 24,
+                ),
             ],
           ),
           const Spacer(),
@@ -2284,7 +2455,10 @@ class _StoryVisualOverlay extends StatelessWidget {
           ),
           SizedBox(height: compact ? 6 : 10),
           Container(
-            padding: EdgeInsets.symmetric(horizontal: compact ? 8 : 12, vertical: compact ? 5 : 7),
+            padding: EdgeInsets.symmetric(
+              horizontal: compact ? 8 : 12,
+              vertical: compact ? 5 : 7,
+            ),
             decoration: BoxDecoration(
               color: const Color(0xFFD7F9E9),
               borderRadius: BorderRadius.circular(999),
@@ -2343,7 +2517,9 @@ class _StoryFullscreenPreview extends StatelessWidget {
                         headline: story.title,
                         subtitle: story.shortText,
                         cta: story.usedCTA,
-                        fallbackLabel: imageUrl.isEmpty ? 'Sin imagen disponible' : null,
+                        fallbackLabel: imageUrl.isEmpty
+                            ? 'Sin imagen disponible'
+                            : null,
                         compact: false,
                         approved: story.status == MarketingStoryStatus.approved,
                       ),
@@ -2369,7 +2545,8 @@ class _StoryFullscreenPreview extends StatelessWidget {
                   if (!canApprove)
                     const Expanded(
                       child: _ErrorBanner(
-                        message: 'Anuncio incompleto: completa imagen final, headline, texto, CTA y prompt antes de aprobar.',
+                        message:
+                            'Anuncio incompleto: completa imagen final, headline, texto, CTA y prompt antes de aprobar.',
                       ),
                     ),
                   if (!canApprove) const SizedBox(width: 10),
@@ -2418,7 +2595,11 @@ class _BrokenImagePlaceholder extends StatelessWidget {
               color: const Color(0x2200B4D8),
               borderRadius: BorderRadius.circular(999),
             ),
-            child: const Icon(Icons.auto_awesome_rounded, color: Color(0x9900B4D8), size: 36),
+            child: const Icon(
+              Icons.auto_awesome_rounded,
+              color: Color(0x9900B4D8),
+              size: 36,
+            ),
           ),
           const SizedBox(height: 12),
           const Text(
@@ -2432,10 +2613,7 @@ class _BrokenImagePlaceholder extends StatelessWidget {
           const SizedBox(height: 4),
           const Text(
             'Genera imagen para activar',
-            style: TextStyle(
-              color: Color(0xFF475569),
-              fontSize: 11,
-            ),
+            style: TextStyle(color: Color(0xFF475569), fontSize: 11),
           ),
         ],
       ),
@@ -2444,7 +2622,11 @@ class _BrokenImagePlaceholder extends StatelessWidget {
 }
 
 class _InfoLine extends StatelessWidget {
-  const _InfoLine({required this.label, required this.value, this.maxLines = 2});
+  const _InfoLine({
+    required this.label,
+    required this.value,
+    this.maxLines = 2,
+  });
 
   final String label;
   final String value;
@@ -2503,9 +2685,9 @@ class _ResearchSummaryTab extends StatelessWidget {
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: Theme.of(context).colorScheme.outlineVariant.withValues(
-            alpha: 0.35,
-          ),
+          color: Theme.of(
+            context,
+          ).colorScheme.outlineVariant.withValues(alpha: 0.35),
         ),
       ),
       child: Column(
@@ -2516,9 +2698,9 @@ class _ResearchSummaryTab extends StatelessWidget {
               Expanded(
                 child: Text(
                   'Investigación automática completa',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
               OutlinedButton.icon(
@@ -2527,9 +2709,8 @@ class _ResearchSummaryTab extends StatelessWidget {
                     : () {
                         showDialog<void>(
                           context: context,
-                          builder: (_) => _ResearchHistoryDialog(
-                            items: researchHistory,
-                          ),
+                          builder: (_) =>
+                              _ResearchHistoryDialog(items: researchHistory),
                         );
                       },
                 icon: const Icon(Icons.history_rounded),
@@ -2543,13 +2724,25 @@ class _ResearchSummaryTab extends StatelessWidget {
             runSpacing: 8,
             children: [
               _MetaChip(label: 'Estado', value: research.status),
-              _MetaChip(label: 'Fecha investigación', value: _formatDate(research.date)),
-              _MetaChip(label: 'Fuente usada', value: research.dataSources.isEmpty ? '-' : research.dataSources.join(', ')),
+              _MetaChip(
+                label: 'Fecha investigación',
+                value: _formatDate(research.date),
+              ),
+              _MetaChip(
+                label: 'Fuente usada',
+                value: research.dataSources.isEmpty
+                    ? '-'
+                    : research.dataSources.join(', '),
+              ),
               _MetaChip(
                 label: 'Confianza',
-                value: '${(research.confidenceScore * 100).toStringAsFixed(0)}%',
+                value:
+                    '${(research.confidenceScore * 100).toStringAsFixed(0)}%',
               ),
-              _MetaChip(label: 'Tema investigado', value: research.mainFocus.isEmpty ? '-' : research.mainFocus),
+              _MetaChip(
+                label: 'Tema investigado',
+                value: research.mainFocus.isEmpty ? '-' : research.mainFocus,
+              ),
               _MetaChip(
                 label: 'Frecuencia',
                 value: 'Cada ${dashboard?.researchFrequencyDays ?? 2} días',
@@ -2569,12 +2762,18 @@ class _ResearchSummaryTab extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          _ResearchField(label: 'Resumen del mercado', value: research.marketSummary),
+          _ResearchField(
+            label: 'Resumen del mercado',
+            value: research.marketSummary,
+          ),
           _ResearchField(
             label: 'Patrones de competidores',
             value: research.competitorPublishingPatterns,
           ),
-          _ResearchField(label: 'Ofertas comunes', value: research.commonOffers),
+          _ResearchField(
+            label: 'Ofertas comunes',
+            value: research.commonOffers,
+          ),
           _ResearchField(
             label: 'Rangos de precios observados',
             value: research.observedPriceRanges,
@@ -2591,8 +2790,14 @@ class _ResearchSummaryTab extends StatelessWidget {
             label: 'Recomendaciones de contenido',
             value: research.recommendedContentTypes.join(' | '),
           ),
-          _ResearchField(label: 'Qué repetir', value: research.doMoreOfThis.join(' | ')),
-          _ResearchField(label: 'Qué evitar', value: research.avoidThis.join(' | ')),
+          _ResearchField(
+            label: 'Qué repetir',
+            value: research.doMoreOfThis.join(' | '),
+          ),
+          _ResearchField(
+            label: 'Qué evitar',
+            value: research.avoidThis.join(' | '),
+          ),
           const SizedBox(height: 10),
           Wrap(
             spacing: 8,
@@ -2615,9 +2820,9 @@ class _ResearchSummaryTab extends StatelessWidget {
           const SizedBox(height: 12),
           Text(
             'Memorias/aprendizajes activos',
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w700,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 8),
           if (learningStats == null || learningStats!.topInsights.isEmpty)
@@ -2699,7 +2904,11 @@ class _ResearchHistoryDialog extends StatelessWidget {
           itemBuilder: (_, index) {
             final item = items[index];
             return ListTile(
-              title: Text(item.mainFocus.isEmpty ? 'Investigación sin tema' : item.mainFocus),
+              title: Text(
+                item.mainFocus.isEmpty
+                    ? 'Investigación sin tema'
+                    : item.mainFocus,
+              ),
               subtitle: Text(
                 '${_formatDate(item.date)} · ${item.status} · ${(item.confidenceScore * 100).toStringAsFixed(0)}%',
               ),
@@ -2739,23 +2948,72 @@ class _ResearchDetailDialog extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _ResearchField(label: 'Fecha', value: _formatDateTime(research.createdAt ?? research.date)),
+              _ResearchField(
+                label: 'Fecha',
+                value: _formatDateTime(research.createdAt ?? research.date),
+              ),
               _ResearchField(label: 'Estado', value: research.status),
-              _ResearchField(label: 'Nivel de confianza', value: '${(research.confidenceScore * 100).toStringAsFixed(0)}%'),
-              _ResearchField(label: 'Tema investigado', value: research.mainFocus),
-              _ResearchField(label: 'Prompt usado', value: research.researchPrompt),
-              _ResearchField(label: 'Resumen del mercado', value: research.marketSummary),
-              _ResearchField(label: 'Patrones de competidores', value: research.competitorPublishingPatterns),
-              _ResearchField(label: 'Ofertas comunes', value: research.commonOffers),
-              _ResearchField(label: 'Rangos de precios observados', value: research.observedPriceRanges),
-              _ResearchField(label: 'Ángulos fuertes', value: research.strongAngles.join(' | ')),
-              _ResearchField(label: 'Ángulos débiles', value: research.weakAngles.join(' | ')),
-              _ResearchField(label: 'Oportunidades para FULLTECH', value: research.contentOpportunities),
-              _ResearchField(label: 'Recomendaciones de contenido', value: research.recommendedContentTypes.join(' | ')),
-              _ResearchField(label: 'Recomendaciones para estados', value: research.recommendedHooks.join(' | ')),
-              _ResearchField(label: 'Qué repetir', value: research.doMoreOfThis.join(' | ')),
-              _ResearchField(label: 'Qué evitar', value: research.avoidThis.join(' | ')),
-              _ResearchField(label: 'Fuentes usadas', value: research.dataSources.join(' | ')),
+              _ResearchField(
+                label: 'Nivel de confianza',
+                value:
+                    '${(research.confidenceScore * 100).toStringAsFixed(0)}%',
+              ),
+              _ResearchField(
+                label: 'Tema investigado',
+                value: research.mainFocus,
+              ),
+              _ResearchField(
+                label: 'Prompt usado',
+                value: research.researchPrompt,
+              ),
+              _ResearchField(
+                label: 'Resumen del mercado',
+                value: research.marketSummary,
+              ),
+              _ResearchField(
+                label: 'Patrones de competidores',
+                value: research.competitorPublishingPatterns,
+              ),
+              _ResearchField(
+                label: 'Ofertas comunes',
+                value: research.commonOffers,
+              ),
+              _ResearchField(
+                label: 'Rangos de precios observados',
+                value: research.observedPriceRanges,
+              ),
+              _ResearchField(
+                label: 'Ángulos fuertes',
+                value: research.strongAngles.join(' | '),
+              ),
+              _ResearchField(
+                label: 'Ángulos débiles',
+                value: research.weakAngles.join(' | '),
+              ),
+              _ResearchField(
+                label: 'Oportunidades para FULLTECH',
+                value: research.contentOpportunities,
+              ),
+              _ResearchField(
+                label: 'Recomendaciones de contenido',
+                value: research.recommendedContentTypes.join(' | '),
+              ),
+              _ResearchField(
+                label: 'Recomendaciones para estados',
+                value: research.recommendedHooks.join(' | '),
+              ),
+              _ResearchField(
+                label: 'Qué repetir',
+                value: research.doMoreOfThis.join(' | '),
+              ),
+              _ResearchField(
+                label: 'Qué evitar',
+                value: research.avoidThis.join(' | '),
+              ),
+              _ResearchField(
+                label: 'Fuentes usadas',
+                value: research.dataSources.join(' | '),
+              ),
             ],
           ),
         ),
@@ -2822,31 +3080,40 @@ class _GalleryTabState extends State<_GalleryTab> {
   Widget build(BuildContext context) {
     final categoryFiltered = _filterCategory == 'Todos'
         ? widget.assets
-        : widget.assets.where((item) => item.category == _filterCategory).toList(growable: false);
+        : widget.assets
+              .where((item) => item.category == _filterCategory)
+              .toList(growable: false);
 
-    final visible = categoryFiltered.where((item) {
-      if (_segment == 'ALL') return true;
-      if (_segment == 'ACTIVE') return item.isActive;
-      if (_segment == 'INACTIVE') return !item.isActive;
-      if (_segment == 'FEATURED') return item.isFeatured;
-      if (_segment == 'GENERATED') return _isGenerated(item);
-      if (_segment == 'MANUAL') return !_isGenerated(item);
-      if (_segment == 'SELECTED_MANUAL') return !_isGenerated(item) && item.useCount > 0;
-      return true;
-    }).toList(growable: false);
+    final visible = categoryFiltered
+        .where((item) {
+          if (_segment == 'ALL') return true;
+          if (_segment == 'ACTIVE') return item.isActive;
+          if (_segment == 'INACTIVE') return !item.isActive;
+          if (_segment == 'FEATURED') return item.isFeatured;
+          if (_segment == 'GENERATED') return _isGenerated(item);
+          if (_segment == 'MANUAL') return !_isGenerated(item);
+          if (_segment == 'SELECTED_MANUAL')
+            return !_isGenerated(item) && item.useCount > 0;
+          return true;
+        })
+        .toList(growable: false);
 
     final published = widget.publishedAssets;
     final total = widget.assets.length;
     final active = widget.assets.where((item) => item.isActive).length;
     final generated = widget.assets.where(_isGenerated).length;
-    final withoutImage = widget.assets.where((item) => _resolveAssetPreviewUrl(item).isEmpty).length;
+    final withoutImage = widget.assets
+        .where((item) => _resolveAssetPreviewUrl(item).isEmpty)
+        .length;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         LayoutBuilder(
           builder: (context, constraints) {
-            final dropdownWidth = constraints.maxWidth < 480 ? constraints.maxWidth : 280.0;
+            final dropdownWidth = constraints.maxWidth < 480
+                ? constraints.maxWidth
+                : 280.0;
             return Wrap(
               spacing: 8,
               runSpacing: 8,
@@ -2860,12 +3127,21 @@ class _GalleryTabState extends State<_GalleryTab> {
                     decoration: const InputDecoration(
                       labelText: 'Categoría',
                       isDense: true,
-                      contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 10,
+                      ),
                     ),
                     items: ['Todos', ..._categories]
-                        .map((e) => DropdownMenuItem(value: e, child: Text(e, overflow: TextOverflow.ellipsis)))
+                        .map(
+                          (e) => DropdownMenuItem(
+                            value: e,
+                            child: Text(e, overflow: TextOverflow.ellipsis),
+                          ),
+                        )
                         .toList(growable: false),
-                    onChanged: (v) => setState(() => _filterCategory = v ?? 'Todos'),
+                    onChanged: (v) =>
+                        setState(() => _filterCategory = v ?? 'Todos'),
                   ),
                 ),
                 _MetaChip(label: 'Disponibles', value: '${visible.length}'),
@@ -2895,7 +3171,9 @@ class _GalleryTabState extends State<_GalleryTab> {
         const SizedBox(height: 10),
         Text(
           'Imágenes disponibles para publicidad',
-          style: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
+          style: Theme.of(
+            context,
+          ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: 8),
         if (visible.isEmpty)
@@ -2935,21 +3213,22 @@ class _GalleryTabState extends State<_GalleryTab> {
         const SizedBox(height: 14),
         Text(
           'Imágenes publicadas',
-          style: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
+          style: Theme.of(
+            context,
+          ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: 8),
         if (published.isEmpty)
-          const _EmptyState(text: 'Aún no hay anuncios aprobados para publicar en esta lista.')
+          const _EmptyState(
+            text: 'Aún no hay anuncios aprobados para publicar en esta lista.',
+          )
         else
           Wrap(
             spacing: 8,
             runSpacing: 8,
             children: [
               for (final item in published)
-                SizedBox(
-                  width: 280,
-                  child: _PublishedAssetCard(item: item),
-                ),
+                SizedBox(width: 280, child: _PublishedAssetCard(item: item)),
             ],
           ),
       ],
@@ -2964,7 +3243,13 @@ class _GalleryTabState extends State<_GalleryTab> {
     final tags = asset.tags.map((item) => item.toLowerCase());
     return url.contains('/marketing/generated/') ||
         name.startsWith('ai-') ||
-        tags.any((item) => item == 'ia' || item == 'ai' || item == 'generada' || item == 'generated');
+        tags.any(
+          (item) =>
+              item == 'ia' ||
+              item == 'ai' ||
+              item == 'generada' ||
+              item == 'generated',
+        );
   }
 
   String _resolveAssetPreviewUrl(MarketingMediaAsset asset) {
@@ -2997,7 +3282,9 @@ class _PublishedAssetCard extends StatelessWidget {
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.35),
+          color: Theme.of(
+            context,
+          ).colorScheme.outlineVariant.withValues(alpha: 0.35),
         ),
       ),
       child: Column(
@@ -3012,7 +3299,8 @@ class _PublishedAssetCard extends StatelessWidget {
                   : Image.network(
                       imageUrl,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => const _BrokenImagePlaceholder(),
+                      errorBuilder: (_, __, ___) =>
+                          const _BrokenImagePlaceholder(),
                     ),
             ),
           ),
@@ -3021,17 +3309,28 @@ class _PublishedAssetCard extends StatelessWidget {
             item.headline,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w700),
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 6),
           Wrap(
             spacing: 6,
             runSpacing: 6,
             children: [
-              _MetaChip(label: 'Tipo', value: _storyTypeLabelFromCode(item.storyType)),
+              _MetaChip(
+                label: 'Tipo',
+                value: _storyTypeLabelFromCode(item.storyType),
+              ),
               _MetaChip(label: 'Estado', value: item.status),
-              _MetaChip(label: 'Aprobado', value: _formatDateTime(item.approvedAt)),
-              _MetaChip(label: 'CTA', value: item.cta.trim().isEmpty ? '-' : item.cta.trim()),
+              _MetaChip(
+                label: 'Aprobado',
+                value: _formatDateTime(item.approvedAt),
+              ),
+              _MetaChip(
+                label: 'CTA',
+                value: item.cta.trim().isEmpty ? '-' : item.cta.trim(),
+              ),
             ],
           ),
           const SizedBox(height: 8),
@@ -3088,11 +3387,15 @@ class _PublishedAssetCard extends StatelessWidget {
                     : Image.network(
                         _resolveImageUrl(item),
                         fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => const _BrokenImagePlaceholder(),
+                        errorBuilder: (_, __, ___) =>
+                            const _BrokenImagePlaceholder(),
                       ),
               ),
               const SizedBox(height: 10),
-              Text(item.headline, style: const TextStyle(fontWeight: FontWeight.w700)),
+              Text(
+                item.headline,
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
               const SizedBox(height: 6),
               Text(item.shortText),
               const SizedBox(height: 6),
@@ -3140,7 +3443,9 @@ class _GalleryAssetCard extends StatelessWidget {
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.35),
+          color: Theme.of(
+            context,
+          ).colorScheme.outlineVariant.withValues(alpha: 0.35),
         ),
       ),
       child: Column(
@@ -3155,7 +3460,8 @@ class _GalleryAssetCard extends StatelessWidget {
                   : Image.network(
                       previewUrl,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => const _BrokenImagePlaceholder(),
+                      errorBuilder: (_, __, ___) =>
+                          const _BrokenImagePlaceholder(),
                     ),
             ),
           ),
@@ -3164,7 +3470,9 @@ class _GalleryAssetCard extends StatelessWidget {
             asset.fileName,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w700),
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 6),
           Wrap(
@@ -3172,15 +3480,26 @@ class _GalleryAssetCard extends StatelessWidget {
             runSpacing: 6,
             children: [
               _MetaChip(label: 'Categoría', value: asset.category),
-              _MetaChip(label: 'Estado', value: asset.isActive ? 'Activa' : 'Inactiva'),
-              _MetaChip(label: 'Origen', value: (asset.sourceType ?? 'MANUAL_UPLOAD') == 'GENERATED_AI' ? 'IA' : 'Manual'),
+              _MetaChip(
+                label: 'Estado',
+                value: asset.isActive ? 'Activa' : 'Inactiva',
+              ),
+              _MetaChip(
+                label: 'Origen',
+                value: (asset.sourceType ?? 'MANUAL_UPLOAD') == 'GENERATED_AI'
+                    ? 'IA'
+                    : 'Manual',
+              ),
               _MetaChip(label: 'Servicio', value: asset.relatedService ?? '-'),
               _MetaChip(
                 label: 'Tags',
                 value: asset.tags.isEmpty ? '-' : asset.tags.join(', '),
               ),
               _MetaChip(label: 'Uso', value: '${asset.useCount}'),
-              _MetaChip(label: 'Último uso', value: _formatDateTime(asset.lastUsedAt)),
+              _MetaChip(
+                label: 'Último uso',
+                value: _formatDateTime(asset.lastUsedAt),
+              ),
               _MetaChip(
                 label: 'Usada en anuncio',
                 value: asset.latestStoryTitle ?? '-',
@@ -3221,11 +3540,13 @@ class _GalleryAssetCard extends StatelessWidget {
                             ),
                             actions: [
                               TextButton(
-                                onPressed: () => Navigator.of(context).pop(false),
+                                onPressed: () =>
+                                    Navigator.of(context).pop(false),
                                 child: const Text('Cancelar'),
                               ),
                               FilledButton(
-                                onPressed: () => Navigator.of(context).pop(true),
+                                onPressed: () =>
+                                    Navigator.of(context).pop(true),
                                 child: const Text('Eliminar'),
                               ),
                             ],
@@ -3278,7 +3599,9 @@ class _EditAssetMetaDialogState extends State<_EditAssetMetaDialog> {
   void initState() {
     super.initState();
     _category = TextEditingController(text: widget.asset.category);
-    _relatedService = TextEditingController(text: widget.asset.relatedService ?? '');
+    _relatedService = TextEditingController(
+      text: widget.asset.relatedService ?? '',
+    );
     _tags = TextEditingController(text: widget.asset.tags.join(', '));
     _description = TextEditingController(text: widget.asset.description ?? '');
   }
@@ -3301,11 +3624,24 @@ class _EditAssetMetaDialogState extends State<_EditAssetMetaDialog> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            TextField(controller: _category, decoration: const InputDecoration(labelText: 'Categoría')),
+            TextField(
+              controller: _category,
+              decoration: const InputDecoration(labelText: 'Categoría'),
+            ),
             const SizedBox(height: 8),
-            TextField(controller: _relatedService, decoration: const InputDecoration(labelText: 'Servicio relacionado')),
+            TextField(
+              controller: _relatedService,
+              decoration: const InputDecoration(
+                labelText: 'Servicio relacionado',
+              ),
+            ),
             const SizedBox(height: 8),
-            TextField(controller: _tags, decoration: const InputDecoration(labelText: 'Tags (coma separada)')),
+            TextField(
+              controller: _tags,
+              decoration: const InputDecoration(
+                labelText: 'Tags (coma separada)',
+              ),
+            ),
             const SizedBox(height: 8),
             TextField(
               controller: _description,
@@ -3361,7 +3697,9 @@ class _PickMediaAssetDialog extends StatelessWidget {
                     selected: item.id == selectedId,
                     title: Text(item.fileName),
                     subtitle: Text('${item.category} · uso ${item.useCount}'),
-                    trailing: item.isFeatured ? const Icon(Icons.star_rounded) : null,
+                    trailing: item.isFeatured
+                        ? const Icon(Icons.star_rounded)
+                        : null,
                     onTap: () => Navigator.of(context).pop(item.id),
                   );
                 },
@@ -3959,7 +4297,10 @@ String _resolveBaseImageUrl(MarketingStory story) {
     return _appendCacheVersion(assetThumb, story.updatedAt ?? story.date);
   }
 
-  return _appendCacheVersion(_safeImageUrl(story.imageUrl), story.updatedAt ?? story.date);
+  return _appendCacheVersion(
+    _safeImageUrl(story.imageUrl),
+    story.updatedAt ?? story.date,
+  );
 }
 
 String _appendCacheVersion(String url, DateTime? versionDate) {

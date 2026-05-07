@@ -145,7 +145,7 @@ export class MarketingImageGenerationService {
 
     if (baseImageUrl.startsWith('http://') || baseImageUrl.startsWith('https://')) {
       // Image-guided generation using product image as structure reference
-      const imageResponse = await fetch(baseImageUrl);
+      const imageResponse = await this.fetchWithTimeout(baseImageUrl, undefined, 25000);
       if (!imageResponse.ok) {
         throw new Error(`Cannot download base image for Stability AI: HTTP ${imageResponse.status}`);
       }
@@ -158,14 +158,14 @@ export class MarketingImageGenerationService {
       formData.append('output_format', 'jpeg');
       formData.append('image', new Blob([imageBuffer], { type: 'image/jpeg' }), 'product.jpg');
 
-      response = await fetch('https://api.stability.ai/v2beta/stable-image/control/structure', {
+      response = await this.fetchWithTimeout('https://api.stability.ai/v2beta/stable-image/control/structure', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${stabilityKey}`,
           Accept: 'application/json',
         },
         body: formData,
-      });
+      }, 45000);
       mode = 'stability-structure';
     } else {
       // Pure text-to-image
@@ -174,14 +174,14 @@ export class MarketingImageGenerationService {
       formData.append('aspect_ratio', '9:16');
       formData.append('output_format', 'jpeg');
 
-      response = await fetch('https://api.stability.ai/v2beta/stable-image/generate/ultra', {
+      response = await this.fetchWithTimeout('https://api.stability.ai/v2beta/stable-image/generate/ultra', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${stabilityKey}`,
           Accept: 'application/json',
         },
         body: formData,
-      });
+      }, 45000);
       mode = 'stability-ultra';
     }
 
@@ -307,7 +307,7 @@ export class MarketingImageGenerationService {
       return null;
     }
 
-    const baseResponse = await fetch(baseImageUrl);
+    const baseResponse = await this.fetchWithTimeout(baseImageUrl, undefined, 25000);
     if (!baseResponse.ok) {
       throw new Error(`Cannot download base image: HTTP ${baseResponse.status}`);
     }
@@ -331,13 +331,13 @@ export class MarketingImageGenerationService {
     formData.append('quality', 'high');
     formData.append('image', new Blob([baseBuffer], { type: baseContentType }), `base.${baseExt}`);
 
-    const response = await fetch('https://api.openai.com/v1/images/edits', {
+    const response = await this.fetchWithTimeout('https://api.openai.com/v1/images/edits', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
       },
       body: formData,
-    });
+    }, 45000);
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
@@ -393,7 +393,7 @@ export class MarketingImageGenerationService {
   ): Promise<ImageGenerationResult | null> {
     const dallePrompt = this.buildDallE3Prompt(input, storyType);
 
-    const response = await fetch('https://api.openai.com/v1/images/generations', {
+    const response = await this.fetchWithTimeout('https://api.openai.com/v1/images/generations', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -408,7 +408,7 @@ export class MarketingImageGenerationService {
         style: 'natural',
         response_format: 'url',
       }),
-    });
+    }, 45000);
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
@@ -453,7 +453,7 @@ export class MarketingImageGenerationService {
   }
 
   private async downloadAsDataUrl(imageUrl: string): Promise<string> {
-    const imageResponse = await fetch(imageUrl);
+    const imageResponse = await this.fetchWithTimeout(imageUrl, undefined, 25000);
     if (!imageResponse.ok) {
       throw new Error(`Failed to download generated image: HTTP ${imageResponse.status}`);
     }
@@ -465,6 +465,24 @@ export class MarketingImageGenerationService {
 
   private buildDataUrl(imageBuffer: Buffer, contentType: string) {
     return `data:${contentType};base64,${imageBuffer.toString('base64')}`;
+  }
+
+  private async fetchWithTimeout(url: string, init?: RequestInit, timeoutMs = 30000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, {
+        ...init,
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if ((error as { name?: string })?.name === 'AbortError') {
+        throw new Error(`Request timeout after ${timeoutMs}ms`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   private normalizeContentType(raw: string) {
