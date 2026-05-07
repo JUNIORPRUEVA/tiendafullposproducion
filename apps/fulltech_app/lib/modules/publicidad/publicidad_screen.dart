@@ -11,6 +11,7 @@ import '../../core/api/env.dart';
 import '../../core/utils/safe_url_launcher.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
+import '../../features/media_gallery/presentation/galeria_publicidad_screen.dart';
 import 'marketing_api.dart';
 import 'marketing_models.dart';
 
@@ -929,7 +930,18 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
                   tab: _tab,
                   busy: state.busy,
                   onPickDate: (value) => controller.changeDate(value),
-                  onTabChanged: (value) => setState(() => _tab = value),
+                  onTabChanged: (value) {
+                    if (value == _PublicidadTab.galeria) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const GaleriaPublicidadScreen(),
+                        ),
+                      );
+                    } else {
+                      setState(() => _tab = value);
+                    }
+                  },
                   onRefresh: controller.refresh,
                 ),
               ),
@@ -1128,7 +1140,7 @@ class _TopToolbar extends StatelessWidget {
                         ButtonSegment(
                           value: _PublicidadTab.galeria,
                           label: Text(
-                            'Galería Publicitaria',
+                            'Galería de Publicidad',
                             style: TextStyle(fontSize: 12),
                           ),
                         ),

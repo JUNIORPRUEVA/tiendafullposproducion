@@ -341,19 +341,23 @@ export class MarketingGenerationService {
       });
     }
 
-    await this.prisma.marketingActivityLog.create({
-      data: {
-        companyId,
-        action: 'MARKETING_STORY_REGENERATED',
-        description: `Se regenero el contenido ${story.id} y la imagen quedo en cola`,
-        userId,
-        metadata: {
-          storyId: story.id,
-          type: story.type,
-          generationAttempt: updated.generationAttempt,
+    try {
+      await this.prisma.marketingActivityLog.create({
+        data: {
+          companyId,
+          action: 'MARKETING_STORY_REGENERATED',
+          description: `Se regenero el contenido ${story.id} y la imagen quedo en cola`,
+          userId,
+          metadata: {
+            storyId: story.id,
+            type: story.type,
+            generationAttempt: updated.generationAttempt,
+          },
         },
-      },
-    });
+      });
+    } catch (err) {
+      this.logger.warn(`[marketing] activity-log (STORY_REGENERATED) skipped: ${err instanceof Error ? err.message : String(err)}`);
+    }
 
     return updated;
   }
@@ -384,14 +388,10 @@ export class MarketingGenerationService {
         },
       });
     } catch (error) {
-      const code = (error as { code?: string })?.code;
-      if (code === 'P2003' || code === 'P2023') {
-        this.logger.warn(
-          `[marketing-image] activity-log skipped for story ${storyId}: userId invalido (${userId})`,
-        );
-      } else {
-        throw error;
-      }
+      // Activity log is non-critical — never fail story generation because of it
+      this.logger.warn(
+        `[marketing-image] activity-log skipped for story ${storyId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
 
     return updated;
@@ -612,11 +612,10 @@ export class MarketingGenerationService {
           },
         });
       } catch (error) {
-        const code = (error as { code?: string })?.code;
-        if (code !== 'P2003' && code !== 'P2023') {
-          throw error;
-        }
-        this.logger.warn(`[marketing-image] activity-log skipped for story ${storyId}: userId invalido (${userId})`);
+        // Activity log is non-critical — never fail the story generation because of it
+        this.logger.warn(
+          `[marketing-image] activity-log skipped for story ${storyId}: ${error instanceof Error ? error.message : String(error)}`,
+        );
       }
       return updated;
     });
