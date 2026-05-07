@@ -19,6 +19,15 @@ type ComposeCreativeResult = {
   layout: string;
 };
 
+type OverlayMetrics = {
+  titleSize: number;
+  titleLineHeight: number;
+  bodySize: number;
+  bodyLineHeight: number;
+  ctaFontSize: number;
+  offerHeight: number;
+};
+
 type CreativeLayout = {
   name: string;
   hero: { left: number; top: number; width: number; height: number };
@@ -81,6 +90,18 @@ export class MarketingCreativeComposerService {
       layers.push({ input: hero.image, left: layout.hero.left, top: layout.hero.top });
     }
 
+    const titleLines = this.wrapText(this.clean(input.title), layout.titleCharsPerLine, 3);
+    const bodyLines = this.wrapText(this.clean(input.shortText), layout.bodyCharsPerLine, 3);
+    const cta = this.clean(input.cta) || 'Escribenos por WhatsApp';
+    const offerLines = this.wrapText(this.clean(input.offer || input.serviceOrProduct || ''), 26, 2);
+    const metrics = this.resolveOverlayMetrics({
+      layout,
+      titleLines,
+      bodyLines,
+      offerLines,
+      cta,
+    });
+
     const overlay = Buffer.from(
       this.buildOverlaySvg({
         width,
@@ -88,10 +109,11 @@ export class MarketingCreativeComposerService {
         colors,
         layout,
         storyType: input.storyType,
-        title: this.wrapText(this.clean(input.title), layout.titleCharsPerLine, 3),
-        shortText: this.wrapText(this.clean(input.shortText), layout.bodyCharsPerLine, 3),
-        cta: this.clean(input.cta) || 'Escribenos por WhatsApp',
-        offer: this.wrapText(this.clean(input.offer || input.serviceOrProduct || ''), 26, 2),
+        title: titleLines,
+        shortText: bodyLines,
+        cta,
+        offer: offerLines,
+        metrics,
       }),
       'utf-8',
     );
@@ -200,13 +222,14 @@ export class MarketingCreativeComposerService {
     shortText: string[];
     cta: string;
     offer: string[];
+    metrics: OverlayMetrics;
   }) {
     const badge = input.storyType === 'SALES' ? 'OFERTA PREMIUM' : input.storyType === 'TRUST' ? 'RESPALDO FULLTECH' : 'TIP UTIL';
     const titleLines = input.title
-      .map((line, index) => `<tspan x="${input.layout.textLeft}" dy="${index === 0 ? 0 : input.layout.titleLineHeight}">${this.escapeXml(line)}</tspan>`)
+      .map((line, index) => `<tspan x="${input.layout.textLeft}" dy="${index === 0 ? 0 : input.metrics.titleLineHeight}">${this.escapeXml(line)}</tspan>`)
       .join('');
     const bodyLines = input.shortText
-      .map((line, index) => `<tspan x="${input.layout.textLeft}" dy="${index === 0 ? 0 : input.layout.bodyLineHeight}">${this.escapeXml(line)}</tspan>`)
+      .map((line, index) => `<tspan x="${input.layout.textLeft}" dy="${index === 0 ? 0 : input.metrics.bodyLineHeight}">${this.escapeXml(line)}</tspan>`)
       .join('');
     const offerLines = input.offer
       .map((line, index) => `<tspan x="${input.layout.offerLeft}" dy="${index === 0 ? 0 : 28}">${this.escapeXml(line)}</tspan>`)
@@ -224,13 +247,46 @@ export class MarketingCreativeComposerService {
       <text x="${input.layout.brandLeft + 85}" y="${input.layout.brandTop + 28}" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="800" fill="${input.colors.navy}">FULLTECH</text>
       <rect x="${input.layout.badgeLeft}" y="${input.layout.badgeTop}" width="220" height="40" rx="20" fill="${input.colors.cyan}" fill-opacity="0.22" stroke="${input.colors.cyan}" stroke-opacity="0.44"/>
       <text x="${input.layout.badgeLeft + 110}" y="${input.layout.badgeTop + 26}" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="17" font-weight="700" fill="#EAFBFF">${this.escapeXml(badge)}</text>
-      <text x="${input.layout.textLeft}" y="${input.layout.titleTop}" font-family="Segoe UI, Arial, sans-serif" font-size="${input.layout.titleSize}" font-weight="800" fill="#FFFFFF">${titleLines}</text>
-      <text x="${input.layout.textLeft}" y="${input.layout.bodyTop}" font-family="Segoe UI, Arial, sans-serif" font-size="${input.layout.bodySize}" font-weight="500" fill="#DCE8F4">${bodyLines}</text>
+      <text x="${input.layout.textLeft}" y="${input.layout.titleTop}" font-family="Segoe UI, Arial, sans-serif" font-size="${input.metrics.titleSize}" font-weight="800" fill="#FFFFFF">${titleLines}</text>
+      <text x="${input.layout.textLeft}" y="${input.layout.bodyTop}" font-family="Segoe UI, Arial, sans-serif" font-size="${input.metrics.bodySize}" font-weight="500" fill="#DCE8F4">${bodyLines}</text>
       <rect x="${input.layout.ctaLeft}" y="${input.layout.ctaTop}" width="${input.layout.ctaWidth}" height="70" rx="35" fill="#D8FFF0"/>
-      <text x="${input.layout.ctaLeft + input.layout.ctaWidth / 2}" y="${input.layout.ctaTop + 44}" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="26" font-weight="800" fill="#0E5A40">${this.escapeXml(this.truncate(input.cta, 26))}</text>
-      ${input.offer.length > 0 ? `<rect x="${input.layout.offerLeft - 18}" y="${input.layout.offerTop - 28}" width="${input.layout.offerWidth}" height="${input.offer.length > 1 ? 88 : 58}" rx="24" fill="rgba(255,255,255,0.08)"/>
+      <text x="${input.layout.ctaLeft + input.layout.ctaWidth / 2}" y="${input.layout.ctaTop + 44}" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="${input.metrics.ctaFontSize}" font-weight="800" fill="#0E5A40">${this.escapeXml(this.truncate(input.cta, 30))}</text>
+      ${input.offer.length > 0 ? `<rect x="${input.layout.offerLeft - 18}" y="${input.layout.offerTop - 28}" width="${input.layout.offerWidth}" height="${input.metrics.offerHeight}" rx="24" fill="rgba(255,255,255,0.08)"/>
       <text x="${input.layout.offerLeft}" y="${input.layout.offerTop}" font-family="Segoe UI, Arial, sans-serif" font-size="24" font-weight="700" fill="#F3F8FD">${offerLines}</text>` : ''}
     </svg>`;
+  }
+
+  private resolveOverlayMetrics(input: {
+    layout: CreativeLayout;
+    titleLines: string[];
+    bodyLines: string[];
+    offerLines: string[];
+    cta: string;
+  }): OverlayMetrics {
+    const longestTitle = input.titleLines.reduce(
+      (max, line) => line.length > max ? line.length : max,
+      0,
+    );
+    const longestBody = input.bodyLines.reduce(
+      (max, line) => line.length > max ? line.length : max,
+      0,
+    );
+
+    const titleReduction =
+        (input.titleLines.length >= 3 ? 8 : input.titleLines.length == 2 ? 4 : 0) +
+        (longestTitle > Math.max(12, input.layout.titleCharsPerLine - 2) ? 2 : 0);
+    const bodyReduction =
+        (input.bodyLines.length >= 3 ? 4 : input.bodyLines.length == 2 ? 2 : 0) +
+        (longestBody > Math.max(20, input.layout.bodyCharsPerLine - 2) ? 1 : 0);
+
+    return {
+      titleSize: Math.max(58, input.layout.titleSize - titleReduction),
+      titleLineHeight: Math.max(68, input.layout.titleLineHeight - titleReduction),
+      bodySize: Math.max(26, input.layout.bodySize - bodyReduction),
+      bodyLineHeight: Math.max(36, input.layout.bodyLineHeight - bodyReduction),
+      ctaFontSize: input.cta.length > 28 ? 22 : input.cta.length > 22 ? 24 : 26,
+      offerHeight: input.offerLines.length > 1 ? 96 : input.offerLines.length === 0 ? 0 : 62,
+    };
   }
 
   private layoutForType(type: 'SALES' | 'TRUST' | 'EDUCATIONAL'): CreativeLayout {

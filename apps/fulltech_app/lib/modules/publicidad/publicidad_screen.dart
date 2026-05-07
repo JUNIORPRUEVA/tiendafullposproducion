@@ -7,11 +7,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/auth/app_permissions.dart';
 import '../../core/auth/auth_provider.dart';
 import '../../core/errors/api_exception.dart';
+import '../../core/models/product_model.dart';
 import '../../core/api/env.dart';
 import '../../core/utils/safe_url_launcher.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
-import '../../features/media_gallery/presentation/galeria_publicidad_screen.dart';
+import '../../features/catalogo/data/catalog_repository.dart';
 import 'marketing_api.dart';
 import 'marketing_models.dart';
 
@@ -22,6 +23,24 @@ enum _PublicidadTab {
   estados,
   historial,
   configuracion,
+}
+
+class MarketingMediaAssetDraft {
+  const MarketingMediaAssetDraft({
+    required this.fileUrl,
+    required this.fileName,
+    required this.category,
+    this.relatedService = '',
+    this.description = '',
+    this.tags = const [],
+  });
+
+  final String fileUrl;
+  final String fileName;
+  final String category;
+  final String relatedService;
+  final String description;
+  final List<String> tags;
 }
 
 class PublicidadState {
@@ -293,6 +312,26 @@ class PublicidadController extends StateNotifier<PublicidadState> {
         description: description,
         tags: tags,
       );
+      await _refresh(keepLoading: false);
+    });
+  }
+
+  Future<void> createMediaAssetsBulk(
+    List<MarketingMediaAssetDraft> drafts,
+  ) async {
+    if (drafts.isEmpty) return;
+    await _runBusy(() async {
+      for (final draft in drafts) {
+        await _api.createMediaAsset(
+          fileUrl: draft.fileUrl,
+          fileName: draft.fileName,
+          mimeType: _inferMimeType(draft.fileName),
+          category: draft.category,
+          relatedService: draft.relatedService,
+          description: draft.description,
+          tags: draft.tags,
+        );
+      }
       await _refresh(keepLoading: false);
     });
   }
@@ -597,7 +636,8 @@ class PublicidadController extends StateNotifier<PublicidadState> {
               .where((id) => _storyHasActiveImageStatus(id, state.dailyStories))
               .toSet();
           state = state.copyWith(
-            imageBusyStoryIds: {...state.imageBusyStoryIds}..removeAll(timedOutIds),
+            imageBusyStoryIds: {...state.imageBusyStoryIds}
+              ..removeAll(timedOutIds),
             error: stillActive.isNotEmpty
                 ? 'La imagen sigue en proceso. Actualiza en unos momentos si todavía no aparece.'
                 : null,
@@ -940,16 +980,7 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
                   busy: state.busy,
                   onPickDate: (value) => controller.changeDate(value),
                   onTabChanged: (value) {
-                    if (value == _PublicidadTab.galeria) {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const GaleriaPublicidadScreen(),
-                        ),
-                      );
-                    } else {
-                      setState(() => _tab = value);
-                    }
+                    setState(() => _tab = value);
                   },
                   onRefresh: controller.refresh,
                 ),
@@ -1005,6 +1036,8 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
                                 assets: state.mediaAssets,
                                 publishedAssets: state.publishedAssets,
                                 busy: state.busy,
+                                onCreateAssets:
+                                    controller.createMediaAssetsBulk,
                                 onToggleActive: controller.toggleAssetActive,
                                 onToggleFeatured:
                                     controller.toggleAssetFeatured,
@@ -3049,11 +3082,12 @@ class _ResearchDetailDialog extends StatelessWidget {
   }
 }
 
-class _GalleryTab extends StatefulWidget {
+class _GalleryTab extends ConsumerStatefulWidget {
   const _GalleryTab({
     required this.assets,
     required this.publishedAssets,
     required this.busy,
+    required this.onCreateAssets,
     required this.onToggleActive,
     required this.onToggleFeatured,
     required this.onUpdateMeta,
@@ -3063,6 +3097,8 @@ class _GalleryTab extends StatefulWidget {
   final List<MarketingMediaAsset> assets;
   final List<MarketingPublishedAsset> publishedAssets;
   final bool busy;
+  final Future<void> Function(List<MarketingMediaAssetDraft> drafts)
+  onCreateAssets;
   final Future<void> Function(MarketingMediaAsset asset) onToggleActive;
   final Future<void> Function(MarketingMediaAsset asset) onToggleFeatured;
   final Future<void> Function(
@@ -3076,12 +3112,23 @@ class _GalleryTab extends StatefulWidget {
   final Future<void> Function(MarketingMediaAsset asset) onDelete;
 
   @override
-  State<_GalleryTab> createState() => _GalleryTabState();
+  ConsumerState<_GalleryTab> createState() => _GalleryTabState();
 }
 
-class _GalleryTabState extends State<_GalleryTab> {
+class _GalleryTabState extends ConsumerState<_GalleryTab> {
   String _filterCategory = 'Todos';
   String _segment = 'ALL';
+  bool _showImporter = false;
+  String _importMode = 'PRODUCTS';
+  String _productSearch = '';
+  Set<String> _selectedProductIds = <String>{};
+  Future<List<ProductModel>>? _catalogFuture;
+  late final TextEditingController _manualUrl;
+  late final TextEditingController _manualName;
+  late final TextEditingController _manualService;
+  late final TextEditingController _manualDescription;
+  late final TextEditingController _manualTags;
+  String _manualCategory = 'Cámaras de seguridad';
 
   static const _categories = [
     'Motores de portones',
@@ -3096,6 +3143,26 @@ class _GalleryTabState extends State<_GalleryTab> {
     'Clientes / trabajos realizados',
     'Tecnología general',
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _manualUrl = TextEditingController();
+    _manualName = TextEditingController();
+    _manualService = TextEditingController();
+    _manualDescription = TextEditingController();
+    _manualTags = TextEditingController(text: 'producto, galeria-publicidad');
+  }
+
+  @override
+  void dispose() {
+    _manualUrl.dispose();
+    _manualName.dispose();
+    _manualService.dispose();
+    _manualDescription.dispose();
+    _manualTags.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -3113,8 +3180,9 @@ class _GalleryTabState extends State<_GalleryTab> {
           if (_segment == 'FEATURED') return item.isFeatured;
           if (_segment == 'GENERATED') return _isGenerated(item);
           if (_segment == 'MANUAL') return !_isGenerated(item);
-          if (_segment == 'SELECTED_MANUAL')
+          if (_segment == 'SELECTED_MANUAL') {
             return !_isGenerated(item) && item.useCount > 0;
+          }
           return true;
         })
         .toList(growable: false);
@@ -3127,7 +3195,7 @@ class _GalleryTabState extends State<_GalleryTab> {
         .where((item) => _resolveAssetPreviewUrl(item).isEmpty)
         .length;
 
-    return Column(
+    final galleryContent = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         LayoutBuilder(
@@ -3165,6 +3233,24 @@ class _GalleryTabState extends State<_GalleryTab> {
                         setState(() => _filterCategory = v ?? 'Todos'),
                   ),
                 ),
+                FilledButton.icon(
+                  onPressed: widget.busy ? null : () => _openImporter('MANUAL'),
+                  icon: const Icon(Icons.add_photo_alternate_rounded),
+                  label: const Text('Agregar imagen'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: widget.busy
+                      ? null
+                      : () => _openImporter('PRODUCTS'),
+                  icon: const Icon(Icons.inventory_2_rounded),
+                  label: const Text('Agregar desde productos'),
+                ),
+                if (_showImporter)
+                  TextButton.icon(
+                    onPressed: widget.busy ? null : _closeImporter,
+                    icon: const Icon(Icons.close_rounded),
+                    label: const Text('Cerrar panel'),
+                  ),
                 _MetaChip(label: 'Disponibles', value: '${visible.length}'),
                 _MetaChip(label: 'Publicadas', value: '${published.length}'),
                 _MetaChip(label: 'Total', value: '$total'),
@@ -3195,6 +3281,11 @@ class _GalleryTabState extends State<_GalleryTab> {
           style: Theme.of(
             context,
           ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'La IA usa esta galería como fuente de imágenes base. Aquí puedes subir imágenes manuales o importar productos de la empresa.',
+          style: Theme.of(context).textTheme.bodySmall,
         ),
         const SizedBox(height: 8),
         if (visible.isEmpty)
@@ -3254,6 +3345,518 @@ class _GalleryTabState extends State<_GalleryTab> {
           ),
       ],
     );
+
+    if (!_showImporter) {
+      return galleryContent;
+    }
+
+    final importer = _GalleryImporterPanel(
+      title: _importMode == 'MANUAL'
+          ? 'Agregar imagen manual'
+          : 'Agregar productos a la galería',
+      child: _importMode == 'MANUAL'
+          ? _buildManualImporter(context)
+          : _buildProductsImporter(context),
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final sideBySide = constraints.maxWidth >= 1180;
+        if (sideBySide) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: galleryContent),
+              const SizedBox(width: 16),
+              SizedBox(width: 380, child: importer),
+            ],
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [galleryContent, const SizedBox(height: 12), importer],
+        );
+      },
+    );
+  }
+
+  void _openImporter(String mode) {
+    setState(() {
+      _showImporter = true;
+      _importMode = mode;
+    });
+    if (mode == 'PRODUCTS') {
+      _catalogFuture ??= ref
+          .read(catalogRepositoryProvider)
+          .fetchProducts(silent: true);
+    }
+  }
+
+  void _closeImporter() {
+    setState(() {
+      _showImporter = false;
+      _selectedProductIds = <String>{};
+    });
+  }
+
+  Widget _buildManualImporter(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          controller: _manualUrl,
+          decoration: const InputDecoration(
+            labelText: 'URL de imagen',
+            hintText: 'https://.../imagen.jpg',
+            isDense: true,
+          ),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _manualName,
+          decoration: const InputDecoration(
+            labelText: 'Nombre de archivo',
+            hintText: 'camara-bullet-hikvision.jpg',
+            isDense: true,
+          ),
+        ),
+        const SizedBox(height: 10),
+        DropdownButtonFormField<String>(
+          initialValue: _manualCategory,
+          decoration: const InputDecoration(
+            labelText: 'Categoría',
+            isDense: true,
+          ),
+          items: _categories
+              .map((item) => DropdownMenuItem(value: item, child: Text(item)))
+              .toList(growable: false),
+          onChanged: widget.busy
+              ? null
+              : (value) =>
+                    setState(() => _manualCategory = value ?? _manualCategory),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _manualService,
+          decoration: const InputDecoration(
+            labelText: 'Servicio o producto relacionado',
+            isDense: true,
+          ),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _manualTags,
+          decoration: const InputDecoration(
+            labelText: 'Tags',
+            hintText: 'producto, galeria-publicidad',
+            isDense: true,
+          ),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _manualDescription,
+          minLines: 3,
+          maxLines: 4,
+          decoration: const InputDecoration(
+            labelText: 'Descripción',
+            alignLabelWithHint: true,
+          ),
+        ),
+        const SizedBox(height: 14),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: widget.busy ? null : _createManualAsset,
+            icon: const Icon(Icons.save_rounded),
+            label: const Text('Guardar en galería'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildProductsImporter(BuildContext context) {
+    _catalogFuture ??= ref
+        .read(catalogRepositoryProvider)
+        .fetchProducts(silent: true);
+
+    return FutureBuilder<List<ProductModel>>(
+      future: _catalogFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 24),
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (snapshot.hasError) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('No se pudo cargar la lista de productos.'),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: () {
+                  setState(() {
+                    _catalogFuture = ref
+                        .read(catalogRepositoryProvider)
+                        .fetchProducts(silent: true);
+                  });
+                },
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Reintentar'),
+              ),
+            ],
+          );
+        }
+
+        final importedUrls = _importedUrls();
+        final products =
+            (snapshot.data ?? const <ProductModel>[])
+                .where(
+                  (product) =>
+                      product.activo && _productImageUrl(product).isNotEmpty,
+                )
+                .where((product) {
+                  final query = _productSearch.trim().toLowerCase();
+                  if (query.isEmpty) return true;
+                  final haystack = [
+                    product.nombre,
+                    product.codigo ?? '',
+                    product.categoria ?? '',
+                  ].join(' ').toLowerCase();
+                  return haystack.contains(query);
+                })
+                .toList(growable: false)
+              ..sort((a, b) {
+                final aImported = importedUrls.contains(_productImageUrl(a));
+                final bImported = importedUrls.contains(_productImageUrl(b));
+                if (aImported != bImported) return aImported ? 1 : -1;
+                return a.nombre.toLowerCase().compareTo(b.nombre.toLowerCase());
+              });
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              onChanged: (value) => setState(() => _productSearch = value),
+              decoration: const InputDecoration(
+                prefixIcon: Icon(Icons.search_rounded),
+                hintText: 'Buscar producto',
+                isDense: true,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _MetaChip(label: 'Con foto', value: '${products.length}'),
+                _MetaChip(
+                  label: 'Seleccionados',
+                  value: '${_selectedProductIds.length}',
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              height: 520,
+              child: products.isEmpty
+                  ? const _EmptyState(
+                      text: 'No hay productos con imagen para importar.',
+                    )
+                  : ListView.separated(
+                      itemCount: products.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      itemBuilder: (context, index) {
+                        final product = products[index];
+                        final imageUrl = _productImageUrl(product);
+                        final imported = importedUrls.contains(imageUrl);
+                        final selected = _selectedProductIds.contains(
+                          product.id,
+                        );
+                        return InkWell(
+                          onTap: imported || widget.busy
+                              ? null
+                              : () => setState(() {
+                                  if (selected) {
+                                    _selectedProductIds.remove(product.id);
+                                  } else {
+                                    _selectedProductIds.add(product.id);
+                                  }
+                                }),
+                          borderRadius: BorderRadius.circular(12),
+                          child: Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).colorScheme.surface,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: selected
+                                    ? Theme.of(context).colorScheme.primary
+                                    : Theme.of(
+                                        context,
+                                      ).colorScheme.outlineVariant,
+                              ),
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(10),
+                                  child: SizedBox(
+                                    width: 74,
+                                    height: 74,
+                                    child: Image.network(
+                                      imageUrl,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) =>
+                                          const _BrokenImagePlaceholder(),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        product.nombre,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodyMedium
+                                            ?.copyWith(
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Wrap(
+                                        spacing: 6,
+                                        runSpacing: 6,
+                                        children: [
+                                          _MetaChip(
+                                            label: 'Galería',
+                                            value: imported
+                                                ? 'Ya agregado'
+                                                : 'Disponible',
+                                          ),
+                                          _MetaChip(
+                                            label: 'Categoría',
+                                            value: _productCategory(product),
+                                          ),
+                                          _MetaChip(
+                                            label: 'Código',
+                                            value:
+                                                (product.codigo ?? '')
+                                                    .trim()
+                                                    .isEmpty
+                                                ? '-'
+                                                : product.codigo!.trim(),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Checkbox(
+                                  value: imported ? true : selected,
+                                  onChanged: imported || widget.busy
+                                      ? null
+                                      : (_) => setState(() {
+                                          if (selected) {
+                                            _selectedProductIds.remove(
+                                              product.id,
+                                            );
+                                          } else {
+                                            _selectedProductIds.add(product.id);
+                                          }
+                                        }),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: widget.busy || _selectedProductIds.isEmpty
+                    ? null
+                    : () => _importSelectedProducts(products),
+                icon: const Icon(Icons.playlist_add_check_circle_rounded),
+                label: const Text('Agregar seleccionados a la galería'),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _createManualAsset() async {
+    final url = _manualUrl.text.trim();
+    final fileName = _manualName.text.trim();
+    if (url.isEmpty || fileName.isEmpty) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: Text('Debes indicar URL y nombre de archivo.')),
+      );
+      return;
+    }
+    await widget.onCreateAssets([
+      MarketingMediaAssetDraft(
+        fileUrl: url,
+        fileName: fileName,
+        category: _manualCategory,
+        relatedService: _manualService.text.trim(),
+        description: _manualDescription.text.trim(),
+        tags: _manualTags.text
+            .split(',')
+            .map((item) => item.trim())
+            .where((item) => item.isNotEmpty)
+            .toList(growable: false),
+      ),
+    ]);
+    if (!mounted) return;
+    _manualUrl.clear();
+    _manualName.clear();
+    _manualService.clear();
+    _manualDescription.clear();
+    _manualTags.text = 'producto, galeria-publicidad';
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      const SnackBar(
+        content: Text('Imagen agregada a la galería publicitaria.'),
+      ),
+    );
+  }
+
+  Future<void> _importSelectedProducts(List<ProductModel> products) async {
+    final importedUrls = _importedUrls();
+    final drafts = products
+        .where((product) => _selectedProductIds.contains(product.id))
+        .map((product) {
+          final imageUrl = _productImageUrl(product);
+          if (imageUrl.isEmpty || importedUrls.contains(imageUrl)) {
+            return null;
+          }
+          final descriptionParts = <String>[
+            if ((product.descripcion ?? '').trim().isNotEmpty)
+              product.descripcion!.trim(),
+            if ((product.codigo ?? '').trim().isNotEmpty)
+              'Codigo: ${product.codigo!.trim()}',
+          ];
+          return MarketingMediaAssetDraft(
+            fileUrl: imageUrl,
+            fileName: _productFileName(product),
+            category: _productCategory(product),
+            relatedService: product.nombre.trim(),
+            description: descriptionParts.join(' · '),
+            tags: _productTags(product),
+          );
+        })
+        .whereType<MarketingMediaAssetDraft>()
+        .toList(growable: false);
+
+    if (drafts.isEmpty) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: Text('No hay productos nuevos para importar.')),
+      );
+      return;
+    }
+    await widget.onCreateAssets(drafts);
+    if (!mounted) return;
+    setState(() => _selectedProductIds = <String>{});
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(
+        content: Text('${drafts.length} producto(s) agregados a la galería.'),
+      ),
+    );
+  }
+
+  Set<String> _importedUrls() {
+    return widget.assets
+        .map((asset) => asset.fileUrl.trim())
+        .where((value) => value.isNotEmpty)
+        .toSet();
+  }
+
+  String _productImageUrl(ProductModel product) {
+    return (product.displayFotoUrl ?? product.fotoUrl ?? '').trim();
+  }
+
+  String _productCategory(ProductModel product) {
+    final name = product.nombre.toLowerCase();
+    if (name.contains('motor') ||
+        name.contains('porton') ||
+        name.contains('portón')) {
+      return 'Motores de portones';
+    }
+    if (name.contains('camara') ||
+        name.contains('cámara') ||
+        name.contains('dvr') ||
+        name.contains('nvr') ||
+        name.contains('cctv') ||
+        name.contains('domo') ||
+        name.contains('bullet') ||
+        name.contains('bala')) {
+      return 'Cámaras de seguridad';
+    }
+    if (name.contains('cerco') || name.contains('electrico')) {
+      return 'Cercos eléctricos';
+    }
+    if (name.contains('intercom') ||
+        name.contains('videoportero') ||
+        name.contains('portero')) {
+      return 'Intercoms';
+    }
+    if (name.contains('alarma')) {
+      return 'Alarmas';
+    }
+    if (name.contains('pos') ||
+        name.contains('impresora') ||
+        name.contains('scanner')) {
+      return 'POS';
+    }
+    return 'Tecnología general';
+  }
+
+  List<String> _productTags(ProductModel product) {
+    final tags = <String>{
+      'producto',
+      'catalogo',
+      'galeria-publicidad',
+      _productCategory(product).toLowerCase(),
+    };
+    final code = (product.codigo ?? '').trim();
+    if (code.isNotEmpty) {
+      tags.add(code.toLowerCase());
+    }
+    return tags.toList(growable: false);
+  }
+
+  String _productFileName(ProductModel product) {
+    final imageUrl = _productImageUrl(product);
+    var extension = '.jpg';
+    final parsed = Uri.tryParse(imageUrl);
+    if (parsed != null) {
+      final path = parsed.path.toLowerCase();
+      final dot = path.lastIndexOf('.');
+      if (dot >= 0) {
+        extension = path.substring(dot);
+      }
+    }
+    final safeName = product.nombre
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+        .replaceAll(RegExp(r'-+'), '-')
+        .replaceAll(RegExp(r'^-|-$'), '');
+    final base = safeName.isEmpty ? 'producto-${product.id}' : safeName;
+    return '$base$extension';
   }
 
   bool _isGenerated(MarketingMediaAsset asset) {
@@ -3285,6 +3888,46 @@ class _GalleryTabState extends State<_GalleryTab> {
       selected: selected,
       label: Text(label),
       onSelected: (_) => setState(() => _segment = value),
+    );
+  }
+}
+
+class _GalleryImporterPanel extends StatelessWidget {
+  const _GalleryImporterPanel({required this.title, required this.child});
+
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: scheme.outlineVariant.withValues(alpha: 0.35),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Todo lo que agregues aquí entra a la galería y queda disponible para que la IA lo use en Publicidad.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 12),
+          child,
+        ],
+      ),
     );
   }
 }

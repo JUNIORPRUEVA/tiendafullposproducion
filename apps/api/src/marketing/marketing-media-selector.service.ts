@@ -1,28 +1,6 @@
-﻿import { Injectable, Logger } from '@nestjs/common';
+﻿import { Injectable } from '@nestjs/common';
 import { MarketingStoryType } from '@prisma/client';
-import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
-import { CatalogProductsService } from '../products/catalog-products.service';
-
-/**
- * Product NAME keywords to identify cameras, DVRs, NVRs, and gate motors.
- * These match against the `nombre` field of each FullPOS catalog product.
- * The FullPOS integration API does NOT return category data (all null), so
- * name-based filtering is the only reliable way to identify security products.
- */
-const SECURITY_PRODUCT_NAME_KEYWORDS = [
-  'camara', 'cámara', 'camera', 'cam ',
-  'dvr', 'nvr', 'cctv',
-  'motor', 'porton', 'portón',
-  'domo', 'bullet', 'bala',
-  'hikvision', 'dahua', 'hilook', 'epcom', 'reolink', 'imou', 'unv',
-  'vigilancia', '4mp', '8mp', '2mp', '5mp',
-  'turbo hd', 'hd poe', ' poe',
-  'videoportero',
-];
-
-/** Placeholder image hosts that should be excluded (not real product photos) */
-const PLACEHOLDER_IMAGE_HOSTS = ['images.unsplash.com', 'picsum.photos', 'placehold.it'];
 
 export type SelectedMedia = {
   /** marketingMediaAsset.id for gallery items; null for product-catalog items */
@@ -53,113 +31,9 @@ type SelectorInput = {
 
 @Injectable()
 export class MarketingMediaSelectorService {
-  private readonly logger = new Logger(MarketingMediaSelectorService.name);
-  private readonly publicBaseUrl: string;
-
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly config: ConfigService,
-    private readonly catalogProducts: CatalogProductsService,
-  ) {
-    this.publicBaseUrl = (
-      this.config.get<string>('PUBLIC_BASE_URL') ??
-      this.config.get<string>('API_BASE_URL') ??
-      process.env.PUBLIC_BASE_URL ??
-      process.env.API_BASE_URL ??
-      'http://localhost:4000'
-    )
-      .trim()
-      .replace(/\/$/, '');
-  }
+  constructor(private readonly prisma: PrismaService) {}
 
   async select(input: SelectorInput): Promise<SelectedMedia | null> {
-    // Load full product catalog from FullPOS (source of truth for FULLTECH products)
-    let catalogItems: { id: string; nombre: string; categoria: string | null; categoriaNombre: string | null; imagen: string | null; fotoUrl: string | null }[] = [];
-    try {
-      const catalog = await this.catalogProducts.findAll();
-      catalogItems = catalog.items;
-      this.logger.log(`[media-selector] catalog loaded: ${catalogItems.length} products total`);
-    } catch (err) {
-      this.logger.warn(`[media-selector] catalog unavailable: ${err instanceof Error ? err.message : String(err)}`);
-    }
-
-    const isSecurityProduct = (nombre: string): boolean => {
-      const n = nombre.toLowerCase();
-      return SECURITY_PRODUCT_NAME_KEYWORDS.some((kw) => n.includes(kw));
-    };
-
-    const isPlaceholderImage = (url: string): boolean => {
-      try {
-        const host = new URL(url).hostname;
-        return PLACEHOLDER_IMAGE_HOSTS.some((ph) => host.includes(ph));
-      } catch {
-        return false;
-      }
-    };
-
-    // Security products: cameras, DVRs, NVRs, motors — identified by product name only.
-    // The FullPOS integration API does not return category data, so name matching is the
-    // only reliable filter. Placeholder images (e.g. Unsplash) are excluded.
-    const securityProductMedia: SelectedMedia[] = catalogItems
-      .filter((p) => {
-        const imgUrl = p.fotoUrl ?? p.imagen ?? '';
-        return (
-          isSecurityProduct(p.nombre) &&
-          imgUrl.trim().length > 0 &&
-          !isPlaceholderImage(imgUrl)
-        );
-      })
-      .map((p) => {
-        const imgUrl = p.fotoUrl ?? p.imagen ?? '';
-        return {
-          id: null,
-          fileUrl: imgUrl,
-          category: 'Sistema de Vigilancia',
-          relatedService: p.nombre,
-          tags: ['producto', 'seguridad', 'vigilancia'],
-          isFeatured: false,
-          useCount: 0,
-          sourceType: 'product-catalog-primary' as const,
-        };
-      });
-
-    this.logger.log(
-      `[media-selector] security products with real image: ${securityProductMedia.length} / ${catalogItems.length} total`,
-    );
-
-    // Exclude already-used image URLs to ensure variety across stories
-    const usedUrls = new Set(input.usedFileUrls ?? []);
-    const unusedSecurityMedia = securityProductMedia.filter((p) => !usedUrls.has(p.fileUrl));
-    const securityPool =
-      unusedSecurityMedia.length > 0 ? unusedSecurityMedia : securityProductMedia;
-
-    // If security products exist, use them exclusively (no gallery fallback)
-    if (securityPool.length > 0) {
-      if (input.imagePrompt || input.copyText) {
-        const smartIdx = await this.smartPickProduct(
-          securityPool,
-          input.imagePrompt ?? '',
-          input.copyText ?? '',
-        );
-        if (smartIdx !== null) {
-          const picked = securityPool[smartIdx];
-          this.logger.log(
-            `[media-selector] GPT picked: "${picked.relatedService}" (index=${smartIdx}, pool=${securityPool.length}, unused=${unusedSecurityMedia.length})`,
-          );
-          return picked;
-        }
-      }
-      // GPT unavailable or no prompt — pick first unused
-      const picked = securityPool[0];
-      this.logger.log(
-        `[media-selector] fallback pick: "${picked.relatedService}" (pool=${securityPool.length})`,
-      );
-      return picked;
-    }
-
-    // No catalog security products available — fall back to gallery
-    this.logger.warn(`[media-selector] no security products with images found — using gallery`);
-
     const galleryRows = await this.prisma.marketingMediaAsset.findMany({
       where: { companyId: input.companyId, isActive: true },
       orderBy: [{ isFeatured: 'desc' }, { useCount: 'asc' }, { createdAt: 'desc' }],
@@ -180,10 +54,13 @@ export class MarketingMediaSelectorService {
     if (galleryMedia.length === 0) return null;
 
     const excluded = new Set(input.usedAssetIds);
+    const usedUrls = new Set(input.usedFileUrls ?? []);
     const product = input.recommendedProduct ? input.recommendedProduct.toLowerCase() : '';
     const service = input.recommendedService ? input.recommendedService.toLowerCase() : '';
 
-    const nonRepeated = galleryMedia.filter((m) => m.id === null || !excluded.has(m.id));
+    const nonRepeated = galleryMedia.filter(
+      (m) => (m.id === null || !excluded.has(m.id)) && !usedUrls.has(m.fileUrl),
+    );
     const pool = nonRepeated.length > 0 ? nonRepeated : galleryMedia;
 
     const candidates = pool
@@ -195,69 +72,6 @@ export class MarketingMediaSelectorService {
     const top = candidates.slice(0, Math.min(3, candidates.length));
     const randomIndex = Math.floor(Math.random() * top.length);
     return top[randomIndex]?.row ?? candidates[0].row;
-  }
-
-  /**
-   * Uses GPT-4o-mini to intelligently match a catalog product to the story's visual prompt.
-   * Sends a lightweight text request asking which product best represents the desired image.
-   * Returns the index into `catalogPool`, or null if the call fails or returns an invalid result.
-   */
-  private async smartPickProduct(
-    catalogPool: SelectedMedia[],
-    imagePrompt: string,
-    copyText: string,
-  ): Promise<number | null> {
-    const openaiKey =
-      this.config.get<string>('OPENAI_API_KEY') ?? process.env.OPENAI_API_KEY ?? '';
-    if (!openaiKey || catalogPool.length === 0) return null;
-
-    // Build a compact product list (name + category) for the model
-    const productList = catalogPool
-      .map(
-        (p, i) =>
-          `${i}: "${p.relatedService ?? 'Producto'}" (categoría: ${p.category || 'Sin categoría'})`,
-      )
-      .join('\n');
-
-    const userMessage =
-      `Eres un selector de imágenes para anuncios de marketing. Tu única tarea es elegir qué producto del catálogo serviría mejor como IMAGEN BASE para el diseño del anuncio.\n\n` +
-      `Descripción visual del anuncio:\n"${imagePrompt}"\n\n` +
-      `Texto del anuncio:\n"${copyText}"\n\n` +
-      `Productos disponibles (índice: nombre - categoría):\n${productList}\n\n` +
-      `Responde SOLO con el número del índice del producto más relevante. Sin explicación, solo el número.`;
-
-    try {
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${openaiKey}`,
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [{ role: 'user', content: userMessage }],
-          max_tokens: 5,
-          temperature: 0,
-        }),
-      });
-
-      if (!response.ok) return null;
-
-      const data = (await response.json()) as {
-        choices?: Array<{ message?: { content?: string } }>;
-      };
-      const text = (data.choices?.[0]?.message?.content ?? '').trim();
-      const idx = parseInt(text, 10);
-      if (!isNaN(idx) && idx >= 0 && idx < catalogPool.length) return idx;
-      return null;
-    } catch {
-      return null;
-    }
-  }
-
-  private resolveImageUrl(url: string): string {
-    const normalized = url.startsWith('/') ? url : '/' + url;
-    return this.publicBaseUrl + normalized;
   }
 
   private scoreAsset(
