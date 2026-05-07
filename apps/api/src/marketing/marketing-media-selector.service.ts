@@ -1,38 +1,28 @@
-﻿import { Injectable } from '@nestjs/common';
+﻿import { Injectable, Logger } from '@nestjs/common';
 import { MarketingStoryType } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { CatalogProductsService } from '../products/catalog-products.service';
 
 /**
- * PRIMARY source: products from the "Videovigilancia" / "Sistema de Vigilancia" catalog category.
- * These are the exact products FULLTECH sells and are the preferred base images.
- * Matches: "Videovigilancia", "Video Vigilancia", "Sistema de Vigilancia", "Video de Vigilancia"
+ * Product NAME keywords to identify cameras, DVRs, NVRs, and gate motors.
+ * These match against the `nombre` field of each FullPOS catalog product.
+ * The FullPOS integration API does NOT return category data (all null), so
+ * name-based filtering is the only reliable way to identify security products.
  */
-const PRIMARY_PRODUCT_KEYWORDS = [
-  'videovigilancia',
-  'video vigilancia',
-  'video de vigilancia',
-  'sistema de vigilancia',
+const SECURITY_PRODUCT_NAME_KEYWORDS = [
+  'camara', 'cámara', 'camera', 'cam ',
+  'dvr', 'nvr', 'cctv',
+  'motor', 'porton', 'portón',
+  'domo', 'bullet', 'bala',
+  'hikvision', 'dahua', 'hilook', 'epcom', 'reolink', 'imou', 'unv',
+  'vigilancia', '4mp', '8mp', '2mp', '5mp',
+  'turbo hd', 'hd poe', ' poe',
+  'videoportero',
 ];
 
-/**
- * FALLBACK product keywords: if no "sistema de vigilancia" products have images,
- * fall back to other security-related categories.
- */
-const FALLBACK_PRODUCT_KEYWORDS = [
-  'seguridad',
-  'camara',
-  'cámara',
-  'cctv',
-  'nvr',
-  'dvr',
-  'alarma',
-  'acceso',
-  'videovigilancia',
-  'sistema',
-  'vigilancia',
-];
+/** Placeholder image hosts that should be excluded (not real product photos) */
+const PLACEHOLDER_IMAGE_HOSTS = ['images.unsplash.com', 'picsum.photos', 'placehold.it'];
 
 export type SelectedMedia = {
   /** marketingMediaAsset.id for gallery items; null for product-catalog items */
@@ -63,6 +53,7 @@ type SelectorInput = {
 
 @Injectable()
 export class MarketingMediaSelectorService {
+  private readonly logger = new Logger(MarketingMediaSelectorService.name);
   private readonly publicBaseUrl: string;
 
   constructor(
@@ -87,44 +78,88 @@ export class MarketingMediaSelectorService {
     try {
       const catalog = await this.catalogProducts.findAll();
       catalogItems = catalog.items;
-    } catch {
-      // If FullPOS is unavailable, continue with gallery only
+      this.logger.log(`[media-selector] catalog loaded: ${catalogItems.length} products total`);
+    } catch (err) {
+      this.logger.warn(`[media-selector] catalog unavailable: ${err instanceof Error ? err.message : String(err)}`);
     }
 
-    const isMatchPrimary = (cat: string | null) => {
-      if (!cat) return false;
-      const c = cat.toLowerCase();
-      return PRIMARY_PRODUCT_KEYWORDS.some((kw) => c.includes(kw));
-    };
-    const isMatchFallback = (cat: string | null) => {
-      if (!cat) return false;
-      const c = cat.toLowerCase();
-      return FALLBACK_PRODUCT_KEYWORDS.some((kw) => c.includes(kw));
+    const isSecurityProduct = (nombre: string): boolean => {
+      const n = nombre.toLowerCase();
+      return SECURITY_PRODUCT_NAME_KEYWORDS.some((kw) => n.includes(kw));
     };
 
-    // Source 1 (PRIMARY): Productos de la categoria "Sistema de Vigilancia" del FullPOS
-    const primaryProductMedia: SelectedMedia[] = catalogItems
+    const isPlaceholderImage = (url: string): boolean => {
+      try {
+        const host = new URL(url).hostname;
+        return PLACEHOLDER_IMAGE_HOSTS.some((ph) => host.includes(ph));
+      } catch {
+        return false;
+      }
+    };
+
+    // Security products: cameras, DVRs, NVRs, motors — identified by product name only.
+    // The FullPOS integration API does not return category data, so name matching is the
+    // only reliable filter. Placeholder images (e.g. Unsplash) are excluded.
+    const securityProductMedia: SelectedMedia[] = catalogItems
       .filter((p) => {
-        const cat = p.categoriaNombre ?? p.categoria;
-        const imgUrl = p.fotoUrl ?? p.imagen;
-        return isMatchPrimary(cat) && imgUrl && imgUrl.trim().length > 0;
+        const imgUrl = p.fotoUrl ?? p.imagen ?? '';
+        return (
+          isSecurityProduct(p.nombre) &&
+          imgUrl.trim().length > 0 &&
+          !isPlaceholderImage(imgUrl)
+        );
       })
       .map((p) => {
-        const cat = p.categoriaNombre ?? p.categoria ?? '';
         const imgUrl = p.fotoUrl ?? p.imagen ?? '';
         return {
           id: null,
           fileUrl: imgUrl,
-          category: cat,
+          category: 'Sistema de Vigilancia',
           relatedService: p.nombre,
-          tags: ['producto', 'sistema de vigilancia', 'seguridad', cat.toLowerCase()],
+          tags: ['producto', 'seguridad', 'vigilancia'],
           isFeatured: false,
           useCount: 0,
           sourceType: 'product-catalog-primary' as const,
         };
       });
 
-    // Source 2 (SECONDARY): Galeria de Publicidad
+    this.logger.log(
+      `[media-selector] security products with real image: ${securityProductMedia.length} / ${catalogItems.length} total`,
+    );
+
+    // Exclude already-used image URLs to ensure variety across stories
+    const usedUrls = new Set(input.usedFileUrls ?? []);
+    const unusedSecurityMedia = securityProductMedia.filter((p) => !usedUrls.has(p.fileUrl));
+    const securityPool =
+      unusedSecurityMedia.length > 0 ? unusedSecurityMedia : securityProductMedia;
+
+    // If security products exist, use them exclusively (no gallery fallback)
+    if (securityPool.length > 0) {
+      if (input.imagePrompt || input.copyText) {
+        const smartIdx = await this.smartPickProduct(
+          securityPool,
+          input.imagePrompt ?? '',
+          input.copyText ?? '',
+        );
+        if (smartIdx !== null) {
+          const picked = securityPool[smartIdx];
+          this.logger.log(
+            `[media-selector] GPT picked: "${picked.relatedService}" (index=${smartIdx}, pool=${securityPool.length}, unused=${unusedSecurityMedia.length})`,
+          );
+          return picked;
+        }
+      }
+      // GPT unavailable or no prompt — pick first unused
+      const picked = securityPool[0];
+      this.logger.log(
+        `[media-selector] fallback pick: "${picked.relatedService}" (pool=${securityPool.length})`,
+      );
+      return picked;
+    }
+
+    // No catalog security products available — fall back to gallery
+    this.logger.warn(`[media-selector] no security products with images found — using gallery`);
+
     const galleryRows = await this.prisma.marketingMediaAsset.findMany({
       where: { companyId: input.companyId, isActive: true },
       orderBy: [{ isFeatured: 'desc' }, { useCount: 'asc' }, { createdAt: 'desc' }],
@@ -142,58 +177,14 @@ export class MarketingMediaSelectorService {
       sourceType: 'gallery' as const,
     }));
 
-    // Source 3 (FALLBACK): Other security product categories — only if primary is empty
-    let fallbackProductMedia: SelectedMedia[] = [];
-    if (primaryProductMedia.length === 0) {
-      fallbackProductMedia = catalogItems
-        .filter((p) => {
-          const cat = p.categoriaNombre ?? p.categoria;
-          const imgUrl = p.fotoUrl ?? p.imagen;
-          return !isMatchPrimary(cat) && isMatchFallback(cat) && imgUrl && imgUrl.trim().length > 0;
-        })
-        .map((p) => {
-          const cat = p.categoriaNombre ?? p.categoria ?? '';
-          const imgUrl = p.fotoUrl ?? p.imagen ?? '';
-          return {
-            id: null,
-            fileUrl: imgUrl,
-            category: cat,
-            relatedService: p.nombre,
-            tags: ['producto', 'seguridad', cat.toLowerCase()],
-            isFeatured: false,
-            useCount: 0,
-            sourceType: 'product-catalog-fallback' as const,
-          };
-        });
-    }
-
-    // Smart GPT pick: if imagePrompt is provided AND catalog products exist,
-    // ask GPT-4o-mini to find the catalog product that best matches the visual description.
-    // This runs BEFORE the scoring algorithm so the selected product gets maximum priority.
-    // Catalog products already used today are excluded to ensure variety across stories.
-    const usedUrls = new Set(input.usedFileUrls ?? []);
-    const rawCatalogPool = primaryProductMedia.length > 0 ? primaryProductMedia : fallbackProductMedia;
-    // Remove already-used images — prefer unused, but fall back to full pool if all used
-    const catalogPool = rawCatalogPool.filter((p) => !usedUrls.has(p.fileUrl));
-    const catalogPoolForPick = catalogPool.length > 0 ? catalogPool : rawCatalogPool;
-    if (catalogPoolForPick.length > 0 && (input.imagePrompt || input.copyText)) {
-      const smartIdx = await this.smartPickProduct(catalogPoolForPick, input.imagePrompt ?? '', input.copyText ?? '');
-      if (smartIdx !== null) {
-        return catalogPoolForPick[smartIdx];
-      }
-      // GPT failed — return first unused catalog product to still guarantee variety
-      return catalogPoolForPick[0];
-    }
-
-    const allMedia = [...primaryProductMedia, ...galleryMedia, ...fallbackProductMedia];
-    if (allMedia.length === 0) return null;
+    if (galleryMedia.length === 0) return null;
 
     const excluded = new Set(input.usedAssetIds);
     const product = input.recommendedProduct ? input.recommendedProduct.toLowerCase() : '';
     const service = input.recommendedService ? input.recommendedService.toLowerCase() : '';
 
-    const nonRepeated = allMedia.filter((m) => m.id === null || !excluded.has(m.id));
-    const pool = nonRepeated.length > 0 ? nonRepeated : allMedia;
+    const nonRepeated = galleryMedia.filter((m) => m.id === null || !excluded.has(m.id));
+    const pool = nonRepeated.length > 0 ? nonRepeated : galleryMedia;
 
     const candidates = pool
       .map((row) => ({ row, score: this.scoreAsset(row, input.type, product, service) }))
