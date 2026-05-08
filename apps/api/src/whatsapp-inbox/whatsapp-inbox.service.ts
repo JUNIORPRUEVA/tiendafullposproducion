@@ -502,6 +502,39 @@ function extensionForMime(mime: string | null): string | null {
   }
 }
 
+function outgoingMediaTypeFromMime(
+  mime: string | null,
+): OutgoingWhatsappMediaType {
+  const normalized = normalizeMimeType(mime) ?? 'application/octet-stream';
+  if (normalized.startsWith('image/')) return 'image';
+  if (normalized.startsWith('video/')) return 'video';
+  if (normalized.startsWith('audio/')) return 'audio';
+  return 'document';
+}
+
+function ensureFilenameExtension(fileName: string, ext: string): string {
+  const trimmed = fileName.trim();
+  const safeBase =
+    trimmed.replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim() ||
+    `media-${Date.now()}`;
+  const dotExt = `.${ext}`;
+  if (safeBase.toLowerCase().endsWith(dotExt.toLowerCase())) {
+    return safeBase;
+  }
+  const withoutExt = safeBase.replace(/\.[a-z0-9]{1,8}$/i, '');
+  return `${withoutExt}${dotExt}`;
+}
+
+function replaceObjectKeyExtension(objectKey: string, ext: string): string {
+  const cleanKey = objectKey.trim().replace(/\/+$/, '');
+  const dotExt = `.${ext}`;
+  if (!cleanKey) return cleanKey;
+  if (cleanKey.toLowerCase().endsWith(dotExt.toLowerCase())) {
+    return cleanKey;
+  }
+  return cleanKey.replace(/\.[a-z0-9]{1,8}$/i, '') + dotExt;
+}
+
 function fallbackDetectMediaType(buffer: Buffer): DetectedMediaType | null {
   if (buffer.length < 4) return null;
   if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
@@ -1001,7 +1034,12 @@ export class WhatsappInboxService {
         text: message.body,
         body: message.body,
         mediaUrl: message.mediaStorageKey
-          ? this.buildApiMediaUrl(message.id)
+          ? this.buildStoredMediaUrl({
+              messageId: message.id,
+              storageKey: message.mediaStorageKey,
+              mimeType: message.mediaMimeType,
+              fileSize: message.mediaFileSize,
+            })
           : message.mediaUrl ?? null,
         mediaMimeType: message.mediaMimeType ?? null,
         mediaStorageKey: message.mediaStorageKey ?? null,
@@ -1059,6 +1097,35 @@ export class WhatsappInboxService {
 
   private buildApiMediaUrl(messageId: string): string {
     return `/whatsapp-inbox/media/${messageId}`;
+  }
+
+  private buildWhatsappMediaVersion(params: {
+    storageKey?: string | null;
+    mimeType?: string | null;
+    fileSize?: number | null;
+    playableStorageKey?: string | null;
+    playableMimeType?: string | null;
+  }): string {
+    const seed = [
+      params.storageKey?.trim() ?? '',
+      normalizeMimeType(params.mimeType) ?? '',
+      params.fileSize != null ? String(params.fileSize) : '',
+      params.playableStorageKey?.trim() ?? '',
+      normalizeMimeType(params.playableMimeType) ?? '',
+    ].join('|');
+    return createHash('sha1').update(seed).digest('hex').slice(0, 12);
+  }
+
+  private buildStoredMediaUrl(params: {
+    messageId: string;
+    storageKey?: string | null;
+    mimeType?: string | null;
+    fileSize?: number | null;
+    playableStorageKey?: string | null;
+    playableMimeType?: string | null;
+  }): string {
+    const version = this.buildWhatsappMediaVersion(params);
+    return `${this.buildApiMediaUrl(params.messageId)}?v=${version}`;
   }
 
   private buildWhatsappMediaKey(params: {
@@ -1246,7 +1313,12 @@ export class WhatsappInboxService {
       }
 
       return {
-        mediaUrl: this.buildApiMediaUrl(params.messageId),
+        mediaUrl: this.buildStoredMediaUrl({
+          messageId: params.messageId,
+          storageKey: objectKey,
+          mimeType: detected.mime,
+          fileSize: resolved.buffer.length,
+        }),
         mediaMimeType: detected.mime,
         mediaStorageKey: objectKey,
         mediaFileSize: resolved.buffer.length,
@@ -1311,7 +1383,10 @@ export class WhatsappInboxService {
     }
 
     if (message.mediaStorageKey) {
-      const mediaUrl = this.buildApiMediaUrl(message.id);
+      const mediaUrl = this.buildStoredMediaUrl({
+        messageId: message.id,
+        storageKey: message.mediaStorageKey,
+      });
       if (message.mediaUrl !== mediaUrl) {
         return (await this.prisma.whatsappMessage.update({
           where: { id: message.id },
@@ -1495,15 +1570,33 @@ export class WhatsappInboxService {
             object.body,
             object.contentType ?? message.mediaMimeType,
           );
+          const normalizedObjectMime = normalizeMimeType(object.contentType);
+          const repairedStorageKey = replaceObjectKeyExtension(
+            message.mediaStorageKey,
+            detected.ext,
+          );
           const mismatch =
             normalizeMimeType(message.mediaMimeType) !== detected.mime ||
-            object.contentType !== detected.mime ||
+            normalizedObjectMime !== detected.mime ||
+            repairedStorageKey !== message.mediaStorageKey ||
             message.mediaFileSize !== object.body.length;
           if (execute && mismatch) {
+            await this.r2.putObject({
+              objectKey: repairedStorageKey,
+              body: object.body,
+              contentType: detected.mime,
+            });
             await this.prisma.whatsappMessage.update({
               where: { id: message.id },
               data: {
+                mediaUrl: this.buildStoredMediaUrl({
+                  messageId: message.id,
+                  storageKey: repairedStorageKey,
+                  mimeType: detected.mime,
+                  fileSize: object.body.length,
+                }),
                 mediaMimeType: detected.mime,
+                mediaStorageKey: repairedStorageKey,
                 mediaFileSize: object.body.length,
                 mediaStatus: 'ready',
                 mediaError: null,
@@ -1513,10 +1606,18 @@ export class WhatsappInboxService {
           results.push({
             id: message.id,
             type: message.messageType,
-            status: mismatch ? (execute ? 'updated_metadata' : 'mismatch') : 'ok',
+            status: mismatch
+              ? execute
+                ? repairedStorageKey !== message.mediaStorageKey ||
+                  normalizedObjectMime !== detected.mime
+                  ? 'repaired_object'
+                  : 'updated_metadata'
+                : 'mismatch'
+              : 'ok',
             beforeMime: message.mediaMimeType,
             afterMime: detected.mime,
-            storageKey: message.mediaStorageKey,
+            storageKey:
+              mismatch && execute ? repairedStorageKey : message.mediaStorageKey,
           });
           continue;
         }
@@ -2323,7 +2424,21 @@ export class WhatsappInboxService {
           data: {
             rawPayload: parsed.rawPayload as object,
             ...(hasStoredMedia
-              ? { mediaUrl: this.buildApiMediaUrl(existing.id), mediaStatus: 'ready' }
+              ? {
+                  mediaUrl: this.buildStoredMediaUrl({
+                    messageId: existing.id,
+                    storageKey: existingWithMedia.mediaStorageKey,
+                    mimeType:
+                      'mediaMimeType' in existingWithMedia
+                        ? (existingWithMedia.mediaMimeType as string | null)
+                        : null,
+                    fileSize:
+                      'mediaFileSize' in existingWithMedia
+                        ? (existingWithMedia.mediaFileSize as number | null)
+                        : null,
+                  }),
+                  mediaStatus: 'ready',
+                }
               : {
                   ...(parsed.mediaUrl ? { mediaUrl: parsed.mediaUrl } : {}),
                   ...(parsed.mediaMimeType
@@ -2790,10 +2905,24 @@ export class WhatsappInboxService {
       const response = messages.map((message) => {
         const current = message as typeof message & {
           mediaStorageKey?: string | null;
+          mediaMimeType?: string | null;
+          mediaFileSize?: number | null;
+          playableStorageKey?: string | null;
+          playableMimeType?: string | null;
           mediaStatus?: string | null;
         };
         if (current.mediaStorageKey) {
-          return { ...current, mediaUrl: this.buildApiMediaUrl(current.id) };
+          return {
+            ...current,
+            mediaUrl: this.buildStoredMediaUrl({
+              messageId: current.id,
+              storageKey: current.mediaStorageKey,
+              mimeType: current.mediaMimeType,
+              fileSize: current.mediaFileSize,
+              playableStorageKey: current.playableStorageKey,
+              playableMimeType: current.playableMimeType,
+            }),
+          };
         }
 
         if (conversation?.instance && hasMediaColumns) {
@@ -2976,10 +3105,11 @@ export class WhatsappInboxService {
       select: { instanceName: true },
     });
     const bytes = Buffer.from(params.bytes);
-    const mimeType =
-      normalizeMimeType(params.mimeType) ?? 'application/octet-stream';
+    const detected = await detectMediaType(bytes, params.mimeType);
+    const mimeType = detected.mime;
+    const mediaType = outgoingMediaTypeFromMime(mimeType);
     const caption = params.caption?.trim() || null;
-    const fileName = params.fileName.trim() || `media-${Date.now()}`;
+    const fileName = ensureFilenameExtension(params.fileName, detected.ext);
     const parsed: ParsedWhatsappMessage = {
       evolutionId: params.evolutionId?.trim() ?? '',
       externalMessageId: params.evolutionId?.trim() ?? '',
@@ -2988,7 +3118,7 @@ export class WhatsappInboxService {
       remoteJid: params.remoteJid,
       remotePhone: phoneFromIdentifier(params.remoteJid),
       fromMe: true,
-      messageType: whatsappMessageTypeFromMediaType(params.mediaType),
+      messageType: whatsappMessageTypeFromMediaType(mediaType),
       body: caption ?? fileName,
       mediaUrl: `data:${mimeType};base64,${bytes.toString('base64')}`,
       mediaMimeType: mimeType,
@@ -3003,9 +3133,9 @@ export class WhatsappInboxService {
             fromMe: true,
             remoteJid: params.remoteJid,
           },
-          messageType: `${params.mediaType}Message`,
+          messageType: `${mediaType}Message`,
           message: {
-            [`${params.mediaType}Message`]: {
+            [`${mediaType}Message`]: {
               mimetype: mimeType,
               fileName,
               caption,
@@ -3019,6 +3149,27 @@ export class WhatsappInboxService {
       },
     };
     return this.saveMessage(params.instanceId, parsed);
+  }
+
+  async detectOutgoingUploadMedia(params: {
+    bytes: Buffer | Uint8Array;
+    mimeType?: string | null;
+    fileName?: string | null;
+  }): Promise<{
+    mimeType: string;
+    mediaType: OutgoingWhatsappMediaType;
+    fileName: string;
+  }> {
+    const bytes = Buffer.from(params.bytes);
+    const detected = await detectMediaType(bytes, params.mimeType ?? null);
+    return {
+      mimeType: detected.mime,
+      mediaType: outgoingMediaTypeFromMime(detected.mime),
+      fileName: ensureFilenameExtension(
+        params.fileName?.trim() || `media-${Date.now()}`,
+        detected.ext,
+      ),
+    };
   }
 
   async attachEvolutionIdToMessage(

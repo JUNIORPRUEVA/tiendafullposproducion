@@ -376,6 +376,7 @@ class WaCrmLocalCache {
     'mediaUrl': msg.mediaUrl,
     'mediaMimeType': msg.mediaMimeType,
     'mediaStorageKey': msg.mediaStorageKey,
+    'mediaFileSize': msg.mediaFileSize,
     'mediaStatus': msg.mediaStatus,
     'mediaError': msg.mediaError,
     'caption': msg.caption,

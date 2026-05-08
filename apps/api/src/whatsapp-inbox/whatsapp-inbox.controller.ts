@@ -136,14 +136,6 @@ function extractEvolutionMessageId(result: unknown): string | undefined {
   );
 }
 
-function mediaTypeFromMime(mimeType: string): 'image' | 'video' | 'audio' | 'document' {
-  const normalized = mimeType.toLowerCase();
-  if (normalized.startsWith('image/')) return 'image';
-  if (normalized.startsWith('video/')) return 'video';
-  if (normalized.startsWith('audio/')) return 'audio';
-  return 'document';
-}
-
 /** Admin-only REST endpoints for the WhatsApp CRM inbox */
 @Controller('whatsapp-inbox')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -332,9 +324,14 @@ export class WhatsappInboxController {
       return { ok: false, error: 'Conversation not found' };
     }
 
-    const mimeType = file.mimetype || 'application/octet-stream';
-    const mediaType = mediaTypeFromMime(mimeType);
-    const fileName = file.originalname || `whatsapp-${mediaType}`;
+    const detectedUpload = await this.inboxService.detectOutgoingUploadMedia({
+      bytes: file.buffer,
+      mimeType: file.mimetype,
+      fileName: file.originalname,
+    });
+    const mimeType = detectedUpload.mimeType;
+    const mediaType = detectedUpload.mediaType;
+    const fileName = detectedUpload.fileName;
     const caption = dto.caption?.trim() || null;
     const result = await this.whatsappService.sendMediaMessage({
       instanceName: conversation.instance.instanceName,

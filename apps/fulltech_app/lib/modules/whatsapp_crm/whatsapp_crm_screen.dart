@@ -2168,13 +2168,23 @@ String? _mimeFromDataUri(String mediaUrl) {
 String? _mediaUrlForMessage(WaCrmMessage msg) {
   final raw = msg.mediaUrl?.trim();
   if (raw == null || raw.isEmpty) return null;
+  String resolved = raw;
   if (raw.startsWith('data:')) return raw;
-  if (raw.startsWith('/whatsapp-inbox/media/')) return raw;
-  if (msg.mediaStorageKey?.trim().isNotEmpty == true ||
-      msg.mediaStatus?.toLowerCase() == 'ready') {
-    return '/whatsapp-inbox/media/${msg.id}';
+  if (!raw.startsWith('/whatsapp-inbox/media/') &&
+      (msg.mediaStorageKey?.trim().isNotEmpty == true ||
+          msg.mediaStatus?.toLowerCase() == 'ready')) {
+    resolved = '/whatsapp-inbox/media/${msg.id}';
   }
-  return raw;
+  if (!resolved.startsWith('/whatsapp-inbox/media/')) return resolved;
+  final versionSeed = [
+    msg.mediaStorageKey?.trim() ?? '',
+    msg.mediaMimeType?.trim() ?? '',
+    msg.mediaFileSize?.toString() ?? '',
+    msg.mediaStatus?.trim() ?? '',
+  ].join('|');
+  if (versionSeed.replaceAll('|', '').isEmpty) return resolved;
+  final separator = resolved.contains('?') ? '&' : '?';
+  return '$resolved${separator}v=${versionSeed.hashCode.abs()}';
 }
 
 Future<Uint8List> _bytesFromMediaUrl(

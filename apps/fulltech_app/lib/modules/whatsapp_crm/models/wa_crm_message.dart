@@ -93,6 +93,7 @@ class WaCrmMessage {
     this.mediaUrl,
     this.mediaMimeType,
     this.mediaStorageKey,
+    this.mediaFileSize,
     this.mediaStatus,
     this.mediaError,
     this.caption,
@@ -109,6 +110,7 @@ class WaCrmMessage {
   final String? mediaUrl;
   final String? mediaMimeType;
   final String? mediaStorageKey;
+  final int? mediaFileSize;
   final String? mediaStatus;
   final String? mediaError;
   final String? caption;
@@ -157,6 +159,11 @@ class WaCrmMessage {
       mediaStorageKey: sanitizeWaText(
         json['mediaStorageKey'] ?? json['media_storage_key'],
       ),
+      mediaFileSize:
+          (json['mediaFileSize'] ?? json['media_file_size']) is num
+              ? ((json['mediaFileSize'] ?? json['media_file_size']) as num)
+                    .toInt()
+              : null,
       mediaStatus: sanitizeWaText(json['mediaStatus'] ?? json['media_status']),
       mediaError: sanitizeWaText(json['mediaError'] ?? json['media_error']),
       caption: sanitizeWaText(json['caption']),
