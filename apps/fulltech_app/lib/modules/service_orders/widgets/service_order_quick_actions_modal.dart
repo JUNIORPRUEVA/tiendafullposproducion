@@ -719,12 +719,16 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
     }
 
     if (requireDetailedConfirmation &&
-        selected == ServiceOrderStatus.finalizado) {
-      final validationMessage = _validateTechnicianCommitmentBeforeFinalize();
-      if (validationMessage != null) {
+        selected == ServiceOrderStatus.finalizado &&
+        order.serviceType == ServiceOrderType.instalacion) {
+      final hasIncomplete =
+          _validateTechnicianCommitmentBeforeFinalize() != null;
+      if (hasIncomplete) {
         if (!sheetContext.mounted) return;
-        await AppFeedback.showError(sheetContext, validationMessage);
-        return;
+        final proceed = await _showInstallationFinalizeWarningDialog(
+          sheetContext,
+        );
+        if (!proceed) return;
       }
     }
 
@@ -1884,6 +1888,47 @@ class _ServiceOrderQuickActionsSheet extends ConsumerWidget {
     final day = local.day.toString().padLeft(2, '0');
     final month = local.month.toString().padLeft(2, '0');
     return '$day/$month/${local.year} · $hour:$minute';
+  }
+
+  Future<bool> _showInstallationFinalizeWarningDialog(
+    BuildContext context,
+  ) async {
+    var proceed = false;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        final theme = Theme.of(dialogContext);
+        final colorScheme = theme.colorScheme;
+        return AlertDialog(
+          icon: Icon(
+            Icons.warning_amber_rounded,
+            color: colorScheme.tertiary,
+            size: 32,
+          ),
+          title: const Text('Antes de finalizar'),
+          content: const Text(
+            'Asegúrate de haber subido el reporte y las evidencias '
+            '(fotos y videos) de la instalación.\n\n'
+            '¿Deseas finalizar la orden de todas formas?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton.tonal(
+              onPressed: () {
+                proceed = true;
+                Navigator.of(dialogContext).pop();
+              },
+              child: const Text('Finalizar de todas formas'),
+            ),
+          ],
+        );
+      },
+    );
+    return proceed;
   }
 
   String? _validateTechnicianCommitmentBeforeFinalize() {
