@@ -2,7 +2,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:typed_data';
-import 'dart:io';
 
 import '../../../core/api/api_routes.dart';
 import '../../../core/auth/auth_repository.dart';

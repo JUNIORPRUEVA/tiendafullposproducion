@@ -522,26 +522,28 @@ export class MarketingGenerationService {
       throw new NotFoundException('Contenido no encontrado');
     }
 
+    const enrichedStory = await this.ensureStoryCopyAndHashtagsForDesign(companyId, story);
+
     const researchConfig = await this.prisma.marketingResearchConfig.findUnique({ where: { companyId } });
-    const usedResearchAngle = `${story.usedResearchAngle ?? ''}`.trim() || story.shortText;
-    const usedOffer = `${story.usedOffer ?? ''}`.trim() || story.shortText;
-    const usedCTA = `${story.usedCTA ?? ''}`.trim() || 'Cotiza por WhatsApp hoy';
-    const visualConcept = `${story.visualConcept ?? ''}`.trim() || this.buildVisualConcept(story.type, usedResearchAngle, usedOffer);
-    const designNotes = `${story.designNotes ?? ''}`.trim() || this.buildDesignNotes(story.type, usedCTA);
-    const baseImageSourceUrl = `${story.mediaAsset?.fileUrl ?? story.imageUrl ?? ''}`.trim();
+    const usedResearchAngle = `${enrichedStory.usedResearchAngle ?? ''}`.trim() || enrichedStory.shortText;
+    const usedOffer = `${enrichedStory.usedOffer ?? ''}`.trim() || enrichedStory.shortText;
+    const usedCTA = `${enrichedStory.usedCTA ?? ''}`.trim() || 'Cotiza por WhatsApp hoy';
+    const visualConcept = `${enrichedStory.visualConcept ?? ''}`.trim() || this.buildVisualConcept(enrichedStory.type, usedResearchAngle, usedOffer);
+    const designNotes = `${enrichedStory.designNotes ?? ''}`.trim() || this.buildDesignNotes(enrichedStory.type, usedCTA);
+    const baseImageSourceUrl = `${enrichedStory.mediaAsset?.fileUrl ?? enrichedStory.imageUrl ?? ''}`.trim();
     const baseImage = baseImageSourceUrl
       ? await this.marketingStorage.saveBaseImageReference({
           companyId,
-          storyType: this.storyTypeSlug(story.type),
+          storyType: this.storyTypeSlug(enrichedStory.type),
           sourceUrl: baseImageSourceUrl,
         })
       : null;
 
     const serviceOrProduct =
-      `${story.mediaAsset?.relatedService ?? ''}`.trim() ||
+      `${enrichedStory.mediaAsset?.relatedService ?? ''}`.trim() ||
       usedOffer ||
-      story.mediaAsset?.category ||
-      this.galleryCategoryForType(story.type);
+      enrichedStory.mediaAsset?.category ||
+      this.galleryCategoryForType(enrichedStory.type);
     const brandColors = this.safeStringArray(researchConfig?.brandColors);
 
     let generated;
@@ -553,16 +555,16 @@ export class MarketingGenerationService {
         country: researchConfig?.country ?? 'República Dominicana',
         brandTone: researchConfig?.brandTone ?? 'tecnológico, limpio y profesional',
         brandColors,
-        title: story.title,
+        title: enrichedStory.title,
         cta: usedCTA,
         offer: usedOffer,
         visualConcept,
         designNotes,
         baseImageUrl: baseImageSourceUrl,
-        imageCategory: story.mediaAsset?.category ?? this.galleryCategoryForType(story.type),
+        imageCategory: enrichedStory.mediaAsset?.category ?? this.galleryCategoryForType(enrichedStory.type),
         serviceOrProduct,
         usedResearchAngle,
-        storyType: story.type as 'SALES' | 'TRUST' | 'EDUCATIONAL',
+        storyType: enrichedStory.type as 'SALES' | 'TRUST' | 'EDUCATIONAL',
       });
     } catch (error) {
       providerError = error instanceof Error ? error.message : String(error);
@@ -570,7 +572,7 @@ export class MarketingGenerationService {
         imageStatus: 'PENDING' as const,
         generatedImageUrl: null,
         generatedImageProvider: 'LAYOUT_ONLY',
-        prompt: customPrompt?.trim() || story.imagePrompt || '',
+        prompt: customPrompt?.trim() || enrichedStory.imagePrompt || '',
         visualConcept,
         designNotes,
         metadata: {
@@ -581,9 +583,9 @@ export class MarketingGenerationService {
     }
 
     const composedCreative = await this.creativeComposer.compose({
-      storyType: story.type as 'SALES' | 'TRUST' | 'EDUCATIONAL',
-      title: story.title,
-      shortText: story.shortText,
+      storyType: enrichedStory.type as 'SALES' | 'TRUST' | 'EDUCATIONAL',
+      title: enrichedStory.title,
+      shortText: enrichedStory.shortText,
       cta: usedCTA,
       offer: usedOffer,
       serviceOrProduct,
@@ -594,7 +596,7 @@ export class MarketingGenerationService {
 
     const savedGenerated = await this.marketingStorage.saveGeneratedImage({
       companyId,
-      storyType: this.storyTypeSlug(story.type),
+      storyType: this.storyTypeSlug(enrichedStory.type),
       sourceUrl: composedCreative.dataUrl,
     });
     const finalGeneratedUrl = `${savedGenerated?.url ?? ''}`.trim();
@@ -607,8 +609,14 @@ export class MarketingGenerationService {
     return this.prisma.marketingDailyStory.update({
       where: { id: storyId },
       data: {
+        title: enrichedStory.title,
+        shortText: enrichedStory.shortText,
+        longText: enrichedStory.longText,
+        hashtags: enrichedStory.hashtags,
+        usedOffer,
+        usedCTA,
         imagePrompt: customPrompt?.trim() || generated.prompt,
-        imageUrl: `${baseImage?.url ?? story.imageUrl ?? ''}`.trim(),
+        imageUrl: `${baseImage?.url ?? enrichedStory.imageUrl ?? ''}`.trim(),
         visualConcept: generated.visualConcept,
         designNotes: generated.designNotes,
         imageStatus: 'GENERATED',
@@ -620,7 +628,7 @@ export class MarketingGenerationService {
           compositionLayout: composedCreative.layout,
           compositionMode: 'server-side-premium-layout',
           providerError,
-          baseImageSavedUrl: `${baseImage?.url ?? story.imageUrl ?? ''}`.trim() || null,
+          baseImageSavedUrl: `${baseImage?.url ?? enrichedStory.imageUrl ?? ''}`.trim() || null,
           generatedImageSavedUrl: finalGeneratedUrl,
           finalImageUrl: finalGeneratedUrl,
           lastError: null,
@@ -649,6 +657,149 @@ export class MarketingGenerationService {
       }
       return updated;
     });
+  }
+
+  private async ensureStoryCopyAndHashtagsForDesign(companyId: string, story: any) {
+    const research = story.researchId
+      ? await this.prisma.marketingResearch.findFirst({
+          where: { id: story.researchId, companyId },
+        })
+      : null;
+    const researchConfig = await this.prisma.marketingResearchConfig.findUnique({
+      where: { companyId },
+    });
+
+    const template = research
+      ? this.pickResearchEnrichedTemplate(story.type, research)
+      : this.pickTemplate(story.type);
+    const recommendedCtas = this.safeStringArray(research?.recommendedCTAs);
+    const fallbackCta =
+      `${researchConfig?.defaultCTA ?? ''}`.trim() ||
+      'Cotiza por WhatsApp hoy';
+
+    const title = this.compact(`${story.title ?? ''}`) || template.title;
+    const shortText = this.compact(`${story.shortText ?? ''}`) || template.shortText;
+    const longText = this.ensurePunctuation(
+      this.compact(`${story.longText ?? ''}`) || template.longText,
+    );
+    const usedOffer = this.compact(`${story.usedOffer ?? ''}`) || shortText;
+    const usedCTA =
+      this.compact(`${story.usedCTA ?? ''}`) ||
+      this.pickNaturalCta(recommendedCtas, fallbackCta);
+    const usedResearchAngle =
+      this.compact(`${story.usedResearchAngle ?? ''}`) || shortText;
+    const existingHashtags = this.safeStringArray(story.hashtags);
+    const hashtags = this.buildBestHashtags({
+      type: story.type,
+      existing: existingHashtags,
+      template: existingHashtags.length >= 3 ? [] : template.hashtags,
+      serviceHint:
+        `${story.mediaAsset?.relatedService ?? ''}`.trim() ||
+        `${story.usedOffer ?? ''}`.trim() ||
+        `${researchConfig?.mainServices?.[0] ?? ''}`.trim(),
+      categoryHint: `${story.mediaAsset?.category ?? ''}`.trim(),
+      cityHint: `${researchConfig?.city ?? ''}`.trim(),
+    });
+
+    const payload = {
+      title,
+      shortText,
+      longText,
+      hashtags,
+      imagePrompt: this.compact(`${story.imagePrompt ?? ''}`) || template.imagePrompt,
+      usedOffer,
+      usedCTA,
+      usedResearchAngle,
+    };
+
+    const changed =
+      payload.title !== `${story.title ?? ''}` ||
+      payload.shortText !== `${story.shortText ?? ''}` ||
+      payload.longText !== `${story.longText ?? ''}` ||
+      payload.imagePrompt !== `${story.imagePrompt ?? ''}` ||
+      payload.usedOffer !== `${story.usedOffer ?? ''}` ||
+      payload.usedCTA !== `${story.usedCTA ?? ''}` ||
+      payload.usedResearchAngle !== `${story.usedResearchAngle ?? ''}` ||
+      !this.sameStringList(payload.hashtags, this.safeStringArray(story.hashtags));
+
+    if (!changed) {
+      return story;
+    }
+
+    return this.prisma.marketingDailyStory.update({
+      where: { id: story.id },
+      data: payload,
+      include: {
+        approvedByUser: { select: { id: true, nombreCompleto: true } },
+        mediaAsset: true,
+      },
+    });
+  }
+
+  private buildBestHashtags(input: {
+    type: MarketingStoryType;
+    existing: string[];
+    template: string[];
+    serviceHint: string;
+    categoryHint: string;
+    cityHint: string;
+  }) {
+    const normalized = [
+      ...input.existing,
+      ...input.template,
+      '#FullTech',
+      '#PublicidadDigital',
+      input.type === 'SALES'
+        ? '#Ventas'
+        : input.type === 'TRUST'
+        ? '#Confianza'
+        : '#Educativo',
+    ]
+      .map((tag) => this.normalizeHashtag(tag))
+      .filter((tag): tag is string => tag != null);
+
+    const signal = `${input.serviceHint} ${input.categoryHint}`.toLowerCase();
+    if (signal.includes('camar')) normalized.push('#CamarasDeSeguridad');
+    if (signal.includes('porton')) normalized.push('#PortonesAutomaticos');
+    if (signal.includes('pos') || signal.includes('punto de venta')) normalized.push('#SistemaPOS');
+    if (signal.includes('alarm')) normalized.push('#Alarmas');
+    if (signal.includes('instal')) normalized.push('#InstalacionProfesional');
+
+    const cityTag = this.normalizeHashtag(`#${input.cityHint.replaceAll(' ', '')}`);
+    if (cityTag != null && cityTag.length > 2) {
+      normalized.push(cityTag);
+    }
+
+    return [...new Set(normalized)].slice(0, 8);
+  }
+
+  private normalizeHashtag(raw: string) {
+    const cleaned = `${raw}`.trim();
+    if (!cleaned) return null;
+    const noHash = cleaned.replaceAll('#', '');
+    if (!noHash.trim()) return null;
+    const normalized = noHash
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9]+/g, ' ')
+      .trim()
+      .split(/\s+/)
+      .map((part) =>
+        part.length === 0
+          ? part
+          : `${part[0].toUpperCase()}${part.substring(1).toLowerCase()}`,
+      )
+      .join('');
+    if (!normalized) return null;
+    return `#${normalized}`;
+  }
+
+  private sameStringList(a: string[], b: string[]) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i += 1) {
+      if (a[i] !== b[i]) return false;
+    }
+    return true;
   }
 
   async regenerateStoryImageDirect(companyId: string, storyId: string, userId: string, customPrompt?: string) {

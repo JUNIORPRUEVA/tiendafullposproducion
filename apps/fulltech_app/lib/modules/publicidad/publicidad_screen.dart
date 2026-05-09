@@ -232,7 +232,16 @@ class PublicidadController extends StateNotifier<PublicidadState> {
 
   Future<void> changeBaseImage(String storyId, String mediaAssetId) async {
     await _runStoryImageBusy(storyId, () async {
-      await _api.changeBaseImage(storyId, mediaAssetId);
+      final selectedId = mediaAssetId.trim();
+      final existsInAuthorizedGallery = state.mediaAssets.any(
+        (asset) => asset.id == selectedId,
+      );
+      if (!existsInAuthorizedGallery) {
+        throw StateError(
+          'Solo se permiten imágenes de la Galería de Contenido autorizada de Publicidad.',
+        );
+      }
+      await _api.changeBaseImage(storyId, selectedId);
       await _refresh(keepLoading: false);
     });
   }
@@ -1761,6 +1770,29 @@ class _DailyStoriesTab extends StatelessWidget {
                           );
                           if (chosen != null && chosen.isNotEmpty) {
                             await onChangeBaseImage(story.id, chosen);
+                            if (!context.mounted) return;
+                            final useNow = await showDialog<bool>(
+                              context: context,
+                              builder: (_) => AlertDialog(
+                                title: const Text('Confirmar imagen base'),
+                                content: const Text(
+                                  '¿Deseas usar esta imagen o elegir otra de la Galería de Publicidad?',
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.of(context).pop(false),
+                                    child: const Text('Elegir otra'),
+                                  ),
+                                  FilledButton(
+                                    onPressed: () => Navigator.of(context).pop(true),
+                                    child: const Text('Usar esta imagen'),
+                                  ),
+                                ],
+                              ),
+                            );
+                            if (useNow == true) {
+                              await onConfirmBaseImage(story.id);
+                            }
                           }
                         },
                         onEdit: () async {
@@ -2027,10 +2059,17 @@ class _StoryCard extends StatelessWidget {
             ),
             OutlinedButton(
               onPressed: busy || imageBusy ? null : onChangeBaseImage,
-              child: const Text('Cambiar desde galería'),
+              child: const Text('Cambiar desde galería autorizada'),
             ),
             FilledButton.icon(
               onPressed: canGenerateDesign ? onGenerateDesign : null,
+              style: FilledButton.styleFrom(
+                backgroundColor: canGenerateDesign
+                    ? const Color(0xFF0E7490)
+                    : null,
+                foregroundColor: canGenerateDesign ? Colors.white : null,
+                elevation: canGenerateDesign ? 2 : 0,
+              ),
               icon: const Icon(Icons.auto_fix_high_rounded, size: 18),
               label: const Text('Generar diseño'),
             ),
@@ -4547,15 +4586,17 @@ class _PickMediaAssetDialogState extends State<_PickMediaAssetDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final activeAssets = widget.assets.where((item) => item.isActive).toList(growable: false);
-    final categories = activeAssets
+    final galleryAssets = widget.assets
+        .where((item) => item.fileUrl.trim().isNotEmpty)
+        .toList(growable: false);
+    final categories = galleryAssets
         .map((item) => item.category.trim())
         .where((item) => item.isNotEmpty)
         .toSet()
         .toList(growable: false)
       ..sort();
     final search = _search.trim().toLowerCase();
-    final visible = activeAssets.where((item) {
+    final visible = galleryAssets.where((item) {
       if (_category != null && item.category != _category) return false;
       if (search.isEmpty) return true;
       return item.fileName.toLowerCase().contains(search) ||
@@ -4572,7 +4613,7 @@ class _PickMediaAssetDialogState extends State<_PickMediaAssetDialog> {
       }
     }
     if (selected == null) {
-      for (final item in activeAssets) {
+      for (final item in galleryAssets) {
         if (item.id == _selectedId) {
           selected = item;
           break;
@@ -4593,7 +4634,7 @@ class _PickMediaAssetDialogState extends State<_PickMediaAssetDialog> {
               Row(
                 children: [
                   Text(
-                    'Galería de Publicidad',
+                    'Galería de Contenido Autorizada',
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
                   ),
                   const Spacer(),
@@ -4604,6 +4645,11 @@ class _PickMediaAssetDialogState extends State<_PickMediaAssetDialog> {
                 ],
               ),
               const SizedBox(height: 10),
+              Text(
+                'Para este flujo solo se permite seleccionar imágenes de esta galería de contenido.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 8),
               TextField(
                 onChanged: (value) => setState(() => _search = value),
                 decoration: const InputDecoration(
@@ -4641,7 +4687,7 @@ class _PickMediaAssetDialogState extends State<_PickMediaAssetDialog> {
                     Expanded(
                       flex: 3,
                       child: visible.isEmpty
-                          ? const Center(child: Text('No hay imágenes disponibles con este filtro.'))
+                          ? const Center(child: Text('No hay imágenes en la Galería de Contenido con este filtro.'))
                           : GridView.builder(
                               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                                 crossAxisCount: 3,

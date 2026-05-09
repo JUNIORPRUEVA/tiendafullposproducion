@@ -38,6 +38,119 @@ const Color _waGreenDark = Color(0xFF1FA855);
 const Color _waText = Color(0xFF111B21);
 const Color _waTextMuted = Color(0xFF667781);
 
+// ─── CRM Comercial media helpers ─────────────────────────────────────────────
+
+/// In-memory cache for media bytes. Keyed by media URL.
+final Map<String, Future<Uint8List>> _crmMediaBytesCache = {};
+
+/// Resolves the URL to use to fetch media bytes via the authenticated proxy.
+/// The `/whatsapp-inbox/media/:messageId` endpoint works for any WhatsappMessage
+/// regardless of which CRM module is reading it.
+String? _mediaUrlForCrmMsg(CrmComercialInboxMessage msg) {
+  final raw = (msg.mediaUrl ?? '').trim();
+  if (raw.isEmpty) return null;
+  if (msg.mediaFailed) return null;
+  // Prefer the storage proxy route when we have a storage key or status=ready
+  if (!raw.startsWith('/whatsapp-inbox/media/') &&
+      (msg.mediaStorageKey?.trim().isNotEmpty == true ||
+          (msg.mediaStatus ?? '').toLowerCase() == 'ready')) {
+    final base = '/whatsapp-inbox/media/${msg.id}';
+    final versionSeed = [
+      msg.mediaStorageKey?.trim() ?? '',
+      msg.mediaMimeType?.trim() ?? '',
+      msg.mediaFileSize?.toString() ?? '',
+      msg.mediaStatus?.trim() ?? '',
+    ].join('|');
+    if (versionSeed.replaceAll('|', '').isNotEmpty) {
+      return '$base?v=${versionSeed.hashCode.abs()}';
+    }
+    return base;
+  }
+  // If the URL is already a proper backend path, use it directly
+  if (raw.startsWith('/whatsapp-inbox/media/') ||
+      raw.startsWith('/crm-commercial/media/')) {
+    return raw;
+  }
+  // Fallback: return as-is (external URL or data URI)
+  return raw.isEmpty ? null : raw;
+}
+
+/// Returns bytes from a media URL, using the authenticated Dio-based downloader
+/// and caching the result to avoid repeated network calls.
+Future<Uint8List> _crmBytesFromMediaUrl(
+  String mediaUrl, {
+  required Future<Uint8List> Function(String) downloadBytes,
+}) async {
+  return _crmMediaBytesCache.putIfAbsent(mediaUrl, () => downloadBytes(mediaUrl));
+}
+
+String _crmMimeToExtension(String? mime) {
+  switch ((mime ?? '').split(';').first.trim()) {
+    case 'audio/ogg':
+    case 'audio/ogg; codecs=opus':
+      return '.ogg';
+    case 'audio/mpeg':
+      return '.mp3';
+    case 'audio/mp4':
+    case 'audio/aac':
+      return '.m4a';
+    case 'audio/wav':
+      return '.wav';
+    case 'video/mp4':
+      return '.mp4';
+    case 'video/webm':
+      return '.webm';
+    case 'video/3gpp':
+      return '.3gp';
+    case 'image/jpeg':
+      return '.jpg';
+    case 'image/png':
+      return '.png';
+    case 'image/webp':
+      return '.webp';
+    case 'application/pdf':
+      return '.pdf';
+    default:
+      return '';
+  }
+}
+
+/// Opens a media file: downloads bytes, writes to temp, opens with system viewer.
+Future<void> _crmOpenMedia(
+  String mediaUrl,
+  String? mimeType, {
+  required Future<Uint8List> Function(String) downloadBytes,
+}) async {
+  try {
+    final bytes = await _crmBytesFromMediaUrl(mediaUrl, downloadBytes: downloadBytes);
+    if (bytes.isEmpty) return;
+    final ext = _crmMimeToExtension(mimeType);
+    final dir = await getTemporaryDirectory();
+    final hash = mediaUrl.hashCode.abs();
+    final file = File('${dir.path}${Platform.pathSeparator}crm_media_$hash$ext');
+    await file.writeAsBytes(bytes, flush: true);
+    await launchUrl(Uri.file(file.path), mode: LaunchMode.externalApplication);
+  } catch (e) {
+    debugPrint('[CrmComercial] _crmOpenMedia error: $e');
+  }
+}
+
+/// Resolves a playable source (file URI for media_kit) from a media URL.
+Future<String> _crmMediaSourceForPlayback(
+  String mediaUrl,
+  String? mimeType, {
+  required Future<Uint8List> Function(String) downloadBytes,
+}) async {
+  final bytes = await _crmBytesFromMediaUrl(mediaUrl, downloadBytes: downloadBytes);
+  if (bytes.isEmpty) throw Exception('Archivo vacío o no disponible');
+  final ext = _crmMimeToExtension(mimeType);
+  final dir = await getTemporaryDirectory();
+  final hash = mediaUrl.hashCode.abs();
+  final file = File('${dir.path}${Platform.pathSeparator}crm_play_$hash$ext');
+  await file.writeAsBytes(bytes, flush: true);
+  return file.uri.toString();
+}
+
 // CRM Comercial: 7 estados principales del flujo comercial
 // Los estados operacionales (instalación/servicio) se manejan en módulo Operations
 const List<String> _crmStatuses = <String>[
@@ -2799,6 +2912,12 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
               messageType: message.messageType,
               mediaUrl: message.mediaUrl,
               caption: message.caption,
+              messageId: message.id,
+              mediaStorageKey: message.mediaStorageKey,
+              mediaStatus: message.mediaStatus,
+              mediaMimeType: message.mediaMimeType,
+              originalFileName: message.originalFileName,
+              mediaFileSize: message.mediaFileSize,
             ),
           )
           .toList(growable: false);
@@ -4064,6 +4183,12 @@ class _CrmTimelineEntry {
     required this.messageType,
     this.mediaUrl,
     this.caption,
+    this.messageId,
+    this.mediaStorageKey,
+    this.mediaStatus,
+    this.mediaMimeType,
+    this.originalFileName,
+    this.mediaFileSize,
   });
 
   final String title;
@@ -4075,6 +4200,12 @@ class _CrmTimelineEntry {
   final String messageType;
   final String? mediaUrl;
   final String? caption;
+  final String? messageId;
+  final String? mediaStorageKey;
+  final String? mediaStatus;
+  final String? mediaMimeType;
+  final String? originalFileName;
+  final int? mediaFileSize;
 }
 
 class _CrmTimelineTile extends StatelessWidget {
@@ -4082,134 +4213,35 @@ class _CrmTimelineTile extends StatelessWidget {
 
   final _CrmTimelineEntry entry;
 
-  Widget _buildMessageMedia(String messageType, String mediaUrl, String? fileName) {
-    switch (messageType.toLowerCase()) {
-      case 'image':
-        return ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: SizedBox(
-            height: 160,
-            width: 200,
-            child: Image.network(
-              mediaUrl,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => Container(
-                color: Colors.grey[200],
-                child: const Center(
-                  child: Icon(Icons.broken_image_rounded, color: Colors.grey),
-                ),
-              ),
-              loadingBuilder: (_, child, loadingProgress) {
-                if (loadingProgress == null) return child;
-                return Container(
-                  color: Colors.grey[200],
-                  child: const Center(
-                    child: SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-        );
-      case 'video':
-        return Container(
-          height: 160,
-          width: 200,
-          decoration: BoxDecoration(
-            color: Colors.grey[200],
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Image.network(
-                  mediaUrl,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => const Center(
-                    child: Icon(Icons.broken_image_rounded, color: Colors.grey),
-                  ),
-                ),
-              ),
-              const Icon(
-                Icons.play_circle_outline_rounded,
-                size: 48,
-                color: Colors.white,
-              ),
-            ],
-          ),
-        );
-      case 'audio':
-        return Container(
-          height: 60,
-          width: 200,
-          decoration: BoxDecoration(
-            color: Colors.grey[100],
-            border: Border.all(color: Colors.grey[300]!),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: Icon(Icons.music_note_rounded, color: Colors.grey[600]),
-              ),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                  child: Text(
-                    fileName ?? 'Audio',
-                    style: const TextStyle(fontSize: 12),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: Icon(Icons.play_arrow_rounded, color: Colors.grey[600]),
-              ),
-            ],
-          ),
-        );
-      case 'document':
+  // Builds the appropriate media widget based on messageType.
+  // Wraps the entry fields back into a CrmComercialInboxMessage for the ConsumerStatefulWidgets.
+  Widget _buildMediaContent() {
+    final msgId = entry.messageId;
+    if (msgId == null) return const SizedBox.shrink();
+    final msg = CrmComercialInboxMessage(
+      id: msgId,
+      direction: entry.isOutgoing ? 'OUTGOING' : 'INCOMING',
+      messageType: entry.messageType,
+      body: entry.title,
+      caption: entry.caption,
+      mediaUrl: entry.mediaUrl,
+      mediaMimeType: entry.mediaMimeType,
+      senderName: entry.author,
+      sentAt: entry.createdAt,
+      mediaStorageKey: entry.mediaStorageKey,
+      mediaStatus: entry.mediaStatus,
+      originalFileName: entry.originalFileName,
+      mediaFileSize: entry.mediaFileSize,
+    );
+    switch (entry.messageType.toUpperCase()) {
+      case 'IMAGE':
+        return _CrmImageContent(msg: msg, textColor: _waText);
+      case 'AUDIO':
+        return _CrmAudioContent(msg: msg, textColor: _waText);
+      case 'VIDEO':
+        return _CrmVideoContent(msg: msg, textColor: _waText);
       default:
-        return Container(
-          height: 60,
-          width: 200,
-          decoration: BoxDecoration(
-            color: Colors.grey[100],
-            border: Border.all(color: Colors.grey[300]!),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Row(
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: Icon(Icons.description_rounded, color: Colors.grey[600]),
-              ),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                  child: Text(
-                    fileName ?? 'Documento',
-                    style: const TextStyle(fontSize: 12),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: Icon(Icons.download_rounded, color: Colors.grey[600]),
-              ),
-            ],
-          ),
-        );
+        return _CrmDocumentContent(msg: msg, textColor: _waText);
     }
   }
 
@@ -4250,13 +4282,13 @@ class _CrmTimelineTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // Render multimedia if present
-                if (entry.messageType != 'TEXT' && entry.mediaUrl != null) ...[
-                  _buildMessageMedia(entry.messageType, entry.mediaUrl!, null),
-                  if (entry.title.isNotEmpty || entry.caption?.isNotEmpty == true)
+                if (entry.messageType.toUpperCase() != 'TEXT' && entry.messageId != null) ...[
+                  _buildMediaContent(),
+                  if (entry.caption?.isNotEmpty == true)
                     const SizedBox(height: 6),
                 ],
                 // Text content
-                if (entry.title.isNotEmpty)
+                if (entry.messageType.toUpperCase() == 'TEXT' && entry.title.isNotEmpty)
                   Text(
                     entry.title,
                     style: const TextStyle(
@@ -4296,3 +4328,772 @@ class _CrmTimelineTile extends StatelessWidget {
     );
   }
 }
+
+  // ─── CRM Comercial Media Widgets ──────────────────────────────────────────────
+
+  class _CrmMediaUnavailable extends StatelessWidget {
+    const _CrmMediaUnavailable({
+      required this.icon,
+      required this.textColor,
+      this.onRetry,
+    });
+
+    final IconData icon;
+    final Color textColor;
+    final VoidCallback? onRetry;
+
+    @override
+    Widget build(BuildContext context) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: textColor),
+          const SizedBox(width: 6),
+          Text(
+            'Archivo no disponible',
+            style: TextStyle(color: textColor, fontSize: 13),
+          ),
+          if (onRetry != null) ...[
+            const SizedBox(width: 6),
+            InkWell(
+              onTap: onRetry,
+              child: Text(
+                'Reintentar',
+                style: TextStyle(
+                  color: textColor,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  decoration: TextDecoration.underline,
+                ),
+              ),
+            ),
+          ],
+        ],
+      );
+    }
+  }
+
+  class _CrmImageContent extends ConsumerStatefulWidget {
+    const _CrmImageContent({required this.msg, required this.textColor});
+    final CrmComercialInboxMessage msg;
+    final Color textColor;
+    @override
+    ConsumerState<_CrmImageContent> createState() => _CrmImageContentState();
+  }
+
+  class _CrmImageContentState extends ConsumerState<_CrmImageContent> {
+    Future<Uint8List>? _bytesFuture;
+    String? _url;
+
+    @override
+    void initState() {
+      super.initState();
+      _setFutureIfNeeded();
+    }
+
+    @override
+    void didUpdateWidget(covariant _CrmImageContent oldWidget) {
+      super.didUpdateWidget(oldWidget);
+      if (oldWidget.msg.id != widget.msg.id ||
+          oldWidget.msg.mediaUrl != widget.msg.mediaUrl) {
+        _setFutureIfNeeded();
+      }
+    }
+
+    void _setFutureIfNeeded() {
+      _url = _mediaUrlForCrmMsg(widget.msg);
+      if (_url == null || widget.msg.mediaFailed) {
+        _bytesFuture = null;
+        return;
+      }
+      final downloadBytes =
+          ref.read(crmComercialRepositoryProvider).downloadMediaBytes;
+      _bytesFuture = _crmBytesFromMediaUrl(_url!, downloadBytes: downloadBytes);
+    }
+
+    @override
+    Widget build(BuildContext context) {
+      final downloadBytes =
+          ref.read(crmComercialRepositoryProvider).downloadMediaBytes;
+      if (widget.msg.mediaFailed) {
+        return _CrmMediaUnavailable(
+          icon: Icons.image_not_supported_outlined,
+          textColor: widget.textColor,
+        );
+      }
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (_url != null && _bytesFuture != null)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: GestureDetector(
+                onTap: () => _showFullImage(context, _url!, downloadBytes),
+                child: _buildImageWidget(_bytesFuture!),
+              ),
+            )
+          else
+            _CrmMediaUnavailable(
+              icon: Icons.image_not_supported_outlined,
+              textColor: widget.textColor,
+            ),
+        ],
+      );
+    }
+
+    Widget _buildImageWidget(Future<Uint8List> future) {
+      return FutureBuilder<Uint8List>(
+        future: future,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState != ConnectionState.done) {
+            return Container(
+              width: 220,
+              height: 120,
+              color: Colors.grey.shade200,
+              child: const Center(
+                child: Icon(Icons.image_outlined, size: 26, color: Colors.grey),
+              ),
+            );
+          }
+          final bytes = snapshot.data;
+          if (snapshot.hasError || bytes == null || bytes.isEmpty) {
+            return _brokenImage();
+          }
+          return Image.memory(
+            bytes,
+            width: 220,
+            height: 120,
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+            errorBuilder: (_, __, ___) => _brokenImage(),
+          );
+        },
+      );
+    }
+
+    Widget _brokenImage() => Container(
+      width: 220,
+      height: 120,
+      color: Colors.grey.shade300,
+      child: const Icon(Icons.broken_image_rounded, size: 40),
+    );
+
+    void _showFullImage(
+      BuildContext context,
+      String url,
+      Future<Uint8List> Function(String mediaUrl) downloadBytes,
+    ) {
+      final imageFuture = _crmBytesFromMediaUrl(url, downloadBytes: downloadBytes);
+      showDialog(
+        context: context,
+        builder: (ctx) => Dialog(
+          backgroundColor: Colors.black,
+          child: GestureDetector(
+            onTap: () => Navigator.of(ctx).pop(),
+            child: InteractiveViewer(
+              child: FutureBuilder<Uint8List>(
+                future: imageFuture,
+                builder: (context, snapshot) {
+                  final bytes = snapshot.data;
+                  if (snapshot.connectionState != ConnectionState.done) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (snapshot.hasError || bytes == null || bytes.isEmpty) {
+                    return const Icon(
+                      Icons.broken_image_rounded,
+                      size: 64,
+                      color: Colors.white,
+                    );
+                  }
+                  return Image.memory(bytes);
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+  }
+
+  class _CrmAudioContent extends ConsumerStatefulWidget {
+    const _CrmAudioContent({required this.msg, required this.textColor});
+    final CrmComercialInboxMessage msg;
+    final Color textColor;
+    @override
+    ConsumerState<_CrmAudioContent> createState() => _CrmAudioContentState();
+  }
+
+  class _CrmAudioContentState extends ConsumerState<_CrmAudioContent> {
+    static const double _minPlayerWidth = 188;
+    static const double _maxPlayerWidth = 260;
+
+    media_kit.Player? _player;
+    StreamSubscription<bool>? _playingSub;
+    StreamSubscription<Duration>? _positionSub;
+    StreamSubscription<Duration>? _durationSub;
+    bool _initializing = false;
+    bool _initialized = false;
+    bool _playing = false;
+    Duration _position = Duration.zero;
+    Duration _duration = Duration.zero;
+    String? _error;
+
+    @override
+    void dispose() {
+      _playingSub?.cancel();
+      _positionSub?.cancel();
+      _durationSub?.cancel();
+      _player?.dispose();
+      super.dispose();
+    }
+
+    Future<void> _ensureInitialized() async {
+      if (_initializing || _initialized) return;
+      setState(() => _initializing = true);
+      try {
+        final url = _mediaUrlForCrmMsg(widget.msg);
+        if (url == null) throw Exception('Sin URL de audio');
+        final source = await _crmMediaSourceForPlayback(
+          url,
+          widget.msg.mediaMimeType,
+          downloadBytes: ref.read(crmComercialRepositoryProvider).downloadMediaBytes,
+        );
+        final player = media_kit.Player();
+        await player.setVolume(100);
+        _playingSub = player.stream.playing.listen((v) {
+          if (mounted) setState(() => _playing = v);
+        });
+        _positionSub = player.stream.position.listen((v) {
+          if (mounted) setState(() => _position = v);
+        });
+        _durationSub = player.stream.duration.listen((v) {
+          if (mounted) setState(() => _duration = v);
+        });
+        await player.open(media_kit.Media(source), play: true);
+        if (mounted) {
+          setState(() {
+            _player = player;
+            _initializing = false;
+            _initialized = true;
+          });
+        } else {
+          await player.dispose();
+        }
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            _initializing = false;
+            _error = e.toString();
+          });
+        }
+      }
+    }
+
+    Future<void> _togglePlayPause() async {
+      final player = _player;
+      if (player == null) return;
+      if (_playing) {
+        await player.pause();
+      } else {
+        if (_duration > Duration.zero && _position >= _duration) {
+          await player.seek(Duration.zero);
+        }
+        await player.play();
+      }
+    }
+
+    String _fmt(Duration d) {
+      final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+      final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+      return '$m:$s';
+    }
+
+    double _audioWidthFor(BoxConstraints constraints) {
+      final maxWidth =
+          constraints.hasBoundedWidth && constraints.maxWidth.isFinite
+              ? constraints.maxWidth
+              : _maxPlayerWidth;
+      return maxWidth.clamp(_minPlayerWidth, _maxPlayerWidth);
+    }
+
+    Future<void> _seekFromLocalDx(double dx, double width) async {
+      final player = _player;
+      if (player == null || _duration <= Duration.zero || width <= 0) return;
+      final progress = (dx / width).clamp(0.0, 1.0);
+      await player.seek(
+        Duration(milliseconds: (progress * _duration.inMilliseconds).round()),
+      );
+    }
+
+    @override
+    Widget build(BuildContext context) {
+      final color = widget.textColor;
+      if (_mediaUrlForCrmMsg(widget.msg) == null || widget.msg.mediaFailed) {
+        return _CrmMediaUnavailable(icon: Icons.mic_off_rounded, textColor: color);
+      }
+      if (_error != null) {
+        return _CrmMediaUnavailable(
+          icon: Icons.error_outline,
+          textColor: color,
+          onRetry: () {
+            setState(() => _error = null);
+            _ensureInitialized();
+          },
+        );
+      }
+      if (!_initialized) {
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final width = _audioWidthFor(constraints);
+            return GestureDetector(
+              onTap: _ensureInitialized,
+              child: SizedBox(
+                width: width,
+                height: 44,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    SizedBox.square(
+                      dimension: 34,
+                      child: _initializing
+                          ? Padding(
+                              padding: const EdgeInsets.all(7),
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.4,
+                                color: color,
+                              ),
+                            )
+                          : DecoratedBox(
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: color.withValues(alpha: 0.15),
+                              ),
+                              child: Icon(
+                                Icons.play_arrow_rounded,
+                                color: color,
+                                size: 21,
+                              ),
+                            ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            widget.msg.originalFileName ?? 'Audio',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: color,
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                              height: 1.05,
+                            ),
+                          ),
+                          const SizedBox(height: 5),
+                          _CrmStaticWaveform(color: color),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      }
+
+      final progress = _duration.inMilliseconds > 0
+          ? (_position.inMilliseconds / _duration.inMilliseconds).clamp(0.0, 1.0)
+          : 0.0;
+
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          final width = _audioWidthFor(constraints);
+          return SizedBox(
+            width: width,
+            height: 46,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                GestureDetector(
+                  onTap: _togglePlayPause,
+                  child: Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: color.withValues(alpha: 0.15),
+                    ),
+                    child: Icon(
+                      _playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                      color: color,
+                      size: 21,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 9),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      LayoutBuilder(
+                        builder: (context, barConstraints) {
+                          final barWidth = barConstraints.maxWidth;
+                          final thumbTravel =
+                              (barWidth - 10).clamp(0.0, barWidth);
+                          return GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTapDown: (d) =>
+                                _seekFromLocalDx(d.localPosition.dx, barWidth),
+                            onHorizontalDragUpdate: (d) =>
+                                _seekFromLocalDx(d.localPosition.dx, barWidth),
+                            child: SizedBox(
+                              height: 24,
+                              child: Center(
+                                child: Stack(
+                                  alignment: Alignment.centerLeft,
+                                  children: [
+                                    Container(
+                                      height: 3,
+                                      decoration: BoxDecoration(
+                                        color: color.withValues(alpha: 0.24),
+                                        borderRadius:
+                                            BorderRadius.circular(999),
+                                      ),
+                                    ),
+                                    FractionallySizedBox(
+                                      widthFactor: progress.toDouble(),
+                                      child: Container(
+                                        height: 3,
+                                        decoration: BoxDecoration(
+                                          color: color,
+                                          borderRadius:
+                                              BorderRadius.circular(999),
+                                        ),
+                                      ),
+                                    ),
+                                    Positioned(
+                                      left: (thumbTravel * progress).clamp(
+                                          0.0, thumbTravel),
+                                      child: Container(
+                                        width: 10,
+                                        height: 10,
+                                        decoration: BoxDecoration(
+                                          color: color,
+                                          shape: BoxShape.circle,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 1),
+                      SizedBox(
+                        height: 12,
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                _fmt(_position),
+                                maxLines: 1,
+                                style: TextStyle(
+                                  color: color.withValues(alpha: 0.7),
+                                  fontSize: 9.5,
+                                  height: 1,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Flexible(
+                              child: Text(
+                                _fmt(_duration),
+                                maxLines: 1,
+                                textAlign: TextAlign.right,
+                                style: TextStyle(
+                                  color: color.withValues(alpha: 0.7),
+                                  fontSize: 9.5,
+                                  height: 1,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    }
+  }
+
+  class _CrmStaticWaveform extends StatelessWidget {
+    const _CrmStaticWaveform({required this.color});
+    final Color color;
+    static const _heights = [
+      4.0, 8.0, 12.0, 6.0, 14.0, 8.0, 10.0, 6.0,
+      4.0, 12.0, 8.0, 14.0, 6.0, 10.0, 8.0, 4.0, 12.0, 6.0,
+    ];
+    @override
+    Widget build(BuildContext context) {
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          final availableWidth = constraints.hasBoundedWidth
+              ? constraints.maxWidth
+              : _heights.length * 5.0;
+          final visibleCount =
+              (availableWidth / 5).floor().clamp(4, _heights.length);
+          final heights = _heights.take(visibleCount).toList(growable: false);
+          return SizedBox(
+            height: 16,
+            child: Row(
+              mainAxisSize: MainAxisSize.max,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                for (var i = 0; i < heights.length; i++) ...[
+                  Flexible(
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Container(
+                        width: 3,
+                        height: heights[i].clamp(3.0, 14.0),
+                        decoration: BoxDecoration(
+                          color: color.withValues(alpha: 0.5),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (i < heights.length - 1) const SizedBox(width: 2),
+                ],
+              ],
+            ),
+          );
+        },
+      );
+    }
+  }
+
+  class _CrmVideoContent extends ConsumerStatefulWidget {
+    const _CrmVideoContent({required this.msg, required this.textColor});
+    final CrmComercialInboxMessage msg;
+    final Color textColor;
+    @override
+    ConsumerState<_CrmVideoContent> createState() => _CrmVideoContentState();
+  }
+
+  class _CrmVideoContentState extends ConsumerState<_CrmVideoContent> {
+    media_kit.Player? _player;
+    media_kit_video.VideoController? _videoController;
+    StreamSubscription<bool>? _playingSub;
+    bool _loading = false;
+    bool _initialized = false;
+    bool _playing = false;
+    String? _error;
+
+    @override
+    void dispose() {
+      _playingSub?.cancel();
+      _player?.dispose();
+      super.dispose();
+    }
+
+    Future<void> _initializeAndPlay() async {
+      final mediaUrl = _mediaUrlForCrmMsg(widget.msg);
+      if (mediaUrl == null) return;
+      setState(() => _loading = true);
+      try {
+        final source = await _crmMediaSourceForPlayback(
+          mediaUrl,
+          widget.msg.mediaMimeType ?? 'video/mp4',
+          downloadBytes: ref.read(crmComercialRepositoryProvider).downloadMediaBytes,
+        );
+        final player = media_kit.Player();
+        await player.setVolume(100);
+        final controller = media_kit_video.VideoController(player);
+        _playingSub = player.stream.playing.listen((v) {
+          if (mounted) setState(() => _playing = v);
+        });
+        await player.open(media_kit.Media(source), play: true);
+        if (!mounted) {
+          await player.dispose();
+          return;
+        }
+        setState(() {
+          _player = player;
+          _videoController = controller;
+          _initialized = true;
+          _loading = false;
+        });
+      } catch (e) {
+        if (mounted) setState(() { _loading = false; _error = e.toString(); });
+      }
+    }
+
+    Future<void> _togglePlayPause() async {
+      final player = _player;
+      if (player == null) return;
+      if (_playing) { await player.pause(); } else { await player.play(); }
+    }
+
+    @override
+    Widget build(BuildContext context) {
+      final color = widget.textColor;
+      final controller = _videoController;
+      if (_mediaUrlForCrmMsg(widget.msg) == null || widget.msg.mediaFailed) {
+        return _CrmMediaUnavailable(
+          icon: Icons.videocam_off_outlined,
+          textColor: color,
+        );
+      }
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: GestureDetector(
+          onTap: _initialized ? _togglePlayPause : _initializeAndPlay,
+          child: Container(
+            width: 260,
+            height: 150,
+            color: Colors.black87,
+            child: _error != null
+                ? Center(
+                    child: IconButton(
+                      tooltip: 'Reintentar cargar',
+                      onPressed: () {
+                        setState(() => _error = null);
+                        _initializeAndPlay();
+                      },
+                      icon: const Icon(
+                        Icons.refresh_rounded,
+                        color: Colors.white70,
+                        size: 34,
+                      ),
+                    ),
+                  )
+                : _initialized && controller != null
+                ? Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      media_kit_video.Video(controller: controller),
+                      if (!_playing)
+                        Container(
+                          width: 52,
+                          height: 52,
+                          decoration: const BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Colors.black45,
+                          ),
+                          child: const Icon(
+                            Icons.play_arrow_rounded,
+                            color: Colors.white,
+                            size: 34,
+                          ),
+                        ),
+                    ],
+                  )
+                : _loading
+                ? const Center(
+                    child: CircularProgressIndicator(color: Colors.white),
+                  )
+                : Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      const Icon(
+                        Icons.videocam_rounded,
+                        color: Colors.white54,
+                        size: 40,
+                      ),
+                      Container(
+                        width: 52,
+                        height: 52,
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.black45,
+                        ),
+                        child: const Icon(
+                          Icons.play_arrow_rounded,
+                          color: Colors.white,
+                          size: 34,
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
+        ),
+      );
+    }
+  }
+
+  class _CrmDocumentContent extends ConsumerStatefulWidget {
+    const _CrmDocumentContent({required this.msg, required this.textColor});
+    final CrmComercialInboxMessage msg;
+    final Color textColor;
+    @override
+    ConsumerState<_CrmDocumentContent> createState() => _CrmDocumentContentState();
+  }
+
+  class _CrmDocumentContentState extends ConsumerState<_CrmDocumentContent> {
+    bool _loading = false;
+
+    Future<void> _open() async {
+      final mediaUrl = _mediaUrlForCrmMsg(widget.msg);
+      if (mediaUrl == null) return;
+      setState(() => _loading = true);
+      await _crmOpenMedia(
+        mediaUrl,
+        widget.msg.mediaMimeType,
+        downloadBytes: ref.read(crmComercialRepositoryProvider).downloadMediaBytes,
+      );
+      if (mounted) setState(() => _loading = false);
+    }
+
+    @override
+    Widget build(BuildContext context) {
+      final color = widget.textColor;
+      final mediaUrl = _mediaUrlForCrmMsg(widget.msg);
+      if (mediaUrl == null || widget.msg.mediaFailed) {
+        return _CrmMediaUnavailable(
+          icon: Icons.insert_drive_file_outlined,
+          textColor: color,
+        );
+      }
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _loading
+              ? SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: color),
+                )
+              : Icon(Icons.insert_drive_file_rounded, color: color, size: 18),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              widget.msg.originalFileName ??
+                  widget.msg.body ??
+                  'Documento',
+              style: TextStyle(color: color, fontSize: 13),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 6),
+          GestureDetector(
+            onTap: _open,
+            child: Icon(Icons.download_rounded, color: color, size: 16),
+          ),
+        ],
+      );
+    }
+  }
