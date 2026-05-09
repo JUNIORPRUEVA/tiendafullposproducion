@@ -515,6 +515,33 @@ export class MarketingService {
     const ownImages =
       ownImagesResult.status === 'fulfilled' ? ownImagesResult.value : [];
 
+    const sourceUrls = [
+      ...evidenceRows
+        .map((row) => `${row.content ?? ''}`.trim())
+        .filter((url) => url.length > 0),
+      ...ownImages
+        .map((img) => `${img.url ?? ''}`.trim())
+        .filter((url) => url.length > 0),
+    ];
+    const mediaAssetsByUrl = new Map<string, { id: string }>();
+    if (sourceUrls.length > 0) {
+      const existingMediaAssets = await this.prisma.marketingMediaAsset.findMany({
+        where: {
+          companyId: _companyId,
+          fileUrl: {
+            in: [...new Set(sourceUrls)],
+          },
+        },
+        select: {
+          id: true,
+          fileUrl: true,
+        },
+      });
+      for (const item of existingMediaAssets) {
+        mediaAssetsByUrl.set(item.fileUrl.trim(), { id: item.id });
+      }
+    }
+
     const evidenceItems = evidenceRows
       .map((row) => {
         const rawUrl = `${row.content ?? ''}`.trim();
@@ -537,10 +564,14 @@ export class MarketingService {
         const publicUrl = this.marketingStorage.getPublicUrl(rawUrl);
         const fileName = this.extractFileNameFromUrl(rawUrl, row.id);
         const sourceType = this.inferAssetSourceType(publicUrl, fileName, tags);
+        const mediaAssetId = mediaAssetsByUrl.get(rawUrl)?.id ?? null;
 
         return {
           id: row.id,
+          contentGalleryItemId: row.id,
+          mediaAssetId,
           fileUrl: publicUrl,
+          imageUrl: publicUrl,
           thumbnailUrl: null,
           fileName,
           mimeType,
@@ -554,8 +585,9 @@ export class MarketingService {
           lastUsedAt: null,
           latestStory: null,
           sourceType,
+          origin: `${sourceType || 'content-gallery'}`,
+          isAuthorizedForPublicidad: true,
           approvedForPublicidad: true,
-          origin: sourceType || 'content-gallery',
           recommendedUse: relatedService || category || 'General',
         };
       })
@@ -570,10 +602,14 @@ export class MarketingService {
         const fileName = this.extractFileNameFromUrl(rawUrl, img.id);
         const tags = ['galeria-publicidad', 'subida-directamente', 'imagen'];
         const sourceType = 'GALLERY_IMAGE';
+        const mediaAssetId = mediaAssetsByUrl.get(rawUrl)?.id ?? null;
 
         return {
           id: img.id,
+          contentGalleryItemId: img.id,
+          mediaAssetId,
           fileUrl: publicUrl,
+          imageUrl: publicUrl,
           thumbnailUrl: null,
           fileName,
           mimeType: 'image/jpeg',
@@ -587,6 +623,7 @@ export class MarketingService {
           lastUsedAt: null,
           latestStory: null,
           sourceType,
+          isAuthorizedForPublicidad: true,
           approvedForPublicidad: true,
           origin: sourceType,
           recommendedUse: 'General',

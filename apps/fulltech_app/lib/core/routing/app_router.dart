@@ -60,6 +60,37 @@ import 'routes.dart';
 final GlobalKey<NavigatorState> appRootNavigatorKey =
     GlobalKey<NavigatorState>();
 
+CustomTransitionPage<void> _buildPublicidadTransitionPage({
+  required GoRouterState state,
+  required Widget child,
+}) {
+  return CustomTransitionPage<void>(
+    key: state.pageKey,
+    child: child,
+    transitionDuration: const Duration(milliseconds: 220),
+    reverseTransitionDuration: const Duration(milliseconds: 180),
+    transitionsBuilder: (context, animation, secondaryAnimation, pageChild) {
+      final curved = CurvedAnimation(
+        parent: animation,
+        curve: Curves.easeOutCubic,
+        reverseCurve: Curves.easeInCubic,
+      );
+      final offsetTween = Tween<Offset>(
+        begin: const Offset(0.016, 0),
+        end: Offset.zero,
+      );
+
+      return FadeTransition(
+        opacity: curved,
+        child: SlideTransition(
+          position: offsetTween.animate(curved),
+          child: pageChild,
+        ),
+      );
+    },
+  );
+}
+
 final _routerRefreshProvider = Provider<_RouterRefreshNotifier>((ref) {
   final notifier = _RouterRefreshNotifier();
   ref.listen<AuthState>(
@@ -274,19 +305,31 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: Routes.publicidadInvestigacion,
-            builder: (context, state) => const PublicidadScreen.investigacion(),
+            pageBuilder: (context, state) => _buildPublicidadTransitionPage(
+              state: state,
+              child: const PublicidadScreen.investigacion(),
+            ),
           ),
           GoRoute(
             path: Routes.publicidadEstados,
-            builder: (context, state) => const PublicidadScreen.estados(),
+            pageBuilder: (context, state) => _buildPublicidadTransitionPage(
+              state: state,
+              child: const PublicidadScreen.estados(),
+            ),
           ),
           GoRoute(
             path: Routes.publicidadCampanas,
-            builder: (context, state) => const PublicidadCampanasScreen(),
+            pageBuilder: (context, state) => _buildPublicidadTransitionPage(
+              state: state,
+              child: const PublicidadCampanasScreen(),
+            ),
           ),
           GoRoute(
             path: Routes.publicidadMarketplace,
-            builder: (context, state) => const PublicidadMarketplaceScreen(),
+            pageBuilder: (context, state) => _buildPublicidadTransitionPage(
+              state: state,
+              child: const PublicidadMarketplaceScreen(),
+            ),
           ),
           GoRoute(
             path: Routes.galeriaPublicidad,
@@ -294,7 +337,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: Routes.publicidadGaleria,
-            builder: (context, state) => const GaleriaPublicidadScreen(),
+            pageBuilder: (context, state) => _buildPublicidadTransitionPage(
+              state: state,
+              child: const GaleriaPublicidadScreen(),
+            ),
           ),
           GoRoute(
             path: Routes.whatsappCrm,

@@ -1,5 +1,6 @@
 ﻿import 'dart:async';
 import 'dart:convert';
+import 'dart:developer' as developer;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -238,17 +239,88 @@ class PublicidadController extends StateNotifier<PublicidadState> {
   Future<void> changeBaseImage(String storyId, String mediaAssetId) async {
     await _runStoryImageBusy(storyId, () async {
       final selectedId = mediaAssetId.trim();
-      final existsInAuthorizedGallery = state.mediaAssets.any(
-        (asset) => asset.id == selectedId,
+      developer.log(
+        '[publicidad-estados] selected asset id=$selectedId',
       );
-      if (!existsInAuthorizedGallery) {
+
+      var authorizedAssets = state.contentGalleryAssets;
+      developer.log(
+        '[publicidad-estados] authorized ids count=${authorizedAssets.length}',
+      );
+
+      var selected = _findAuthorizedContentAssetByAnyId(
+        selectedId,
+        authorizedAssets,
+      );
+
+      if (selected == null) {
+        // Required safeguard: retry loading official content gallery before rejecting.
+        authorizedAssets = await _api.loadContentGallery();
+        state = state.copyWith(contentGalleryAssets: authorizedAssets);
+        developer.log(
+          '[publicidad-estados] authorized ids count=${authorizedAssets.length} (after refresh)',
+        );
+        selected = _findAuthorizedContentAssetByAnyId(
+          selectedId,
+          authorizedAssets,
+        );
+      }
+
+      final isValid = selected != null;
+      developer.log('[publicidad-estados] validation result=$isValid');
+      if (!isValid) {
         throw StateError(
           'Solo se permiten imágenes de la Galería de Contenido autorizada de Publicidad.',
         );
       }
-      await _api.changeBaseImage(storyId, selectedId);
+
+      final selectedContentGalleryItemId =
+          selected!.contentGalleryItemId?.trim() ?? '';
+      final selectedMediaAssetId = selected.mediaAssetId?.trim() ?? '';
+      final selectedImageUrl = selected.imageUrl.trim();
+      developer.log(
+        '[publicidad-estados] selected contentGalleryItemId=${selectedContentGalleryItemId.isEmpty ? 'null' : selectedContentGalleryItemId}',
+      );
+      developer.log('[publicidad-estados] selected imageUrl=$selectedImageUrl');
+
+      final preferredId = _resolvePreferredSelectionId(selected);
+      await _api.changeBaseImage(storyId, preferredId);
       await _refresh(keepLoading: false);
     });
+  }
+
+  MarketingMediaAsset? _findAuthorizedContentAssetByAnyId(
+    String selectedId,
+    List<MarketingMediaAsset> authorizedAssets,
+  ) {
+    final target = selectedId.trim();
+    if (target.isEmpty) return null;
+
+    for (final asset in authorizedAssets) {
+      if (asset.id == target) return asset;
+
+      final contentGalleryItemId = asset.contentGalleryItemId?.trim() ?? '';
+      if (contentGalleryItemId.isNotEmpty && contentGalleryItemId == target) {
+        return asset;
+      }
+
+      final mediaAssetId = asset.mediaAssetId?.trim() ?? '';
+      if (mediaAssetId.isNotEmpty && mediaAssetId == target) {
+        return asset;
+      }
+    }
+
+    return null;
+  }
+
+  String _resolvePreferredSelectionId(MarketingMediaAsset selected) {
+    final contentGalleryItemId = selected.contentGalleryItemId?.trim() ?? '';
+    if (contentGalleryItemId.isNotEmpty) return contentGalleryItemId;
+
+    final mediaAssetId = selected.mediaAssetId?.trim() ?? '';
+    if (mediaAssetId.isNotEmpty) return mediaAssetId;
+
+    return selected.id.trim();
   }
 
   Future<void> editStory(

@@ -299,13 +299,47 @@ class _DrawerMenuItem extends StatefulWidget {
   State<_DrawerMenuItem> createState() => _DrawerMenuItemState();
 }
 
-class _DrawerMenuItemState extends State<_DrawerMenuItem> {
+class _DrawerMenuItemState extends State<_DrawerMenuItem>
+    with SingleTickerProviderStateMixin {
   bool _hovered = false;
+  late AnimationController _pressController;
+  late Animation<double> _scaleAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _pressController = AnimationController(
+      duration: const Duration(milliseconds: 140),
+      vsync: this,
+    );
+    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.97).animate(
+      CurvedAnimation(parent: _pressController, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _pressController.dispose();
+    super.dispose();
+  }
+
+  void _handlePointerDown() {
+    _pressController.forward();
+  }
+
+  void _handlePointerUp() {
+    _pressController.reverse();
+  }
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final selected = widget.selected;
+    final borderColor = selected
+        ? AppColors.primary.withValues(alpha: 0.30)
+        : (_hovered
+              ? AppColors.secondary.withValues(alpha: 0.20)
+              : Colors.transparent);
     final tileBg = selected
         ? AppColors.primary.withValues(alpha: 0.10)
         : (_hovered
@@ -314,71 +348,116 @@ class _DrawerMenuItemState extends State<_DrawerMenuItem> {
     final foreground = selected ? AppColors.primary : AppColors.textSecondary;
 
     return Padding(
-      padding: EdgeInsets.symmetric(vertical: widget.compact ? 1 : 2),
+      padding: EdgeInsets.symmetric(vertical: widget.compact ? 2 : 3),
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
         onEnter: (_) => setState(() => _hovered = true),
         onExit: (_) => setState(() => _hovered = false),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(10),
-            onTap: widget.onTap,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 170),
-              curve: Curves.easeOut,
-              height: widget.compact ? 44 : 46,
-              padding: EdgeInsets.symmetric(
-                horizontal: widget.compact ? 12 : 14,
-                vertical: 8,
-              ),
-              decoration: BoxDecoration(
-                color: tileBg,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Row(
-                children: [
-                  AnimatedContainer(
-                    duration: const Duration(milliseconds: 170),
-                    width: 3,
-                    height: 24,
-                    decoration: BoxDecoration(
-                      color: selected
-                          ? AppColors.primary
-                          : Colors.transparent,
-                      borderRadius: BorderRadius.circular(999),
+        child: Listener(
+          onPointerDown: (_) => _handlePointerDown(),
+          onPointerUp: (_) => _handlePointerUp(),
+          onPointerCancel: (_) => _handlePointerUp(),
+          child: ScaleTransition(
+            scale: _scaleAnimation,
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () {
+                  _handlePointerUp();
+                  widget.onTap();
+                },
+                splashColor: AppColors.primary.withValues(alpha: 0.15),
+                highlightColor: AppColors.primary.withValues(alpha: 0.08),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  curve: Curves.easeOut,
+                  height: widget.compact ? 50 : 54,
+                  padding: EdgeInsets.symmetric(
+                    horizontal: widget.compact ? 12 : 14,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: tileBg,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: borderColor,
+                      width: 1.5,
                     ),
+                    boxShadow: _hovered || selected
+                        ? [
+                            BoxShadow(
+                              color: selected
+                                  ? AppColors.primary.withValues(alpha: 0.12)
+                                  : AppColors.secondary.withValues(alpha: 0.08),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ]
+                        : [],
                   ),
-                  SizedBox(width: selected ? 10 : 13),
-                  Icon(
-                    widget.icon,
-                    size: widget.compact ? 18 : 19,
-                    color: foreground,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      widget.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTextStyles.body.copyWith(
-                        fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
-                        fontSize: widget.compact ? 13.4 : 14,
-                        color: foreground,
+                  child: Row(
+                    children: [
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        width: selected ? 4 : 3,
+                        height: 28,
+                        decoration: BoxDecoration(
+                          color: selected
+                              ? AppColors.primary
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(999),
+                        ),
                       ),
-                    ),
-                  ),
-                  if (widget.showIndicator)
-                    Container(
-                      width: 7,
-                      height: 7,
-                      margin: const EdgeInsets.only(left: 8),
-                      decoration: BoxDecoration(
-                        color: colorScheme.error,
-                        shape: BoxShape.circle,
+                      SizedBox(width: selected ? 9 : 12),
+                      AnimatedDefaultTextStyle(
+                        duration: const Duration(milliseconds: 200),
+                        style: TextStyle(
+                          fontSize: widget.compact ? 18 : 20,
+                          color: foreground,
+                        ),
+                        child: Icon(
+                          widget.icon,
+                          size: widget.compact ? 20 : 22,
+                          color: foreground,
+                        ),
                       ),
-                    ),
-                ],
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          widget.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTextStyles.body.copyWith(
+                            fontWeight: selected
+                                ? FontWeight.w700
+                                : (_hovered ? FontWeight.w600 : FontWeight.w500),
+                            fontSize: widget.compact ? 13.8 : 14.4,
+                            color: foreground,
+                          ),
+                        ),
+                      ),
+                      if (widget.showIndicator)
+                        Container(
+                          width: 8,
+                          height: 8,
+                          margin: const EdgeInsets.only(left: 10),
+                          decoration: BoxDecoration(
+                            color: colorScheme.error,
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: colorScheme.error.withValues(
+                                  alpha: 0.40,
+                                ),
+                                blurRadius: 4,
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
               ),
             ),
           ),

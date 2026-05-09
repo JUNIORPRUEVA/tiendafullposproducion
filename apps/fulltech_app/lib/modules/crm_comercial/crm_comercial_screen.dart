@@ -4090,8 +4090,7 @@ class _CrmConversationListItem extends StatelessWidget {
     final parts = raw.trim().split(' ').where((e) => e.isNotEmpty).toList();
     if (parts.isEmpty) return '?';
     if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
-    return '${parts[0].substring(0, 1)}${parts[1].substring(0, 1)}'
-        .toUpperCase();
+    return (parts[0].substring(0, 1) + parts[1].substring(0, 1)).toUpperCase();
   }
 
   @override
@@ -4099,25 +4098,26 @@ class _CrmConversationListItem extends StatelessWidget {
     final tileColor = isActive ? _waSelected : Colors.transparent;
     final avatarUrl = (item.remoteAvatarUrl ?? '').trim();
     final hasAvatar = _isSafePublicNetworkUrl(avatarUrl);
-
+    // Estado visual: NUEVO si no está vinculado, estado real si está vinculado
+    final showStatus = statusLabel.isNotEmpty && statusLabel != 'SIN CRM';
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        hoverColor: _waHover.withAlpha(170),
-        splashColor: _waHover.withAlpha(170),
+        hoverColor: _waHover.withAlpha(80),
+        splashColor: Colors.transparent,
         highlightColor: Colors.transparent,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 120),
           curve: Curves.easeOut,
           color: tileColor,
-          padding: const EdgeInsets.fromLTRB(0, 4, 10, 4),
+          padding: const EdgeInsets.fromLTRB(0, 2, 8, 2),
           child: Row(
             children: [
               AnimatedContainer(
                 duration: const Duration(milliseconds: 120),
                 width: 3,
-                height: 50,
+                height: 46,
                 margin: const EdgeInsets.only(right: 7),
                 decoration: BoxDecoration(
                   color: isActive ? _waGreenDark : Colors.transparent,
@@ -4127,8 +4127,8 @@ class _CrmConversationListItem extends StatelessWidget {
               GestureDetector(
                 onTap: onAvatarTap,
                 child: CircleAvatar(
-                  radius: 19,
-                  backgroundColor: statusColor.withAlpha(20),
+                  radius: 18,
+                  backgroundColor: statusColor.withAlpha(18),
                   backgroundImage: hasAvatar ? NetworkImage(avatarUrl) : null,
                   child: hasAvatar
                       ? null
@@ -4142,7 +4142,7 @@ class _CrmConversationListItem extends StatelessWidget {
                         ),
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 9),
               Expanded(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -4159,33 +4159,21 @@ class _CrmConversationListItem extends StatelessWidget {
                               fontSize: 13,
                               fontWeight: FontWeight.w600,
                               color: _waText,
-                              height: 1.15,
+                              height: 1.13,
                             ),
                           ),
                         ),
-                        if (isActive) ...[
-                          Container(
-                            width: 6,
-                            height: 6,
-                            margin: const EdgeInsets.only(right: 6),
-                            decoration: const BoxDecoration(
-                              color: _waGreenDark,
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                        ],
                         Text(
                           timeLabel,
                           style: TextStyle(
                             fontSize: 10,
                             color: item.unreadCount > 0 ? _waGreenDark : _waTextMuted,
-                            fontWeight:
-                                item.unreadCount > 0 ? FontWeight.w600 : FontWeight.w400,
+                            fontWeight: item.unreadCount > 0 ? FontWeight.w600 : FontWeight.w400,
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 3),
+                    const SizedBox(height: 2),
                     Text(
                       previewText,
                       maxLines: 1,
@@ -4193,41 +4181,36 @@ class _CrmConversationListItem extends StatelessWidget {
                       style: const TextStyle(
                         fontSize: 11,
                         color: _waTextMuted,
-                        height: 1.15,
+                        height: 1.13,
                       ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 3),
                     Row(
                       children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 1.5,
-                          ),
-                          decoration: BoxDecoration(
-                            color: statusColor.withAlpha(16),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Text(
-                            statusLabel,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 8.5,
-                              color: statusColor,
-                              fontWeight: FontWeight.w600,
-                              height: 1,
+                        if (showStatus)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                            decoration: BoxDecoration(
+                              color: statusColor.withAlpha(18),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              statusLabel,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 8.5,
+                                color: statusColor,
+                                fontWeight: FontWeight.w600,
+                                height: 1,
+                              ),
                             ),
                           ),
-                        ),
                         const Spacer(),
                         if (item.unreadCount > 0)
                           Container(
-                            constraints: const BoxConstraints(minWidth: 18),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 5,
-                              vertical: 2,
-                            ),
+                            constraints: const BoxConstraints(minWidth: 16),
+                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
                             decoration: BoxDecoration(
                               color: _waGreenDark,
                               borderRadius: BorderRadius.circular(999),

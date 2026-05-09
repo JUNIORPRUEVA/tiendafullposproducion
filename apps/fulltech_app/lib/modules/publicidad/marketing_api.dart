@@ -368,141 +368,29 @@ class MarketingApi {
   }
 
   Future<List<MarketingMediaAsset>> loadContentGallery() async {
-    DioException? mediaGalleryError;
-    DioException? ownUploadsError;
-    List<MarketingMediaAsset> mediaGalleryAssets = const [];
-    List<MarketingMediaAsset> ownUploadAssets = const [];
-
     try {
       final res = await _dio.get(
-        ApiRoutes.mediaGalleryPublicidad,
+        ApiRoutes.marketingContentGallery,
         options: _backgroundOptions,
       );
       final raw =
           (res.data as Map?)?.cast<String, dynamic>() ??
           const <String, dynamic>{};
       final rows = (raw['items'] is List) ? (raw['items'] as List) : const [];
-      mediaGalleryAssets = rows
+      return rows
           .whereType<Map>()
-          .map((item) => _assetFromMediaGalleryRow(item.cast<String, dynamic>()))
-          .whereType<MarketingMediaAsset>()
+          .map(
+            (item) => MarketingMediaAsset.fromJson(
+              item.cast<String, dynamic>(),
+            ),
+          )
           .toList(growable: false);
     } on DioException catch (error) {
-      mediaGalleryError = error;
-    }
-
-    try {
-      final res = await _dio.get(
-        ApiRoutes.publicidadImages,
-        options: _backgroundOptions,
+      _rethrow(
+        error,
+        'No se pudo cargar la Galería de contenido autorizada de Publicidad',
       );
-      final data = res.data;
-      final rows = data is List
-          ? data
-          : (((data as Map?)?.cast<String, dynamic>() ??
-                  const <String, dynamic>{})['items']
-              as List? ??
-              const []);
-      ownUploadAssets = rows
-          .whereType<Map>()
-          .map((item) => _assetFromOwnUploadRow(item.cast<String, dynamic>()))
-          .whereType<MarketingMediaAsset>()
-          .toList(growable: false);
-    } on DioException catch (error) {
-      ownUploadsError = error;
     }
-
-    if (mediaGalleryAssets.isEmpty && ownUploadAssets.isEmpty) {
-      if (mediaGalleryError != null) {
-        _rethrow(
-          mediaGalleryError,
-          'No se pudo cargar la Galería de contenido autorizada de Publicidad',
-        );
-      }
-      if (ownUploadsError != null) {
-        _rethrow(
-          ownUploadsError,
-          'No se pudo cargar la Galería de contenido autorizada de Publicidad',
-        );
-      }
-      return const <MarketingMediaAsset>[];
-    }
-
-    final mergedById = <String, MarketingMediaAsset>{
-      for (final item in mediaGalleryAssets) item.id: item,
-      for (final item in ownUploadAssets) item.id: item,
-    };
-    return mergedById.values.toList(growable: false);
-  }
-
-  MarketingMediaAsset? _assetFromMediaGalleryRow(Map<String, dynamic> row) {
-    final id = '${row['id'] ?? ''}'.trim();
-    final url = '${row['url'] ?? ''}'.trim();
-    if (id.isEmpty || url.isEmpty) return null;
-
-    final type = '${row['type'] ?? 'image'}'.trim().toLowerCase();
-    final isVideo = type == 'video';
-    final related = '${row['orderStatus'] ?? ''}'.trim();
-
-    return MarketingMediaAsset.fromJson({
-      'id': id,
-      'fileUrl': url,
-      'thumbnailUrl': null,
-      'fileName': _extractFileName(url, id),
-      'mimeType': isVideo ? 'video/mp4' : 'image/jpeg',
-      'category': isVideo ? 'Galería media (video)' : 'Galería media (imagen)',
-      'relatedService': related.isEmpty ? 'Galería media' : related,
-      'tags': [
-        'galeria-media',
-        'for-publicidad',
-        isVideo ? 'video' : 'imagen',
-      ],
-      'description': null,
-      'isActive': true,
-      'isFeatured': false,
-      'useCount': 0,
-      'lastUsedAt': null,
-      'latestStory': null,
-      'sourceType': 'GALLERY_IMAGE',
-    });
-  }
-
-  MarketingMediaAsset? _assetFromOwnUploadRow(Map<String, dynamic> row) {
-    final id = '${row['id'] ?? ''}'.trim();
-    final url = '${row['url'] ?? ''}'.trim();
-    if (id.isEmpty || url.isEmpty) return null;
-    final caption = '${row['caption'] ?? ''}'.trim();
-
-    return MarketingMediaAsset.fromJson({
-      'id': id,
-      'fileUrl': url,
-      'thumbnailUrl': null,
-      'fileName': _extractFileName(url, id),
-      'mimeType': 'image/jpeg',
-      'category': 'Galería publicidad',
-      'relatedService': null,
-      'tags': ['galeria-publicidad', 'subida-directamente', 'imagen'],
-      'description': caption.isEmpty ? null : caption,
-      'isActive': true,
-      'isFeatured': false,
-      'useCount': 0,
-      'lastUsedAt': null,
-      'latestStory': null,
-      'sourceType': 'GALLERY_IMAGE',
-    });
-  }
-
-  String _extractFileName(String url, String fallbackId) {
-    final raw = url.trim();
-    if (raw.isEmpty) return 'content-$fallbackId.jpg';
-
-    final uri = Uri.tryParse(raw);
-    final path = (uri?.path ?? raw).trim();
-    if (path.isEmpty) return 'content-$fallbackId.jpg';
-
-    final parts = path.split('/').where((part) => part.trim().isNotEmpty);
-    if (parts.isEmpty) return 'content-$fallbackId.jpg';
-    return parts.last.trim();
   }
 
   /// Analyzes multiple media assets and returns AI recommendations ranked by suitability

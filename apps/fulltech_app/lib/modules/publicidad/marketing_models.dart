@@ -106,7 +106,10 @@ MarketingImageStatus parseImageStatus(String? value) {
 class MarketingMediaAsset {
   const MarketingMediaAsset({
     required this.id,
+    required this.contentGalleryItemId,
+    required this.mediaAssetId,
     required this.fileUrl,
+    required this.imageUrl,
     required this.thumbnailUrl,
     required this.fileName,
     required this.mimeType,
@@ -114,6 +117,8 @@ class MarketingMediaAsset {
     required this.relatedService,
     required this.tags,
     required this.description,
+    required this.origin,
+    required this.isAuthorizedForPublicidad,
     required this.isActive,
     required this.isFeatured,
     required this.useCount,
@@ -126,7 +131,10 @@ class MarketingMediaAsset {
   });
 
   final String id;
+  final String? contentGalleryItemId;
+  final String? mediaAssetId;
   final String fileUrl;
+  final String imageUrl;
   final String? thumbnailUrl;
   final String fileName;
   final String mimeType;
@@ -134,6 +142,8 @@ class MarketingMediaAsset {
   final String? relatedService;
   final List<String> tags;
   final String? description;
+  final String? origin;
+  final bool isAuthorizedForPublicidad;
   final bool isActive;
   final bool isFeatured;
   final int useCount;
@@ -156,9 +166,21 @@ class MarketingMediaAsset {
       final latestStory = latestStoryRaw is Map
         ? latestStoryRaw.cast<String, dynamic>()
         : const <String, dynamic>{};
+      final rawFileUrl = '${json['fileUrl'] ?? json['imageUrl'] ?? ''}'.trim();
+      final rawImageUrl = '${json['imageUrl'] ?? json['fileUrl'] ?? ''}'.trim();
+      final contentGalleryItemId =
+        '${json['contentGalleryItemId'] ?? ''}'.trim().isEmpty
+        ? null
+        : '${json['contentGalleryItemId']}';
+      final mediaAssetId = '${json['mediaAssetId'] ?? ''}'.trim().isEmpty
+        ? null
+        : '${json['mediaAssetId']}';
     return MarketingMediaAsset(
       id: '${json['id'] ?? ''}',
-      fileUrl: '${json['fileUrl'] ?? ''}',
+        contentGalleryItemId: contentGalleryItemId,
+        mediaAssetId: mediaAssetId,
+        fileUrl: rawFileUrl,
+        imageUrl: rawImageUrl,
       thumbnailUrl: (json['thumbnailUrl'] ?? '').toString().trim().isEmpty
           ? null
           : '${json['thumbnailUrl']}',
@@ -172,6 +194,10 @@ class MarketingMediaAsset {
       description: (json['description'] ?? '').toString().trim().isEmpty
           ? null
           : '${json['description']}',
+        origin: '${json['origin'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${json['origin']}',
+        isAuthorizedForPublicidad: json['isAuthorizedForPublicidad'] != false,
       isActive: json['isActive'] != false,
       isFeatured: json['isFeatured'] == true,
       useCount: (json['useCount'] as num?)?.toInt() ?? 0,
