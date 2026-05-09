@@ -281,6 +281,11 @@ export class ContabilidadService {
     return role === 'ADMIN';
   }
 
+  private canReadAllCloses(actor: Actor) {
+    const role = (actor.role ?? '').toUpperCase();
+    return role === 'ADMIN' || role === 'ASISTENTE';
+  }
+
   private normalizeDepositKey(value?: string | null) {
     return (value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
   }
@@ -844,7 +849,7 @@ export class ContabilidadService {
 
   async getCloses(query: GetClosesQuery, actor?: Actor) {
     const where: Record<string, unknown> = {};
-    if (!this.isReviewer(actor ?? {})) {
+    if (!this.canReadAllCloses(actor ?? {})) {
       this.normalizeRoleGuard(actor ?? {});
       where.createdById = actor!.id;
     }
@@ -1084,10 +1089,13 @@ export class ContabilidadService {
 
   async getCloseById(id: string, actor?: Actor) {
     const close = await this.findCloseOrThrow(id);
-    if (!this.isReviewer(actor ?? {})) {
+    if (!this.canReadAllCloses(actor ?? {})) {
       this.normalizeRoleGuard(actor ?? {});
     }
-    if (!this.isReviewer(actor ?? {}) && close.createdById !== actor!.id) {
+    if (
+      !this.canReadAllCloses(actor ?? {}) &&
+      close.createdById !== actor!.id
+    ) {
       throw new ForbiddenException('No puedes ver cierres de otro usuario.');
     }
     return close;

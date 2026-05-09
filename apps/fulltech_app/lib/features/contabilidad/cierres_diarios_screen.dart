@@ -1558,7 +1558,7 @@ class _AssistantRawHistoryListState extends State<_AssistantRawHistoryList> {
                     children: [
                       Expanded(
                         child: Text(
-                          'Mis cierres registrados',
+                          'Cierres registrados',
                           style: theme.textTheme.titleSmall?.copyWith(
                             fontWeight: FontWeight.w900,
                           ),
