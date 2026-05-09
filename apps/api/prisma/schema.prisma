@@ -584,6 +584,7 @@ model User {
   crmCommercialFollowupTasksAssigned  CrmCommercialFollowupTask[] @relation("CrmFollowupTaskAssignedUser")
   crmCommercialFollowupTasksCreated   CrmCommercialFollowupTask[] @relation("CrmFollowupTaskCreatedByUser")
   crmCommercialFollowupTasksCompleted CrmCommercialFollowupTask[] @relation("CrmFollowupTaskCompletedByUser")
+  crmCommercialSettingsUpdated CrmCommercialSetting[] @relation("CrmCommercialSettingsUpdatedByUser")
 
   workEmployeeConfig WorkEmployeeConfig?
   warrantyProductConfigs WarrantyProductConfig[]
@@ -1450,6 +1451,20 @@ model CrmCommercialFollowupTask {
   @@index([dueDate])
   @@index([status, dueDate])
   @@map("crm_commercial_followup_tasks")
+}
+
+model CrmCommercialSetting {
+  id                         String   @id @default("global")
+  selectedWhatsappInstanceId String?  @map("selected_whatsapp_instance_id")
+  selectedWhatsappInstanceName String? @map("selected_whatsapp_instance_name")
+  enabled                    Boolean  @default(false)
+  updatedByUserId            String?  @map("updated_by_user_id") @db.Uuid
+  createdAt                  DateTime @default(now()) @map("created_at")
+  updatedAt                  DateTime @updatedAt @map("updated_at")
+
+  updatedByUser User? @relation("CrmCommercialSettingsUpdatedByUser", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@map("crm_commercial_settings")
 }
 
 model Sale {

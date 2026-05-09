@@ -4,7 +4,8 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
-} from '@nestjs/common';import {
+} from '@nestjs/common';
+import {
   CrmCommercialCustomerStatus,
   CrmCommercialFollowupTaskPriority,
   CrmCommercialFollowupTaskStatus,
@@ -21,12 +22,17 @@ import { UpdateCrmCommercialCustomerDto } from './dto/update-crm-commercial-cust
 import { CreateCrmCommercialFollowupTaskDto } from './dto/create-crm-commercial-followup-task.dto';
 import { UpdateCrmCommercialFollowupTaskDto } from './dto/update-crm-commercial-followup-task.dto';
 import { CrmCommercialFollowupTaskQueryDto } from './dto/crm-commercial-followup-task-query.dto';
+import { UpdateCrmCommercialSettingsDto } from './dto/update-crm-commercial-settings.dto';
+import { WhatsappService } from '../whatsapp/whatsapp.service';
 
 type AuthUser = { id: string; role: Role };
 
 @Injectable()
 export class CrmCommercialService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly whatsappService: WhatsappService,
+  ) {}
 
   private isAdmin(user: AuthUser): boolean {
     return user.role === Role.ADMIN;
@@ -161,6 +167,146 @@ export class CrmCommercialService {
     }
 
     return customer;
+  }
+
+  async getAvailableWhatsappInstances(user: AuthUser) {
+    if (!this.isAdmin(user)) {
+      throw new ForbiddenException('Solo ADMIN puede consultar instancias disponibles');
+    }
+
+    const instances = await this.whatsappService.listAllInstancesForCrm();
+    return instances.map((instance) => ({
+      id: String(instance.id),
+      instanceName: String(instance.instanceName ?? ''),
+      status: String(instance.status ?? 'pending'),
+      webhookEnabled: !!instance.webhookEnabled,
+      isCompany: !!instance.isCompany,
+      userId: instance.userId ? String(instance.userId) : null,
+      userName: String(instance.userName ?? ''),
+      userRole: instance.userRole ? String(instance.userRole) : null,
+      phoneNumber: instance.phoneNumber ? String(instance.phoneNumber) : null,
+    }));
+  }
+
+  async getSettings(user: AuthUser) {
+    if (!this.isAdmin(user)) {
+      throw new ForbiddenException('Solo ADMIN puede ver la configuracion CRM Comercial');
+    }
+
+    const [settings, instances] = await Promise.all([
+      this.prisma.crmCommercialSetting.upsert({
+        where: { id: 'global' },
+        create: { id: 'global' },
+        update: {},
+        include: {
+          updatedByUser: {
+            select: { id: true, nombreCompleto: true, role: true },
+          },
+        },
+      }),
+      this.getAvailableWhatsappInstances(user),
+    ]);
+
+    const selectedInstance = settings.selectedWhatsappInstanceId
+      ? instances.find((instance) => instance.id === settings.selectedWhatsappInstanceId)
+      : null;
+    const selectedInstanceExists = settings.selectedWhatsappInstanceId
+      ? !!selectedInstance
+      : true;
+
+    return {
+      ...settings,
+      selectedInstanceExists,
+      selectedInstanceStatus: selectedInstance?.status ?? null,
+      selectedInstanceWebhookEnabled: selectedInstance?.webhookEnabled ?? null,
+      warning:
+        settings.selectedWhatsappInstanceId && !selectedInstanceExists
+          ? 'La instancia seleccionada ya no existe o fue eliminada.'
+          : null,
+      // Preparado para siguiente fase de mensajes reales
+      realMessagesReady:
+        !!settings.enabled &&
+        !!settings.selectedWhatsappInstanceId &&
+        selectedInstanceExists,
+    };
+  }
+
+  async updateSettings(user: AuthUser, dto: UpdateCrmCommercialSettingsDto) {
+    if (!this.isAdmin(user)) {
+      throw new ForbiddenException('Solo ADMIN puede actualizar la configuracion CRM Comercial');
+    }
+
+    const [current, availableInstances] = await Promise.all([
+      this.prisma.crmCommercialSetting.upsert({
+        where: { id: 'global' },
+        create: { id: 'global' },
+        update: {},
+      }),
+      this.getAvailableWhatsappInstances(user),
+    ]);
+
+    let selectedId =
+      dto.selectedWhatsappInstanceId != null
+        ? dto.selectedWhatsappInstanceId.trim()
+        : current.selectedWhatsappInstanceId ?? undefined;
+    if (selectedId === '') selectedId = undefined;
+    const nextEnabled = dto.enabled ?? current.enabled;
+
+    if (selectedId) {
+      const found = availableInstances.find((instance) => instance.id === selectedId);
+      const isExplicitSelectionChange = dto.selectedWhatsappInstanceId != null;
+      if (!found && (isExplicitSelectionChange || nextEnabled)) {
+        throw new BadRequestException(
+          'La instancia WhatsApp seleccionada no existe o fue eliminada.',
+        );
+      }
+    }
+
+    if (nextEnabled === true && !selectedId) {
+      throw new BadRequestException(
+        'Debes seleccionar una instancia antes de habilitar CRM Comercial para mensajes reales.',
+      );
+    }
+
+    const selectedInstance = selectedId
+      ? availableInstances.find((instance) => instance.id === selectedId)
+      : null;
+
+    const updated = await this.prisma.crmCommercialSetting.upsert({
+      where: { id: 'global' },
+      create: {
+        id: 'global',
+        enabled: nextEnabled,
+        selectedWhatsappInstanceId: selectedId ?? null,
+        selectedWhatsappInstanceName:
+          dto.selectedWhatsappInstanceName?.trim() ||
+          selectedInstance?.instanceName ||
+          current.selectedWhatsappInstanceName ||
+          null,
+        updatedByUserId: user.id,
+      },
+      update: {
+        ...(dto.enabled != null ? { enabled: dto.enabled } : {}),
+        selectedWhatsappInstanceId: selectedId ?? null,
+        selectedWhatsappInstanceName:
+          dto.selectedWhatsappInstanceName?.trim() ||
+          selectedInstance?.instanceName ||
+          current.selectedWhatsappInstanceName ||
+          null,
+        updatedByUserId: user.id,
+      },
+      include: {
+        updatedByUser: {
+          select: { id: true, nombreCompleto: true, role: true },
+        },
+      },
+    });
+
+    return this.getSettings(user).then((settings) => ({
+      ok: true,
+      settings,
+      updated,
+    }));
   }
 
   async create(user: AuthUser, dto: CreateCrmCommercialCustomerDto) {

@@ -856,14 +856,33 @@ class PublicidadController extends StateNotifier<PublicidadState> {
 }
 
 class PublicidadScreen extends ConsumerStatefulWidget {
-  const PublicidadScreen({super.key});
+  const PublicidadScreen({super.key})
+    : _initialTab = _PublicidadTab.dashboard,
+      _lockedTab = null;
+
+  const PublicidadScreen.investigacion({super.key})
+    : _initialTab = _PublicidadTab.investigacion,
+      _lockedTab = _PublicidadTab.investigacion;
+
+  const PublicidadScreen.estados({super.key})
+    : _initialTab = _PublicidadTab.estados,
+      _lockedTab = _PublicidadTab.estados;
+
+  final _PublicidadTab _initialTab;
+  final _PublicidadTab? _lockedTab;
 
   @override
   ConsumerState<PublicidadScreen> createState() => _PublicidadScreenState();
 }
 
 class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
-  _PublicidadTab _tab = _PublicidadTab.dashboard;
+  late _PublicidadTab _tab;
+
+  @override
+  void initState() {
+    super.initState();
+    _tab = widget._initialTab;
+  }
 
   Future<void> _handleRepairIncomplete(
     BuildContext context,
@@ -978,8 +997,10 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
                   date: state.date,
                   tab: _tab,
                   busy: state.busy,
+                  lockedTab: widget._lockedTab,
                   onPickDate: (value) => controller.changeDate(value),
                   onTabChanged: (value) {
+                    if (widget._lockedTab != null) return;
                     setState(() => _tab = value);
                   },
                   onRefresh: controller.refresh,
@@ -1124,11 +1145,13 @@ class _TopToolbar extends StatelessWidget {
     required this.onPickDate,
     required this.onTabChanged,
     required this.onRefresh,
+    this.lockedTab,
   });
 
   final DateTime date;
   final _PublicidadTab tab;
   final bool busy;
+  final _PublicidadTab? lockedTab;
   final ValueChanged<DateTime> onPickDate;
   final ValueChanged<_PublicidadTab> onTabChanged;
   final Future<void> Function() onRefresh;
@@ -1157,63 +1180,68 @@ class _TopToolbar extends StatelessWidget {
               Expanded(
                 child: Align(
                   alignment: Alignment.centerLeft,
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: SegmentedButton<_PublicidadTab>(
-                      style: ButtonStyle(
-                        visualDensity: VisualDensity.compact,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                      segments: const [
-                        ButtonSegment(
-                          value: _PublicidadTab.dashboard,
-                          label: Text(
-                            'Dashboard',
-                            style: TextStyle(fontSize: 12),
+                  child: lockedTab != null
+                      ? Chip(
+                          avatar: const Icon(Icons.lock_outline, size: 16),
+                          label: Text(_tabLabel(lockedTab!)),
+                        )
+                      : SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: SegmentedButton<_PublicidadTab>(
+                            style: ButtonStyle(
+                              visualDensity: VisualDensity.compact,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            segments: const [
+                              ButtonSegment(
+                                value: _PublicidadTab.dashboard,
+                                label: Text(
+                                  'Dashboard',
+                                  style: TextStyle(fontSize: 12),
+                                ),
+                              ),
+                              ButtonSegment(
+                                value: _PublicidadTab.investigacion,
+                                label: Text(
+                                  'Investigación',
+                                  style: TextStyle(fontSize: 12),
+                                ),
+                              ),
+                              ButtonSegment(
+                                value: _PublicidadTab.galeria,
+                                label: Text(
+                                  'Galería de Publicidad',
+                                  style: TextStyle(fontSize: 12),
+                                ),
+                              ),
+                              ButtonSegment(
+                                value: _PublicidadTab.estados,
+                                label: Text(
+                                  'Estados diarios',
+                                  style: TextStyle(fontSize: 12),
+                                ),
+                              ),
+                              ButtonSegment(
+                                value: _PublicidadTab.historial,
+                                label: Text(
+                                  'Historial',
+                                  style: TextStyle(fontSize: 12),
+                                ),
+                              ),
+                              ButtonSegment(
+                                value: _PublicidadTab.configuracion,
+                                label: Text(
+                                  'Configuración',
+                                  style: TextStyle(fontSize: 12),
+                                ),
+                              ),
+                            ],
+                            selected: {tab},
+                            onSelectionChanged: (value) {
+                              if (value.isNotEmpty) onTabChanged(value.first);
+                            },
                           ),
                         ),
-                        ButtonSegment(
-                          value: _PublicidadTab.investigacion,
-                          label: Text(
-                            'Investigación',
-                            style: TextStyle(fontSize: 12),
-                          ),
-                        ),
-                        ButtonSegment(
-                          value: _PublicidadTab.galeria,
-                          label: Text(
-                            'Galería de Publicidad',
-                            style: TextStyle(fontSize: 12),
-                          ),
-                        ),
-                        ButtonSegment(
-                          value: _PublicidadTab.estados,
-                          label: Text(
-                            'Estados diarios',
-                            style: TextStyle(fontSize: 12),
-                          ),
-                        ),
-                        ButtonSegment(
-                          value: _PublicidadTab.historial,
-                          label: Text(
-                            'Historial',
-                            style: TextStyle(fontSize: 12),
-                          ),
-                        ),
-                        ButtonSegment(
-                          value: _PublicidadTab.configuracion,
-                          label: Text(
-                            'Configuración',
-                            style: TextStyle(fontSize: 12),
-                          ),
-                        ),
-                      ],
-                      selected: {tab},
-                      onSelectionChanged: (value) {
-                        if (value.isNotEmpty) onTabChanged(value.first);
-                      },
-                    ),
-                  ),
                 ),
               ),
               const SizedBox(width: 6),
@@ -1253,6 +1281,23 @@ class _TopToolbar extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  String _tabLabel(_PublicidadTab value) {
+    switch (value) {
+      case _PublicidadTab.dashboard:
+        return 'Dashboard';
+      case _PublicidadTab.investigacion:
+        return 'Investigación';
+      case _PublicidadTab.galeria:
+        return 'Galería de Publicidad';
+      case _PublicidadTab.estados:
+        return 'Estados diarios';
+      case _PublicidadTab.historial:
+        return 'Historial';
+      case _PublicidadTab.configuracion:
+        return 'Configuración';
+    }
   }
 }
 

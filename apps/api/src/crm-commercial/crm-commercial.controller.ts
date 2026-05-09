@@ -25,6 +25,7 @@ import { UpdateCrmCommercialCustomerDto } from './dto/update-crm-commercial-cust
 import { CreateCrmCommercialFollowupTaskDto } from './dto/create-crm-commercial-followup-task.dto';
 import { UpdateCrmCommercialFollowupTaskDto } from './dto/update-crm-commercial-followup-task.dto';
 import { CrmCommercialFollowupTaskQueryDto } from './dto/crm-commercial-followup-task-query.dto';
+import { UpdateCrmCommercialSettingsDto } from './dto/update-crm-commercial-settings.dto';
 
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 @Controller('crm-commercial')
@@ -37,6 +38,27 @@ export class CrmCommercialController {
       throw new UnauthorizedException('Usuario no autenticado');
     }
     return { id: user.id, role: user.role };
+  }
+
+  @Get('settings')
+  @Roles(Role.ADMIN)
+  getSettings(@Req() req: Request) {
+    return this.crmCommercial.getSettings(this.userOrThrow(req));
+  }
+
+  @Patch('settings')
+  @Roles(Role.ADMIN)
+  updateSettings(
+    @Req() req: Request,
+    @Body() dto: UpdateCrmCommercialSettingsDto,
+  ) {
+    return this.crmCommercial.updateSettings(this.userOrThrow(req), dto);
+  }
+
+  @Get('available-whatsapp-instances')
+  @Roles(Role.ADMIN)
+  getAvailableWhatsappInstances(@Req() req: Request) {
+    return this.crmCommercial.getAvailableWhatsappInstances(this.userOrThrow(req));
   }
 
   // Phase 1: Customers

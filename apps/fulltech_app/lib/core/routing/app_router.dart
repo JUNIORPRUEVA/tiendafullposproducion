@@ -25,6 +25,8 @@ import '../../modules/clientes/clientes_screen.dart';
 import '../../modules/clientes/clientes_map_screen.dart';
 import '../../modules/clientes/cliente_form_screen.dart';
 import '../../modules/nomina/nomina_screen.dart';
+import '../../modules/publicidad/publicidad_hub_screen.dart';
+import '../../modules/publicidad/publicidad_placeholder_screens.dart';
 import '../../modules/publicidad/publicidad_screen.dart';
 import '../../features/media_gallery/presentation/galeria_publicidad_screen.dart';
 import '../../modules/nomina/mis_pagos_screen.dart';
@@ -268,7 +270,23 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: Routes.publicidad,
-            builder: (context, state) => const PublicidadScreen(),
+            builder: (context, state) => const PublicidadHubScreen(),
+          ),
+          GoRoute(
+            path: Routes.publicidadInvestigacion,
+            builder: (context, state) => const PublicidadScreen.investigacion(),
+          ),
+          GoRoute(
+            path: Routes.publicidadEstados,
+            builder: (context, state) => const PublicidadScreen.estados(),
+          ),
+          GoRoute(
+            path: Routes.publicidadCampanas,
+            builder: (context, state) => const PublicidadCampanasScreen(),
+          ),
+          GoRoute(
+            path: Routes.publicidadMarketplace,
+            builder: (context, state) => const PublicidadMarketplaceScreen(),
           ),
           GoRoute(
             path: Routes.galeriaPublicidad,

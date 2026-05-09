@@ -61,6 +61,10 @@ class RouteAccess {
       case Routes.whatsapp:
         return AppPermission.viewWhatsapp;
       case Routes.publicidad:
+      case Routes.publicidadInvestigacion:
+      case Routes.publicidadEstados:
+      case Routes.publicidadCampanas:
+      case Routes.publicidadMarketplace:
         return AppPermission.viewPublicidad;
       case Routes.whatsappCrm:
         return AppPermission.viewWhatsappCrm;
@@ -99,6 +103,9 @@ class RouteAccess {
     }
     if (path.startsWith('${Routes.administracion}/')) {
       return AppPermission.viewAdminPanel;
+    }
+    if (path.startsWith('${Routes.publicidad}/')) {
+      return AppPermission.viewPublicidad;
     }
     return null;
   }

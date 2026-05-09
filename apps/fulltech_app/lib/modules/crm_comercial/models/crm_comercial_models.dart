@@ -213,6 +213,85 @@ class CrmComercialCustomerListResponse {
   }
 }
 
+class CrmComercialWhatsappInstance {
+  const CrmComercialWhatsappInstance({
+    required this.id,
+    required this.instanceName,
+    required this.status,
+    required this.webhookEnabled,
+    required this.isCompany,
+    this.userId,
+    this.userName,
+    this.userRole,
+    this.phoneNumber,
+  });
+
+  final String id;
+  final String instanceName;
+  final String status;
+  final bool webhookEnabled;
+  final bool isCompany;
+  final String? userId;
+  final String? userName;
+  final String? userRole;
+  final String? phoneNumber;
+
+  factory CrmComercialWhatsappInstance.fromJson(Map<String, dynamic> json) {
+    return CrmComercialWhatsappInstance(
+      id: (json['id'] ?? '').toString(),
+      instanceName: (json['instanceName'] ?? '').toString(),
+      status: (json['status'] ?? 'pending').toString(),
+      webhookEnabled: json['webhookEnabled'] == true,
+      isCompany: json['isCompany'] == true,
+      userId: json['userId']?.toString(),
+      userName: json['userName']?.toString(),
+      userRole: json['userRole']?.toString(),
+      phoneNumber: json['phoneNumber']?.toString(),
+    );
+  }
+}
+
+class CrmComercialSettings {
+  const CrmComercialSettings({
+    required this.id,
+    required this.enabled,
+    this.selectedWhatsappInstanceId,
+    this.selectedWhatsappInstanceName,
+    this.updatedAt,
+    this.selectedInstanceExists,
+    this.warning,
+    this.realMessagesReady,
+  });
+
+  final String id;
+  final bool enabled;
+  final String? selectedWhatsappInstanceId;
+  final String? selectedWhatsappInstanceName;
+  final DateTime? updatedAt;
+  final bool? selectedInstanceExists;
+  final String? warning;
+  final bool? realMessagesReady;
+
+  factory CrmComercialSettings.fromJson(Map<String, dynamic> json) {
+    return CrmComercialSettings(
+      id: (json['id'] ?? 'global').toString(),
+      enabled: json['enabled'] == true,
+      selectedWhatsappInstanceId:
+          json['selectedWhatsappInstanceId']?.toString(),
+      selectedWhatsappInstanceName:
+          json['selectedWhatsappInstanceName']?.toString(),
+      updatedAt: DateTime.tryParse((json['updatedAt'] ?? '').toString()),
+      selectedInstanceExists: json['selectedInstanceExists'] is bool
+          ? json['selectedInstanceExists'] as bool
+          : null,
+      warning: json['warning']?.toString(),
+      realMessagesReady: json['realMessagesReady'] is bool
+          ? json['realMessagesReady'] as bool
+          : null,
+    );
+  }
+}
+
   class CrmComercialFollowupTask {
     const CrmComercialFollowupTask({
       required this.id,

@@ -111,6 +111,50 @@ class CrmComercialRepository {
     return rows;
   }
 
+  Future<CrmComercialSettings> getSettings() async {
+    final res = await _dio.get<Map<String, dynamic>>(
+      ApiRoutes.crmCommercialSettings,
+    );
+    return CrmComercialSettings.fromJson(res.data ?? const {});
+  }
+
+  Future<CrmComercialSettings> updateSettings({
+    bool? enabled,
+    String? selectedWhatsappInstanceId,
+    String? selectedWhatsappInstanceName,
+  }) async {
+    final payload = <String, dynamic>{
+      if (enabled != null) 'enabled': enabled,
+      if (selectedWhatsappInstanceId != null)
+        'selectedWhatsappInstanceId': selectedWhatsappInstanceId,
+      if (selectedWhatsappInstanceName != null)
+        'selectedWhatsappInstanceName': selectedWhatsappInstanceName,
+    };
+    final res = await _dio.patch<Map<String, dynamic>>(
+      ApiRoutes.crmCommercialSettings,
+      data: payload,
+    );
+    final data = res.data ?? const {};
+    final nested = data['settings'];
+    if (nested is Map<String, dynamic>) {
+      return CrmComercialSettings.fromJson(nested);
+    }
+    return CrmComercialSettings.fromJson(data);
+  }
+
+  Future<List<CrmComercialWhatsappInstance>> listAvailableWhatsappInstances() async {
+    final res = await _dio.get<List<dynamic>>(
+      ApiRoutes.crmCommercialAvailableWhatsappInstances,
+    );
+    return (res.data ?? const [])
+        .whereType<Map>()
+        .map(
+          (entry) =>
+              CrmComercialWhatsappInstance.fromJson(entry.cast<String, dynamic>()),
+        )
+        .toList(growable: false);
+  }
+
   // Phase 2: Follow-up Tasks
 
   Future<List<CrmComercialFollowupTask>> listFollowupTasks({

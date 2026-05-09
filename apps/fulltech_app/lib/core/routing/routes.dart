@@ -39,6 +39,10 @@ class Routes {
   static const configuracion = '/configuracion';
   static const whatsapp = '/whatsapp';
   static const publicidad = '/publicidad';
+  static const publicidadInvestigacion = '/publicidad/investigacion';
+  static const publicidadEstados = '/publicidad/estados';
+  static const publicidadCampanas = '/publicidad/campanas';
+  static const publicidadMarketplace = '/publicidad/marketplace';
   static const administracion = '/administracion';
   static const administracionPonches = '/administracion/ponches';
   static const administracionVentas = '/administracion/ventas';

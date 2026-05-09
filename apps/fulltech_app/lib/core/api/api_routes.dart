@@ -102,6 +102,9 @@ class ApiRoutes {
       '/crm-commercial/followup-tasks/$id/cancel';
   static String crmCommercialFollowupTaskById(String id) =>
       '/crm-commercial/followup-tasks/$id';
+  static const crmCommercialSettings = '/crm-commercial/settings';
+  static const crmCommercialAvailableWhatsappInstances =
+      '/crm-commercial/available-whatsapp-instances';
 
   // Productos
   static const products = '/products';

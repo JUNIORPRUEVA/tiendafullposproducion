@@ -268,6 +268,10 @@ String resolveNavigationTitle(
   if (path == Routes.clienteNuevo) return 'Nuevo cliente';
   if (path == Routes.ai) return 'IA';
   if (path == Routes.publicidad) return 'Publicidad';
+  if (path == Routes.publicidadInvestigacion) return 'Publicidad / Investigación';
+  if (path == Routes.publicidadEstados) return 'Publicidad / Estados';
+  if (path == Routes.publicidadCampanas) return 'Publicidad / Campañas';
+  if (path == Routes.publicidadMarketplace) return 'Publicidad / Marketplace';
   if (path == Routes.galeriaPublicidad) return 'Galería de Publicidad';
   if (path == Routes.whatsappCrm) return 'CRM WhatsApp';
   if (path == Routes.crmComercial) return 'CRM Comercial';
