@@ -204,6 +204,8 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
   CloseTransferVoucherModel? _posVoucher;
   bool _uploadingPosVoucher = false;
   ProviderSubscription<CierresDiariosState>? _cierresStateSubscription;
+  String? _lastLoadedUserId;
+  bool _assistantEmptyReloadRequested = false;
 
   @override
   void initState() {
@@ -254,6 +256,32 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
     final controller = ref.read(cierresDiariosControllerProvider.notifier);
     final canUseModule = isAdmin || isAssistant;
     final selectedType = state.typeFilter ?? CloseType.tienda;
+    final currentUserId = user?.id.trim();
+
+    if (currentUserId != _lastLoadedUserId) {
+      _lastLoadedUserId = currentUserId;
+      _assistantEmptyReloadRequested = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || (currentUserId ?? '').isEmpty) return;
+        controller.refresh();
+      });
+    }
+
+    if (isAssistant &&
+        !state.loading &&
+        state.error == null &&
+        state.closes.isEmpty &&
+        !_assistantEmptyReloadRequested) {
+      _assistantEmptyReloadRequested = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        controller.refresh();
+      });
+    }
+
+    if (state.closes.isNotEmpty && _assistantEmptyReloadRequested) {
+      _assistantEmptyReloadRequested = false;
+    }
 
     if (!isAdmin && state.editingClose != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -348,7 +376,19 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
             currentUserId: currentUserId,
           ),
         );
-        final history = _AssistantRawHistoryList(closes: state.closes);
+        final history = _AssistantRawHistoryList(
+          closes: state.closes,
+          fromDate: state.from,
+          toDate: state.to,
+        );
+        final historyButton = SizedBox(
+          height: 42,
+          child: OutlinedButton.icon(
+            onPressed: () => _openHistoryScreen(context),
+            icon: const Icon(Icons.history),
+            label: Text('Ver historial (${state.closes.length})'),
+          ),
+        );
         final statusWidgets = <Widget>[
           if (state.loading) const LinearProgressIndicator(),
           if (state.error != null) ...[
@@ -362,6 +402,8 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
             padding: const EdgeInsets.all(14),
             children: [
               ...statusWidgets,
+              historyButton,
+              const SizedBox(height: 12),
               formPanel,
               const SizedBox(height: 12),
               history,
@@ -376,6 +418,11 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
             child: Column(
               children: [
                 ...statusWidgets,
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: historyButton,
+                ),
+                const SizedBox(height: 12),
                 Expanded(
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1418,9 +1465,15 @@ enum _AssistantCloseListFilter {
 }
 
 class _AssistantRawHistoryList extends StatefulWidget {
-  const _AssistantRawHistoryList({required this.closes});
+  const _AssistantRawHistoryList({
+    required this.closes,
+    required this.fromDate,
+    required this.toDate,
+  });
 
   final List<CloseModel> closes;
+  final DateTime fromDate;
+  final DateTime toDate;
 
   @override
   State<_AssistantRawHistoryList> createState() =>
@@ -1606,7 +1659,7 @@ class _AssistantRawHistoryListState extends State<_AssistantRawHistoryList> {
                   const SizedBox(height: 10),
                   if (rows.isEmpty)
                     Text(
-                      'Sin cierres para este filtro.',
+                      'Sin cierres para este filtro entre ${DateFormat('dd/MM/yyyy').format(widget.fromDate)} y ${DateFormat('dd/MM/yyyy').format(widget.toDate)}.',
                       style: theme.textTheme.bodyMedium,
                     )
                   else if (boundedHeight)

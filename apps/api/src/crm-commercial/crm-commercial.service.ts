@@ -6,6 +6,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';import {
   CrmCommercialCustomerStatus,
+  CrmCommercialFollowupTaskPriority,
+  CrmCommercialFollowupTaskStatus,
   Prisma,
   Role,
 } from '@prisma/client';
@@ -16,6 +18,9 @@ import { CreateCrmCommercialCustomerDto } from './dto/create-crm-commercial-cust
 import { CreateCrmCommercialNoteDto } from './dto/create-crm-commercial-note.dto';
 import { CrmCommercialQueryDto } from './dto/crm-commercial-query.dto';
 import { UpdateCrmCommercialCustomerDto } from './dto/update-crm-commercial-customer.dto';
+import { CreateCrmCommercialFollowupTaskDto } from './dto/create-crm-commercial-followup-task.dto';
+import { UpdateCrmCommercialFollowupTaskDto } from './dto/update-crm-commercial-followup-task.dto';
+import { CrmCommercialFollowupTaskQueryDto } from './dto/crm-commercial-followup-task-query.dto';
 
 type AuthUser = { id: string; role: Role };
 
@@ -504,5 +509,262 @@ export class CrmCommercialService {
         },
       },
     });
+  }
+
+  // ─── Phase 2: Follow-up Tasks ─────────────────────────────────────────────
+
+  private taskUserInclude = {
+    select: { id: true, nombreCompleto: true, role: true },
+  } as const;
+
+  async createFollowupTask(
+    user: AuthUser,
+    customerId: string,
+    dto: CreateCrmCommercialFollowupTaskDto,
+  ) {
+    await this.ensureCustomerAccessible(user, customerId);
+
+    const task = await this.prisma.crmCommercialFollowupTask.create({
+      data: {
+        customerId,
+        title: dto.title.trim(),
+        description: this.normalizeText(dto.description),
+        dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
+        priority: dto.priority ?? CrmCommercialFollowupTaskPriority.NORMAL,
+        assignedUserId: dto.assignedUserId,
+        createdByUserId: user.id,
+      },
+      include: {
+        assignedUser: { select: { id: true, nombreCompleto: true, role: true } },
+        createdByUser: { select: { id: true, nombreCompleto: true, role: true } },
+        completedByUser: { select: { id: true, nombreCompleto: true, role: true } },
+      },
+    });
+
+    await this.prisma.crmCommercialActivity.create({
+      data: {
+        customerId,
+        createdByUserId: user.id,
+        activityType: 'TAREA_CREADA',
+        description: `Tarea de seguimiento creada: ${task.title}`,
+      },
+    });
+
+    return task;
+  }
+
+  async listFollowupTasks(
+    user: AuthUser,
+    query: CrmCommercialFollowupTaskQueryDto,
+  ) {
+    const now = new Date();
+    const andFilters: Prisma.CrmCommercialFollowupTaskWhereInput[] = [];
+
+    if (query.customerId) {
+      andFilters.push({ customerId: query.customerId });
+    }
+    if (query.assignedUserId) {
+      andFilters.push({ assignedUserId: query.assignedUserId });
+    }
+    if (query.priority) {
+      andFilters.push({
+        priority: query.priority as CrmCommercialFollowupTaskPriority,
+      });
+    }
+
+    const overdueOnly = this.parseBool(query.overdueOnly) ?? false;
+    if (overdueOnly) {
+      andFilters.push({
+        status: CrmCommercialFollowupTaskStatus.PENDIENTE,
+        dueDate: { lt: now },
+      });
+    } else if (query.status) {
+      andFilters.push({
+        status: query.status as CrmCommercialFollowupTaskStatus,
+      });
+    }
+
+    if (query.dueFrom) {
+      andFilters.push({ dueDate: { gte: new Date(query.dueFrom) } });
+    }
+    if (query.dueTo) {
+      andFilters.push({ dueDate: { lte: new Date(query.dueTo) } });
+    }
+
+    const tasks = await this.prisma.crmCommercialFollowupTask.findMany({
+      where: andFilters.length > 0 ? { AND: andFilters } : {},
+      include: {
+        assignedUser: { select: { id: true, nombreCompleto: true, role: true } },
+        createdByUser: { select: { id: true, nombreCompleto: true, role: true } },
+        completedByUser: { select: { id: true, nombreCompleto: true, role: true } },
+      },
+      orderBy: [{ dueDate: 'asc' }, { createdAt: 'desc' }],
+    });
+
+    return tasks.map((task) => ({
+      ...task,
+      effectiveStatus:
+        task.status === CrmCommercialFollowupTaskStatus.PENDIENTE &&
+        task.dueDate &&
+        task.dueDate < now
+          ? CrmCommercialFollowupTaskStatus.VENCIDA
+          : task.status,
+    }));
+  }
+
+  async updateFollowupTask(
+    user: AuthUser,
+    taskId: string,
+    dto: UpdateCrmCommercialFollowupTaskDto,
+  ) {
+    const task = await this.prisma.crmCommercialFollowupTask.findUnique({
+      where: { id: taskId },
+      select: {
+        id: true,
+        customerId: true,
+        title: true,
+        dueDate: true,
+        priority: true,
+        status: true,
+      },
+    });
+    if (!task) {
+      throw new NotFoundException('Tarea de seguimiento no encontrada');
+    }
+
+    const updateData: {
+      title?: string;
+      description?: string | null;
+      assignedUserId?: string | null;
+      dueDate?: Date;
+      priority?: CrmCommercialFollowupTaskPriority;
+    } = {};
+    const activityParts: string[] = [];
+
+    if (dto.title !== undefined) updateData.title = dto.title.trim();
+    if (dto.description !== undefined) {
+      updateData.description = this.normalizeText(dto.description) ?? null;
+    }
+    if (dto.assignedUserId !== undefined) {
+      updateData.assignedUserId = dto.assignedUserId || null;
+    }
+    if (dto.dueDate !== undefined) {
+      const newDate = new Date(dto.dueDate);
+      if (!task.dueDate || task.dueDate.getTime() !== newDate.getTime()) {
+        activityParts.push(
+          `Fecha cambiada a ${newDate.toLocaleDateString('es-DO')}`,
+        );
+      }
+      updateData.dueDate = newDate;
+    }
+    if (dto.priority !== undefined && dto.priority !== task.priority) {
+      activityParts.push(`Prioridad cambiada a ${dto.priority}`);
+      updateData.priority = dto.priority;
+    }
+
+    const updated = await this.prisma.crmCommercialFollowupTask.update({
+      where: { id: taskId },
+      data: updateData,
+      include: {
+        assignedUser: { select: { id: true, nombreCompleto: true, role: true } },
+        createdByUser: { select: { id: true, nombreCompleto: true, role: true } },
+        completedByUser: { select: { id: true, nombreCompleto: true, role: true } },
+      },
+    });
+
+    if (activityParts.length > 0) {
+      await this.prisma.crmCommercialActivity.create({
+        data: {
+          customerId: task.customerId,
+          createdByUserId: user.id,
+          activityType: 'TAREA_MODIFICADA',
+          description: `Tarea "${updated.title}": ${activityParts.join(', ')}`,
+        },
+      });
+    }
+
+    return updated;
+  }
+
+  async completeFollowupTask(user: AuthUser, taskId: string) {
+    const task = await this.prisma.crmCommercialFollowupTask.findUnique({
+      where: { id: taskId },
+      select: { id: true, customerId: true, title: true, status: true },
+    });
+    if (!task) {
+      throw new NotFoundException('Tarea de seguimiento no encontrada');
+    }
+    if (task.status === CrmCommercialFollowupTaskStatus.COMPLETADA) {
+      throw new BadRequestException('La tarea ya está completada');
+    }
+    if (task.status === CrmCommercialFollowupTaskStatus.CANCELADA) {
+      throw new BadRequestException(
+        'No se puede completar una tarea cancelada',
+      );
+    }
+
+    const completed = await this.prisma.crmCommercialFollowupTask.update({
+      where: { id: taskId },
+      data: {
+        status: CrmCommercialFollowupTaskStatus.COMPLETADA,
+        completedAt: new Date(),
+        completedByUserId: user.id,
+      },
+      include: {
+        assignedUser: { select: { id: true, nombreCompleto: true, role: true } },
+        createdByUser: { select: { id: true, nombreCompleto: true, role: true } },
+        completedByUser: { select: { id: true, nombreCompleto: true, role: true } },
+      },
+    });
+
+    await this.prisma.crmCommercialActivity.create({
+      data: {
+        customerId: task.customerId,
+        createdByUserId: user.id,
+        activityType: 'TAREA_COMPLETADA',
+        description: `Tarea completada: ${task.title}`,
+      },
+    });
+
+    return completed;
+  }
+
+  async cancelFollowupTask(user: AuthUser, taskId: string) {
+    const task = await this.prisma.crmCommercialFollowupTask.findUnique({
+      where: { id: taskId },
+      select: { id: true, customerId: true, title: true, status: true },
+    });
+    if (!task) {
+      throw new NotFoundException('Tarea de seguimiento no encontrada');
+    }
+    if (task.status === CrmCommercialFollowupTaskStatus.COMPLETADA) {
+      throw new BadRequestException(
+        'No se puede cancelar una tarea completada',
+      );
+    }
+    if (task.status === CrmCommercialFollowupTaskStatus.CANCELADA) {
+      throw new BadRequestException('La tarea ya está cancelada');
+    }
+
+    const cancelled = await this.prisma.crmCommercialFollowupTask.update({
+      where: { id: taskId },
+      data: { status: CrmCommercialFollowupTaskStatus.CANCELADA },
+      include: {
+        assignedUser: { select: { id: true, nombreCompleto: true, role: true } },
+        createdByUser: { select: { id: true, nombreCompleto: true, role: true } },
+        completedByUser: { select: { id: true, nombreCompleto: true, role: true } },
+      },
+    });
+
+    await this.prisma.crmCommercialActivity.create({
+      data: {
+        customerId: task.customerId,
+        createdByUserId: user.id,
+        activityType: 'TAREA_CANCELADA',
+        description: `Tarea cancelada: ${task.title}`,
+      },
+    });
+
+    return cancelled;
   }
 }

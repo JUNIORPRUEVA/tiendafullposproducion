@@ -327,6 +327,24 @@ enum CrmCommercialCustomerStatus {
   @@map("crm_commercial_customer_status")
 }
 
+enum CrmCommercialFollowupTaskStatus {
+  PENDIENTE
+  COMPLETADA
+  VENCIDA
+  CANCELADA
+
+  @@map("crm_commercial_followup_task_status")
+}
+
+enum CrmCommercialFollowupTaskPriority {
+  BAJA
+  NORMAL
+  ALTA
+  URGENTE
+
+  @@map("crm_commercial_followup_task_priority")
+}
+
 enum ServiceOrderNotificationJobKind {
   THIRTY_MINUTES_BEFORE
   FIFTEEN_MINUTES_PENDING
@@ -563,6 +581,9 @@ model User {
   crmCommercialNotes CrmCommercialNote[] @relation("CrmCommercialNoteAuthorUser")
   crmCommercialActivitiesAssigned CrmCommercialActivity[] @relation("CrmCommercialActivityAssignedToUser")
   crmCommercialActivitiesCreated CrmCommercialActivity[] @relation("CrmCommercialActivityCreatedByUser")
+  crmCommercialFollowupTasksAssigned  CrmCommercialFollowupTask[] @relation("CrmFollowupTaskAssignedUser")
+  crmCommercialFollowupTasksCreated   CrmCommercialFollowupTask[] @relation("CrmFollowupTaskCreatedByUser")
+  crmCommercialFollowupTasksCompleted CrmCommercialFollowupTask[] @relation("CrmFollowupTaskCompletedByUser")
 
   workEmployeeConfig WorkEmployeeConfig?
   warrantyProductConfigs WarrantyProductConfig[]
@@ -1340,6 +1361,7 @@ model CrmCommercialCustomer {
   statusHistory   CrmCommercialStatusHistory[]
   notes           CrmCommercialNote[]
   activities      CrmCommercialActivity[]
+  followupTasks   CrmCommercialFollowupTask[]
 
   @@index([estadoActual])
   @@index([responsableUserId])
@@ -1401,6 +1423,33 @@ model CrmCommercialActivity {
   @@index([customerId, createdAt])
   @@index([assignedToUserId])
   @@map("crm_commercial_activities")
+}
+
+model CrmCommercialFollowupTask {
+  id                String                             @id @default(uuid()) @db.Uuid
+  customerId        String                             @map("cliente_id") @db.Uuid
+  title             String                             @map("titulo")
+  description       String?                            @map("descripcion") @db.Text
+  dueDate           DateTime?                          @map("fecha_vencimiento")
+  status            CrmCommercialFollowupTaskStatus    @default(PENDIENTE) @map("estado")
+  priority          CrmCommercialFollowupTaskPriority  @default(NORMAL) @map("prioridad")
+  assignedUserId    String?                            @map("asignado_usuario_id") @db.Uuid
+  createdByUserId   String                             @map("creado_por_usuario_id") @db.Uuid
+  completedAt       DateTime?                          @map("completado_en")
+  completedByUserId String?                            @map("completado_por_usuario_id") @db.Uuid
+  createdAt         DateTime                           @default(now()) @map("fecha_creacion")
+  updatedAt         DateTime                           @updatedAt @map("fecha_actualizacion")
+
+  customer         CrmCommercialCustomer               @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  assignedUser     User?                               @relation("CrmFollowupTaskAssignedUser", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  createdByUser    User                                @relation("CrmFollowupTaskCreatedByUser", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  completedByUser  User?                               @relation("CrmFollowupTaskCompletedByUser", fields: [completedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([customerId, status])
+  @@index([assignedUserId])
+  @@index([dueDate])
+  @@index([status, dueDate])
+  @@map("crm_commercial_followup_tasks")
 }
 
 model Sale {
