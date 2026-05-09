@@ -6,6 +6,7 @@ import { MarketingController } from './marketing.controller';
 import { MarketingCreativeComposerService } from './marketing-creative-composer.service';
 import { MarketingDebugController } from './marketing-debug.controller';
 import { MarketingGenerationService } from './marketing-generation.service';
+import { MarketingImageAnalyzerService } from './marketing-image-analyzer.service';
 import { MarketingImageGenerationService } from './marketing-image-generation.service';
 import { MarketingImageJobService } from './marketing-image-job.service';
 import { MarketingLearningService } from './marketing-learning.service';
@@ -27,6 +28,7 @@ import { ProductsModule } from '../products/products.module';
     MarketingMediaSelectorService,
     MarketingMediaAssetService,
     MarketingCreativeComposerService,
+    MarketingImageAnalyzerService,
     MarketingImageGenerationService,
     MarketingImageJobService,
     MarketingApprovalService,

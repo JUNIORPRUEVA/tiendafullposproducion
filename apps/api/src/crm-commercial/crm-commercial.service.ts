@@ -816,17 +816,45 @@ export class CrmCommercialService {
       throw new NotFoundException('Conversacion no encontrada para la instancia activa.');
     }
 
+    const destinationRaw = (conversation.remotePhone ?? conversation.remoteJid ?? '').trim();
+    if (!destinationRaw) {
+      throw new BadRequestException({
+        message: 'No se pudo enviar el mensaje: la conversación no tiene destino válido.',
+        code: 'CRM_SEND_MESSAGE_FAILED',
+      });
+    }
+
+    let remoteJid: string;
+    try {
+      remoteJid = this.normalizeRemoteJidFromPhone(destinationRaw).remoteJid;
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : 'Destino inválido.';
+      throw new BadRequestException({
+        message: `No se pudo enviar el mensaje: ${reason}`,
+        code: 'CRM_SEND_MESSAGE_FAILED',
+      });
+    }
+
     const saved = await this.whatsappInboxService.recordOutgoingMessage(
       conversation.instanceId,
-      conversation.remoteJid,
+      remoteJid,
       text,
     );
 
-    const evolutionResult = await this.whatsappService.sendTextMessage(
-      conversation.instance.instanceName,
-      conversation.remoteJid,
-      text,
-    );
+    let evolutionResult: unknown;
+    try {
+      evolutionResult = await this.whatsappService.sendTextMessage(
+        conversation.instance.instanceName,
+        remoteJid,
+        text,
+      );
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new BadRequestException({
+        message: `No se pudo enviar el mensaje: ${reason}`,
+        code: 'CRM_SEND_MESSAGE_FAILED',
+      });
+    }
 
     const savedMessageId =
       (saved as { message?: { id?: string } })?.message?.id ?? null;
@@ -838,7 +866,7 @@ export class CrmCommercialService {
     }
 
     const normalizedComparable = this.normalizeComparablePhone(
-      conversation.remotePhone ?? conversation.remoteJid,
+      conversation.remotePhone ?? remoteJid,
     );
     if (normalizedComparable) {
       const customers = await this.prisma.crmCommercialCustomer.findMany({

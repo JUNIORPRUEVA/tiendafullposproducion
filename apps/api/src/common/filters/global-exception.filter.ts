@@ -73,8 +73,9 @@ export class GlobalExceptionFilter implements ExceptionFilter {
                   }
                 : null;
 
+    const rawResponse = isHttp ? exception.getResponse() : null;
     const message = isHttp
-      ? safeString(exception.getResponse())
+      ? safeString(rawResponse)
       : exception instanceof Error
         ? exception.message
         : safeString(exception);
@@ -103,8 +104,13 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       path: url,
       method,
       timestamp: new Date().toISOString(),
-      message: isHttp ? message : 'Error interno del servidor',
     };
+
+    if (isHttp && isObject(rawResponse)) {
+      Object.assign(responseBody, rawResponse);
+    } else {
+      responseBody.message = isHttp ? message : 'Error interno del servidor';
+    }
 
     if (!isProd) {
       if (stack) responseBody.stack = stack;

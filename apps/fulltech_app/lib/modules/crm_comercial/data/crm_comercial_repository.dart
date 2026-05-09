@@ -1,8 +1,10 @@
 ﻿import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_routes.dart';
 import '../../../core/auth/auth_repository.dart';
+import '../../../core/errors/api_exception.dart';
 import '../models/crm_comercial_models.dart';
 
 final crmComercialRepositoryProvider = Provider<CrmComercialRepository>((ref) {
@@ -13,6 +15,33 @@ class CrmComercialRepository {
   CrmComercialRepository(this._dio);
 
   final Dio _dio;
+
+  String _extractErrorMessage(dynamic data, String fallback) {
+    if (data is String && data.trim().isNotEmpty) return data.trim();
+    if (data is Map) {
+      final message = data['message'];
+      if (message is String && message.trim().isNotEmpty) return message.trim();
+      if (message is List && message.isNotEmpty) {
+        final first = message.first;
+        if (first is String && first.trim().isNotEmpty) return first.trim();
+      }
+      final error = data['error'];
+      if (error is String && error.trim().isNotEmpty) return error.trim();
+    }
+    return fallback;
+  }
+
+  ApiException _mapError(DioException error, String fallback) {
+    final message = _extractErrorMessage(error.response?.data, fallback);
+    return ApiException.detailed(
+      message: message,
+      code: error.response?.statusCode,
+      responseBody: error.response?.data?.toString(),
+      uri: error.requestOptions.uri,
+      method: error.requestOptions.method,
+      technicalDetails: error.message,
+    );
+  }
 
   Future<CrmComercialCustomerListResponse> listCustomers({
     String? q,
@@ -196,14 +225,26 @@ class CrmComercialRepository {
     required String conversationId,
     required String text,
   }) async {
-    final res = await _dio.post<Map<String, dynamic>>(
-      ApiRoutes.crmCommercialConversationReply(conversationId),
-      data: {
-        'conversationId': conversationId,
-        'text': text.trim(),
-      },
-    );
-    return res.data ?? const <String, dynamic>{};
+    final payload = <String, dynamic>{'text': text.trim()};
+    final url = ApiRoutes.crmCommercialConversationReply(conversationId);
+
+    try {
+      if (kDebugMode) {
+        debugPrint('[CRM][replyConversation] POST $url body=$payload');
+      }
+      final res = await _dio.post<Map<String, dynamic>>(url, data: payload);
+      return res.data ?? const <String, dynamic>{};
+    } on DioException catch (error) {
+      if (kDebugMode) {
+        debugPrint(
+          '[CRM][replyConversation] ERROR url=${error.requestOptions.uri} '
+          'status=${error.response?.statusCode} '
+          'body=${error.requestOptions.data} '
+          'response=${error.response?.data}',
+        );
+      }
+      throw _mapError(error, 'No se pudo enviar el mensaje.');
+    }
   }
 
   Future<Map<String, dynamic>> replyConversationMedia({

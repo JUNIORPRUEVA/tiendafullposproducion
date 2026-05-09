@@ -6,7 +6,9 @@ import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import { MarketingService } from './marketing.service';
 import { MarketingResearchService } from './marketing-research.service';
+import { MarketingImageAnalyzerService } from './marketing-image-analyzer.service';
 import { GenerateMarketingStoriesDto } from './dto/generate-marketing-stories.dto';
+import { AnalyzeMediaAssetsDto } from './dtos/analyze-media-assets.dto';
 import { MarketingActionDto } from './dto/marketing-action.dto';
 import { MarketingHistoryQueryDto, MarketingQueryDto } from './dto/marketing-query.dto';
 import { CreateMarketingMediaAssetDto, MarketingMediaAssetQueryDto, UpdateMarketingMediaAssetDto } from './dto/marketing-media-asset.dto';
@@ -27,6 +29,7 @@ export class MarketingController {
   constructor(
     private readonly marketing: MarketingService,
     private readonly research: MarketingResearchService,
+    private readonly analyzer: MarketingImageAnalyzerService,
   ) {}
 
   @Get('dashboard')
@@ -178,6 +181,22 @@ export class MarketingController {
   async listMediaAssets(@Query() query: MarketingMediaAssetQueryDto) {
     const companyId = this.marketing.resolveCompanyId();
     return this.marketing.listMediaAssets(companyId, query);
+  }
+
+  @Post('media-assets/analyze')
+  async analyzeMediaAssets(@Req() req: Request, @Body() dto: AnalyzeMediaAssetsDto) {
+    const companyId = this.marketing.resolveCompanyId();
+    const rankings = await this.analyzer.rankMediaAssets(
+      dto.mediaAssetIds,
+      dto.storyType,
+      companyId,
+    );
+    return {
+      storyType: dto.storyType,
+      analysisCount: rankings.length,
+      ranked: rankings,
+      recommended: rankings[0] || null,
+    };
   }
 
   @Get('published-assets')

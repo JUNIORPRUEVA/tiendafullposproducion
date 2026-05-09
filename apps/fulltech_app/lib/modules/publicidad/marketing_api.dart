@@ -331,6 +331,27 @@ class MarketingApi {
     }
   }
 
+  /// Analyzes multiple media assets and returns AI recommendations ranked by suitability
+  Future<Map<String, dynamic>> analyzeMediaAssets({
+    required List<String> mediaAssetIds,
+    required String storyType,
+  }) async {
+    try {
+      final res = await _dio.post(
+        '${ApiRoutes.marketingBase}/media-assets/analyze',
+        data: {
+          'mediaAssetIds': mediaAssetIds,
+          'storyType': storyType,
+        },
+        options: _backgroundOptions,
+      );
+      return (res.data as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudieron analizar las imágenes disponibles');
+    }
+  }
+
   Future<MarketingMediaAsset> createMediaAsset({
     required String fileUrl,
     required String fileName,
