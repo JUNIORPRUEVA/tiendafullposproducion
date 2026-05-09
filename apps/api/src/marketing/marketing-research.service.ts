@@ -8,19 +8,36 @@ import { GenerateResearchDto, UpdateMarketingResearchConfigDto } from './dto/mar
 export class MarketingResearchService {
   private readonly logger = new Logger(MarketingResearchService.name);
   private static readonly WEEKLY_RESEARCH_DAYS = 7;
-  private readonly strictResearchScope = `\n\nREGLA ESTRICTA DE ALCANCE (OBLIGATORIO):\n- Investigar SOLO estos rubros: sistema de seguridad general, sistema de camaras/CCTV, motores de portones, cerco electrico, control de acceso, sistema POS/punto de venta y alarmas.\n- Investigar SOLO en estas zonas: Republica Dominicana, La Altagracia (Higuey) y La Romana.\n- Excluir temas no relacionados (finanzas generales, macroeconomia, noticias politicas o tecnologia fuera de esos rubros).\n- Si no hay hallazgos relevantes, devolver explicitamente que no hay evidencia suficiente dentro del alcance en lugar de salir del tema.`;
+  private readonly strictResearchScope = `\n\nREGLA ESTRICTA DE ALCANCE (OBLIGATORIO):\n- Investigar SOLO temas de venta, publicidad, comportamiento del cliente y conversion comercial.\n- Investigar SOLO estos rubros prioritarios: camaras de seguridad, motores de porton, alarmas, cercos electricos, POS, computadoras para negocios, automatizacion y control de acceso.\n- Investigar SOLO en estas zonas: Republica Dominicana, La Altagracia (Higuey) y La Romana.\n- Priorizar evidencia de marketplace Facebook, anuncios locales, TikTok, Instagram, publicaciones comerciales y comentarios de clientes.\n- Excluir por completo politica, gobierno, macroeconomia, noticias nacionales largas, articulos institucionales y cualquier ruido informativo no comercial.\n- Responder en formato practico y accionable: bloques cortos, bullets y sin parrafos largos.\n- Si no hay hallazgos relevantes, devolver explicitamente que no hay evidencia suficiente dentro del alcance en lugar de salir del tema.`;
 
-  private readonly defaultPrompt = `Realizar una investigación de mercado profunda y actualizada para FULLTECH SRL en la provincia La Altagracia (Higüey), República Dominicana.
+  private readonly defaultPrompt = `Generar inteligencia comercial para publicidad de FULLTECH SRL (Higuey, La Altagracia, Republica Dominicana) con enfoque 100% ventas.
 
-Focos de investigación:
-1. SISTEMAS DE SEGURIDAD Y VIGILANCIA: Instalaciones de sistemas de cámaras CCTV, NVR, DVR, videovigilancia IP. ¿Qué marcas se instalan más? ¿Cuánto cobran? ¿Qué zonas están demandando más?
-2. MOTORES Y AUTOMATIZACIÓN DE PORTONES: Cómo están promoviendo los instaladores locales. Qué motores prefieren los clientes. Precios observados. Objeciones frecuentes.
-3. COMPORTAMIENTO DE CLIENTES LOCALES: Cómo reaccionan los clientes ante estos productos. Qué les genera más confianza. Qué preguntan antes de comprar. Cuál es el perfil del comprador ideal en La Altagracia.
-4. PUBLICACIONES Y CONTENIDO EFECTIVO: Qué tipo de contenido genera más engagement en el mercado de La Altagracia y provincia. Qué formatos de anuncio funcionan (fotos de instalación, videos, testimonios, precios directos). Qué horarios. Qué tonos de mensaje atraen más.
-5. COMPETENCIA LOCAL: Cómo están publicando los competidores en Higüey y zonas cercanas. Qué ofertas usan. Qué debilidades tienen que FULLTECH puede aprovechar.
-6. OPORTUNIDADES DE CONTENIDO: Qué ángulos de venta están sin explotar. Qué ganchos generarían más conversiones ahora mismo en este mercado específico.
+Objetivo real:
+- Crear anuncios, estados, reels y campanas que conviertan.
+- Detectar patrones de compra local, objeciones y ofertas que mejor responden.
+- Entregar ideas listas para publicar hoy.
 
-Entrega análisis accionable con hooks concretos, CTAs que funcionen en este mercado, ángulos de venta fuertes y recomendaciones de productos a destacar.`;
+Prioridad alta de investigacion:
+1) Camaras de seguridad
+2) Motores de porton
+3) Alarmas
+4) Cercos electricos
+5) POS
+6) Computadoras para negocios
+7) Automatizacion
+8) Control de acceso
+
+Buscar y sintetizar:
+- Que estan comprando las personas y como lo compran
+- Que copys, formatos y videos generan respuesta
+- Que promociones y CTA convierten
+- Preguntas frecuentes, objeciones y miedos del cliente
+- Que hace confiar al comprador local
+
+Formato de salida obligatorio:
+- Bloques visuales cortos con bullets
+- Nada de parrafos largos, lenguaje institucional o analisis academico
+- Incluir seccion "Contenido recomendado hoy" con: estado recomendado + idea de video + CTA sugerido.`;
 
   constructor(
     private readonly prisma: PrismaService,

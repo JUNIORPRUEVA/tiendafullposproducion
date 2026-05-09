@@ -282,8 +282,7 @@ class _HubMainColumn extends StatelessWidget {
         ),
       ],
     );
-}
-
+  }
 }
 
 class _ModuleRowItem extends StatelessWidget {

@@ -106,11 +106,18 @@ class MarketingApi {
     }
   }
 
-  Future<void> generateMissing(DateTime date) async {
+  Future<void> generateMissing(
+    DateTime date, {
+    List<String> selectedMediaAssetIds = const [],
+  }) async {
     try {
       await _dio.post(
         ApiRoutes.marketingStoriesGenerateMissing,
-        data: {'date': _dateOnly(date)},
+        data: {
+          'date': _dateOnly(date),
+          if (selectedMediaAssetIds.isNotEmpty)
+            'selected_media_asset_ids': selectedMediaAssetIds,
+        },
       );
     } on DioException catch (error) {
       _rethrow(error, 'No se pudieron generar los contenidos faltantes');

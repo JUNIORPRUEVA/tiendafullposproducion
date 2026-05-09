@@ -149,7 +149,7 @@ export class MarketingService {
     };
   }
 
-  async generateMissingStories(companyId: string, date: Date, userId: string) {
+  async generateMissingStories(companyId: string, date: Date, userId: string, dto?: { selected_media_asset_ids?: string[] }) {
     const config = await this.configService.getOrCreate(companyId);
     if (config.paused) {
       throw new ConflictException('El flujo de Publicidad esta pausado. Activalo para generar contenido.');
@@ -167,7 +167,13 @@ export class MarketingService {
       researchId = generated.id;
     }
 
-    const stories = await this.generation.generateMissingStories(companyId, date, userId, researchId);
+    const stories = await this.generation.generateMissingStories(
+      companyId,
+      date,
+      userId,
+      researchId,
+      dto?.selected_media_asset_ids ?? [],
+    );
     for (const story of stories) {
       if (`${story.imageStatus ?? ''}`.toUpperCase() === 'QUEUED') {
         this.imageJobs.enqueueStoryImageGeneration(story.id, companyId, userId);

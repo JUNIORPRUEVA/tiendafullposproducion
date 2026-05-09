@@ -22,6 +22,7 @@ type SelectorInput = {
   recommendedService?: string | null;
   recommendedProduct?: string | null;
   usedAssetIds: string[];
+  preferredAssetIds?: string[];
   /** fileUrls already used in other stories today — prevents repeating the same product image */
   usedFileUrls?: string[];
   /** Visual description of what the AI image should show — used to smart-match catalog products */
@@ -66,19 +67,24 @@ export class MarketingMediaSelectorService {
       (m) => (m.id === null || !excluded.has(m.id)) && !usedUrls.has(m.fileUrl),
     );
     const pool = nonRepeated.length > 0 ? nonRepeated : galleryMedia;
+    const preferredIds = new Set((input.preferredAssetIds ?? []).map((id) => id.trim()).filter((id) => id.length > 0));
+    const preferredPool = preferredIds.size > 0
+      ? pool.filter((asset) => asset.id != null && preferredIds.has(asset.id))
+      : [];
+    const activePool = preferredPool.length > 0 ? preferredPool : pool;
 
-    if (pool.length > 0 && (input.imagePrompt || input.copyText)) {
+    if (activePool.length > 0 && (input.imagePrompt || input.copyText)) {
       const smartIdx = await this.smartPickGalleryAsset(
-        pool,
+        activePool,
         input.imagePrompt ?? '',
         input.copyText ?? '',
       );
       if (smartIdx !== null) {
-        return pool[smartIdx];
+        return activePool[smartIdx];
       }
     }
 
-    const candidates = pool
+    const candidates = activePool
       .map((row) => ({ row, score: this.scoreAsset(row, input.type, product, service) }))
       .sort((a, b) => b.score - a.score);
 

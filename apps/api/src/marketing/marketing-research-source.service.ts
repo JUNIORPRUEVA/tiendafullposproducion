@@ -43,19 +43,19 @@ export class MarketingResearchSourceService {
   private readonly logger = new Logger(MarketingResearchSourceService.name);
   private readonly focusCatalog = [
     {
-      label: 'Sistema de seguridad general',
-      query: 'sistema de seguridad',
-      keywords: ['seguridad', 'vigilancia'],
-    },
-    {
-      label: 'Sistema de camaras (CCTV)',
-      query: 'camaras de seguridad cctv',
-      keywords: ['camara', 'cctv', 'videovigilancia', 'nvr', 'dvr'],
+      label: 'Camaras de seguridad',
+      query: 'camaras seguridad cctv instalacion',
+      keywords: ['camara', 'cctv', 'videovigilancia', 'nvr', 'dvr', 'domo', 'bullet'],
     },
     {
       label: 'Motores de portones',
-      query: 'motor de porton electrico',
+      query: 'motor porton electrico instalacion',
       keywords: ['porton', 'portones', 'motor de porton', 'automatizacion de porton'],
+    },
+    {
+      label: 'Alarmas',
+      query: 'alarma seguridad instalacion',
+      keywords: ['alarma', 'alarmas', 'sensor', 'sirena'],
     },
     {
       label: 'Cerco electrico',
@@ -69,13 +69,18 @@ export class MarketingResearchSourceService {
     },
     {
       label: 'Sistema POS / Punto de ventas',
-      query: 'sistema pos punto de venta',
-      keywords: ['pos', 'punto de venta', 'facturacion', 'caja', 'tpv'],
+      query: 'sistema pos punto de venta negocio',
+      keywords: ['pos', 'punto de venta', 'facturacion', 'caja', 'tpv', 'comercio'],
     },
     {
-      label: 'Alarmas',
-      query: 'sistema de alarmas',
-      keywords: ['alarma', 'alarmas'],
+      label: 'Computadoras para negocios',
+      query: 'computadoras para negocio caja inventario',
+      keywords: ['computadora', 'pc', 'laptop', 'negocio', 'oficina'],
+    },
+    {
+      label: 'Automatizacion comercial',
+      query: 'automatizacion negocio control acceso',
+      keywords: ['automatizacion', 'domotica', 'integracion', 'control'],
     },
   ] as const;
 
@@ -94,6 +99,41 @@ export class MarketingResearchSourceService {
     'higuey',
     'higüey',
     'la romana',
+  ];
+
+  private readonly salesKeywords = [
+    'precio',
+    'oferta',
+    'promo',
+    'promocion',
+    'instalacion',
+    'garantia',
+    'cotiza',
+    'whatsapp',
+    'delivery',
+    'cuota',
+    'financiamiento',
+    'combo',
+    'paquete',
+    'cliente',
+    'negocio',
+    'residencia',
+  ];
+
+  private readonly noiseKeywords = [
+    'presidente',
+    'ministerio',
+    'senado',
+    'camara de diputados',
+    'partido politico',
+    'congreso',
+    'macroeconomia',
+    'inflacion nacional',
+    'banco central',
+    'gobierno',
+    'decreto',
+    'tribunal',
+    'licitacion publica',
   ];
 
   async generateResearch(input: ResearchInput): Promise<ResearchOutput> {
@@ -124,19 +164,25 @@ export class MarketingResearchSourceService {
   }
 
   private buildQueryTerms(): string[] {
-    const catalogTerms = this.focusCatalog.map((topic) => topic.query);
-    const base = [...catalogTerms]
-      .map((item) => item.trim())
-      .filter((item) => item.length > 0);
+    const platforms = [
+      'facebook marketplace',
+      'facebook ads',
+      'instagram reels',
+      'tiktok',
+      'publicaciones comerciales',
+      'anuncios locales',
+    ];
 
     const queries: string[] = [];
-    for (const term of base) {
-      for (const location of this.locations) {
-        queries.push(`${term} ${location}`);
+    for (const topic of this.focusCatalog) {
+      for (const platform of platforms) {
+        for (const location of this.locations) {
+          queries.push(`${topic.query} ${platform} ${location}`);
+        }
       }
     }
 
-    return [...new Set(queries)].slice(0, 28);
+    return [...new Set(queries)].slice(0, 36);
   }
 
   private filterRelevantSignals(signals: PublicSignal[]): PublicSignal[] {
@@ -149,7 +195,12 @@ export class MarketingResearchSourceService {
 
     const strict = normalized.filter((signal) => {
       const text = `${signal.title} ${signal.source}`;
-      return this.matchesTopic(text) && this.matchesLocation(text);
+      return (
+        this.matchesTopic(text) &&
+        this.matchesLocation(text) &&
+        this.isCommercialSignal(text) &&
+        !this.isNoiseSignal(text)
+      );
     });
 
     if (strict.length >= 8) {
@@ -158,10 +209,20 @@ export class MarketingResearchSourceService {
 
     const fallback = normalized.filter((signal) => {
       const text = `${signal.title} ${signal.source}`;
-      return this.matchesTopic(text);
+      return this.matchesTopic(text) && this.isCommercialSignal(text) && !this.isNoiseSignal(text);
     });
 
     return fallback.slice(0, 40);
+  }
+
+  private isCommercialSignal(text: string): boolean {
+    const normalized = this.normalizeText(text);
+    return this.salesKeywords.some((keyword) => normalized.includes(this.normalizeText(keyword)));
+  }
+
+  private isNoiseSignal(text: string): boolean {
+    const normalized = this.normalizeText(text);
+    return this.noiseKeywords.some((keyword) => normalized.includes(this.normalizeText(keyword)));
   }
 
   private async fetchGoogleNewsRss(query: string): Promise<PublicSignal[]> {
@@ -275,126 +336,149 @@ export class MarketingResearchSourceService {
     signals: PublicSignal[],
   ): ResearchOutput {
     const topServices = this.focusCatalog.map((item) => item.label);
-    const sourceLabels = this.takeUnique(signals.map((s) => s.source).filter((s) => s.length > 0), 12);
-    const topHeadlines = this.takeUnique(signals.map((s) => s.title), 10);
+    const sourceLabels = this.takeUnique(
+      signals.map((s) => s.source).filter((s) => s.length > 0),
+      12,
+    );
+    const topHeadlines = this.takeUnique(signals.map((s) => s.title), 6);
 
-    const regionSummary =
-      'Republica Dominicana con foco en La Altagracia (Higuey), La Romana y zonas comerciales cercanas.';
-
-    const summarySections = [
-      'INFORME SEMANAL AMPLIO DE INTELIGENCIA COMERCIAL (version inicial automatizada)',
-      `Cobertura geografica: ${regionSummary}`,
-      'Objetivo: construir una base semanal para estados, campanas y marketplace con enfoque en venta real, sin salir del alcance definido.',
-      `Cobertura tematica estricta: ${topServices.join(', ')}.`,
-      'Panorama de mercado: se observa continuidad de demanda en seguridad residencial, vigilancia para negocios, automatizacion de portones y tecnologia para puntos de venta. El patron dominante es comunicacion orientada a confianza, rapidez de instalacion y soporte tecnico cercano.',
-      'Competencia y comunicacion: la mayoria de publicaciones tienden a formatos cortos (imagen + copy breve), oferta directa y mensajes de urgencia. Existe oportunidad clara en diferenciar con evidencia tecnica, casos reales locales y comparativos de valor.',
-      'Comportamiento de audiencia: en sectores locales, la decision de compra mejora con mensajes concretos sobre garantia, soporte post-instalacion, tiempos de respuesta y demostracion visual del resultado final.',
-      'Canales organicos: el enfoque organico mas efectivo combina constancia semanal, prueba social, contenido educativo y llamadas a accion simples hacia WhatsApp o visita tecnica.',
-      'Insight de marcas y soluciones: la conversacion digital suele destacar facilidad de uso, confiabilidad, precio y garantia. Para camaras/portones/POS conviene vender solucion integral, no pieza aislada.',
-      'Resumen de hallazgos publicos recientes:\n' +
-        (topHeadlines.length > 0
-          ? topHeadlines.map((h, i) => `${i + 1}. ${h}`).join('\n')
-          : 'No se encontraron titulares publicos estrictamente relevantes en esta corrida; mantener monitoreo en la siguiente ventana semanal.'),
-      'Recomendacion estrategica semanal: concentrar contenido en 1) seguridad comercial y residencial, 2) automatizacion de acceso, 3) modernizacion POS y control operativo, priorizando mensajes de beneficio tangible y casos de la zona objetivo.',
-      'Nota metodologica: esta fase usa fuentes publicas abiertas con filtro estricto por rubro y zona. Se excluyen señales fuera de seguridad, control de acceso, portones, POS y alarmas.',
+    const marketSummaryLines = [
+      'QUE ESTA FUNCIONANDO AHORA',
+      '• Videos reales de instalacion y prueba en celular',
+      '• Combos con instalacion incluida + garantia visible',
+      '• Copy corto con beneficio directo y CTA a WhatsApp',
+      '• Antes/despues y evidencias de negocios locales',
+      '',
+      'QUIEN ESTA COMPRANDO',
+      '• Colmados, farmacias, repuestos y bancas',
+      '• Tiendas pequenas y residencias nuevas',
+      '• Negocios que necesitan controlar caja, acceso y camaras',
+      '',
+      'SENALES RECIENTES DETECTADAS',
+      ...(topHeadlines.length === 0
+        ? ['• Sin evidencia local suficiente en esta corrida. Mantener monitoreo corto.']
+        : topHeadlines.map((headline) => `• ${headline}`)),
     ];
 
-    const marketSummary = summarySections.join('\n\n');
+    const marketSummary = marketSummaryLines.join('\n');
 
-    const competitorPublishingPatterns =
-      'Patron detectado en fuentes abiertas: publicaciones de oferta directa, baja profundidad educativa y alta repeticion de mensajes promocionales. Predominan piezas visuales simples y textos cortos. Oportunidad para FULLTECH: contenido diferencial con estructura problema-solucion-prueba-CTA, mostrando ejecucion local y valor postventa.';
+    const competitorPublishingPatterns = [
+      'PATRON DE COMPETIDORES LOCALES',
+      '• Oferta directa, texto corto y urgencia',
+      '• Menos enfoque en prueba tecnica real',
+      '• Mucho precio, poca explicacion de valor',
+      '• Oportunidad FULLTECH: evidencia + confianza + CTA claro',
+    ].join('\n');
 
-    const commonOffers =
-      'Ofertas frecuentes en el mercado: instalacion incluida, descuentos por paquetes, bonos de configuracion inicial y mensajes de disponibilidad inmediata. Recomendacion: competir por valor total (garantia, soporte, calidad de instalacion), no solo por precio.';
+    const commonOffers = [
+      'OFERTAS QUE RESPONDEN MAS',
+      '• Instalacion incluida',
+      '• Descuento por combo',
+      '• Delivery o visita tecnica rapida',
+      '• Garantia 1 ano visible',
+      '• Pago por cuotas o facilidades',
+    ].join('\n');
 
-    const observedPriceRanges =
-      'Rango referencial observado en comunicacion publica: camaras y kits de seguridad con variabilidad alta segun canal, marcas y alcance; motores de porton y alarmas con enfoque en paquete instalado; POS con propuesta de productividad y control. Se recomienda levantar matriz de precios propia por servicio y localidad en la siguiente iteracion semanal.';
+    const observedPriceRanges = [
+      'RANGOS Y PAQUETES BUSCADOS',
+      '• El cliente responde mejor a paquetes, no piezas sueltas',
+      '• CCTV y portones: decision por valor total + instalacion',
+      '• POS/computadoras: compran por control y productividad',
+      '• Recomendacion: publicar 3 paquetes (basico, pro, negocio)',
+    ].join('\n');
 
     const strongAngles = this.takeUnique(
       [
-        'Seguridad integral por zonas criticas del negocio y hogar',
-        'Instalacion profesional con soporte tecnico local',
-        'Control remoto y evidencia en tiempo real desde celular',
-        'Automatizacion de acceso para reducir riesgo operativo',
-        'Soluciones POS para vender mas y controlar mejor',
+        'Protege tu negocio desde el celular hoy',
+        'Instalacion real en Higuey con soporte local rapido',
+        'Combos seguridad + instalacion + garantia',
+        'Control de acceso y camaras para reducir perdidas',
+        'POS y computadoras para vender mas y controlar inventario',
       ],
       10,
     );
 
     const weakAngles = [
-      'Hablar solo de precio sin contexto de garantia y servicio',
-      'Publicaciones genericas sin enfoque geolocalizado en RD',
-      'Mensajes sin prueba real de instalaciones o resultados',
+      'Copys largos y genericos',
+      'Hablar de tecnologia sin beneficio de venta',
+      'Publicar sin CTA directo a WhatsApp',
+      'Mostrar solo precio sin garantia ni instalacion',
     ];
 
-    const contentOpportunities =
-      'Plan de contenido organico semanal sugerido: 1) comparativos (antes/despues) de instalaciones reales, 2) micro-guia de decision por servicio (CCTV, portones, POS, alarmas, cerco electrico), 3) prueba social con casos locales, 4) piezas educativas para objeciones comunes, 5) CTA directo a diagnostico por WhatsApp.';
+    const contentOpportunities = [
+      'CONTENIDO RECOMENDADO HOY',
+      'Estado recomendado: Protege tu negocio desde tu celular. Instalacion rapida en Higuey. Escribenos ahora.',
+      'Idea de video: tecnico instalando + camara funcionando + vista celular + cliente validando grabacion.',
+      'Formato: Reel vertical 20-35s con subtitulos grandes.',
+      'Visual: colores de contraste alto y sello de garantia.',
+    ].join('\n');
 
     const recommendedProducts = this.takeUnique(
       [
         ...topServices,
-        'Sistema CCTV para negocio',
-        'Motor de porton residencial/comercial',
-        'Sistema POS para comercio local',
-        'Alarma y cerco electrico por zonas',
+        'Combo camaras + instalacion',
+        'Motor de porton residencial',
+        'Kit alarma + cerco electrico',
+        'POS + computadora para negocio',
       ],
       12,
     );
 
     const recommendedContentTypes = [
-      'Carrusel comparativo de problema-solucion',
-      'Reel corto de instalacion en campo',
-      'Caso real con testimonio local',
-      'Checklist descargable de compra inteligente',
-      'Historia diaria con CTA a WhatsApp',
+      'Reel corto vertical 20-35s',
+      'Video de instalacion real',
+      'Antes y despues de proyecto',
+      'Testimonio real breve',
+      'Imagen del equipo ya instalado',
     ];
 
     const recommendedOffers = [
-      'Diagnostico inicial sin costo',
-      'Paquete integral por necesidad real del cliente',
-      'Garantia clara de equipo e instalacion',
-      'Plan de mantenimiento preventivo',
-      'Escalabilidad por etapas segun presupuesto',
+      'Instalacion incluida',
+      'Garantia visible en pieza',
+      'Combo con descuento',
+      'Visita tecnica rapida',
+      'Facilidad de pago',
     ];
 
     const recommendedHooks = [
-      'Que tan protegido esta tu negocio hoy?',
-      'Lo que no se ve en una cotizacion barata',
-      'Como reducir incidentes con una instalacion correcta',
-      'Tu acceso puede ser mas seguro y mas rapido esta semana',
-      'Controla ventas y seguridad desde un solo flujo operativo',
+      'Tu negocio esta protegido de verdad?',
+      'Mira como queda instalado en minutos',
+      'Evita perdidas con control desde tu celular',
+      'Combo listo para negocio pequeno',
+      'Seguridad + soporte local sin complicarte',
     ];
 
     const recommendedCTAs = [
-      'Solicita evaluacion tecnica hoy',
-      'Escribenos por WhatsApp para diagnostico',
-      'Agenda visita en La Altagracia o La Romana',
-      'Pide propuesta semanal personalizada',
-      'Cotiza por prioridad de riesgo',
+      'Escribenos por WhatsApp ahora',
+      'Cotiza hoy y agenda instalacion',
+      'Pide tu combo recomendado',
+      'Solicita visita tecnica en Higuey',
+      'Pregunta por facilidades de pago',
     ];
 
     const doMoreOfThis = [
-      'Publicar casos reales con ubicacion local',
-      'Educar antes de vender para elevar confianza',
-      'Segmentar mensaje por servicio y tipo de cliente',
-      'Usar CTA unico por pieza para medir respuesta',
-      'Comparar alternativas y justificar recomendacion tecnica',
+      'Publicar evidencia real local todas las semanas',
+      'Usar CTA unico y medible por pieza',
+      'Responder objeciones en video corto',
+      'Mostrar garantia e instalacion desde el inicio',
+      'Segmentar por negocio pequeno y residencia',
     ];
 
     const avoidThis = [
-      'Copys largos sin estructura ni CTA',
-      'Publicar solo catalogo sin contexto de uso real',
-      'Prometer sin mostrar evidencia local',
-      'Saturar mensajes de descuento sin propuesta de valor',
-      'Ignorar objeciones frecuentes del cliente final',
+      'Noticias nacionales y contenido politico',
+      'Parrafos largos sin accion',
+      'Promociones sin prueba visual',
+      'Mensajes institucionales sin venta',
+      'Publicar sin enfocar mercado local',
     ];
 
-    const confidenceBase = signals.length >= 15 ? 0.8 : signals.length >= 6 ? 0.72 : 0.58;
+    const confidenceBase = signals.length >= 15 ? 0.86 : signals.length >= 6 ? 0.76 : 0.64;
 
     const dataSources = this.takeUnique(
       [
         ...sourceLabels.map((item) => `source:${item}`),
         ...topServices.map((item) => `focus:${item}`),
+        'scope:ventas-publicidad-local',
         'google-news-rss-do',
       ],
       25,

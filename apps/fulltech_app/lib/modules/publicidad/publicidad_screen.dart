@@ -163,9 +163,12 @@ class PublicidadController extends StateNotifier<PublicidadState> {
     await _refresh(keepLoading: false);
   }
 
-  Future<void> generateNow() async {
+  Future<void> generateNow({List<String> selectedMediaAssetIds = const []}) async {
     await _runBusy(() async {
-      await _api.generateMissing(state.date);
+      await _api.generateMissing(
+        state.date,
+        selectedMediaAssetIds: selectedMediaAssetIds,
+      );
       await _refresh(keepLoading: false);
     });
   }
@@ -970,9 +973,7 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            'Investigación manual generada correctamente.',
-          ),
+          content: Text('Investigación manual generada correctamente.'),
         ),
       );
     } on ApiException catch (error) {
@@ -1062,7 +1063,9 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
                                 researches: state.researchHistory,
                                 onActivate: controller.activateFlow,
                                 onPause: controller.pauseFlow,
-                                onGenerateNow: controller.generateNow,
+                                onGenerateNow: (ids) => controller.generateNow(
+                                  selectedMediaAssetIds: ids,
+                                ),
                                 onRepairIncomplete: () =>
                                     _handleRepairIncomplete(
                                       context,
@@ -1087,10 +1090,8 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
                                 researchHistory: state.researchHistory,
                                 learningStats: state.learningStats,
                                 busy: state.busy,
-                                onForceResearch: () => _handleForceResearch(
-                                  context,
-                                  controller,
-                                ),
+                                onForceResearch: () =>
+                                    _handleForceResearch(context, controller),
                               ),
                             if (_tab == _PublicidadTab.galeria)
                               _GalleryTab(
@@ -1461,7 +1462,8 @@ class _DashboardTab extends StatelessWidget {
   final List<MarketingResearchDetail> researches;
   final Future<void> Function() onActivate;
   final Future<void> Function() onPause;
-  final Future<void> Function() onGenerateNow;
+  final Future<void> Function(List<String> selectedMediaAssetIds)
+  onGenerateNow;
   final Future<void> Function() onRepairIncomplete;
   final Future<void> Function() onResetClean;
   final Future<void> Function(String storyId) onApprove;
@@ -1531,9 +1533,26 @@ class _DashboardTab extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               FilledButton.icon(
-                onPressed: busy ? null : onGenerateNow,
+                onPressed: busy ? null : () => onGenerateNow(const []),
                 icon: const Icon(Icons.auto_fix_high_rounded),
                 label: const Text('Generar estados ahora'),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                onPressed: busy
+                    ? null
+                    : () async {
+                        final selected = await showDialog<List<String>>(
+                          context: context,
+                          builder: (_) => _SelectGenerationImagesDialog(
+                            assets: mediaAssets,
+                          ),
+                        );
+                        if (selected == null || selected.isEmpty) return;
+                        await onGenerateNow(selected);
+                      },
+                icon: const Icon(Icons.photo_library_rounded),
+                label: const Text('Generar con imágenes'),
               ),
               const SizedBox(width: 8),
               OutlinedButton.icon(
@@ -2596,98 +2615,6 @@ class _StoryVisualOverlay extends StatelessWidget {
   }
 }
 
-class _StoryFullscreenPreview extends StatelessWidget {
-  const _StoryFullscreenPreview({
-    required this.story,
-    required this.imageUrl,
-    required this.canApprove,
-    required this.onApprove,
-  });
-
-  final MarketingStory story;
-  final String imageUrl;
-  final bool canApprove;
-  final Future<void> Function() onApprove;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: SafeArea(
-        child: Stack(
-          children: [
-            Center(
-              child: AspectRatio(
-                aspectRatio: 9 / 16,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      if (imageUrl.isNotEmpty)
-                        _StoryImageView(url: imageUrl)
-                      else
-                        const _BrokenImagePlaceholder(),
-                      _StoryVisualOverlay(
-                        type: story.type,
-                        headline: story.title,
-                        subtitle: story.shortText,
-                        cta: story.usedCTA,
-                        fallbackLabel: imageUrl.isEmpty
-                            ? 'Sin imagen disponible'
-                            : null,
-                        compact: false,
-                        approved: story.status == MarketingStoryStatus.approved,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            Positioned(
-              top: 8,
-              right: 8,
-              child: IconButton.filledTonal(
-                onPressed: () => Navigator.of(context).pop(),
-                icon: const Icon(Icons.close_rounded),
-              ),
-            ),
-            Positioned(
-              bottom: 16,
-              right: 16,
-              left: 16,
-              child: Row(
-                children: [
-                  if (!canApprove)
-                    const Expanded(
-                      child: _ErrorBanner(
-                        message:
-                            'Anuncio incompleto: completa imagen final, headline, texto, CTA y prompt antes de aprobar.',
-                      ),
-                    ),
-                  if (!canApprove) const SizedBox(width: 10),
-                  FilledButton.icon(
-                    onPressed: canApprove
-                        ? () async {
-                            await onApprove();
-                            if (context.mounted) {
-                              Navigator.of(context).pop();
-                            }
-                          }
-                        : null,
-                    icon: const Icon(Icons.check_circle_rounded),
-                    label: const Text('Aprobar estado'),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _BrokenImagePlaceholder extends StatelessWidget {
   const _BrokenImagePlaceholder();
 
@@ -2837,10 +2764,15 @@ class _ResearchSummaryTab extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Investigación automática completa',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w700,
-            ),
+            'Cerebro comercial de Publicidad',
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Solo insights de venta local para publicar mejor y vender mas rapido.',
+            style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 8),
           Wrap(
@@ -2863,7 +2795,7 @@ class _ResearchSummaryTab extends StatelessWidget {
               FilledButton.icon(
                 onPressed: busy ? null : onForceResearch,
                 icon: const Icon(Icons.bolt_rounded),
-                label: const Text('Investigar de nuevo'),
+                label: const Text('Actualizar inteligencia'),
               ),
             ],
           ),
@@ -2881,7 +2813,7 @@ class _ResearchSummaryTab extends StatelessWidget {
                 label: 'Fuente usada',
                 value: research.dataSources.isEmpty
                     ? '-'
-                    : research.dataSources.join(', '),
+                    : research.dataSources.take(3).join(', '),
               ),
               _MetaChip(
                 label: 'Confianza',
@@ -2911,61 +2843,86 @@ class _ResearchSummaryTab extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          _ResearchField(
-            label: 'Resumen del mercado',
-            value: research.marketSummary,
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final twoCols = constraints.maxWidth >= 980;
+              final cardWidth = twoCols
+                  ? (constraints.maxWidth - 10) / 2
+                  : constraints.maxWidth;
+              return Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  SizedBox(
+                    width: cardWidth,
+                    child: _ResearchBlockCard(
+                      title: 'Que mas esta funcionando',
+                      icon: Icons.local_fire_department_rounded,
+                      items: _extractBulletItems(
+                        research.marketSummary,
+                        fallback: research.doMoreOfThis,
+                        max: 6,
+                      ),
+                    ),
+                  ),
+                  SizedBox(
+                    width: cardWidth,
+                    child: _ResearchBlockCard(
+                      title: 'Quienes estan comprando',
+                      icon: Icons.groups_rounded,
+                      items: _extractAudienceItems(research),
+                    ),
+                  ),
+                  SizedBox(
+                    width: cardWidth,
+                    child: _ResearchBlockCard(
+                      title: 'Objeciones mas comunes',
+                      icon: Icons.report_problem_rounded,
+                      items: _extractObjectionItems(research),
+                    ),
+                  ),
+                  SizedBox(
+                    width: cardWidth,
+                    child: _ResearchBlockCard(
+                      title: 'Ofertas que mas responden',
+                      icon: Icons.sell_rounded,
+                      items: _extractBulletItems(
+                        research.commonOffers,
+                        fallback: research.recommendedOffers,
+                        max: 6,
+                      ),
+                    ),
+                  ),
+                  SizedBox(
+                    width: cardWidth,
+                    child: _ResearchBlockCard(
+                      title: 'Contenido que mas llama',
+                      icon: Icons.play_circle_fill_rounded,
+                      items: _extractBulletItems(
+                        research.contentOpportunities,
+                        fallback: research.recommendedContentTypes,
+                        max: 6,
+                      ),
+                    ),
+                  ),
+                  SizedBox(
+                    width: cardWidth,
+                    child: _ResearchBlockCard(
+                      title: 'Angulos de venta recomendados',
+                      icon: Icons.ads_click_rounded,
+                      items: research.strongAngles.isEmpty
+                          ? const ['Sin angulos detectados aun.']
+                          : research.strongAngles
+                                .take(6)
+                                .toList(growable: false),
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
-          _ResearchField(
-            label: 'Patrones de competidores',
-            value: research.competitorPublishingPatterns,
-          ),
-          _ResearchField(
-            label: 'Ofertas comunes',
-            value: research.commonOffers,
-          ),
-          _ResearchField(
-            label: 'Rangos de precios observados',
-            value: research.observedPriceRanges,
-          ),
-          _ResearchField(
-            label: 'Oportunidades para FULLTECH',
-            value: research.contentOpportunities,
-          ),
-          _ResearchField(
-            label: 'Recomendaciones para estados',
-            value: research.recommendedHooks.join(' | '),
-          ),
-          _ResearchField(
-            label: 'Recomendaciones de contenido',
-            value: research.recommendedContentTypes.join(' | '),
-          ),
-          _ResearchField(
-            label: 'Qué repetir',
-            value: research.doMoreOfThis.join(' | '),
-          ),
-          _ResearchField(
-            label: 'Qué evitar',
-            value: research.avoidThis.join(' | '),
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _MetaChip(
-                label: 'Ángulos fuertes',
-                value: research.strongAngles.isEmpty
-                    ? '-'
-                    : research.strongAngles.join(' | '),
-              ),
-              _MetaChip(
-                label: 'Ángulos débiles',
-                value: research.weakAngles.isEmpty
-                    ? '-'
-                    : research.weakAngles.join(' | '),
-              ),
-            ],
-          ),
+          const SizedBox(height: 12),
+          _TodayContentSection(research: research),
           const SizedBox(height: 12),
           Text(
             'Memorias/aprendizajes activos',
@@ -3012,27 +2969,217 @@ class _ResearchSummaryTab extends StatelessWidget {
   }
 }
 
-class _ResearchField extends StatelessWidget {
-  const _ResearchField({required this.label, required this.value});
+class _ResearchBlockCard extends StatelessWidget {
+  const _ResearchBlockCard({
+    required this.title,
+    required this.icon,
+    required this.items,
+  });
 
-  final String label;
-  final String value;
+  final String title;
+  final IconData icon;
+  final List<String> items;
 
   @override
   Widget build(BuildContext context) {
-    final text = value.trim().isEmpty ? '-' : value.trim();
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: scheme.outlineVariant.withValues(alpha: 0.45),
+        ),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
-          const SizedBox(height: 4),
-          Text(text),
+          Row(
+            children: [
+              Icon(icon, size: 18, color: scheme.primary),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  title,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          for (final item in items.take(6))
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Text('• ${item.trim()}'),
+            ),
         ],
       ),
     );
   }
+}
+
+class _TodayContentSection extends StatelessWidget {
+  const _TodayContentSection({required this.research});
+
+  final MarketingResearchDetail research;
+
+  @override
+  Widget build(BuildContext context) {
+    final statusText = _firstNonEmpty(
+      research.recommendedHooks,
+      fallback:
+          'Protege tu negocio desde tu celular. Instalacion rapida en Higuey. Escribenos ahora.',
+    );
+    final videoIdea = _firstNonEmpty(
+      _extractBulletItems(
+        research.contentOpportunities,
+        fallback: research.recommendedContentTypes,
+        max: 10,
+      ),
+      fallback:
+          'Tecnico instalando, camara funcionando, vista en celular y cliente validando grabacion.',
+    );
+    final cta = _firstNonEmpty(
+      research.recommendedCTAs,
+      fallback: 'Escribenos por WhatsApp ahora',
+    );
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        color: const Color(0xFFECFEF3),
+        border: Border.all(color: const Color(0xFF86EFAC)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Contenido recomendado hoy',
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w800,
+              color: const Color(0xFF166534),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Estado recomendado',
+            style: Theme.of(
+              context,
+            ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 4),
+          Text('"$statusText"'),
+          const SizedBox(height: 10),
+          Text(
+            'Idea de video',
+            style: Theme.of(
+              context,
+            ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 4),
+          Text('• $videoIdea'),
+          const SizedBox(height: 10),
+          Text(
+            'CTA recomendado: $cta',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+              color: const Color(0xFF14532D),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+List<String> _extractBulletItems(
+  String value, {
+  List<String> fallback = const [],
+  int max = 6,
+}) {
+  final normalized = value
+      .replaceAll('\r', '\n')
+      .replaceAll('|', '\n')
+      .split('\n')
+      .map((line) => line.trim())
+      .where((line) => line.isNotEmpty)
+      .map((line) => line.replaceFirst(RegExp(r'^[\-•\*\d\.\)\s]+'), '').trim())
+      .where((line) => line.length > 3)
+      .where((line) => !RegExp(r'^[A-Z0-9\s:]{6,}$').hasMatch(line))
+      .toList(growable: false);
+
+  final selected = normalized.take(max).toList(growable: false);
+  if (selected.isNotEmpty) return selected;
+  if (fallback.isNotEmpty) {
+    return fallback
+        .take(max)
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty)
+        .toList(growable: false);
+  }
+  return const ['Sin evidencia suficiente en esta corrida.'];
+}
+
+List<String> _extractAudienceItems(MarketingResearchDetail research) {
+  final fromSummary = _extractBulletItems(research.marketSummary, max: 8);
+  final audience = fromSummary
+      .where(
+        (line) =>
+            line.toLowerCase().contains('negocio') ||
+            line.toLowerCase().contains('residenc') ||
+            line.toLowerCase().contains('tienda') ||
+            line.toLowerCase().contains('colmado') ||
+            line.toLowerCase().contains('farmacia'),
+      )
+      .take(6)
+      .toList(growable: false);
+  if (audience.isNotEmpty) return audience;
+  return const [
+    'Colmados y tiendas pequenas',
+    'Farmacias y repuestos',
+    'Negocios con caja y flujo de clientes',
+    'Residencias nuevas',
+  ];
+}
+
+List<String> _extractObjectionItems(MarketingResearchDetail research) {
+  final candidates = [
+    ..._extractBulletItems(research.competitorPublishingPatterns, max: 10),
+    ...research.weakAngles,
+  ];
+  final filtered = candidates
+      .where(
+        (item) =>
+            item.toLowerCase().contains('garantia') ||
+            item.toLowerCase().contains('instalacion') ||
+            item.toLowerCase().contains('precio') ||
+            item.toLowerCase().contains('celular') ||
+            item.toLowerCase().contains('pago') ||
+            item.toLowerCase().contains('cuota'),
+      )
+      .take(6)
+      .toList(growable: false);
+
+  if (filtered.isNotEmpty) return filtered;
+  return const [
+    'Tiene garantia?',
+    'Incluye instalacion?',
+    'Funciona desde el celular?',
+    'Hay facilidades de pago?',
+  ];
+}
+
+String _firstNonEmpty(List<String> items, {required String fallback}) {
+  for (final item in items) {
+    final trimmed = item.trim();
+    if (trimmed.isNotEmpty) return trimmed;
+  }
+  return fallback;
 }
 
 class _ResearchHistoryDialog extends StatelessWidget {
@@ -3090,78 +3237,72 @@ class _ResearchDetailDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Detalle de investigación'),
+      title: const Text('Detalle comercial de investigación'),
       content: SizedBox(
         width: 840,
         child: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _ResearchField(
-                label: 'Fecha',
-                value: _formatDateTime(research.createdAt ?? research.date),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _MetaChip(
+                    label: 'Fecha',
+                    value: _formatDateTime(research.createdAt ?? research.date),
+                  ),
+                  _MetaChip(label: 'Estado', value: research.status),
+                  _MetaChip(
+                    label: 'Confianza',
+                    value:
+                        '${(research.confidenceScore * 100).toStringAsFixed(0)}%',
+                  ),
+                  _MetaChip(
+                    label: 'Tema',
+                    value: research.mainFocus.trim().isEmpty
+                        ? '-'
+                        : research.mainFocus,
+                  ),
+                ],
               ),
-              _ResearchField(label: 'Estado', value: research.status),
-              _ResearchField(
-                label: 'Nivel de confianza',
-                value:
-                    '${(research.confidenceScore * 100).toStringAsFixed(0)}%',
+              const SizedBox(height: 12),
+              _ResearchBlockCard(
+                title: 'Insights rapidos de mercado',
+                icon: Icons.insights_rounded,
+                items: _extractBulletItems(research.marketSummary, max: 8),
               ),
-              _ResearchField(
-                label: 'Tema investigado',
-                value: research.mainFocus,
+              const SizedBox(height: 8),
+              _ResearchBlockCard(
+                title: 'Competidores y objeciones',
+                icon: Icons.track_changes_rounded,
+                items: _extractObjectionItems(research),
               ),
-              _ResearchField(
-                label: 'Prompt usado',
-                value: research.researchPrompt,
+              const SizedBox(height: 8),
+              _ResearchBlockCard(
+                title: 'Ofertas y CTA recomendados',
+                icon: Icons.campaign_rounded,
+                items: [
+                  ...research.recommendedOffers.take(4),
+                  ...research.recommendedCTAs.take(3),
+                ],
               ),
-              _ResearchField(
-                label: 'Resumen del mercado',
-                value: research.marketSummary,
+              const SizedBox(height: 8),
+              _ResearchBlockCard(
+                title: 'Contenido listo para publicar',
+                icon: Icons.auto_awesome_rounded,
+                items: [
+                  ...research.recommendedHooks.take(3),
+                  ...research.recommendedContentTypes.take(3),
+                ],
               ),
-              _ResearchField(
-                label: 'Patrones de competidores',
-                value: research.competitorPublishingPatterns,
-              ),
-              _ResearchField(
-                label: 'Ofertas comunes',
-                value: research.commonOffers,
-              ),
-              _ResearchField(
-                label: 'Rangos de precios observados',
-                value: research.observedPriceRanges,
-              ),
-              _ResearchField(
-                label: 'Ángulos fuertes',
-                value: research.strongAngles.join(' | '),
-              ),
-              _ResearchField(
-                label: 'Ángulos débiles',
-                value: research.weakAngles.join(' | '),
-              ),
-              _ResearchField(
-                label: 'Oportunidades para FULLTECH',
-                value: research.contentOpportunities,
-              ),
-              _ResearchField(
-                label: 'Recomendaciones de contenido',
-                value: research.recommendedContentTypes.join(' | '),
-              ),
-              _ResearchField(
-                label: 'Recomendaciones para estados',
-                value: research.recommendedHooks.join(' | '),
-              ),
-              _ResearchField(
-                label: 'Qué repetir',
-                value: research.doMoreOfThis.join(' | '),
-              ),
-              _ResearchField(
-                label: 'Qué evitar',
-                value: research.avoidThis.join(' | '),
-              ),
-              _ResearchField(
-                label: 'Fuentes usadas',
-                value: research.dataSources.join(' | '),
+              const SizedBox(height: 8),
+              _ResearchBlockCard(
+                title: 'Fuentes resumidas',
+                icon: Icons.public_rounded,
+                items: research.dataSources.isEmpty
+                    ? const ['Sin fuentes registradas.']
+                    : research.dataSources.take(6).toList(growable: false),
               ),
             ],
           ),
@@ -4479,6 +4620,174 @@ class _PickMediaAssetDialog extends StatelessWidget {
   }
 }
 
+class _SelectGenerationImagesDialog extends StatefulWidget {
+  const _SelectGenerationImagesDialog({required this.assets});
+
+  final List<MarketingMediaAsset> assets;
+
+  @override
+  State<_SelectGenerationImagesDialog> createState() =>
+      _SelectGenerationImagesDialogState();
+}
+
+class _SelectGenerationImagesDialogState
+    extends State<_SelectGenerationImagesDialog> {
+  final Set<String> _selected = <String>{};
+
+  @override
+  Widget build(BuildContext context) {
+    final visibleAssets = widget.assets.where((asset) {
+      final url = asset.fileUrl.trim();
+      return url.isNotEmpty;
+    }).toList(growable: false);
+
+    return AlertDialog(
+      title: const Text('Selecciona hasta 3 imágenes'),
+      content: SizedBox(
+        width: 840,
+        child: visibleAssets.isEmpty
+            ? const Text('No hay imágenes activas para usar como referencia.')
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Elige 1, 2 o 3 imágenes. El sistema las usará como referencia para crear la publicidad.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    height: 220,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: Theme.of(context).colorScheme.outlineVariant,
+                      ),
+                    ),
+                    child: Scrollbar(
+                      child: ListView.separated(
+                        padding: const EdgeInsets.all(10),
+                        itemCount: visibleAssets.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
+                        itemBuilder: (context, index) {
+                          final asset = visibleAssets[index];
+                          final selected = _selected.contains(asset.id);
+                          return InkWell(
+                            borderRadius: BorderRadius.circular(12),
+                            onTap: () {
+                              setState(() {
+                                if (selected) {
+                                  _selected.remove(asset.id);
+                                  return;
+                                }
+                                if (_selected.length >= 3) return;
+                                _selected.add(asset.id);
+                              });
+                            },
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 160),
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: selected
+                                    ? Theme.of(
+                                        context,
+                                      ).colorScheme.primaryContainer
+                                    : Theme.of(context).colorScheme.surface,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: selected
+                                      ? Theme.of(context).colorScheme.primary
+                                      : Theme.of(
+                                          context,
+                                        ).colorScheme.outlineVariant,
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(10),
+                                    child: SizedBox(
+                                      width: 68,
+                                      height: 68,
+                                      child: Image.network(
+                                        asset.fileUrl,
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (_, __, ___) =>
+                                            const Icon(Icons.image_not_supported_rounded),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          asset.relatedService?.trim().isNotEmpty == true
+                                              ? asset.relatedService!.trim()
+                                              : asset.fileName,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          asset.category,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Checkbox(
+                                    value: selected,
+                                    onChanged: (_) {
+                                      setState(() {
+                                        if (selected) {
+                                          _selected.remove(asset.id);
+                                          return;
+                                        }
+                                        if (_selected.length >= 3) return;
+                                        _selected.add(asset.id);
+                                      });
+                                    },
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Seleccionadas: ${_selected.length}/3',
+                    style: Theme.of(context).textTheme.labelMedium,
+                  ),
+                ],
+              ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton.icon(
+          onPressed: _selected.isEmpty
+              ? null
+              : () => Navigator.of(context).pop(_selected.toList(growable: false)),
+          icon: const Icon(Icons.auto_fix_high_rounded),
+          label: const Text('Generar'),
+        ),
+      ],
+    );
+  }
+}
+
 class _HistoryTab extends StatelessWidget {
   const _HistoryTab({required this.items});
 
@@ -4550,56 +4859,42 @@ class _ConfigTab extends StatefulWidget {
 }
 
 class _ConfigTabState extends State<_ConfigTab> {
+  late final TextEditingController _active = TextEditingController();
+  late final TextEditingController _paused = TextEditingController();
+  late final TextEditingController _autoRegenerate = TextEditingController();
+  late final TextEditingController _count = TextEditingController();
+  late final TextEditingController _hour = TextEditingController();
+  late final TextEditingController _regenerateHours = TextEditingController();
+  late final TextEditingController _priorityProducts = TextEditingController();
+  late final TextEditingController _targetCity = TextEditingController();
+  late final TextEditingController _brandTone = TextEditingController();
+  
   final _formKey = GlobalKey<FormState>();
-  late TextEditingController _hour;
-  late TextEditingController _count;
-  late TextEditingController _regenerateHours;
-  late TextEditingController _priorityProducts;
-  late TextEditingController _targetCity;
-  late TextEditingController _brandTone;
-  late bool _active;
-  late bool _paused;
-  late bool _autoRegenerate;
+  
+  bool _activeVal = false;
+  bool _pausedVal = false;
+  bool _autoRegenerateVal = false;
 
   @override
   void initState() {
     super.initState();
-    final c = widget.config;
-    _hour = TextEditingController(text: c?.generationTime ?? '08:00');
-    _count = TextEditingController(text: '${c?.dailyStoriesCount ?? 3}');
-    _regenerateHours = TextEditingController(
-      text: '${c?.regenerateAfterHours ?? 6}',
-    );
-    _priorityProducts = TextEditingController(
-      text: (c?.priorityProducts ?? const []).join(', '),
-    );
-    _targetCity = TextEditingController(text: c?.targetCity ?? '');
-    _brandTone = TextEditingController(text: c?.brandTone ?? '');
-    _active = c?.active ?? false;
-    _paused = c?.paused ?? false;
-    _autoRegenerate = c?.autoRegenerate ?? false;
-  }
-
-  @override
-  void didUpdateWidget(covariant _ConfigTab oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.config?.id == widget.config?.id) return;
-    final c = widget.config;
-    _hour.text = c?.generationTime ?? '08:00';
-    _count.text = '${c?.dailyStoriesCount ?? 3}';
-    _regenerateHours.text = '${c?.regenerateAfterHours ?? 6}';
-    _priorityProducts.text = (c?.priorityProducts ?? const []).join(', ');
-    _targetCity.text = c?.targetCity ?? '';
-    _brandTone.text = c?.brandTone ?? '';
-    _active = c?.active ?? false;
-    _paused = c?.paused ?? false;
-    _autoRegenerate = c?.autoRegenerate ?? false;
+    if (widget.config != null) {
+      _activeVal = widget.config!.active;
+      _pausedVal = widget.config!.paused;
+      _autoRegenerateVal = widget.config!.autoRegenerate;
+      _count.text = widget.config!.dailyStoriesCount.toString();
+      _hour.text = widget.config!.generationTime;
+      _regenerateHours.text = widget.config!.regenerateAfterHours.toString();
+      _priorityProducts.text = widget.config!.priorityProducts.join(', ');
+      _targetCity.text = widget.config!.targetCity;
+      _brandTone.text = widget.config!.brandTone;
+    }
   }
 
   @override
   void dispose() {
-    _hour.dispose();
     _count.dispose();
+    _hour.dispose();
     _regenerateHours.dispose();
     _priorityProducts.dispose();
     _targetCity.dispose();
@@ -4609,45 +4904,40 @@ class _ConfigTabState extends State<_ConfigTab> {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final config = widget.config;
     if (config == null) {
-      return const _EmptyState(text: 'No se encontró configuración del flujo.');
-    }
-
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: scheme.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: scheme.outlineVariant.withValues(alpha: 0.35),
+      return Center(
+        child: Text(
+          'Configuración no disponible',
+          style: Theme.of(context).textTheme.bodyLarge,
         ),
-      ),
+      );
+    }
+    
+    return SingleChildScrollView(
       child: Form(
         key: _formKey,
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             SwitchListTile.adaptive(
-              value: _active,
+              value: _activeVal,
               onChanged: widget.busy
                   ? null
-                  : (value) => setState(() => _active = value),
-              title: const Text('flujo_activo'),
+                  : (value) => setState(() => _activeVal = value),
+              title: const Text('activo'),
             ),
             SwitchListTile.adaptive(
-              value: _paused,
+              value: _pausedVal,
               onChanged: widget.busy
                   ? null
-                  : (value) => setState(() => _paused = value),
+                  : (value) => setState(() => _pausedVal = value),
               title: const Text('pausado'),
             ),
             SwitchListTile.adaptive(
-              value: _autoRegenerate,
+              value: _autoRegenerateVal,
               onChanged: widget.busy
                   ? null
-                  : (value) => setState(() => _autoRegenerate = value),
+                  : (value) => setState(() => _autoRegenerateVal = value),
               title: const Text('auto_regenerar_si_no_aprueba'),
             ),
             const SizedBox(height: 6),
@@ -4698,14 +4988,14 @@ class _ConfigTabState extends State<_ConfigTab> {
                       if (!_formKey.currentState!.validate()) return;
                       final payload = MarketingFlowConfig(
                         id: config.id,
-                        active: _active,
-                        paused: _paused,
+                        active: _activeVal,
+                        paused: _pausedVal,
                         dailyStoriesCount:
                             int.tryParse(_count.text.trim()) ?? 3,
                         generationTime: _hour.text.trim().isEmpty
                             ? '08:00'
                             : _hour.text.trim(),
-                        autoRegenerate: _autoRegenerate,
+                        autoRegenerate: _autoRegenerateVal,
                         regenerateAfterHours:
                             int.tryParse(_regenerateHours.text.trim()) ?? 6,
                         priorityProducts: _priorityProducts.text
@@ -4723,6 +5013,298 @@ class _ConfigTabState extends State<_ConfigTab> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _StoryFullscreenPreview extends StatelessWidget {
+  const _StoryFullscreenPreview({
+    required this.story,
+    required this.imageUrl,
+    required this.canApprove,
+    required this.onApprove,
+  });
+
+  final MarketingStory story;
+  final String imageUrl;
+  final bool canApprove;
+  final Future<void> Function() onApprove;
+
+  @override
+  Widget build(BuildContext context) {
+    final tabs = const [
+      Tab(text: 'Diseño'),
+      Tab(text: 'Copy'),
+      Tab(text: 'Estados'),
+      Tab(text: 'Facebook'),
+      Tab(text: 'Reels'),
+      Tab(text: 'CTA'),
+      Tab(text: 'Variaciones'),
+    ];
+
+    return DefaultTabController(
+      length: tabs.length,
+      child: Scaffold(
+        backgroundColor: const Color(0xFF07111F),
+        body: SafeArea(
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Estado listo para publicar',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    IconButton.filledTonal(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  children: [
+                    if (!canApprove)
+                      const Expanded(
+                        child: _ErrorBanner(
+                          message:
+                              'Anuncio incompleto: completa imagen final, headline, texto, CTA y prompt antes de aprobar.',
+                        ),
+                      ),
+                    if (!canApprove) const SizedBox(width: 10),
+                    FilledButton.icon(
+                      onPressed: canApprove
+                          ? () async {
+                              await onApprove();
+                              if (context.mounted) {
+                                Navigator.of(context).pop();
+                              }
+                            }
+                          : null,
+                      icon: const Icon(Icons.check_circle_rounded),
+                      label: const Text('Aprobar estado'),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(18),
+                  child: AspectRatio(
+                    aspectRatio: 16 / 9,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        if (imageUrl.isNotEmpty)
+                          _StoryImageView(url: imageUrl)
+                        else
+                          const _BrokenImagePlaceholder(),
+                        _StoryVisualOverlay(
+                          type: story.type,
+                          headline: story.title,
+                          subtitle: story.shortText,
+                          cta: story.usedCTA,
+                          fallbackLabel: imageUrl.isEmpty
+                              ? 'Sin imagen disponible'
+                              : null,
+                          compact: false,
+                          approved: story.status == MarketingStoryStatus.approved,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.05),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                  ),
+                  child: TabBar(
+                    isScrollable: true,
+                    labelColor: Colors.white,
+                    unselectedLabelColor: Colors.white70,
+                    indicatorColor: const Color(0xFF6EE7B7),
+                    tabs: tabs,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  child: TabBarView(
+                    children: [
+                      _StoryTabPane(
+                        title: 'Diseño',
+                        icon: Icons.palette_rounded,
+                        items: [
+                          'Concepto visual: ${story.visualConcept}',
+                          'Notas de diseño: ${story.designNotes}',
+                          'Prompt de imagen: ${story.imagePrompt}',
+                          'Imagen base: ${_resolveBaseImageUrl(story).isEmpty ? 'No definida' : _resolveBaseImageUrl(story)}',
+                        ],
+                      ),
+                      _StoryTabPane(
+                        title: 'Copy',
+                        icon: Icons.text_snippet_rounded,
+                        items: [
+                          'Headline: ${story.title}',
+                          'Texto corto: ${story.shortText}',
+                          'Texto largo: ${story.longText}',
+                          'Hashtags: ${story.hashtags.join(' ')}',
+                        ],
+                      ),
+                      _StoryTabPane(
+                        title: 'Estados',
+                        icon: Icons.phone_iphone_rounded,
+                        items: [
+                          'Estado 1: ${story.shortText}',
+                          'Estado 2: ${story.usedCTA}',
+                          'Estado 3: ${story.title}',
+                          'Estado 4: ${story.visualConcept}',
+                        ],
+                      ),
+                      _StoryTabPane(
+                        title: 'Facebook',
+                        icon: Icons.facebook_rounded,
+                        items: [
+                          '${story.title} - ${story.shortText}',
+                          story.longText,
+                          'CTA: ${story.usedCTA}',
+                        ],
+                      ),
+                      _StoryTabPane(
+                        title: 'Reels',
+                        icon: Icons.play_circle_rounded,
+                        items: [
+                          'Hook inicial: ${story.title}',
+                          'Escena 1: mostrar necesidad real.',
+                          'Escena 2: solución instalada.',
+                          'Cierre: ${story.usedCTA}',
+                        ],
+                      ),
+                      _StoryTabPane(
+                        title: 'CTA',
+                        icon: Icons.ads_click_rounded,
+                        items: _buildCtaVariations(story.usedCTA),
+                      ),
+                      _StoryTabPane(
+                        title: 'Variaciones',
+                        icon: Icons.shuffle_rounded,
+                        items: _buildCopyVariations(story),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+List<String> _buildCtaVariations(String usedCta) {
+  final base = usedCta.trim().isEmpty ? 'Escribenos por WhatsApp ahora' : usedCta.trim();
+  return [
+    base,
+    'Agenda tu instalacion hoy',
+    'Cotiza tu combo recomendado',
+    'Pregunta por disponibilidad inmediata',
+  ];
+}
+
+List<String> _buildCopyVariations(MarketingStory story) {
+  return [
+    story.title,
+    story.shortText,
+    story.longText,
+    '${story.title} | ${story.usedCTA}',
+    'Solucion lista para negocio y residencia.',
+  ];
+}
+
+class _StoryTabPane extends StatelessWidget {
+  const _StoryTabPane({
+    required this.title,
+    required this.icon,
+    required this.items,
+  });
+
+  final String title;
+  final IconData icon;
+  final List<String> items;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: const Color(0xFF0F766E)),
+              const SizedBox(width: 8),
+              Text(
+                title,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: const Color(0xFF0F172A),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Expanded(
+            child: ListView.separated(
+              itemCount: items.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 10),
+              itemBuilder: (context, index) {
+                final item = items[index].trim();
+                return Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: Text(
+                    item.isEmpty ? '-' : item,
+                    style: const TextStyle(
+                      color: Color(0xFF0F172A),
+                      fontSize: 13,
+                      height: 1.35,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }

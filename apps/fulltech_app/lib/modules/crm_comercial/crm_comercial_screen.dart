@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'dart:async';
 import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 
@@ -12,6 +13,9 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/app_navigation.dart' show kDesktopShellBreakpoint;
 import '../../core/widgets/responsive_shell.dart';
+import '../../core/company/company_settings_model.dart';
+import '../../core/company/company_settings_repository.dart';
+import '../../features/catalogo/data/catalog_repository.dart';
 import 'data/crm_comercial_repository.dart';
 import 'models/crm_comercial_models.dart';
 
@@ -73,6 +77,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
   final TextEditingController _newChatPhoneCtrl = TextEditingController();
   final TextEditingController _newChatMessageCtrl = TextEditingController();
   final TextEditingController _conversationSearchCtrl = TextEditingController();
+  final ScrollController _conversationListScrollCtrl = ScrollController();
   final ScrollController _chatScrollCtrl = ScrollController();
   final FocusNode _sidebarSearchFocusNode = FocusNode();
   late final StateController<DesktopShellRouteActions?> _desktopShellActions;
@@ -104,7 +109,14 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
   bool _sendingChatMessage = false;
   String _lastShellActionsSignature = '';
   _CrmRightPanelTab _activeRightPanelTab = _CrmRightPanelTab.detail;
-  
+
+  // Composer support state
+  CompanySettings? _companySettings;
+  bool _loadingCompanySettings = false;
+  Timer? _composerSpellTimer;
+  String? _composerOrthographySuggestion;
+  String? _lastIgnoredComposerSuggestion;
+
   // Media composer state
   final TextEditingController _mediaCaptionCtrl = TextEditingController();
   Uint8List? _selectedMediaBytes;
@@ -117,6 +129,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
   void initState() {
     super.initState();
     _desktopShellActions = ref.read(desktopShellRouteActionsProvider.notifier);
+    _chatComposerCtrl.addListener(_onComposerTextChanged);
     _loadAll();
   }
 
@@ -132,11 +145,14 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
     _activityDescriptionCtrl.dispose();
     _taskTitleCtrl.dispose();
     _taskDescCtrl.dispose();
+    _chatComposerCtrl.removeListener(_onComposerTextChanged);
     _chatComposerCtrl.dispose();
     _newChatPhoneCtrl.dispose();
     _newChatMessageCtrl.dispose();
     _conversationSearchCtrl.dispose();
     _mediaCaptionCtrl.dispose();
+    _composerSpellTimer?.cancel();
+    _conversationListScrollCtrl.dispose();
     _chatScrollCtrl.dispose();
     _sidebarSearchFocusNode.dispose();
     super.dispose();
@@ -186,19 +202,86 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
   List<CrmComercialInboxConversation> get _filteredConversations {
     final query = _searchCtrl.text.trim().toLowerCase();
     return _conversations.where((conversation) {
-      if (_statusFilter.isNotEmpty && conversation.crmCustomerStatus != _statusFilter) {
+      if (_statusFilter.isNotEmpty &&
+          _conversationEffectiveStatus(conversation) != _statusFilter) {
         return false;
       }
       if (query.isEmpty) return true;
-      final contactName = conversation.contactName.toLowerCase();
+      final visibleName = _conversationVisibleName(conversation).toLowerCase();
       final phone = (conversation.remotePhone ?? '').toLowerCase();
       final customerName = (conversation.crmCustomerName ?? '').toLowerCase();
-      final preview = (conversation.lastMessagePreview ?? '').toLowerCase();
-      return contactName.contains(query) ||
+      final preview = _conversationPreviewText(conversation).toLowerCase();
+      return visibleName.contains(query) ||
           phone.contains(query) ||
           customerName.contains(query) ||
           preview.contains(query);
     }).toList(growable: false);
+  }
+
+  String _conversationEffectiveStatus(CrmComercialInboxConversation conversation) {
+    final linkedCustomerId = (conversation.crmCustomerId ?? '').trim();
+    final rawStatus = (conversation.crmCustomerStatus ?? '').trim();
+    if (linkedCustomerId.isEmpty || rawStatus.isEmpty) {
+      return 'NUEVO';
+    }
+    return _mapLegacyStatus(rawStatus);
+  }
+
+  String _conversationVisibleName(CrmComercialInboxConversation conversation) {
+    final customerName = (conversation.crmCustomerName ?? '').trim();
+    if (customerName.isNotEmpty) return customerName;
+
+    final contactName = conversation.contactName.trim();
+    if (contactName.isNotEmpty &&
+        contactName.toLowerCase() != 'nuevo contacto') {
+      return contactName;
+    }
+
+    final phone = (conversation.remotePhone ?? '').trim();
+    if (phone.isNotEmpty) return phone;
+
+    return 'Contacto';
+  }
+
+  String _conversationPreviewText(CrmComercialInboxConversation conversation) {
+    final messageType = (conversation.lastMessageType ?? 'TEXT').toUpperCase();
+    switch (messageType) {
+      case 'IMAGE':
+        return '📷 Imagen';
+      case 'VIDEO':
+        return '🎥 Video';
+      case 'AUDIO':
+        return '🎙️ Audio';
+      case 'DOCUMENT':
+        return '📄 Documento';
+    }
+
+    final preview = (conversation.lastMessagePreview ?? '')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    if (preview.isNotEmpty) return preview;
+
+    final phone = (conversation.remotePhone ?? '').trim();
+    if (phone.isNotEmpty) return phone;
+
+    return 'Sin mensajes';
+  }
+
+  String _formatConversationListTime(DateTime? value) {
+    if (value == null) return '--:--';
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final day = DateTime(value.year, value.month, value.day);
+    final diff = today.difference(day).inDays;
+
+    if (diff == 0) return DateFormat('HH:mm').format(value);
+    if (diff == 1) return 'Ayer';
+    if (diff > 1 && diff < 7) {
+      final raw = DateFormat('EEE', 'es').format(value).replaceAll('.', '');
+      return raw.substring(0, 1).toUpperCase() + raw.substring(1);
+    }
+    return DateFormat('dd/MM').format(value);
   }
 
   void _scrollChatToBottom({bool animated = true}) {
@@ -698,10 +781,605 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
     }
   }
 
-  Future<void> _pickAndSendMedia() async {
-    FilePickerResult? result = await FilePicker.platform.pickFiles(
-      type: FileType.media,
+  Future<void> _ensureCompanySettings() async {
+    if (_companySettings != null || _loadingCompanySettings) return;
+    _loadingCompanySettings = true;
+    try {
+      final repo = ref.read(companySettingsRepositoryProvider);
+      final settings = await repo.getSettings();
+      if (!mounted) return;
+      setState(() => _companySettings = settings);
+    } catch (e, st) {
+      if (kDebugMode) debugPrint('[CRM] Failed to load company settings: $e\n$st');
+      // Keep composer operational even if company settings are unavailable.
+    } finally {
+      if (mounted) _loadingCompanySettings = false;
+    }
+  }
+
+  Future<CompanySettings?> _resolveCompanySettings() async {
+    if (_companySettings != null) return _companySettings;
+    try {
+      final settings = await ref.read(companySettingsRepositoryProvider).getSettings();
+      if (mounted) {
+        setState(() => _companySettings = settings);
+      }
+      return settings;
+    } catch (_) {
+      return _companySettings;
+    }
+  }
+
+  void _onComposerTextChanged() {
+    _composerSpellTimer?.cancel();
+    _composerSpellTimer = Timer(const Duration(milliseconds: 420), () {
+      if (!mounted) return;
+      final current = _chatComposerCtrl.text;
+      final suggestion = _buildOrthographySuggestion(current);
+      if (suggestion == null || suggestion == current || suggestion == _lastIgnoredComposerSuggestion) {
+        if (_composerOrthographySuggestion != null) {
+          setState(() => _composerOrthographySuggestion = null);
+        }
+        return;
+      }
+      setState(() => _composerOrthographySuggestion = suggestion);
+    });
+  }
+
+  String? _buildOrthographySuggestion(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty || trimmed.length < 6) return null;
+
+    var normalized = trimmed
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .replaceAll(' q ', ' que ')
+        .replaceAll(' xq ', ' porque ')
+        .replaceAll(' porq ', ' porque ');
+
+    if (normalized.isEmpty) return null;
+
+    final first = normalized.substring(0, 1).toUpperCase();
+    if (normalized.length > 1) {
+      normalized = '$first${normalized.substring(1)}';
+    } else {
+      normalized = first;
+    }
+
+    final hasClosingPunctuation = RegExp(r'[.!?]$').hasMatch(normalized);
+    if (!hasClosingPunctuation && normalized.length > 18) {
+      normalized = '$normalized.';
+    }
+
+    return normalized == raw ? null : normalized;
+  }
+
+  void _applyOrthographySuggestion() {
+    final suggestion = _composerOrthographySuggestion;
+    if (suggestion == null || suggestion.isEmpty) return;
+    setState(() {
+      _chatComposerCtrl.text = suggestion;
+      _chatComposerCtrl.selection = TextSelection.collapsed(
+        offset: _chatComposerCtrl.text.length,
+      );
+      _composerOrthographySuggestion = null;
+      _lastIgnoredComposerSuggestion = null;
+    });
+  }
+
+  void _ignoreOrthographySuggestion() {
+    setState(() {
+      _lastIgnoredComposerSuggestion = _composerOrthographySuggestion;
+      _composerOrthographySuggestion = null;
+    });
+  }
+
+  void _insertTextInComposer(String text) {
+    final clean = text.trim();
+    if (clean.isEmpty) return;
+    final current = _chatComposerCtrl.text.trimRight();
+    final merged = current.isEmpty ? clean : '$current\n$clean';
+    setState(() {
+      _chatComposerCtrl.text = merged;
+      _chatComposerCtrl.selection = TextSelection.collapsed(offset: merged.length);
+      _composerOrthographySuggestion = null;
+      _lastIgnoredComposerSuggestion = null;
+    });
+  }
+
+  Future<void> _openInternalNoteDialog() async {
+    final hasSelection = _selected != null;
+    if (!hasSelection) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Selecciona un cliente para guardar nota interna.')),
+        );
+      }
+      return;
+    }
+
+    final noteCtrl = TextEditingController();
+    var saving = false;
+    String? dialogError;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Nota interna'),
+              content: SizedBox(
+                width: 420,
+                child: TextField(
+                  controller: noteCtrl,
+                  minLines: 3,
+                  maxLines: 6,
+                  decoration: const InputDecoration(
+                    hintText: 'Escribe una nota interna para el equipo',
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: saving ? null : () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cancelar'),
+                ),
+                FilledButton(
+                  onPressed: saving
+                      ? null
+                      : () async {
+                          final value = noteCtrl.text.trim();
+                          if (value.isEmpty) {
+                            setDialogState(() => dialogError = 'La nota no puede estar vacía.');
+                            return;
+                          }
+                          setDialogState(() {
+                            saving = true;
+                            dialogError = null;
+                          });
+                          _noteCtrl.text = value;
+                          try {
+                            await _addNote();
+                            if (!dialogContext.mounted) return;
+                            Navigator.of(dialogContext).pop();
+                          } catch (error) {
+                            setDialogState(() {
+                              saving = false;
+                              dialogError = error.toString();
+                            });
+                          }
+                        },
+                  child: saving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Guardar nota'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    noteCtrl.dispose();
+  }
+
+  Future<void> _openComposerActivityDialog() async {
+    final hasSelection = _selected != null;
+    if (!hasSelection) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Selecciona un cliente para crear actividad.')),
+        );
+      }
+      return;
+    }
+
+    String selectedType = _crmStatuses.first;
+    final descCtrl = TextEditingController();
+    var saving = false;
+    String? dialogError;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Crear actividad'),
+              content: SizedBox(
+                width: 440,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    DropdownButtonFormField<String>(
+                      value: selectedType,
+                      items: _crmStatuses
+                          .map(
+                            (status) => DropdownMenuItem<String>(
+                              value: status,
+                              child: Text(_statusLabel(status)),
+                            ),
+                          )
+                          .toList(growable: false),
+                      onChanged: saving
+                          ? null
+                          : (value) {
+                              if (value == null) return;
+                              setDialogState(() => selectedType = value);
+                            },
+                      decoration: const InputDecoration(labelText: 'Tipo/Estado CRM'),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: descCtrl,
+                      minLines: 3,
+                      maxLines: 6,
+                      decoration: const InputDecoration(
+                        hintText: 'Describe la actividad comercial',
+                      ),
+                    ),
+                    if ((dialogError ?? '').isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          dialogError!,
+                          style: const TextStyle(color: AppColors.error, fontSize: 12),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: saving ? null : () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cancelar'),
+                ),
+                FilledButton(
+                  onPressed: saving
+                      ? null
+                      : () async {
+                          final description = descCtrl.text.trim();
+                          if (description.isEmpty) {
+                            setDialogState(
+                              () => dialogError = 'La actividad necesita descripción.',
+                            );
+                            return;
+                          }
+                          setDialogState(() {
+                            saving = true;
+                            dialogError = null;
+                          });
+                          _activityTypeCtrl.text = selectedType;
+                          _activityDescriptionCtrl.text = description;
+                          try {
+                            await _addActivity();
+                            if (!dialogContext.mounted) return;
+                            Navigator.of(dialogContext).pop();
+                          } catch (error) {
+                            setDialogState(() {
+                              saving = false;
+                              dialogError = error.toString();
+                            });
+                          }
+                        },
+                  child: saving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Guardar actividad'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    descCtrl.dispose();
+  }
+
+  Future<String> _buildStoreHoursMessage() async {
+    final settings = await _resolveCompanySettings();
+    final hours = (settings?.businessHours ?? '').trim();
+    if (hours.isEmpty) return 'No hay horario configurado.';
+    return hours;
+  }
+
+  Future<String> _buildGpsMessage() async {
+    final settings = await _resolveCompanySettings();
+    final gps = (settings?.gpsLocationUrl ?? '').trim();
+    if (gps.isEmpty) return 'No hay ubicación configurada.';
+    return gps;
+  }
+
+  Future<String> _buildBankAccountsMessage() async {
+    final settings = await _resolveCompanySettings();
+    final accounts = settings?.bankAccounts ?? const <BankAccountEntry>[];
+    if (accounts.isEmpty) return 'No hay cuentas bancarias configuradas.';
+    final rows = accounts
+        .where((entry) =>
+            entry.name.trim().isNotEmpty ||
+            entry.accountNumber.trim().isNotEmpty ||
+            entry.bankName.trim().isNotEmpty)
+        .map((entry) {
+          final parts = <String>[];
+          if (entry.name.trim().isNotEmpty) parts.add(entry.name.trim());
+          if (entry.bankName.trim().isNotEmpty) parts.add(entry.bankName.trim());
+          if (entry.accountNumber.trim().isNotEmpty) {
+            parts.add(entry.accountNumber.trim());
+          }
+          return '- ${parts.join(' | ')}';
+        })
+        .toList(growable: false);
+    if (rows.isEmpty) return 'No hay cuentas bancarias configuradas.';
+    return 'Cuentas bancarias disponibles:\n${rows.join('\n')}';
+  }
+
+  Future<String> _buildCatalogMessage() async {
+    try {
+      final products = await ref.read(catalogRepositoryProvider).fetchProducts(
+            silent: true,
+          );
+      if (products.isEmpty) return 'No hay catálogo configurado.';
+      final sample = products
+          .take(4)
+          .map((item) => '- ${item.nombre.trim()}')
+          .toList(growable: false);
+      return 'Catálogo disponible (${products.length} productos):\n${sample.join('\n')}';
+    } catch (_) {
+      return 'No hay catálogo configurado.';
+    }
+  }
+
+  Future<void> _openQuickMessagesDialog() async {
+    final quickMessages = <String>[
+      'Gracias por escribirnos. Te atendemos de inmediato.',
+      'Perfecto, te confirmo disponibilidad en unos minutos.',
+      '¿Podrías compartirnos una foto del área para cotizar mejor?',
+      'Con gusto te enviamos una cotización formal hoy.',
+      '¿Prefieres instalación esta semana o la próxima?',
+    ];
+
+    var query = '';
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final filtered = quickMessages
+                .where((item) => item.toLowerCase().contains(query.toLowerCase()))
+                .toList(growable: false);
+
+            Future<void> insertSpecial(Future<String> Function() builder) async {
+              Navigator.of(dialogContext).pop();
+              final text = await builder();
+              if (!mounted) return;
+              _insertTextInComposer(text);
+            }
+
+            return AlertDialog(
+              title: const Text('Mensajes rápidos'),
+              content: SizedBox(
+                width: 520,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      onChanged: (value) => setDialogState(() => query = value),
+                      decoration: const InputDecoration(
+                        hintText: 'Buscar mensaje rápido',
+                        prefixIcon: Icon(Icons.search_rounded),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: () => insertSpecial(_buildGpsMessage),
+                          icon: const Icon(Icons.location_on_outlined, size: 16),
+                          label: const Text('Ubicación GPS'),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: () => insertSpecial(_buildStoreHoursMessage),
+                          icon: const Icon(Icons.schedule_rounded, size: 16),
+                          label: const Text('Horario'),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: () => insertSpecial(_buildBankAccountsMessage),
+                          icon: const Icon(Icons.account_balance_rounded, size: 16),
+                          label: const Text('Cuentas'),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: () => insertSpecial(_buildCatalogMessage),
+                          icon: const Icon(Icons.inventory_2_outlined, size: 16),
+                          label: const Text('Catálogo'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 260),
+                      child: filtered.isEmpty
+                          ? const Center(
+                              child: Padding(
+                                padding: EdgeInsets.all(16),
+                                child: Text('No se encontraron mensajes.'),
+                              ),
+                            )
+                          : ListView.separated(
+                              shrinkWrap: true,
+                              itemCount: filtered.length,
+                              separatorBuilder: (_, __) =>
+                                  Divider(height: 1, color: _waBorder.withAlpha(80)),
+                              itemBuilder: (context, index) {
+                                final item = filtered[index];
+                                return ListTile(
+                                  dense: true,
+                                  leading: const Icon(Icons.flash_on_rounded, size: 18),
+                                  title: Text(
+                                    item,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(fontSize: 12.5),
+                                  ),
+                                  onTap: () {
+                                    Navigator.of(dialogContext).pop();
+                                    _insertTextInComposer(item);
+                                  },
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cerrar'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _openAttachmentMenu() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        Widget tile({
+          required IconData icon,
+          required String label,
+          required Future<void> Function() onTap,
+        }) {
+          return ListTile(
+            dense: true,
+            leading: Icon(icon, color: _waGreenDark),
+            title: Text(label),
+            onTap: () async {
+              Navigator.of(context).pop();
+              await onTap();
+            },
+          );
+        }
+
+        return SafeArea(
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                tile(
+                  icon: Icons.photo_outlined,
+                  label: 'Imagen',
+                  onTap: () => _pickAndSendMedia(kind: 'image'),
+                ),
+                tile(
+                  icon: Icons.videocam_outlined,
+                  label: 'Video',
+                  onTap: () => _pickAndSendMedia(kind: 'video'),
+                ),
+                tile(
+                  icon: Icons.insert_drive_file_outlined,
+                  label: 'Documento',
+                  onTap: () => _pickAndSendMedia(kind: 'document'),
+                ),
+                tile(
+                  icon: Icons.audiotrack_rounded,
+                  label: 'Audio',
+                  onTap: () => _pickAndSendMedia(kind: 'audio'),
+                ),
+                tile(
+                  icon: Icons.sticky_note_2_outlined,
+                  label: 'Nota interna',
+                  onTap: _openInternalNoteDialog,
+                ),
+                tile(
+                  icon: Icons.task_alt_rounded,
+                  label: 'Crear actividad',
+                  onTap: _openComposerActivityDialog,
+                ),
+                tile(
+                  icon: Icons.location_on_outlined,
+                  label: 'Ubicación GPS',
+                  onTap: () async {
+                    final text = await _buildGpsMessage();
+                    _insertTextInComposer(text);
+                  },
+                ),
+                tile(
+                  icon: Icons.schedule_rounded,
+                  label: 'Horario de tienda',
+                  onTap: () async {
+                    final text = await _buildStoreHoursMessage();
+                    _insertTextInComposer(text);
+                  },
+                ),
+                tile(
+                  icon: Icons.account_balance_rounded,
+                  label: 'Cuentas bancarias',
+                  onTap: () async {
+                    final text = await _buildBankAccountsMessage();
+                    _insertTextInComposer(text);
+                  },
+                ),
+                tile(
+                  icon: Icons.inventory_2_outlined,
+                  label: 'Catálogo de productos',
+                  onTap: () async {
+                    final text = await _buildCatalogMessage();
+                    _insertTextInComposer(text);
+                  },
+                ),
+                tile(
+                  icon: Icons.flash_on_rounded,
+                  label: 'Mensajes rápidos',
+                  onTap: _openQuickMessagesDialog,
+                ),
+                const SizedBox(height: 6),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _pickAndSendMedia({String? kind}) async {
+    FileType pickerType = FileType.media;
+    List<String>? allowedExtensions;
+    if (kind == 'document') {
+      pickerType = FileType.custom;
+      allowedExtensions = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'txt'];
+    } else if (kind == 'audio') {
+      pickerType = FileType.custom;
+      allowedExtensions = ['mp3', 'wav', 'm4a', 'aac', 'ogg'];
+    } else if (kind == 'video') {
+      pickerType = FileType.custom;
+      allowedExtensions = ['mp4', 'mov', 'avi', 'mkv'];
+    } else if (kind == 'image') {
+      pickerType = FileType.custom;
+      allowedExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+    }
+
+    final result = await FilePicker.platform.pickFiles(
+      type: pickerType,
+      allowedExtensions: allowedExtensions,
       allowMultiple: false,
+      withData: true,
     );
 
     if (result == null || result.files.isEmpty) return;
@@ -711,7 +1389,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
 
     if (bytes == null) {
       if (mounted) {
-        setState(() => _error = 'Error: Could not read file');
+        setState(() => _error = 'No se pudo leer el archivo seleccionado.');
       }
       return;
     }
@@ -756,13 +1434,12 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
   }
 
   void _showMediaPreviewDialog(String mediaType, String fileName, Uint8List bytes) {
+    setState(() => _sendingMedia = false);
     showDialog<void>(
       context: context,
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            var sendingMedia = false;
-
             return AlertDialog(
               title: const Text('Preview y enviar media'),
               content: SizedBox(
@@ -850,7 +1527,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
               ),
               actions: [
                 TextButton(
-                  onPressed: sendingMedia
+                  onPressed: _sendingMedia
                       ? null
                       : () {
                           Navigator.of(context).pop();
@@ -859,15 +1536,20 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                             _selectedMediaName = null;
                             _selectedMediaType = null;
                             _selectedMediaMimeType = null;
+                            _sendingMedia = false;
                           });
                           _mediaCaptionCtrl.clear();
                         },
                   child: const Text('Cancelar'),
                 ),
                 FilledButton.icon(
-                  onPressed: sendingMedia ? null : () => _confirmSendMedia(dialogContext, setDialogState),
-                  icon: Icon(sendingMedia ? Icons.hourglass_bottom_rounded : Icons.send_rounded),
-                  label: Text(sendingMedia ? 'Enviando...' : 'Enviar'),
+                  onPressed: _sendingMedia
+                      ? null
+                      : () => _confirmSendMedia(dialogContext, setDialogState),
+                  icon: Icon(
+                    _sendingMedia ? Icons.hourglass_bottom_rounded : Icons.send_rounded,
+                  ),
+                  label: Text(_sendingMedia ? 'Enviando...' : 'Enviar'),
                 ),
               ],
             );
@@ -889,6 +1571,9 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
       return;
     }
 
+    if (mounted) {
+      setState(() => _sendingMedia = true);
+    }
     setDialogState(() {});
 
     try {
@@ -910,6 +1595,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
           _selectedMediaName = null;
           _selectedMediaType = null;
           _selectedMediaMimeType = null;
+          _sendingMedia = false;
         });
         _mediaCaptionCtrl.clear();
 
@@ -923,9 +1609,17 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
       }
     } catch (error) {
       if (!mounted) return;
+      final normalized = error.toString().toLowerCase();
+      final mediaUnavailable = normalized.contains('404') ||
+          normalized.contains('501') ||
+          normalized.contains('not implemented') ||
+          normalized.contains('unsupported');
       setDialogState(() {});
       setState(() {
-        _error = error.toString();
+        _sendingMedia = false;
+        _error = mediaUnavailable
+            ? 'Envío de archivos aún no disponible'
+            : error.toString();
       });
     }
   }
@@ -1744,13 +2438,6 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
   }
 
   Widget _buildCrmShell(BuildContext context, CrmComercialCustomer? selected) {
-    final activeTaskCountByCustomer = <String, int>{};
-    for (final task in _allTasks) {
-      if (!task.isActive) continue;
-      activeTaskCountByCustomer[task.customerId] =
-          (activeTaskCountByCustomer[task.customerId] ?? 0) + 1;
-    }
-
     return Padding(
       padding: const EdgeInsets.fromLTRB(6, 6, 6, 6),
       child: LayoutBuilder(
@@ -1769,7 +2456,6 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
               return _buildSidebarPanel(
                 context,
                 selected: selected,
-                activeTaskCountByCustomer: activeTaskCountByCustomer,
                 isMobile: true,
               );
             }
@@ -1796,7 +2482,6 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                 child: _buildSidebarPanel(
                   context,
                   selected: selected,
-                  activeTaskCountByCustomer: activeTaskCountByCustomer,
                   isMobile: false,
                 ),
               ),
@@ -1836,7 +2521,6 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
   Widget _buildSidebarPanel(
     BuildContext context, {
     required CrmComercialCustomer? selected,
-    required Map<String, int> activeTaskCountByCustomer,
     required bool isMobile,
   }) {
     final filteredConversations = _filteredConversations;
@@ -2066,42 +2750,50 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                       style: const TextStyle(fontSize: 12, color: _waTextMuted),
                     ),
                   )
-                : ListView.separated(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    itemCount: filteredConversations.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 1),
-                    itemBuilder: (context, index) {
-                      final item = filteredConversations[index];
-                      final isActive = _selectedConversation?.id == item.id;
-                      final taskCount = item.crmCustomerId == null
-                          ? 0
-                          : (activeTaskCountByCustomer[item.crmCustomerId!] ?? 0);
-                      return _CrmConversationListItem(
-                        item: item,
-                        isActive: isActive,
-                        taskCount: taskCount,
-                        avatarUrl: item.remoteAvatarUrl,
-                        statusLabel: item.crmCustomerStatus == null
-                            ? 'SIN CRM'
-                            : _statusLabel(item.crmCustomerStatus!),
-                        statusColor: item.crmCustomerStatus == null
-                            ? const Color(0xFF7A8A96)
-                            : _statusAccentColor(item.crmCustomerStatus!),
-                        onAvatarTap: () => _openAvatarPreview(
-                          item.contactName,
-                          imageUrl: item.remoteAvatarUrl,
-                        ),
-                        onTap: _saving
-                            ? null
-                            : () async {
-                                await _openConversation(item.id);
-                                if (!mounted) return;
-                                if (isMobile) {
-                                  setState(() => _mobileConversationMode = true);
-                                }
-                              },
-                      );
-                    },
+                : ScrollConfiguration(
+                    behavior: const MaterialScrollBehavior().copyWith(
+                      scrollbars: false,
+                    ),
+                    child: Scrollbar(
+                      controller: _conversationListScrollCtrl,
+                      thickness: 4,
+                      radius: const Radius.circular(999),
+                      thumbVisibility: false,
+                      child: ListView.builder(
+                        controller: _conversationListScrollCtrl,
+                        padding: const EdgeInsets.only(bottom: 8),
+                        itemCount: filteredConversations.length,
+                        itemExtent: 78,
+                        itemBuilder: (context, index) {
+                          final item = filteredConversations[index];
+                          final isActive = _selectedConversation?.id == item.id;
+                          final effectiveStatus = _conversationEffectiveStatus(item);
+                          return _CrmConversationListItem(
+                            key: ValueKey(item.id),
+                            item: item,
+                            isActive: isActive,
+                            visibleName: _conversationVisibleName(item),
+                            previewText: _conversationPreviewText(item),
+                            timeLabel: _formatConversationListTime(item.lastMessageAt),
+                            statusLabel: _statusLabel(effectiveStatus),
+                            statusColor: _statusAccentColor(effectiveStatus),
+                            onAvatarTap: () => _openAvatarPreview(
+                              _conversationVisibleName(item),
+                              imageUrl: item.remoteAvatarUrl,
+                            ),
+                            onTap: _saving
+                                ? null
+                                : () async {
+                                    await _openConversation(item.id);
+                                    if (!mounted) return;
+                                    if (isMobile) {
+                                      setState(() => _mobileConversationMode = true);
+                                    }
+                                  },
+                          );
+                        },
+                      ),
+                    ),
                   ),
           ),
         ],
@@ -2118,7 +2810,6 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
     required bool isMobile,
     VoidCallback? onBackToList,
   }) {
-    final hasSelection = selected != null;
     final hasConversation = selectedConversation != null;
     if (kDebugMode) {
       debugPrint(
@@ -2488,33 +3179,71 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
               border: Border(top: BorderSide(color: _waBorder.withAlpha(110))),
             ),
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Row(
-                  children: [
-                    PopupMenuButton<String>(
-                      tooltip: 'Adjuntar media',
-                      onSelected: (value) {
-                        if (value == 'media') {
-                          _pickAndSendMedia();
-                        }
-                      },
-                      itemBuilder: (context) => const [
-                        PopupMenuItem<String>(
-                          value: 'media',
-                          child: Row(
-                            children: [
-                              Icon(Icons.attach_file_rounded, size: 18),
-                              SizedBox(width: 8),
-                              Text('Adjuntar media'),
-                            ],
+                if ((_composerOrthographySuggestion ?? '').isNotEmpty)
+                  Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 6),
+                    padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: _waBorder.withAlpha(130)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.auto_fix_high_rounded, size: 16, color: _waGreenDark),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _composerOrthographySuggestion!,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 11.5, color: _waTextMuted),
                           ),
                         ),
+                        TextButton(
+                          onPressed: _ignoreOrthographySuggestion,
+                          style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+                          child: const Text('Ignorar'),
+                        ),
+                        FilledButton(
+                          onPressed: _applyOrthographySuggestion,
+                          style: FilledButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            backgroundColor: _waGreenDark,
+                          ),
+                          child: const Text('Aceptar corrección'),
+                        ),
                       ],
-                      child: IconButton(
-                        visualDensity: VisualDensity.compact,
-                        onPressed: null,
-                        icon: const Icon(Icons.emoji_emotions_outlined, size: 20),
-                      ),
+                    ),
+                  ),
+                Row(
+                  children: [
+                    IconButton(
+                      tooltip: 'Emoji',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Selector de emoji disponible próximamente.'),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.emoji_emotions_outlined, size: 20),
+                    ),
+                    IconButton(
+                      tooltip: 'Adjuntar',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: _openAttachmentMenu,
+                      icon: const Icon(Icons.attach_file_rounded, size: 20),
+                    ),
+                    IconButton(
+                      tooltip: 'Mensajes rápidos',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: _openQuickMessagesDialog,
+                      icon: const Icon(Icons.flash_on_rounded, size: 20),
                     ),
                     Expanded(
                       child: TextField(
@@ -2536,13 +3265,33 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 8),
+                    IconButton(
+                      tooltip: 'Nota de voz',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Grabación de audio disponible próximamente.'),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.mic_none_rounded, size: 20),
+                    ),
                     FilledButton.icon(
                       onPressed:
                           !hasConversation || _sendingChatMessage || _saving
                               ? null
                               : _sendMessageToCurrentConversation,
-                      icon: const Icon(Icons.send_rounded, size: 16),
+                      icon: _sendingChatMessage
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.send_rounded, size: 16),
                       label: const Text('Enviar'),
                       style: FilledButton.styleFrom(
                         backgroundColor: _waGreenDark,
@@ -2551,125 +3300,6 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                       ),
                     ),
                   ],
-                ),
-                const SizedBox(height: 6),
-                LayoutBuilder(
-                  builder: (context, composerConstraints) {
-                    final compactComposer = composerConstraints.maxWidth < 860;
-                    if (!compactComposer) {
-                      return Row(
-                        children: [
-                          TextButton.icon(
-                            onPressed: !hasSelection || _saving ? null : _addNote,
-                            icon: const Icon(Icons.note_add_outlined, size: 16),
-                            label: const Text('Nota interna'),
-                            style: TextButton.styleFrom(
-                              visualDensity: VisualDensity.compact,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          SizedBox(
-                            width: 140,
-                            child: TextField(
-                              controller: _activityTypeCtrl,
-                              decoration: const InputDecoration(
-                                labelText: 'Tipo',
-                                isDense: true,
-                                filled: true,
-                                fillColor: Colors.white,
-                                border: OutlineInputBorder(
-                                  borderSide: BorderSide(color: _waBorder),
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: TextField(
-                              controller: _activityDescriptionCtrl,
-                              minLines: 1,
-                              maxLines: 2,
-                              decoration: const InputDecoration(
-                                hintText: 'Agregar actividad comercial',
-                                isDense: true,
-                                filled: true,
-                                fillColor: Colors.white,
-                                border: OutlineInputBorder(
-                                  borderSide: BorderSide(color: _waBorder),
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          FilledButton(
-                            onPressed: !hasSelection || _saving ? null : _addActivity,
-                            style: FilledButton.styleFrom(
-                              visualDensity: VisualDensity.compact,
-                            ),
-                            child: const Text('Actividad'),
-                          ),
-                        ],
-                      );
-                    }
-
-                    return Column(
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: TextButton.icon(
-                                onPressed: !hasSelection || _saving ? null : _addNote,
-                                icon: const Icon(Icons.note_add_outlined, size: 16),
-                                label: const Text('Nota interna'),
-                                style: TextButton.styleFrom(
-                                  visualDensity: VisualDensity.compact,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            SizedBox(
-                              width: 120,
-                              child: TextField(
-                                controller: _activityTypeCtrl,
-                                decoration: const InputDecoration(
-                                  labelText: 'Tipo',
-                                  isDense: true,
-                                  filled: true,
-                                  fillColor: Colors.white,
-                                  border: OutlineInputBorder(
-                                    borderSide: BorderSide(color: _waBorder),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            FilledButton(
-                              onPressed: !hasSelection || _saving ? null : _addActivity,
-                              style: FilledButton.styleFrom(
-                                visualDensity: VisualDensity.compact,
-                              ),
-                              child: const Text('Actividad'),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        TextField(
-                          controller: _activityDescriptionCtrl,
-                          minLines: 1,
-                          maxLines: 2,
-                          decoration: const InputDecoration(
-                            hintText: 'Agregar actividad comercial',
-                            isDense: true,
-                            filled: true,
-                            fillColor: Colors.white,
-                            border: OutlineInputBorder(
-                              borderSide: BorderSide(color: _waBorder),
-                            ),
-                          ),
-                        ),
-                      ],
-                    );
-                  },
                 ),
               ],
             ),
@@ -3261,12 +3891,14 @@ class _InfoRow extends StatelessWidget {
   }
 }
 
-class _CrmConversationListItem extends StatefulWidget {
+class _CrmConversationListItem extends StatelessWidget {
   const _CrmConversationListItem({
+    super.key,
     required this.item,
     required this.isActive,
-    required this.taskCount,
-    required this.avatarUrl,
+    required this.visibleName,
+    required this.previewText,
+    required this.timeLabel,
     required this.statusLabel,
     required this.statusColor,
     this.onAvatarTap,
@@ -3275,20 +3907,13 @@ class _CrmConversationListItem extends StatefulWidget {
 
   final CrmComercialInboxConversation item;
   final bool isActive;
-  final int taskCount;
-  final String? avatarUrl;
+  final String visibleName;
+  final String previewText;
+  final String timeLabel;
   final String statusLabel;
   final Color statusColor;
   final VoidCallback? onAvatarTap;
   final VoidCallback? onTap;
-
-  @override
-  State<_CrmConversationListItem> createState() =>
-      _CrmConversationListItemState();
-}
-
-class _CrmConversationListItemState extends State<_CrmConversationListItem> {
-  bool _hover = false;
 
   String _initials(String raw) {
     final parts = raw.trim().split(' ').where((e) => e.isNotEmpty).toList();
@@ -3300,331 +3925,166 @@ class _CrmConversationListItemState extends State<_CrmConversationListItem> {
 
   @override
   Widget build(BuildContext context) {
-    final tileColor = widget.isActive
-        ? _waSelected
-        : _hover
-        ? _waHover
-        : Colors.transparent;
-    final avatarUrl = (widget.avatarUrl ?? '').trim();
+    final tileColor = isActive ? _waSelected : Colors.transparent;
+    final avatarUrl = (item.remoteAvatarUrl ?? '').trim();
     final avatarUri = Uri.tryParse(avatarUrl);
     final hasAvatar = avatarUri != null &&
-      avatarUri.hasScheme &&
-      (avatarUri.scheme == 'http' || avatarUri.scheme == 'https');
+        avatarUri.hasScheme &&
+        (avatarUri.scheme == 'http' || avatarUri.scheme == 'https');
 
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: widget.onTap,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 140),
-            padding: const EdgeInsets.fromLTRB(10, 5, 10, 5),
-            color: tileColor,
-            child: Row(
-              children: [
-                if (widget.isActive)
-                  Container(
-                    width: 3,
-                    height: 42,
-                    margin: const EdgeInsets.only(right: 7),
-                    decoration: BoxDecoration(
-                      color: _waGreenDark,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  )
-                else
-                  const SizedBox(width: 10),
-                GestureDetector(
-                  onTap: widget.onAvatarTap,
-                  child: CircleAvatar(
-                    radius: 19,
-                    backgroundColor: widget.statusColor.withAlpha(26),
-                    backgroundImage: hasAvatar ? NetworkImage(widget.avatarUrl!) : null,
-                    child: hasAvatar
-                        ? null
-                        : Text(
-                            _initials(widget.item.contactName),
-                            style: TextStyle(
-                              color: widget.statusColor,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 11,
-                            ),
-                          ),
-                  ),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        hoverColor: _waHover.withAlpha(170),
+        splashColor: _waHover.withAlpha(170),
+        highlightColor: Colors.transparent,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          curve: Curves.easeOut,
+          color: tileColor,
+          padding: const EdgeInsets.fromLTRB(0, 4, 10, 4),
+          child: Row(
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 120),
+                width: 3,
+                height: 50,
+                margin: const EdgeInsets.only(right: 7),
+                decoration: BoxDecoration(
+                  color: isActive ? _waGreenDark : Colors.transparent,
+                  borderRadius: BorderRadius.circular(999),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              widget.item.contactName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: _waText,
-                              ),
+              ),
+              GestureDetector(
+                onTap: onAvatarTap,
+                child: CircleAvatar(
+                  radius: 19,
+                  backgroundColor: statusColor.withAlpha(20),
+                  backgroundImage: hasAvatar ? NetworkImage(avatarUrl) : null,
+                  child: hasAvatar
+                      ? null
+                      : Text(
+                          _initials(visibleName),
+                          style: TextStyle(
+                            color: statusColor,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 11,
+                          ),
+                        ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            visibleName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: _waText,
+                              height: 1.15,
                             ),
                           ),
-                          Text(
-                              _formatConversationTime(widget.item.lastMessageAt),
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: widget.item.unreadCount > 0
-                                    ? _waGreenDark
-                                    : _waTextMuted,
-                                fontWeight: widget.item.unreadCount > 0
-                                    ? FontWeight.w700
-                                    : FontWeight.w400,
-                              ),
+                        ),
+                        if (isActive) ...[
+                          Container(
+                            width: 6,
+                            height: 6,
+                            margin: const EdgeInsets.only(right: 6),
+                            decoration: const BoxDecoration(
+                              color: _waGreenDark,
+                              shape: BoxShape.circle,
+                            ),
                           ),
                         ],
-                      ),
-                      const SizedBox(height: 1),
-                      Text(
-                        widget.item.lastMessagePreview?.isNotEmpty == true
-                            ? widget.item.lastMessagePreview!
-                            : (widget.item.remotePhone ?? 'Sin contenido'),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: _waTextMuted,
+                        Text(
+                          timeLabel,
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: item.unreadCount > 0 ? _waGreenDark : _waTextMuted,
+                            fontWeight:
+                                item.unreadCount > 0 ? FontWeight.w600 : FontWeight.w400,
+                          ),
                         ),
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      previewText,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: _waTextMuted,
+                        height: 1.15,
                       ),
-                      const SizedBox(height: 2),
-                      Row(
-                        children: [
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 1.5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: statusColor.withAlpha(16),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            statusLabel,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 8.5,
+                              color: statusColor,
+                              fontWeight: FontWeight.w600,
+                              height: 1,
+                            ),
+                          ),
+                        ),
+                        const Spacer(),
+                        if (item.unreadCount > 0)
                           Container(
+                            constraints: const BoxConstraints(minWidth: 18),
                             padding: const EdgeInsets.symmetric(
-                              horizontal: 4,
-                              vertical: 1,
+                              horizontal: 5,
+                              vertical: 2,
                             ),
                             decoration: BoxDecoration(
-                              color: widget.statusColor.withAlpha(22),
-                              borderRadius: BorderRadius.circular(7),
+                              color: _waGreenDark,
+                              borderRadius: BorderRadius.circular(999),
                             ),
                             child: Text(
-                              widget.statusLabel,
-                              style: TextStyle(
-                                fontSize: 8.5,
-                                color: widget.statusColor,
+                              '${item.unreadCount}',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                fontSize: 9,
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                                height: 1,
                               ),
                             ),
                           ),
-                          if (widget.taskCount > 0) ...[
-                            const SizedBox(width: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 5,
-                                vertical: 1,
-                              ),
-                              decoration: BoxDecoration(
-                                color: AppColors.warning.withAlpha(20),
-                                borderRadius: BorderRadius.circular(7),
-                              ),
-                              child: Text(
-                                '${widget.taskCount} tarea${widget.taskCount == 1 ? '' : 's'}',
-                                style: const TextStyle(
-                                  fontSize: 8.5,
-                                  color: AppColors.warning,
-                                ),
-                              ),
-                            ),
-                          ],
-                          const Spacer(),
-                          if (widget.item.unreadCount > 0)
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 1,
-                              ),
-                              decoration: BoxDecoration(
-                                color: _waGreenDark,
-                                borderRadius: BorderRadius.circular(9),
-                              ),
-                              child: Text(
-                                '${widget.item.unreadCount}',
-                                style: const TextStyle(
-                                  fontSize: 8.5,
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            )
-                          else
-                            Text(
-                              widget.item.crmCustomerName ??
-                                  (widget.item.isNewContact
-                                      ? 'Nuevo contacto'
-                                      : 'Sin vincular'),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 8.5,
-                                color: _waTextMuted,
-                              ),
-                            ),
-                        ],
-                      ),
-                    ],
-                  ),
+                      ],
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
     );
-  }
-
-  String _formatConversationTime(DateTime? value) {
-    if (value == null) return '--:--';
-    final now = DateTime.now();
-    final sameDay =
-        now.year == value.year && now.month == value.month && now.day == value.day;
-    if (sameDay) {
-      return DateFormat('HH:mm').format(value);
-    }
-    return DateFormat('dd/MM').format(value);
-  }
-
-  Widget _buildMessageMedia(String messageType, String mediaUrl, String? fileName) {
-    switch (messageType.toLowerCase()) {
-      case 'image':
-        return ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: SizedBox(
-            height: 160,
-            width: 200,
-            child: Image.network(
-              mediaUrl,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => Container(
-                color: Colors.grey[200],
-                child: const Center(
-                  child: Icon(Icons.broken_image_rounded, color: Colors.grey),
-                ),
-              ),
-              loadingBuilder: (_, child, loadingProgress) {
-                if (loadingProgress == null) return child;
-                return Container(
-                  color: Colors.grey[200],
-                  child: const Center(
-                    child: SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-        );
-      case 'video':
-        return Container(
-          height: 160,
-          width: 200,
-          decoration: BoxDecoration(
-            color: Colors.grey[200],
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Image.network(
-                  mediaUrl,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => const Center(
-                    child: Icon(Icons.broken_image_rounded, color: Colors.grey),
-                  ),
-                ),
-              ),
-              const Icon(
-                Icons.play_circle_outline_rounded,
-                size: 48,
-                color: Colors.white,
-              ),
-            ],
-          ),
-        );
-      case 'audio':
-        return Container(
-          height: 60,
-          width: 200,
-          decoration: BoxDecoration(
-            color: Colors.grey[100],
-            border: Border.all(color: Colors.grey[300]!),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: Icon(Icons.music_note_rounded, color: Colors.grey[600]),
-              ),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                  child: Text(
-                    fileName ?? 'Audio',
-                    style: const TextStyle(fontSize: 12),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: Icon(Icons.play_arrow_rounded, color: Colors.grey[600]),
-              ),
-            ],
-          ),
-        );
-      case 'document':
-      default:
-        return Container(
-          height: 60,
-          width: 200,
-          decoration: BoxDecoration(
-            color: Colors.grey[100],
-            border: Border.all(color: Colors.grey[300]!),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Row(
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: Icon(Icons.description_rounded, color: Colors.grey[600]),
-              ),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                  child: Text(
-                    fileName ?? 'Documento',
-                    style: const TextStyle(fontSize: 12),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: Icon(Icons.download_rounded, color: Colors.grey[600]),
-              ),
-            ],
-          ),
-        );
-    }
   }
 }
 

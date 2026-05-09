@@ -121,7 +121,13 @@ export class MarketingGenerationService {
     ],
   };
 
-  async generateMissingStories(companyId: string, date: Date, userId?: string | null, researchId?: string | null) {
+  async generateMissingStories(
+    companyId: string,
+    date: Date,
+    userId?: string | null,
+    researchId?: string | null,
+    selectedMediaAssetIds: string[] = [],
+  ) {
     let research: any = null;
     if (researchId) {
       research = await this.prisma.marketingResearch.findFirst({ where: { id: researchId, companyId } });
@@ -147,6 +153,7 @@ export class MarketingGenerationService {
         .map((item) => `${(item as any).imageUrl ?? ''}`.trim())
         .filter((url) => url.length > 0),
     );
+    const selectedIds = this.normalizeIdList(selectedMediaAssetIds);
 
     const generated: string[] = [];
 
@@ -162,6 +169,7 @@ export class MarketingGenerationService {
           researchConfig,
           usedAssetIds,
           usedFileUrls,
+          preferredAssetIds: selectedIds,
         });
         await this.prisma.marketingDailyStory.create({
           data: {
@@ -216,6 +224,7 @@ export class MarketingGenerationService {
         researchConfig,
         usedAssetIds,
         usedFileUrls,
+        preferredAssetIds: selectedIds,
       });
       await this.prisma.marketingDailyStory.update({
         where: { id: current.id },
@@ -905,6 +914,7 @@ export class MarketingGenerationService {
     researchConfig: any | null;
     usedAssetIds: Set<string>;
     usedFileUrls: Set<string>;
+    preferredAssetIds?: string[];
     forceAssetId?: string;
     forcedPrompt?: string;
   }) {
@@ -932,6 +942,7 @@ export class MarketingGenerationService {
         recommendedService: recommendedServiceHint,
         usedAssetIds: [...input.usedAssetIds],
         usedFileUrls: [...input.usedFileUrls],
+        preferredAssetIds: input.preferredAssetIds ?? [],
         imagePrompt: input.content.imagePrompt,
         copyText: input.content.shortText,
       });
@@ -945,10 +956,12 @@ export class MarketingGenerationService {
     const visualConcept = this.buildVisualConcept(input.type, usedResearchAngle, primaryService);
     const designNotes = this.buildDesignNotes(input.type, usedCTA);
     const baseImageUrl = `${selected?.fileUrl ?? ''}`.trim();
+    const selectedReferenceSummary = this.buildReferenceSummary(selected, input.preferredAssetIds ?? []);
 
     return {
       mediaAssetId: selected?.id ?? null,
       selectedFileUrl: baseImageUrl,
+      selectedReferenceSummary,
       imagePrompt: input.forcedPrompt || input.content.imagePrompt,
       imageUrl: baseImageUrl,
       visualConcept,
@@ -960,6 +973,7 @@ export class MarketingGenerationService {
         category: selected?.category ?? this.galleryCategoryForType(input.type),
         serviceOrProduct:
           primaryService || selected?.relatedService || selected?.category || this.galleryCategoryForType(input.type),
+        selectedReferenceSummary,
       },
       usedResearchAngle,
       usedOffer,
@@ -975,6 +989,27 @@ export class MarketingGenerationService {
       return `Prueba social y confianza de marca FULLTECH, destacando respaldo técnico y experiencia real (${angle}).`;
     }
     return `Contenido educativo visualmente limpio sobre ${service || 'soluciones tecnológicas'} con mensaje accionable (${angle}).`;
+  }
+
+  private buildReferenceSummary(selected: SelectedMedia | null, preferredAssetIds: string[]) {
+    const preferred = this.takeUnique(preferredAssetIds, 3);
+    const selectedLabel = selected?.category?.trim() || selected?.relatedService?.trim() || 'Referencia comercial';
+    return [
+      `Referencia principal: ${selectedLabel}`,
+      preferred.length > 0 ? `Referencias elegidas: ${preferred.join(', ')}` : 'Referencias elegidas: ninguna adicional',
+      'Analisis visual: conservar producto original, mejorar composicion, luz y jerarquia comercial.',
+    ].join(' | ');
+  }
+
+  private normalizeIdList(ids: string[]) {
+    return this.takeUnique(ids.map((id) => id.trim()).filter((id) => id.length > 0), 3);
+  }
+
+  private takeUnique(values: string[], max: number): string[] {
+    const cleaned = values
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
+    return [...new Set(cleaned)].slice(0, max);
   }
 
   private buildDesignNotes(type: MarketingStoryType, cta: string) {

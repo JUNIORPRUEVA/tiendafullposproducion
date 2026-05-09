@@ -51,7 +51,7 @@ export class MarketingController {
     const user = req.user as RequestUser;
     const companyId = this.marketing.resolveCompanyId();
     const date = this.marketing.parseDateOnly(dto.date);
-    return this.marketing.generateMissingStories(companyId, date, user.id ?? '');
+    return this.marketing.generateMissingStories(companyId, date, user.id ?? '', dto);
   }
 
   @Post('stories/repair-incomplete')
