@@ -91,28 +91,46 @@ export class CrmCommercialService {
       update: {},
     });
 
+    const instanceName = settings.selectedWhatsappInstanceName?.trim() ?? '';
     const selectedId = settings.selectedWhatsappInstanceId?.trim() ?? '';
-    if (!selectedId) {
+
+    if (!instanceName && !selectedId) {
       return {
         selectedInstanceId: null as string | null,
         warning: 'Selecciona una instancia para recibir mensajes reales.',
       };
     }
 
-    const available = await this.getAvailableWhatsappInstances({
-      id: settings.updatedByUserId ?? 'system',
-      role: Role.ADMIN,
-    });
-    const exists = available.some((instance) => instance.id === selectedId);
-    if (!exists) {
+    // Resolve the actual UserWhatsappInstance UUID (stored in whatsapp_conversations.instance_id)
+    // Priority: look up by instanceName first (most reliable), fall back to selectedId if it's a UUID
+    let resolvedUuid: string | null = null;
+
+    if (instanceName) {
+      const waInstance = await this.prisma.userWhatsappInstance.findUnique({
+        where: { instanceName },
+        select: { id: true },
+      });
+      resolvedUuid = waInstance?.id ?? null;
+    }
+
+    // Fallback: if selectedId looks like a UUID (user instance), use it directly
+    if (!resolvedUuid && selectedId && selectedId !== 'company') {
+      const waInstance = await this.prisma.userWhatsappInstance.findUnique({
+        where: { id: selectedId },
+        select: { id: true },
+      });
+      resolvedUuid = waInstance?.id ?? null;
+    }
+
+    if (!resolvedUuid) {
       return {
         selectedInstanceId: null as string | null,
-        warning: 'La instancia seleccionada ya no existe o fue eliminada.',
+        warning: 'La instancia seleccionada no existe o aún no ha recibido mensajes.',
       };
     }
 
     return {
-      selectedInstanceId: selectedId,
+      selectedInstanceId: resolvedUuid,
       warning: null as string | null,
     };
   }

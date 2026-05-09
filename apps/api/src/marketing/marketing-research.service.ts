@@ -8,6 +8,7 @@ import { GenerateResearchDto, UpdateMarketingResearchConfigDto } from './dto/mar
 export class MarketingResearchService {
   private readonly logger = new Logger(MarketingResearchService.name);
   private static readonly WEEKLY_RESEARCH_DAYS = 7;
+  private readonly strictResearchScope = `\n\nREGLA ESTRICTA DE ALCANCE (OBLIGATORIO):\n- Investigar SOLO estos rubros: sistema de seguridad general, sistema de camaras/CCTV, motores de portones, cerco electrico, control de acceso, sistema POS/punto de venta y alarmas.\n- Investigar SOLO en estas zonas: Republica Dominicana, La Altagracia (Higuey) y La Romana.\n- Excluir temas no relacionados (finanzas generales, macroeconomia, noticias politicas o tecnologia fuera de esos rubros).\n- Si no hay hallazgos relevantes, devolver explicitamente que no hay evidencia suficiente dentro del alcance en lugar de salir del tema.`;
 
   private readonly defaultPrompt = `Realizar una investigación de mercado profunda y actualizada para FULLTECH SRL en la provincia La Altagracia (Higüey), República Dominicana.
 
@@ -143,7 +144,8 @@ Entrega análisis accionable con hooks concretos, CTAs que funcionen en este mer
     const insights = await this.learning.getActiveInsights(companyId, 15);
     const insightTexts = insights.map((i) => `[${i.category}] ${i.insight}`);
 
-    const prompt = dto.custom_prompt?.trim() || config.defaultResearchPrompt;
+    const basePrompt = dto.custom_prompt?.trim() || config.defaultResearchPrompt;
+    const prompt = this.applyStrictScope(basePrompt);
 
     this.logger.log(`Generando investigacion de mercado para companyId=${companyId} forced=${forced}`);
 
@@ -270,6 +272,12 @@ Entrega análisis accionable con hooks concretos, CTAs que funcionen en este mer
     }
 
     return updated;
+  }
+
+  private applyStrictScope(basePrompt: string): string {
+    const prompt = basePrompt.trim();
+    if (!prompt) return this.strictResearchScope.trim();
+    return `${prompt}${this.strictResearchScope}`;
   }
 
   async getList(companyId: string) {

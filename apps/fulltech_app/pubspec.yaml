@@ -129,6 +129,7 @@ flutter:
 
   assets:
     - assets/
+    - assets/image/
     - assets/image/logo.png
     - .env
     - .env.example

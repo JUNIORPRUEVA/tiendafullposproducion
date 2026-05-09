@@ -41,11 +41,59 @@ type PublicSignal = {
 @Injectable()
 export class MarketingResearchSourceService {
   private readonly logger = new Logger(MarketingResearchSourceService.name);
+  private readonly focusCatalog = [
+    {
+      label: 'Sistema de seguridad general',
+      query: 'sistema de seguridad',
+      keywords: ['seguridad', 'vigilancia'],
+    },
+    {
+      label: 'Sistema de camaras (CCTV)',
+      query: 'camaras de seguridad cctv',
+      keywords: ['camara', 'cctv', 'videovigilancia', 'nvr', 'dvr'],
+    },
+    {
+      label: 'Motores de portones',
+      query: 'motor de porton electrico',
+      keywords: ['porton', 'portones', 'motor de porton', 'automatizacion de porton'],
+    },
+    {
+      label: 'Cerco electrico',
+      query: 'cerco electrico',
+      keywords: ['cerco electrico'],
+    },
+    {
+      label: 'Control de acceso',
+      query: 'control de acceso',
+      keywords: ['control de acceso', 'acceso biometrico', 'acceso'],
+    },
+    {
+      label: 'Sistema POS / Punto de ventas',
+      query: 'sistema pos punto de venta',
+      keywords: ['pos', 'punto de venta', 'facturacion', 'caja', 'tpv'],
+    },
+    {
+      label: 'Alarmas',
+      query: 'sistema de alarmas',
+      keywords: ['alarma', 'alarmas'],
+    },
+  ] as const;
+
   private readonly locations = [
     'Republica Dominicana',
     'La Altagracia',
     'Higuey',
     'La Romana',
+  ];
+
+  private readonly locationKeywords = [
+    'republica dominicana',
+    'dominicana',
+    'rd',
+    'la altagracia',
+    'higuey',
+    'higüey',
+    'la romana',
   ];
 
   async generateResearch(input: ResearchInput): Promise<ResearchOutput> {
@@ -58,7 +106,7 @@ export class MarketingResearchSourceService {
   }
 
   private async collectPublicSignals(input: ResearchInput): Promise<PublicSignal[]> {
-    const queryTerms = this.buildQueryTerms(input);
+    const queryTerms = this.buildQueryTerms();
     const signals: PublicSignal[] = [];
 
     for (const term of queryTerms) {
@@ -72,21 +120,12 @@ export class MarketingResearchSourceService {
       if (!unique.has(key)) unique.set(key, row);
     }
 
-    return [...unique.values()].slice(0, 40);
+    return this.filterRelevantSignals([...unique.values()]);
   }
 
-  private buildQueryTerms(input: ResearchInput): string[] {
-    const base = [
-      'sistemas POS',
-      'camaras de seguridad',
-      'CCTV',
-      'motor de porton',
-      'alarmas',
-      'cerco electrico',
-      'publicidad organica negocios',
-      ...input.priorityServices,
-      ...input.mainServices,
-    ]
+  private buildQueryTerms(): string[] {
+    const catalogTerms = this.focusCatalog.map((topic) => topic.query);
+    const base = [...catalogTerms]
       .map((item) => item.trim())
       .filter((item) => item.length > 0);
 
@@ -97,7 +136,32 @@ export class MarketingResearchSourceService {
       }
     }
 
-    return [...new Set(queries)].slice(0, 16);
+    return [...new Set(queries)].slice(0, 28);
+  }
+
+  private filterRelevantSignals(signals: PublicSignal[]): PublicSignal[] {
+    const normalized = signals
+      .map((signal) => ({
+        ...signal,
+        title: this.sanitizeTitle(signal.title),
+      }))
+      .filter((signal) => signal.title.length > 0);
+
+    const strict = normalized.filter((signal) => {
+      const text = `${signal.title} ${signal.source}`;
+      return this.matchesTopic(text) && this.matchesLocation(text);
+    });
+
+    if (strict.length >= 8) {
+      return strict.slice(0, 40);
+    }
+
+    const fallback = normalized.filter((signal) => {
+      const text = `${signal.title} ${signal.source}`;
+      return this.matchesTopic(text);
+    });
+
+    return fallback.slice(0, 40);
   }
 
   private async fetchGoogleNewsRss(query: string): Promise<PublicSignal[]> {
@@ -178,12 +242,39 @@ export class MarketingResearchSourceService {
       .trim();
   }
 
+  private sanitizeTitle(title: string): string {
+    return title
+      .replace(/\s+-\s+[^-]{2,80}$/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  private normalizeText(value: string): string {
+    return value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+  }
+
+  private matchesTopic(text: string): boolean {
+    const normalized = this.normalizeText(text);
+    return this.focusCatalog.some((topic) =>
+      topic.keywords.some((keyword) => normalized.includes(this.normalizeText(keyword))),
+    );
+  }
+
+  private matchesLocation(text: string): boolean {
+    const normalized = this.normalizeText(text);
+    return this.locationKeywords.some((keyword) =>
+      normalized.includes(this.normalizeText(keyword)),
+    );
+  }
+
   private buildWeeklyResearch(
     input: ResearchInput,
     signals: PublicSignal[],
   ): ResearchOutput {
-    const topServices = this.takeUnique([...input.priorityServices, ...input.mainServices], 8);
-    const sources = this.takeUnique(signals.map((s) => s.link), 20);
+    const topServices = this.focusCatalog.map((item) => item.label);
     const sourceLabels = this.takeUnique(signals.map((s) => s.source).filter((s) => s.length > 0), 12);
     const topHeadlines = this.takeUnique(signals.map((s) => s.title), 10);
 
@@ -193,8 +284,8 @@ export class MarketingResearchSourceService {
     const summarySections = [
       'INFORME SEMANAL AMPLIO DE INTELIGENCIA COMERCIAL (version inicial automatizada)',
       `Cobertura geografica: ${regionSummary}`,
-      'Objetivo: construir una base semanal para estados, campanas y marketplace con enfoque en venta real.',
-      `Servicios priorizados por FULLTECH: ${topServices.join(', ') || 'seguridad y automatizacion'}.`,
+      'Objetivo: construir una base semanal para estados, campanas y marketplace con enfoque en venta real, sin salir del alcance definido.',
+      `Cobertura tematica estricta: ${topServices.join(', ')}.`,
       'Panorama de mercado: se observa continuidad de demanda en seguridad residencial, vigilancia para negocios, automatizacion de portones y tecnologia para puntos de venta. El patron dominante es comunicacion orientada a confianza, rapidez de instalacion y soporte tecnico cercano.',
       'Competencia y comunicacion: la mayoria de publicaciones tienden a formatos cortos (imagen + copy breve), oferta directa y mensajes de urgencia. Existe oportunidad clara en diferenciar con evidencia tecnica, casos reales locales y comparativos de valor.',
       'Comportamiento de audiencia: en sectores locales, la decision de compra mejora con mensajes concretos sobre garantia, soporte post-instalacion, tiempos de respuesta y demostracion visual del resultado final.',
@@ -203,9 +294,9 @@ export class MarketingResearchSourceService {
       'Resumen de hallazgos publicos recientes:\n' +
         (topHeadlines.length > 0
           ? topHeadlines.map((h, i) => `${i + 1}. ${h}`).join('\n')
-          : 'No se encontraron titulares publicos suficientes en esta corrida; mantener monitoreo en la siguiente ventana semanal.'),
+          : 'No se encontraron titulares publicos estrictamente relevantes en esta corrida; mantener monitoreo en la siguiente ventana semanal.'),
       'Recomendacion estrategica semanal: concentrar contenido en 1) seguridad comercial y residencial, 2) automatizacion de acceso, 3) modernizacion POS y control operativo, priorizando mensajes de beneficio tangible y casos de la zona objetivo.',
-      'Nota metodologica: esta fase usa fuentes publicas abiertas para iniciar inteligencia semanal. En siguientes iteraciones se amplia cobertura con lista blanca de sitios de competencia y mayor profundidad analitica.',
+      'Nota metodologica: esta fase usa fuentes publicas abiertas con filtro estricto por rubro y zona. Se excluyen señales fuera de seguridad, control de acceso, portones, POS y alarmas.',
     ];
 
     const marketSummary = summarySections.join('\n\n');
@@ -298,12 +389,12 @@ export class MarketingResearchSourceService {
       'Ignorar objeciones frecuentes del cliente final',
     ];
 
-    const confidenceBase = signals.length >= 15 ? 0.78 : signals.length >= 6 ? 0.68 : 0.55;
+    const confidenceBase = signals.length >= 15 ? 0.8 : signals.length >= 6 ? 0.72 : 0.58;
 
     const dataSources = this.takeUnique(
       [
         ...sourceLabels.map((item) => `source:${item}`),
-        ...sources,
+        ...topServices.map((item) => `focus:${item}`),
         'google-news-rss-do',
       ],
       25,
