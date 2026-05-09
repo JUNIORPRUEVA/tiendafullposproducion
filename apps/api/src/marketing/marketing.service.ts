@@ -943,6 +943,43 @@ export class MarketingService {
       url.includes('/generated/') ||
       name.startsWith('ai-');
     const generatedByTags = tagList.some((tag) => ['ia', 'ai', 'generada', 'generated'].includes(tag));
-    return generatedByUrl || generatedByTags ? 'GENERATED_AI' : 'MANUAL_UPLOAD';
+    if (generatedByUrl || generatedByTags) return 'GENERATED_AI';
+
+    const isProduct = tagList.some((tag) =>
+      [
+        'catalogo',
+        'producto',
+        'imagen-producto',
+        'producto-catalogo',
+      ].includes(tag),
+    );
+    if (isProduct) return 'PRODUCT_IMAGE';
+
+    const isFileExplorer = tagList.some((tag) =>
+      [
+        'explorador-archivo',
+        'archivo',
+        'manual-upload',
+      ].includes(tag),
+    );
+    if (isFileExplorer) return 'FILE_EXPLORER';
+
+    const isGallery = tagList.some((tag) =>
+      [
+        'galeria-media',
+        'media-gallery',
+        'galeria-publicidad',
+      ].includes(tag),
+    );
+    if (isGallery) return 'GALLERY_IMAGE';
+
+    if (url.includes('/catalog/') || url.includes('/products/')) {
+      return 'PRODUCT_IMAGE';
+    }
+    if (url.includes('/upload') || url.includes('/media/')) {
+      return 'FILE_EXPLORER';
+    }
+
+    return 'GALLERY_IMAGE';
   }
 }

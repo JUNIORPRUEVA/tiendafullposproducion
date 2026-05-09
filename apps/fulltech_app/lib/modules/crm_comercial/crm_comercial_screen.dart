@@ -151,6 +151,22 @@ Future<String> _crmMediaSourceForPlayback(
   return file.uri.toString();
 }
 
+bool _isSafePublicNetworkUrl(String? raw) {
+  final value = (raw ?? '').trim();
+  if (value.isEmpty) return false;
+  final uri = Uri.tryParse(value);
+  if (uri == null) return false;
+  if (!uri.hasScheme || (uri.scheme != 'http' && uri.scheme != 'https')) {
+    return false;
+  }
+  final host = uri.host.trim().toLowerCase();
+  if (host.isEmpty) return false;
+  if (host == 'localhost' || host == '127.0.0.1' || host == '0.0.0.0' || host == '::1') {
+    return false;
+  }
+  return true;
+}
+
 // CRM Comercial: 7 estados principales del flujo comercial
 // Los estados operacionales (instalación/servicio) se manejan en módulo Operations
 const List<String> _crmStatuses = <String>[
@@ -418,11 +434,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
   }
 
   bool _isSafeNetworkImageUrl(String? raw) {
-    final value = (raw ?? '').trim();
-    if (value.isEmpty) return false;
-    final uri = Uri.tryParse(value);
-    if (uri == null) return false;
-    return uri.hasScheme && (uri.scheme == 'http' || uri.scheme == 'https');
+    return _isSafePublicNetworkUrl(raw);
   }
 
   List<CrmComercialFollowupTask> get _selectedTasks {
@@ -4024,10 +4036,7 @@ class _CrmConversationListItem extends StatelessWidget {
   Widget build(BuildContext context) {
     final tileColor = isActive ? _waSelected : Colors.transparent;
     final avatarUrl = (item.remoteAvatarUrl ?? '').trim();
-    final avatarUri = Uri.tryParse(avatarUrl);
-    final hasAvatar = avatarUri != null &&
-        avatarUri.hasScheme &&
-        (avatarUri.scheme == 'http' || avatarUri.scheme == 'https');
+    final hasAvatar = _isSafePublicNetworkUrl(avatarUrl);
 
     return Material(
       color: Colors.transparent,

@@ -332,6 +332,12 @@ export class WhatsappService {
     }
   }
 
+  async getInstanceConnectionState(instanceName: string): Promise<string> {
+    const name = (instanceName ?? '').trim();
+    if (!name) return 'pending';
+    return this.getInstanceStateFromEvolution(name);
+  }
+
   async handleIncomingWebhook(
     instanceName: string,
     payload: unknown,
