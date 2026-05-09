@@ -3383,7 +3383,9 @@ class _GalleryTabState extends ConsumerState<_GalleryTab> {
     _manualName = TextEditingController();
     _manualService = TextEditingController();
     _manualDescription = TextEditingController();
-    _manualTags = TextEditingController(text: 'producto, galeria-publicidad');
+    _manualTags = TextEditingController(
+      text: 'explorador-archivo, galeria-publicidad',
+    );
   }
 
   @override
@@ -3959,7 +3961,7 @@ class _GalleryTabState extends ConsumerState<_GalleryTab> {
     _manualName.clear();
     _manualService.clear();
     _manualDescription.clear();
-    _manualTags.text = 'producto, galeria-publicidad';
+    _manualTags.text = 'explorador-archivo, galeria-publicidad';
     ScaffoldMessenger.maybeOf(context)?.showSnackBar(
       const SnackBar(
         content: Text('Imagen agregada a la galería publicitaria.'),
@@ -4061,6 +4063,7 @@ class _GalleryTabState extends ConsumerState<_GalleryTab> {
     final tags = <String>{
       'producto',
       'catalogo',
+      'imagen-producto',
       'galeria-publicidad',
       _productCategory(product).toLowerCase(),
     };
@@ -4588,6 +4591,7 @@ class _PickMediaAssetDialogState extends State<_PickMediaAssetDialog> {
   late String? _selectedId;
   String _search = '';
   String? _category;
+  String _originFilter = 'ALL';
 
   @override
   void initState() {
@@ -4609,6 +4613,9 @@ class _PickMediaAssetDialogState extends State<_PickMediaAssetDialog> {
     final search = _search.trim().toLowerCase();
     final visible = galleryAssets.where((item) {
       if (_category != null && item.category != _category) return false;
+      if (_originFilter != 'ALL' && _originKey(item) != _originFilter) {
+        return false;
+      }
       if (search.isEmpty) return true;
       return item.fileName.toLowerCase().contains(search) ||
           item.category.toLowerCase().contains(search) ||
@@ -4688,6 +4695,41 @@ class _PickMediaAssetDialogState extends State<_PickMediaAssetDialog> {
                       ),
                       const SizedBox(width: 8),
                     ],
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 36,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  children: [
+                    ChoiceChip(
+                      label: const Text('Todos los orígenes'),
+                      selected: _originFilter == 'ALL',
+                      onSelected: (_) => setState(() => _originFilter = 'ALL'),
+                    ),
+                    const SizedBox(width: 8),
+                    ChoiceChip(
+                      label: const Text('Imagen de productos'),
+                      selected: _originFilter == 'PRODUCT_IMAGE',
+                      onSelected: (_) =>
+                          setState(() => _originFilter = 'PRODUCT_IMAGE'),
+                    ),
+                    const SizedBox(width: 8),
+                    ChoiceChip(
+                      label: const Text('Imagen de galería'),
+                      selected: _originFilter == 'GALLERY_IMAGE',
+                      onSelected: (_) =>
+                          setState(() => _originFilter = 'GALLERY_IMAGE'),
+                    ),
+                    const SizedBox(width: 8),
+                    ChoiceChip(
+                      label: const Text('Explorador de archivo'),
+                      selected: _originFilter == 'FILE_EXPLORER',
+                      onSelected: (_) =>
+                          setState(() => _originFilter = 'FILE_EXPLORER'),
+                    ),
                   ],
                 ),
               ),
@@ -4857,10 +4899,31 @@ class _PickMediaAssetDialogState extends State<_PickMediaAssetDialog> {
   }
 
   String _originLabel(MarketingMediaAsset item) {
-    final raw = (item.sourceType ?? '').trim().toLowerCase();
-    if (raw.isEmpty) return 'Galería de contenido';
-    if (raw == 'gallery') return 'Galería de contenido';
-    return raw;
+    switch (_originKey(item)) {
+      case 'PRODUCT_IMAGE':
+        return 'Imagen de productos';
+      case 'FILE_EXPLORER':
+        return 'Explorador de archivo';
+      case 'GALLERY_IMAGE':
+      default:
+        return 'Imagen de galería';
+    }
+  }
+
+  String _originKey(MarketingMediaAsset item) {
+    final raw = (item.sourceType ?? '').trim().toUpperCase();
+    if (raw == 'PRODUCT_IMAGE') return 'PRODUCT_IMAGE';
+    if (raw == 'FILE_EXPLORER') return 'FILE_EXPLORER';
+    if (raw == 'GALLERY_IMAGE') return 'GALLERY_IMAGE';
+
+    final tags = item.tags.map((tag) => tag.toLowerCase()).toList(growable: false);
+    if (tags.contains('catalogo') || tags.contains('imagen-producto')) {
+      return 'PRODUCT_IMAGE';
+    }
+    if (tags.contains('explorador-archivo') || tags.contains('manual-upload')) {
+      return 'FILE_EXPLORER';
+    }
+    return 'GALLERY_IMAGE';
   }
 }
 

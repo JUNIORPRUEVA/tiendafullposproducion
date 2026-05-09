@@ -948,7 +948,6 @@ export class MarketingService {
     const isProduct = tagList.some((tag) =>
       [
         'catalogo',
-        'producto',
         'imagen-producto',
         'producto-catalogo',
       ].includes(tag),
