@@ -27,6 +27,11 @@ import { UpdateCrmCommercialFollowupTaskDto } from './dto/update-crm-commercial-
 import { CrmCommercialFollowupTaskQueryDto } from './dto/crm-commercial-followup-task-query.dto';
 import { UpdateCrmCommercialSettingsDto } from './dto/update-crm-commercial-settings.dto';
 import { SendCrmCommercialMessageDto } from './dto/send-crm-commercial-message.dto';
+import {
+  SendCrmCommercialMediaMessageDto,
+  StartCrmCommercialMediaMessageDto,
+  ReplyCrmCommercialMediaMessageDto,
+} from './dto/send-crm-commercial-media-message.dto';
 
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 @Controller('crm-commercial')
@@ -110,6 +115,32 @@ export class CrmCommercialController {
     return this.crmCommercial.replyConversation(
       this.userOrThrow(req),
       id,
+      dto,
+    );
+  }
+
+  @Post('conversations/:id/reply-media')
+  @Roles(Role.ADMIN)
+  replyConversationMedia(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() dto: ReplyCrmCommercialMediaMessageDto,
+  ) {
+    return this.crmCommercial.replyConversationMedia(
+      this.userOrThrow(req),
+      id,
+      dto,
+    );
+  }
+
+  @Post('conversations/start-media')
+  @Roles(Role.ADMIN)
+  startConversationMediaMessage(
+    @Req() req: Request,
+    @Body() dto: StartCrmCommercialMediaMessageDto,
+  ) {
+    return this.crmCommercial.startConversationMediaMessage(
+      this.userOrThrow(req),
       dto,
     );
   }

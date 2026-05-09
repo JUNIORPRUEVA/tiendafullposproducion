@@ -206,6 +206,49 @@ class CrmComercialRepository {
     return res.data ?? const <String, dynamic>{};
   }
 
+  Future<Map<String, dynamic>> replyConversationMedia({
+    required String conversationId,
+    required String mediaType, // 'image', 'video', 'audio', 'document'
+    required String mimeType,
+    required String fileName,
+    required String base64Data,
+    String? caption,
+  }) async {
+    final res = await _dio.post<Map<String, dynamic>>(
+      ApiRoutes.crmCommercialConversationReplyMedia(conversationId),
+      data: {
+        'mediaType': mediaType,
+        'mimeType': mimeType,
+        'fileName': fileName,
+        'base64Data': base64Data,
+        if ((caption ?? '').trim().isNotEmpty) 'caption': caption!.trim(),
+      },
+    );
+    return res.data ?? const <String, dynamic>{};
+  }
+
+  Future<Map<String, dynamic>> startConversationMediaMessage({
+    required String phone,
+    required String mediaType, // 'image', 'video', 'audio', 'document'
+    required String mimeType,
+    required String fileName,
+    required String base64Data,
+    String? caption,
+  }) async {
+    final res = await _dio.post<Map<String, dynamic>>(
+      ApiRoutes.crmCommercialStartConversationMedia,
+      data: {
+        'phone': phone.trim(),
+        'mediaType': mediaType,
+        'mimeType': mimeType,
+        'fileName': fileName,
+        'base64Data': base64Data,
+        if ((caption ?? '').trim().isNotEmpty) 'caption': caption!.trim(),
+      },
+    );
+    return res.data ?? const <String, dynamic>{};
+  }
+
   // Phase 2: Follow-up Tasks
 
   Future<List<CrmComercialFollowupTask>> listFollowupTasks({

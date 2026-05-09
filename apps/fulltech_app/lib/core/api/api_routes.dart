@@ -108,10 +108,14 @@ class ApiRoutes {
   static const crmCommercialConversations = '/crm-commercial/conversations';
   static const crmCommercialStartConversationMessage =
       '/crm-commercial/conversations/start-message';
+  static const crmCommercialStartConversationMedia =
+      '/crm-commercial/conversations/start-media';
   static String crmCommercialConversationMessages(String id) =>
       '/crm-commercial/conversations/$id/messages';
   static String crmCommercialConversationReply(String id) =>
       '/crm-commercial/conversations/$id/reply';
+  static String crmCommercialConversationReplyMedia(String id) =>
+      '/crm-commercial/conversations/$id/reply-media';
 
   // Productos
   static const products = '/products';

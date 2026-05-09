@@ -277,12 +277,13 @@ class _HubMainColumn extends StatelessWidget {
           title: 'Galería de Contenido',
           description: 'Centro multimedia: productos, uploads, y fuente global.',
           summary: 'Multimedia hub',
-          icon: Icons.image_collection_rounded,
+          icon: Icons.collections_rounded,
           onEnter: () => context.go(Routes.publicidadGaleria),
         ),
       ],
     );
-          icon: Icons.collections_rounded,
+}
+
 }
 
 class _ModuleRowItem extends StatelessWidget {

@@ -27,6 +27,11 @@ import { SendCrmCommercialMessageDto } from './dto/send-crm-commercial-message.d
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { normalizeWhatsappPhone } from '../whatsapp-inbox/whatsapp-identity.util';
 import { WhatsappInboxService } from '../whatsapp-inbox/whatsapp-inbox.service';
+import {
+  SendCrmCommercialMediaMessageDto,
+  StartCrmCommercialMediaMessageDto,
+  ReplyCrmCommercialMediaMessageDto,
+} from './dto/send-crm-commercial-media-message.dto';
 
 type AuthUser = { id: string; role: Role };
 
@@ -860,6 +865,216 @@ export class CrmCommercialService {
       conversationId,
       messageId: (saved as { message?: { id?: string } })?.message?.id ?? null,
     };
+  }
+
+  async replyConversationMedia(
+    user: AuthUser,
+    conversationId: string,
+    dto: ReplyCrmCommercialMediaMessageDto,
+  ) {
+    if (!this.isAdmin(user)) {
+      throw new ForbiddenException('Solo ADMIN puede responder mensajes en CRM Comercial');
+    }
+
+    if (!dto.mediaType || !dto.mimeType || !dto.fileName || !dto.base64Data) {
+      throw new BadRequestException('mediaType, mimeType, fileName y base64Data son requeridos.');
+    }
+
+    const selected = await this.getSelectedWhatsappInstanceForCrm();
+    if (!selected.selectedInstanceId) {
+      throw new BadRequestException('Selecciona una instancia antes de enviar mensajes.');
+    }
+
+    const conversation = await this.prisma.whatsappConversation.findUnique({
+      where: { id: conversationId },
+      include: {
+        instance: {
+          select: { id: true, instanceName: true },
+        },
+      },
+    });
+
+    if (!conversation || conversation.instanceId !== selected.selectedInstanceId) {
+      throw new NotFoundException('Conversacion no encontrada para la instancia activa.');
+    }
+
+    try {
+      const mediaBuffer = Buffer.from(dto.base64Data, 'base64');
+
+      const saved = await this.whatsappInboxService.recordOutgoingMediaMessage({
+        instanceId: conversation.instanceId,
+        remoteJid: conversation.remoteJid,
+        bytes: mediaBuffer,
+        mediaType: dto.mediaType as 'image' | 'video' | 'audio' | 'document',
+        mimeType: dto.mimeType,
+        fileName: dto.fileName,
+        caption: dto.caption,
+      });
+
+      const evolutionResult = await this.whatsappService.sendMediaMessage({
+        instanceName: conversation.instance.instanceName,
+        remoteJid: conversation.remoteJid,
+        bytes: mediaBuffer,
+        mediaType: dto.mediaType as 'image' | 'video' | 'audio' | 'document',
+        mimeType: dto.mimeType,
+        fileName: dto.fileName,
+        caption: dto.caption,
+      });
+
+      const savedMessageId =
+        (saved as { message?: { id?: string } })?.message?.id ?? null;
+      if (savedMessageId) {
+        await this.whatsappInboxService.attachEvolutionIdToMessage(
+          savedMessageId,
+          this.extractEvolutionMessageId(evolutionResult),
+        );
+      }
+
+      const normalizedComparable = this.normalizeComparablePhone(
+        conversation.remotePhone ?? conversation.remoteJid,
+      );
+      if (normalizedComparable) {
+        const customers = await this.prisma.crmCommercialCustomer.findMany({
+          select: { id: true, telefono: true, updatedAt: true },
+          orderBy: { updatedAt: 'desc' },
+        });
+        for (const customer of customers) {
+          if (
+            this.normalizeComparablePhone(customer.telefono) ===
+            normalizedComparable
+          ) {
+            await this.prisma.crmCommercialActivity.create({
+              data: {
+                customerId: customer.id,
+                activityType: 'MENSAJE_MEDIA_SALIENTE',
+                description: `${dto.mediaType.toUpperCase()} enviado por CRM Comercial${dto.caption ? ': ' + dto.caption.slice(0, 100) : ''}`,
+                createdByUserId: user.id,
+              },
+            });
+            break;
+          }
+        }
+      }
+
+      return {
+        ok: true,
+        conversationId,
+        messageId: (saved as { message?: { id?: string } })?.message?.id ?? null,
+      };
+    } catch (error) {
+      console.error('[CrmCommercial][ReplyMedia] Error:', {
+        conversationId,
+        mediaType: dto.mediaType,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw new BadRequestException(
+        `No se pudo enviar el archivo: ${error instanceof Error ? error.message : 'Error desconocido'}`,
+      );
+    }
+  }
+
+  async startConversationMediaMessage(
+    user: AuthUser,
+    dto: StartCrmCommercialMediaMessageDto,
+  ) {
+    if (!this.isAdmin(user)) {
+      throw new ForbiddenException(
+        'Solo ADMIN puede iniciar conversaciones en CRM Comercial',
+      );
+    }
+
+    if (!dto.phone) {
+      throw new BadRequestException('phone requerido.');
+    }
+
+    if (!dto.mediaType || !dto.mimeType || !dto.fileName || !dto.base64Data) {
+      throw new BadRequestException('mediaType, mimeType, fileName y base64Data son requeridos.');
+    }
+
+    const { normalizedPhone, remoteJid } =
+      this.normalizeRemoteJidFromPhone(dto.phone);
+
+    const selected = await this.getSelectedWhatsappInstanceForCrm();
+    if (!selected.selectedInstanceId) {
+      throw new BadRequestException('Selecciona una instancia antes de enviar mensajes.');
+    }
+
+    try {
+      const mediaBuffer = Buffer.from(dto.base64Data, 'base64');
+
+      const saved = await this.whatsappInboxService.recordOutgoingMediaMessage({
+        instanceId: selected.selectedInstanceId,
+        remoteJid,
+        bytes: mediaBuffer,
+        mediaType: dto.mediaType as 'image' | 'video' | 'audio' | 'document',
+        mimeType: dto.mimeType,
+        fileName: dto.fileName,
+        caption: dto.caption,
+      });
+
+      const instance = await this.prisma.userWhatsappInstance.findUnique({
+        where: { id: selected.selectedInstanceId },
+        select: { instanceName: true },
+      });
+
+      if (!instance) {
+        throw new BadRequestException(
+          'La instancia seleccionada no existe.',
+        );
+      }
+
+      const evolutionResult = await this.whatsappService.sendMediaMessage({
+        instanceName: instance.instanceName,
+        remoteJid,
+        bytes: mediaBuffer,
+        mediaType: dto.mediaType as 'image' | 'video' | 'audio' | 'document',
+        mimeType: dto.mimeType,
+        fileName: dto.fileName,
+        caption: dto.caption,
+      });
+
+      const savedMessageId =
+        (saved as { message?: { id?: string } })?.message?.id ?? null;
+      if (savedMessageId) {
+        await this.whatsappInboxService.attachEvolutionIdToMessage(
+          savedMessageId,
+          this.extractEvolutionMessageId(evolutionResult),
+        );
+      }
+
+      const customers = await this.prisma.crmCommercialCustomer.findMany({
+        select: { id: true, telefono: true, updatedAt: true },
+        orderBy: { updatedAt: 'desc' },
+      });
+      for (const customer of customers) {
+        if (this.normalizeComparablePhone(customer.telefono) === normalizedPhone) {
+          await this.prisma.crmCommercialActivity.create({
+            data: {
+              customerId: customer.id,
+              activityType: 'MENSAJE_MEDIA_INICIADO',
+              description: `${dto.mediaType.toUpperCase()} enviado por CRM Comercial${dto.caption ? ': ' + dto.caption.slice(0, 100) : ''}`,
+              createdByUserId: user.id,
+            },
+          });
+          break;
+        }
+      }
+
+      return {
+        ok: true,
+        phone: normalizedPhone,
+        messageId: (saved as { message?: { id?: string } })?.message?.id ?? null,
+      };
+    } catch (error) {
+      console.error('[CrmCommercial][StartMediaMessage] Error:', {
+        phone: normalizedPhone,
+        mediaType: dto.mediaType,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw new BadRequestException(
+        `No se pudo enviar el archivo: ${error instanceof Error ? error.message : 'Error desconocido'}`,
+      );
+    }
   }
 
   async create(user: AuthUser, dto: CreateCrmCommercialCustomerDto) {

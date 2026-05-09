@@ -1,12 +1,17 @@
-﻿import 'package:flutter/material.dart';
+﻿import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:intl/intl.dart';
+import 'dart:convert';
+import 'package:file_picker/file_picker.dart';
 
 import '../../core/auth/auth_provider.dart';
 import '../../core/auth/app_role.dart';
+import '../../core/routing/routes.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
+import '../../core/widgets/app_navigation.dart' show kDesktopShellBreakpoint;
+import '../../core/widgets/responsive_shell.dart';
 import 'data/crm_comercial_repository.dart';
 import 'models/crm_comercial_models.dart';
 
@@ -68,6 +73,9 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
   final TextEditingController _newChatPhoneCtrl = TextEditingController();
   final TextEditingController _newChatMessageCtrl = TextEditingController();
   final TextEditingController _conversationSearchCtrl = TextEditingController();
+  final ScrollController _chatScrollCtrl = ScrollController();
+  final FocusNode _sidebarSearchFocusNode = FocusNode();
+  late final StateController<DesktopShellRouteActions?> _desktopShellActions;
 
   bool _loading = true;
   bool _saving = false;
@@ -94,16 +102,29 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
   bool _showSidebarSearch = false;
   bool _showConversationSearch = false;
   bool _sendingChatMessage = false;
+  String _lastShellActionsSignature = '';
   _CrmRightPanelTab _activeRightPanelTab = _CrmRightPanelTab.detail;
+  
+  // Media composer state
+  final TextEditingController _mediaCaptionCtrl = TextEditingController();
+  Uint8List? _selectedMediaBytes;
+  String? _selectedMediaName;
+  String? _selectedMediaType; // 'image', 'video', 'audio', 'document'
+  String? _selectedMediaMimeType;
+  bool _sendingMedia = false;
 
   @override
   void initState() {
     super.initState();
+    _desktopShellActions = ref.read(desktopShellRouteActionsProvider.notifier);
     _loadAll();
   }
 
   @override
   void dispose() {
+    if (_desktopShellActions.state?.route == Routes.crmComercial) {
+      _desktopShellActions.state = null;
+    }
     _searchCtrl.dispose();
     _noteCtrl.dispose();
     _nextActionCtrl.dispose();
@@ -115,7 +136,91 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
     _newChatPhoneCtrl.dispose();
     _newChatMessageCtrl.dispose();
     _conversationSearchCtrl.dispose();
+    _mediaCaptionCtrl.dispose();
+    _chatScrollCtrl.dispose();
+    _sidebarSearchFocusNode.dispose();
     super.dispose();
+  }
+
+  void _publishDesktopShellActions({required bool enabled}) {
+    final signature = enabled
+        ? '${Routes.crmComercial}:${_crmInstanceWarning.toString()}'
+        : '${Routes.crmComercial}:disabled';
+    if (_lastShellActionsSignature == signature) return;
+    _lastShellActionsSignature = signature;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (!enabled) {
+        if (_desktopShellActions.state?.route == Routes.crmComercial) {
+          _desktopShellActions.state = null;
+        }
+        return;
+      }
+
+      _desktopShellActions.state = DesktopShellRouteActions(
+        route: Routes.crmComercial,
+        actions: [
+          DesktopShellActionItem(
+            icon: Icons.tune_rounded,
+            selectedIcon: Icons.tune,
+            selected: _crmInstanceWarning,
+            tooltip: 'Configuracion de instancia',
+            onPressed: _saving ? () {} : _openCrmSettingsDialog,
+          ),
+        ],
+      );
+    });
+  }
+
+  List<CrmComercialInboxMessage> get _filteredMessages {
+    final query = _conversationSearchCtrl.text.trim().toLowerCase();
+    if (query.isEmpty) return _messages;
+    return _messages.where((message) {
+      final text = message.displayText.toLowerCase();
+      final sender = (message.senderName ?? '').toLowerCase();
+      return text.contains(query) || sender.contains(query);
+    }).toList(growable: false);
+  }
+
+  List<CrmComercialInboxConversation> get _filteredConversations {
+    final query = _searchCtrl.text.trim().toLowerCase();
+    return _conversations.where((conversation) {
+      if (_statusFilter.isNotEmpty && conversation.crmCustomerStatus != _statusFilter) {
+        return false;
+      }
+      if (query.isEmpty) return true;
+      final contactName = conversation.contactName.toLowerCase();
+      final phone = (conversation.remotePhone ?? '').toLowerCase();
+      final customerName = (conversation.crmCustomerName ?? '').toLowerCase();
+      final preview = (conversation.lastMessagePreview ?? '').toLowerCase();
+      return contactName.contains(query) ||
+          phone.contains(query) ||
+          customerName.contains(query) ||
+          preview.contains(query);
+    }).toList(growable: false);
+  }
+
+  void _scrollChatToBottom({bool animated = true}) {
+    if (!_chatScrollCtrl.hasClients) return;
+    final target = _chatScrollCtrl.position.maxScrollExtent;
+    if (animated) {
+      _chatScrollCtrl.animateTo(
+        target,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+      );
+      return;
+    }
+    _chatScrollCtrl.jumpTo(target);
+  }
+
+  bool _isSafeNetworkImageUrl(String? raw) {
+    final value = (raw ?? '').trim();
+    if (value.isEmpty) return false;
+    final uri = Uri.tryParse(value);
+    if (uri == null) return false;
+    return uri.hasScheme && (uri.scheme == 'http' || uri.scheme == 'https');
   }
 
   List<CrmComercialFollowupTask> get _selectedTasks {
@@ -531,6 +636,10 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
         _selected = linkedCustomer;
         _nextActionCtrl.text = linkedCustomer?.nextAction ?? '';
       });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _scrollChatToBottom(animated: false);
+      });
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -571,6 +680,12 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
       _chatComposerCtrl.clear();
       await _openConversation(selectedConversation.id);
       await _loadAll();
+      if (mounted) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _scrollChatToBottom();
+        });
+      }
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -580,6 +695,238 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
       if (mounted) {
         setState(() => _sendingChatMessage = false);
       }
+    }
+  }
+
+  Future<void> _pickAndSendMedia() async {
+    FilePickerResult? result = await FilePicker.platform.pickFiles(
+      type: FileType.media,
+      allowMultiple: false,
+    );
+
+    if (result == null || result.files.isEmpty) return;
+
+    final file = result.files.first;
+    final bytes = file.bytes;
+
+    if (bytes == null) {
+      if (mounted) {
+        setState(() => _error = 'Error: Could not read file');
+      }
+      return;
+    }
+
+    // Determine media type and MIME type
+    final fileName = file.name.toLowerCase();
+    final extension =
+        (file.extension ?? fileName.split('.').lastOrNull ?? '').toLowerCase();
+    String mediaType = 'document';
+    String mimeType = 'application/octet-stream';
+
+    if (extension == 'jpg' ||
+        extension == 'jpeg' ||
+        extension == 'png' ||
+        extension == 'gif') {
+      mediaType = 'image';
+      mimeType = extension == 'jpg' ? 'image/jpeg' : 'image/$extension';
+    } else if (extension == 'mp4' || extension == 'mov' || extension == 'avi') {
+      mediaType = 'video';
+      mimeType = extension == 'mov' ? 'video/quicktime' : 'video/$extension';
+    } else if (extension == 'mp3' || extension == 'wav' || extension == 'm4a') {
+      mediaType = 'audio';
+      mimeType = extension == 'mp3'
+          ? 'audio/mpeg'
+          : extension == 'm4a'
+              ? 'audio/mp4'
+              : 'audio/$extension';
+    } else if (extension == 'pdf') {
+      mimeType = 'application/pdf';
+    }
+
+    if (mounted) {
+      setState(() {
+        _selectedMediaBytes = bytes;
+        _selectedMediaName = file.name;
+        _selectedMediaType = mediaType;
+        _selectedMediaMimeType = mimeType;
+      });
+    }
+
+    _showMediaPreviewDialog(mediaType, file.name, bytes);
+  }
+
+  void _showMediaPreviewDialog(String mediaType, String fileName, Uint8List bytes) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            var sendingMedia = false;
+
+            return AlertDialog(
+              title: const Text('Preview y enviar media'),
+              content: SizedBox(
+                width: 500,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Media preview
+                    if (mediaType == 'image')
+                      Container(
+                        height: 200,
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey[300]!),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Image.memory(bytes, fit: BoxFit.cover),
+                      )
+                    else if (mediaType == 'video')
+                      Container(
+                        height: 150,
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey[300]!),
+                          borderRadius: BorderRadius.circular(8),
+                          color: Colors.grey[100],
+                        ),
+                        child: const Center(
+                          child: Icon(Icons.video_library_rounded, size: 48),
+                        ),
+                      )
+                    else if (mediaType == 'audio')
+                      Container(
+                        height: 80,
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey[300]!),
+                          borderRadius: BorderRadius.circular(8),
+                          color: Colors.grey[100],
+                        ),
+                        child: const Center(
+                          child: Icon(Icons.music_note_rounded, size: 48),
+                        ),
+                      )
+                    else
+                      Container(
+                        height: 100,
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey[300]!),
+                          borderRadius: BorderRadius.circular(8),
+                          color: Colors.grey[100],
+                        ),
+                        child: const Center(
+                          child: Icon(Icons.description_rounded, size: 48),
+                        ),
+                      ),
+                    const SizedBox(height: 12),
+
+                    // File name
+                    Text(
+                      'Archivo: $fileName',
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Caption input
+                    TextField(
+                      controller: _mediaCaptionCtrl,
+                      maxLines: 3,
+                      minLines: 1,
+                      decoration: InputDecoration(
+                        hintText: 'Agregar caption (opcional)',
+                        isDense: true,
+                        filled: true,
+                        fillColor: Colors.grey[50],
+                        border: OutlineInputBorder(
+                          borderSide: BorderSide(color: Colors.grey[300]!),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: sendingMedia
+                      ? null
+                      : () {
+                          Navigator.of(context).pop();
+                          setState(() {
+                            _selectedMediaBytes = null;
+                            _selectedMediaName = null;
+                            _selectedMediaType = null;
+                            _selectedMediaMimeType = null;
+                          });
+                          _mediaCaptionCtrl.clear();
+                        },
+                  child: const Text('Cancelar'),
+                ),
+                FilledButton.icon(
+                  onPressed: sendingMedia ? null : () => _confirmSendMedia(dialogContext, setDialogState),
+                  icon: Icon(sendingMedia ? Icons.hourglass_bottom_rounded : Icons.send_rounded),
+                  label: Text(sendingMedia ? 'Enviando...' : 'Enviar'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _confirmSendMedia(BuildContext dialogContext, StateSetter setDialogState) async {
+    final selectedConversation = _selectedConversation;
+    final mediaBytes = _selectedMediaBytes;
+    final mediaName = _selectedMediaName;
+    final mediaType = _selectedMediaType;
+    final mimeType = _selectedMediaMimeType;
+    final caption = _mediaCaptionCtrl.text.trim();
+
+    if (selectedConversation == null || mediaBytes == null || mediaType == null || mimeType == null) {
+      return;
+    }
+
+    setDialogState(() {});
+
+    try {
+      final base64Data = base64Encode(mediaBytes);
+
+      await ref.read(crmComercialRepositoryProvider).replyConversationMedia(
+            conversationId: selectedConversation.id,
+            mediaType: mediaType,
+            mimeType: mimeType,
+            fileName: mediaName ?? 'media',
+            base64Data: base64Data,
+            caption: caption.isEmpty ? null : caption,
+          );
+
+      if (mounted) {
+        Navigator.of(dialogContext).pop();
+        setState(() {
+          _selectedMediaBytes = null;
+          _selectedMediaName = null;
+          _selectedMediaType = null;
+          _selectedMediaMimeType = null;
+        });
+        _mediaCaptionCtrl.clear();
+
+        _openConversation(selectedConversation.id);
+        _loadAll();
+
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _scrollChatToBottom();
+        });
+      }
+    } catch (error) {
+      if (!mounted) return;
+      setDialogState(() {});
+      setState(() {
+        _error = error.toString();
+      });
     }
   }
 
@@ -838,7 +1185,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
     String title, {
     String? imageUrl,
   }) async {
-    final hasImage = (imageUrl ?? '').trim().isNotEmpty;
+    final hasImage = _isSafeNetworkImageUrl(imageUrl);
     await showDialog<void>(
       context: context,
       barrierColor: Colors.black.withAlpha(200),
@@ -860,7 +1207,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(16),
                   child: hasImage
-                      ? Image.network(
+                        ? Image.network(
                           imageUrl!,
                           fit: BoxFit.cover,
                           errorBuilder: (_, __, ___) {
@@ -946,7 +1293,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
     required double radius,
     String? imageUrl,
   }) {
-    final hasImage = (imageUrl ?? '').trim().isNotEmpty;
+    final hasImage = _isSafeNetworkImageUrl(imageUrl);
     return CircleAvatar(
       radius: radius,
       backgroundColor: accent.withAlpha(24),
@@ -1375,6 +1722,9 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
   Widget build(BuildContext context) {
     final auth = ref.watch(authStateProvider);
     final isAdmin = auth.user?.appRole == AppRole.admin;
+    final usesDesktopShellAppBar =
+        MediaQuery.sizeOf(context).width >= kDesktopShellBreakpoint;
+    _publishDesktopShellActions(enabled: isAdmin && usesDesktopShellAppBar);
     if (!isAdmin) {
       return const Scaffold(
         backgroundColor: _waBg,
@@ -1406,8 +1756,13 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final width = constraints.maxWidth;
-          final isMobile = width < 900;
-          final isTablet = width >= 900 && width < 1280;
+          if (kDebugMode) {
+            debugPrint(
+              '[CRM][Shell] width=${width.toStringAsFixed(1)} loading=$_loading conversations=${_conversations.length} selected=${_selectedConversation?.id ?? 'null'}',
+            );
+          }
+          final isMobile = width < 720;
+          final isTablet = width >= 720 && width < 1220;
 
           if (isMobile) {
             if (!_mobileConversationMode || _selectedConversation == null) {
@@ -1431,7 +1786,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
             );
           }
 
-          final leftWidth = isTablet ? 312.0 : 338.0;
+          final leftWidth = isTablet ? 296.0 : 338.0;
           final rightWidth = _showDetailsPanel ? 360.0 : 0.0;
 
           return Row(
@@ -1484,6 +1839,8 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
     required Map<String, int> activeTaskCountByCustomer,
     required bool isMobile,
   }) {
+    final filteredConversations = _filteredConversations;
+
     return Container(
       decoration: BoxDecoration(
         color: _waSidebar,
@@ -1492,113 +1849,53 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
       ),
       child: Column(
         children: [
-          Container(
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF7F8F8),
-              border: Border(
-                bottom: BorderSide(color: _waBorder.withAlpha(110)),
-              ),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 34,
-                  height: 34,
-                  decoration: BoxDecoration(
-                    color: _waGreen.withAlpha(26),
-                    borderRadius: BorderRadius.circular(9),
-                  ),
-                  child: const Icon(
-                    Icons.business_rounded,
-                    color: _waGreenDark,
-                    size: 18,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: const [
-                      Text(
-                        'FULLTECH Comercial',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: _waText,
-                        ),
-                      ),
-                      SizedBox(height: 2),
-                      Text(
-                        'CRM en tiempo real',
-                        style: TextStyle(fontSize: 11, color: _waTextMuted),
-                      ),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  tooltip: 'Configurar instancia WhatsApp CRM',
-                  onPressed: _saving ? null : _openCrmSettingsDialog,
-                  icon: const Icon(Icons.tune_rounded, size: 20),
-                ),
-                IconButton(
-                  tooltip: 'Actualizar',
-                  onPressed: _saving ? null : _loadAll,
-                  icon: const Icon(Icons.refresh_rounded, size: 20),
-                ),
-              ],
-            ),
-          ),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
-            decoration: BoxDecoration(
-              color: _crmInstanceWarning
-                  ? Colors.amber.withAlpha(24)
-                  : _waGreen.withAlpha(12),
-              border: Border(
-                bottom: BorderSide(color: _waBorder.withAlpha(90)),
-              ),
-            ),
-            child: Text(
-              _crmInstanceStatusText(),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-                color: _crmInstanceWarning ? const Color(0xFF8A5800) : _waGreenDark,
-              ),
-            ),
-          ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(10, 8, 10, 6),
+            padding: const EdgeInsets.fromLTRB(8, 8, 8, 6),
             child: Column(
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: LayoutBuilder(
-                        builder: (context, toolbarConstraints) {
-                          final compactActions = toolbarConstraints.maxWidth < 312;
-                          return Row(
-                            children: [
-                              IconButton(
-                                tooltip: 'Buscar',
-                                visualDensity: VisualDensity.compact,
-                                onPressed: () {
-                                  setState(() => _showSidebarSearch = !_showSidebarSearch);
-                                },
-                                icon: const Icon(Icons.search_rounded, size: 19),
-                              ),
-                              const SizedBox(width: 3),
-                              SizedBox(
-                                width: compactActions ? 102 : 124,
-                                child: DropdownButtonFormField<String>(
-                                  key: ValueKey('status-filter-$_statusFilter'),
-                                  initialValue: _statusFilter,
-                                  isExpanded: true,
+                LayoutBuilder(
+                  builder: (context, toolbarConstraints) {
+                    final compact = toolbarConstraints.maxWidth < 310;
+                    final maxSearchWidth = (toolbarConstraints.maxWidth - (compact ? 230 : 248))
+                        .clamp(0.0, compact ? 110.0 : 170.0);
+                    final searchWidth = _showSidebarSearch ? maxSearchWidth : 0.0;
+                    return Row(
+                      children: [
+                        IconButton(
+                          tooltip: 'Buscar',
+                          visualDensity: VisualDensity.compact,
+                          constraints: const BoxConstraints(
+                            minWidth: 34,
+                            minHeight: 34,
+                          ),
+                          padding: EdgeInsets.zero,
+                          onPressed: () {
+                            setState(() => _showSidebarSearch = !_showSidebarSearch);
+                            if (_showSidebarSearch) {
+                              WidgetsBinding.instance.addPostFrameCallback((_) {
+                                if (!mounted) return;
+                                _sidebarSearchFocusNode.requestFocus();
+                              });
+                            }
+                          },
+                          icon: const Icon(Icons.search_rounded, size: 19),
+                        ),
+                        AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
+                          curve: Curves.easeOutCubic,
+                          width: searchWidth,
+                          child: searchWidth <= 0
+                              ? const SizedBox.shrink()
+                              : TextField(
+                                  focusNode: _sidebarSearchFocusNode,
+                                  controller: _searchCtrl,
+                                  onChanged: (_) {
+                                    if (!mounted) return;
+                                    setState(() {});
+                                  },
+                                  onSubmitted: (_) => setState(() {}),
                                   decoration: InputDecoration(
+                                    hintText: compact ? 'Buscar' : 'Buscar',
                                     isDense: true,
                                     filled: true,
                                     fillColor: const Color(0xFFF6F7F7),
@@ -1607,128 +1904,112 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                                       vertical: 7,
                                     ),
                                     border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(9),
-                                      borderSide: BorderSide(color: _waBorder.withAlpha(110)),
-                                    ),
-                                  ),
-                                  items: [
-                                    const DropdownMenuItem<String>(
-                                      value: '',
-                                      child: Text('Todos', overflow: TextOverflow.ellipsis),
-                                    ),
-                                    ..._crmStatuses.map(
-                                      (status) => DropdownMenuItem<String>(
-                                        value: status,
-                                        child: Text(
-                                          _statusLabel(status),
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
+                                      borderRadius: BorderRadius.circular(10),
+                                      borderSide: BorderSide(
+                                        color: _waBorder.withAlpha(110),
                                       ),
                                     ),
-                                  ],
-                                  onChanged: (value) {
-                                    setState(() {
-                                      _statusFilter = (value ?? '').trim();
-                                    });
-                                    _loadAll();
-                                  },
-                                ),
-                              ),
-                              const SizedBox(width: 5),
-                              FilterChip(
-                                selected: _onlyMine,
-                                showCheckmark: false,
-                                side: BorderSide(color: _waBorder.withAlpha(100)),
-                                backgroundColor: const Color(0xFFF6F7F7),
-                                selectedColor: _waGreen.withAlpha(20),
-                                visualDensity: VisualDensity.compact,
-                                label: const Text('Mio', style: TextStyle(fontSize: 11)),
-                                onSelected: (value) {
-                                  setState(() => _onlyMine = value);
-                                  _loadAll();
-                                },
-                              ),
-                              const Spacer(),
-                              if (!compactActions)
-                                IconButton(
-                                  tooltip: 'Nuevo chat',
-                                  visualDensity: VisualDensity.compact,
-                                  onPressed: _saving ? null : _openNewChatDialog,
-                                  icon: const Icon(Icons.edit_square, size: 19),
-                                ),
-                              if (!compactActions)
-                                IconButton(
-                                  tooltip: 'Actualizar',
-                                  visualDensity: VisualDensity.compact,
-                                  onPressed: _saving ? null : _loadAll,
-                                  icon: const Icon(Icons.refresh_rounded, size: 19),
-                                ),
-                              PopupMenuButton<String>(
-                                tooltip: 'Mas acciones',
-                                onSelected: (value) {
-                                  if (value == 'settings') {
-                                    _openCrmSettingsDialog();
-                                  }
-                                  if (value == 'refresh') {
-                                    _loadAll();
-                                  }
-                                  if (value == 'new-chat') {
-                                    _openNewChatDialog();
-                                  }
-                                },
-                                itemBuilder: (context) => [
-                                  if (compactActions)
-                                    const PopupMenuItem<String>(
-                                      value: 'new-chat',
-                                      child: Text('Nuevo chat por numero'),
-                                    ),
-                                  if (compactActions)
-                                    const PopupMenuItem<String>(
-                                      value: 'refresh',
-                                      child: Text('Actualizar lista'),
-                                    ),
-                                  const PopupMenuItem<String>(
-                                    value: 'settings',
-                                    child: Text('Configuracion de instancia'),
                                   ),
-                                ],
+                                ),
+                        ),
+                        const SizedBox(width: 2),
+                        PopupMenuButton<String>(
+                          tooltip: 'Filtrar estado',
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: 34,
+                            minHeight: 34,
+                          ),
+                          onSelected: (value) {
+                            setState(() {
+                              _statusFilter = value;
+                            });
+                            _loadAll();
+                          },
+                          itemBuilder: (context) => [
+                            const PopupMenuItem<String>(
+                              value: '',
+                              child: Text('Todos'),
+                            ),
+                            ..._crmStatuses.map(
+                              (status) => PopupMenuItem<String>(
+                                value: status,
+                                child: Text(_statusLabel(status)),
                               ),
-                            ],
-                          );
-                        },
-                      ),
-                    ),
-                  ],
+                            ),
+                          ],
+                          icon: Icon(
+                            Icons.filter_list_rounded,
+                            size: 20,
+                            color: _statusFilter.isEmpty ? _waTextMuted : _waGreenDark,
+                          ),
+                        ),
+                        const SizedBox(width: 2),
+                        FilterChip(
+                          selected: _onlyMine,
+                          showCheckmark: false,
+                          side: BorderSide(color: _waBorder.withAlpha(100)),
+                          backgroundColor: const Color(0xFFF6F7F7),
+                          selectedColor: _waGreen.withAlpha(20),
+                          visualDensity: VisualDensity.compact,
+                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          labelPadding: const EdgeInsets.symmetric(horizontal: 2),
+                          label: const Text('Mio', style: TextStyle(fontSize: 11)),
+                          onSelected: (value) {
+                            setState(() => _onlyMine = value);
+                            _loadAll();
+                          },
+                        ),
+                        const SizedBox(width: 2),
+                        IconButton(
+                          tooltip: 'Nuevo chat',
+                          visualDensity: VisualDensity.compact,
+                          constraints: const BoxConstraints(
+                            minWidth: 34,
+                            minHeight: 34,
+                          ),
+                          padding: EdgeInsets.zero,
+                          onPressed: _openNewChatDialog,
+                          icon: const Icon(Icons.add_rounded, size: 20),
+                        ),
+                        PopupMenuButton<String>(
+                          tooltip: 'Mas acciones',
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: 34,
+                            minHeight: 34,
+                          ),
+                          onSelected: (value) {
+                            if (value == 'new-chat') {
+                              _openNewChatDialog();
+                            }
+                            if (value == 'refresh') {
+                              _loadAll();
+                            }
+                            if (value == 'clear-status') {
+                              setState(() => _statusFilter = '');
+                              _loadAll();
+                            }
+                          },
+                          itemBuilder: (context) => const [
+                            PopupMenuItem<String>(
+                              value: 'new-chat',
+                              child: Text('Nuevo chat por numero'),
+                            ),
+                            PopupMenuItem<String>(
+                              value: 'refresh',
+                              child: Text('Actualizar lista'),
+                            ),
+                            PopupMenuItem<String>(
+                              value: 'clear-status',
+                              child: Text('Quitar filtro de estado'),
+                            ),
+                          ],
+                        ),
+                      ],
+                    );
+                  },
                 ),
-                if (_showSidebarSearch) ...[
-                  const SizedBox(height: 6),
-                  TextField(
-                    controller: _searchCtrl,
-                    onSubmitted: (_) => _loadAll(),
-                    decoration: InputDecoration(
-                      hintText: 'Buscar cliente o telefono',
-                      prefixIcon: const Icon(Icons.search_rounded, size: 18),
-                      suffixIcon: IconButton(
-                        onPressed: () {
-                          _searchCtrl.clear();
-                          _loadAll();
-                        },
-                        icon: const Icon(Icons.close_rounded, size: 18),
-                      ),
-                      isDense: true,
-                      filled: true,
-                      fillColor: const Color(0xFFF6F7F7),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: BorderSide(color: _waBorder.withAlpha(110)),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: BorderSide(color: _waBorder.withAlpha(110)),
-                      ),
-                    ),
-                  ),
-                ],
                 if (_allTasks.isNotEmpty) ...[
                   const SizedBox(height: 6),
                   SingleChildScrollView(
@@ -1774,21 +2055,23 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
               ),
             ),
           Expanded(
-            child: _conversations.isEmpty
+            child: filteredConversations.isEmpty
                 ? Center(
                     child: Text(
-                      _conversationWarning ??
-                          'Sin conversaciones para la instancia seleccionada.',
+                      _searchCtrl.text.trim().isNotEmpty
+                          ? 'No hay resultados para esa busqueda.'
+                          : (_conversationWarning ??
+                              'Sin conversaciones para la instancia seleccionada.'),
                       textAlign: TextAlign.center,
                       style: const TextStyle(fontSize: 12, color: _waTextMuted),
                     ),
                   )
                 : ListView.separated(
                     padding: const EdgeInsets.only(bottom: 8),
-                    itemCount: _conversations.length,
+                    itemCount: filteredConversations.length,
                     separatorBuilder: (_, __) => const SizedBox(height: 1),
                     itemBuilder: (context, index) {
-                      final item = _conversations[index];
+                      final item = filteredConversations[index];
                       final isActive = _selectedConversation?.id == item.id;
                       final taskCount = item.crmCustomerId == null
                           ? 0
@@ -1837,23 +2120,39 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
   }) {
     final hasSelection = selected != null;
     final hasConversation = selectedConversation != null;
-    final timeline =
-        _messages
-            .map(
-              (message) => _CrmTimelineEntry(
-                title: message.displayText,
-                subtitle: message.isOutgoing ? 'Tu mensaje' : 'Cliente',
-                author: message.senderName ??
-                    (message.isOutgoing ? 'Equipo FULLTECH' : 'Cliente'),
-                createdAt: message.sentAt,
-                icon: message.isOutgoing
-                    ? Icons.north_east_rounded
-                    : Icons.south_west_rounded,
-                isOutgoing: message.isOutgoing,
-                messageType: message.messageType,
-              ),
-            )
-            .toList(growable: false);
+    if (kDebugMode) {
+      debugPrint(
+        '[CRM][ConversationPanel] called hasConversation=$hasConversation selected=${selectedConversation?.id ?? 'null'} messages=${_messages.length} filtered=${_filteredMessages.length}',
+      );
+    }
+
+    List<_CrmTimelineEntry> timeline;
+    try {
+      timeline = _filteredMessages
+          .map(
+            (message) => _CrmTimelineEntry(
+              title: message.displayText,
+              subtitle: message.isOutgoing ? 'Tu mensaje' : 'Cliente',
+              author: message.senderName ??
+                  (message.isOutgoing ? 'Equipo FULLTECH' : 'Cliente'),
+              createdAt: message.sentAt,
+              icon: message.isOutgoing
+                  ? Icons.north_east_rounded
+                  : Icons.south_west_rounded,
+              isOutgoing: message.isOutgoing,
+              messageType: message.messageType,
+              mediaUrl: message.mediaUrl,
+              caption: message.caption,
+            ),
+          )
+          .toList(growable: false);
+    } catch (error, stackTrace) {
+      if (kDebugMode) {
+        debugPrint('[CRM][ConversationPanel] timeline build failed: $error');
+        debugPrint('$stackTrace');
+      }
+      timeline = const <_CrmTimelineEntry>[];
+    }
 
     return Container(
       decoration: BoxDecoration(
@@ -2070,6 +2369,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
               ),
               child: TextField(
                 controller: _conversationSearchCtrl,
+                onChanged: (_) => setState(() {}),
                 decoration: const InputDecoration(
                   hintText: 'Buscar en la conversacion',
                   isDense: true,
@@ -2091,9 +2391,10 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                       ),
                       Opacity(
                         opacity: 0.30,
-                        child: SvgPicture.asset(
-                          'assets/image/wa_bg_light.svg',
+                        child: Image.asset(
+                          'assets/image/wa_bg_light.png',
                           fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => const SizedBox.shrink(),
                         ),
                       ),
                       DecoratedBox(
@@ -2151,6 +2452,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                       scrollbars: false,
                     ),
                     child: ListView.builder(
+                      controller: _chatScrollCtrl,
                       physics: const BouncingScrollPhysics(),
                       padding: const EdgeInsets.fromLTRB(7, 6, 7, 6),
                       itemCount: timeline.length,
@@ -2189,10 +2491,30 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
               children: [
                 Row(
                   children: [
-                    IconButton(
-                      visualDensity: VisualDensity.compact,
-                      onPressed: null,
-                      icon: const Icon(Icons.emoji_emotions_outlined, size: 20),
+                    PopupMenuButton<String>(
+                      tooltip: 'Adjuntar media',
+                      onSelected: (value) {
+                        if (value == 'media') {
+                          _pickAndSendMedia();
+                        }
+                      },
+                      itemBuilder: (context) => const [
+                        PopupMenuItem<String>(
+                          value: 'media',
+                          child: Row(
+                            children: [
+                              Icon(Icons.attach_file_rounded, size: 18),
+                              SizedBox(width: 8),
+                              Text('Adjuntar media'),
+                            ],
+                          ),
+                        ),
+                      ],
+                      child: IconButton(
+                        visualDensity: VisualDensity.compact,
+                        onPressed: null,
+                        icon: const Icon(Icons.emoji_emotions_outlined, size: 20),
+                      ),
                     ),
                     Expanded(
                       child: TextField(
@@ -2231,60 +2553,123 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                   ],
                 ),
                 const SizedBox(height: 6),
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                  children: [
-                    TextButton.icon(
-                      onPressed: !hasSelection || _saving ? null : _addNote,
-                      icon: const Icon(Icons.note_add_outlined, size: 16),
-                      label: const Text('Nota interna'),
-                      style: TextButton.styleFrom(
-                        visualDensity: VisualDensity.compact,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    SizedBox(
-                      width: 140,
-                      child: TextField(
-                        controller: _activityTypeCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Tipo',
-                          isDense: true,
-                          filled: true,
-                          fillColor: Colors.white,
-                          border: OutlineInputBorder(
-                            borderSide: BorderSide(color: _waBorder),
+                LayoutBuilder(
+                  builder: (context, composerConstraints) {
+                    final compactComposer = composerConstraints.maxWidth < 860;
+                    if (!compactComposer) {
+                      return Row(
+                        children: [
+                          TextButton.icon(
+                            onPressed: !hasSelection || _saving ? null : _addNote,
+                            icon: const Icon(Icons.note_add_outlined, size: 16),
+                            label: const Text('Nota interna'),
+                            style: TextButton.styleFrom(
+                              visualDensity: VisualDensity.compact,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          SizedBox(
+                            width: 140,
+                            child: TextField(
+                              controller: _activityTypeCtrl,
+                              decoration: const InputDecoration(
+                                labelText: 'Tipo',
+                                isDense: true,
+                                filled: true,
+                                fillColor: Colors.white,
+                                border: OutlineInputBorder(
+                                  borderSide: BorderSide(color: _waBorder),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: TextField(
+                              controller: _activityDescriptionCtrl,
+                              minLines: 1,
+                              maxLines: 2,
+                              decoration: const InputDecoration(
+                                hintText: 'Agregar actividad comercial',
+                                isDense: true,
+                                filled: true,
+                                fillColor: Colors.white,
+                                border: OutlineInputBorder(
+                                  borderSide: BorderSide(color: _waBorder),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          FilledButton(
+                            onPressed: !hasSelection || _saving ? null : _addActivity,
+                            style: FilledButton.styleFrom(
+                              visualDensity: VisualDensity.compact,
+                            ),
+                            child: const Text('Actividad'),
+                          ),
+                        ],
+                      );
+                    }
+
+                    return Column(
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextButton.icon(
+                                onPressed: !hasSelection || _saving ? null : _addNote,
+                                icon: const Icon(Icons.note_add_outlined, size: 16),
+                                label: const Text('Nota interna'),
+                                style: TextButton.styleFrom(
+                                  visualDensity: VisualDensity.compact,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            SizedBox(
+                              width: 120,
+                              child: TextField(
+                                controller: _activityTypeCtrl,
+                                decoration: const InputDecoration(
+                                  labelText: 'Tipo',
+                                  isDense: true,
+                                  filled: true,
+                                  fillColor: Colors.white,
+                                  border: OutlineInputBorder(
+                                    borderSide: BorderSide(color: _waBorder),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            FilledButton(
+                              onPressed: !hasSelection || _saving ? null : _addActivity,
+                              style: FilledButton.styleFrom(
+                                visualDensity: VisualDensity.compact,
+                              ),
+                              child: const Text('Actividad'),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        TextField(
+                          controller: _activityDescriptionCtrl,
+                          minLines: 1,
+                          maxLines: 2,
+                          decoration: const InputDecoration(
+                            hintText: 'Agregar actividad comercial',
+                            isDense: true,
+                            filled: true,
+                            fillColor: Colors.white,
+                            border: OutlineInputBorder(
+                              borderSide: BorderSide(color: _waBorder),
+                            ),
                           ),
                         ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: TextField(
-                        controller: _activityDescriptionCtrl,
-                        minLines: 1,
-                        maxLines: 2,
-                        decoration: const InputDecoration(
-                          hintText: 'Agregar actividad comercial',
-                          isDense: true,
-                          filled: true,
-                          fillColor: Colors.white,
-                          border: OutlineInputBorder(
-                            borderSide: BorderSide(color: _waBorder),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    FilledButton(
-                      onPressed: !hasSelection || _saving ? null : _addActivity,
-                      style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
-                      
-                      child: const Text('Actividad'),
-                    ),
-                  ],
-                ),
+                      ],
+                    );
+                  },
                 ),
               ],
             ),
@@ -2920,7 +3305,11 @@ class _CrmConversationListItemState extends State<_CrmConversationListItem> {
         : _hover
         ? _waHover
         : Colors.transparent;
-    final hasAvatar = (widget.avatarUrl ?? '').trim().isNotEmpty;
+    final avatarUrl = (widget.avatarUrl ?? '').trim();
+    final avatarUri = Uri.tryParse(avatarUrl);
+    final hasAvatar = avatarUri != null &&
+      avatarUri.hasScheme &&
+      (avatarUri.scheme == 'http' || avatarUri.scheme == 'https');
 
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -3106,6 +3495,137 @@ class _CrmConversationListItemState extends State<_CrmConversationListItem> {
     }
     return DateFormat('dd/MM').format(value);
   }
+
+  Widget _buildMessageMedia(String messageType, String mediaUrl, String? fileName) {
+    switch (messageType.toLowerCase()) {
+      case 'image':
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: SizedBox(
+            height: 160,
+            width: 200,
+            child: Image.network(
+              mediaUrl,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => Container(
+                color: Colors.grey[200],
+                child: const Center(
+                  child: Icon(Icons.broken_image_rounded, color: Colors.grey),
+                ),
+              ),
+              loadingBuilder: (_, child, loadingProgress) {
+                if (loadingProgress == null) return child;
+                return Container(
+                  color: Colors.grey[200],
+                  child: const Center(
+                    child: SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        );
+      case 'video':
+        return Container(
+          height: 160,
+          width: 200,
+          decoration: BoxDecoration(
+            color: Colors.grey[200],
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.network(
+                  mediaUrl,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => const Center(
+                    child: Icon(Icons.broken_image_rounded, color: Colors.grey),
+                  ),
+                ),
+              ),
+              const Icon(
+                Icons.play_circle_outline_rounded,
+                size: 48,
+                color: Colors.white,
+              ),
+            ],
+          ),
+        );
+      case 'audio':
+        return Container(
+          height: 60,
+          width: 200,
+          decoration: BoxDecoration(
+            color: Colors.grey[100],
+            border: Border.all(color: Colors.grey[300]!),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Icon(Icons.music_note_rounded, color: Colors.grey[600]),
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                  child: Text(
+                    fileName ?? 'Audio',
+                    style: const TextStyle(fontSize: 12),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Icon(Icons.play_arrow_rounded, color: Colors.grey[600]),
+              ),
+            ],
+          ),
+        );
+      case 'document':
+      default:
+        return Container(
+          height: 60,
+          width: 200,
+          decoration: BoxDecoration(
+            color: Colors.grey[100],
+            border: Border.all(color: Colors.grey[300]!),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Icon(Icons.description_rounded, color: Colors.grey[600]),
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                  child: Text(
+                    fileName ?? 'Documento',
+                    style: const TextStyle(fontSize: 12),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Icon(Icons.download_rounded, color: Colors.grey[600]),
+              ),
+            ],
+          ),
+        );
+    }
+  }
 }
 
 class _CrmTimelineEntry {
@@ -3117,6 +3637,8 @@ class _CrmTimelineEntry {
     required this.icon,
     required this.isOutgoing,
     required this.messageType,
+    this.mediaUrl,
+    this.caption,
   });
 
   final String title;
@@ -3126,12 +3648,145 @@ class _CrmTimelineEntry {
   final IconData icon;
   final bool isOutgoing;
   final String messageType;
+  final String? mediaUrl;
+  final String? caption;
 }
 
 class _CrmTimelineTile extends StatelessWidget {
   const _CrmTimelineTile({required this.entry});
 
   final _CrmTimelineEntry entry;
+
+  Widget _buildMessageMedia(String messageType, String mediaUrl, String? fileName) {
+    switch (messageType.toLowerCase()) {
+      case 'image':
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: SizedBox(
+            height: 160,
+            width: 200,
+            child: Image.network(
+              mediaUrl,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => Container(
+                color: Colors.grey[200],
+                child: const Center(
+                  child: Icon(Icons.broken_image_rounded, color: Colors.grey),
+                ),
+              ),
+              loadingBuilder: (_, child, loadingProgress) {
+                if (loadingProgress == null) return child;
+                return Container(
+                  color: Colors.grey[200],
+                  child: const Center(
+                    child: SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        );
+      case 'video':
+        return Container(
+          height: 160,
+          width: 200,
+          decoration: BoxDecoration(
+            color: Colors.grey[200],
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.network(
+                  mediaUrl,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => const Center(
+                    child: Icon(Icons.broken_image_rounded, color: Colors.grey),
+                  ),
+                ),
+              ),
+              const Icon(
+                Icons.play_circle_outline_rounded,
+                size: 48,
+                color: Colors.white,
+              ),
+            ],
+          ),
+        );
+      case 'audio':
+        return Container(
+          height: 60,
+          width: 200,
+          decoration: BoxDecoration(
+            color: Colors.grey[100],
+            border: Border.all(color: Colors.grey[300]!),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Icon(Icons.music_note_rounded, color: Colors.grey[600]),
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                  child: Text(
+                    fileName ?? 'Audio',
+                    style: const TextStyle(fontSize: 12),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Icon(Icons.play_arrow_rounded, color: Colors.grey[600]),
+              ),
+            ],
+          ),
+        );
+      case 'document':
+      default:
+        return Container(
+          height: 60,
+          width: 200,
+          decoration: BoxDecoration(
+            color: Colors.grey[100],
+            border: Border.all(color: Colors.grey[300]!),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Icon(Icons.description_rounded, color: Colors.grey[600]),
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                  child: Text(
+                    fileName ?? 'Documento',
+                    style: const TextStyle(fontSize: 12),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Icon(Icons.download_rounded, color: Colors.grey[600]),
+              ),
+            ],
+          ),
+        );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -3169,14 +3824,35 @@ class _CrmTimelineTile extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  entry.title,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: _waText,
-                    height: 1.3,
+                // Render multimedia if present
+                if (entry.messageType != 'TEXT' && entry.mediaUrl != null) ...[
+                  _buildMessageMedia(entry.messageType, entry.mediaUrl!, null),
+                  if (entry.title.isNotEmpty || entry.caption?.isNotEmpty == true)
+                    const SizedBox(height: 6),
+                ],
+                // Text content
+                if (entry.title.isNotEmpty)
+                  Text(
+                    entry.title,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: _waText,
+                      height: 1.3,
+                    ),
                   ),
-                ),
+                // Caption (if exists)
+                if (entry.caption?.isNotEmpty == true) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    entry.caption!,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: _waText,
+                      fontStyle: FontStyle.italic,
+                      height: 1.2,
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 3),
                 Align(
                   alignment: Alignment.bottomRight,
