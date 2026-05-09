@@ -473,6 +473,28 @@ export class MarketingService {
     };
   }
 
+  async listContentGallery(companyId: string) {
+    const data = await this.mediaAssets.list(companyId, {
+      active_only: true,
+    } as MarketingMediaAssetQueryDto);
+
+    return {
+      ...data,
+      items: (data.items ?? []).map((item: any) => {
+        const normalized = this.normalizeMediaAssetUrls(item);
+        return {
+          ...normalized,
+          approvedForPublicidad: true,
+          origin: `${normalized.sourceType ?? ''}`.trim() || 'content-gallery',
+          recommendedUse:
+            `${normalized.relatedService ?? ''}`.trim() ||
+            `${normalized.category ?? ''}`.trim() ||
+            'General',
+        };
+      }),
+    };
+  }
+
   async createMediaAsset(companyId: string, dto: CreateMarketingMediaAssetDto, userId: string) {
     const created = await this.mediaAssets.create(companyId, dto);
     await this.log(companyId, 'MARKETING_MEDIA_ASSET_CREATED', 'Nuevo asset agregado en galería publicitaria', userId, {

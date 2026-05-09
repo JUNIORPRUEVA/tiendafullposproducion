@@ -52,6 +52,7 @@ class PublicidadState {
     required this.config,
     required this.dailyStories,
     required this.mediaAssets,
+    required this.contentGalleryAssets,
     required this.history,
     required this.latestResearch,
     required this.researchHistory,
@@ -68,6 +69,7 @@ class PublicidadState {
   final MarketingFlowConfig? config;
   final List<MarketingStory> dailyStories;
   final List<MarketingMediaAsset> mediaAssets;
+  final List<MarketingMediaAsset> contentGalleryAssets;
   final List<MarketingStory> history;
   final MarketingResearchDetail? latestResearch;
   final List<MarketingResearchDetail> researchHistory;
@@ -86,6 +88,7 @@ class PublicidadState {
       config: null,
       dailyStories: const [],
       mediaAssets: const [],
+      contentGalleryAssets: const [],
       history: const [],
       latestResearch: null,
       researchHistory: const [],
@@ -104,6 +107,7 @@ class PublicidadState {
     MarketingFlowConfig? config,
     List<MarketingStory>? dailyStories,
     List<MarketingMediaAsset>? mediaAssets,
+    List<MarketingMediaAsset>? contentGalleryAssets,
     List<MarketingStory>? history,
     MarketingResearchDetail? latestResearch,
     List<MarketingResearchDetail>? researchHistory,
@@ -121,6 +125,7 @@ class PublicidadState {
       config: config ?? this.config,
       dailyStories: dailyStories ?? this.dailyStories,
       mediaAssets: mediaAssets ?? this.mediaAssets,
+      contentGalleryAssets: contentGalleryAssets ?? this.contentGalleryAssets,
       history: history ?? this.history,
       latestResearch: latestResearch ?? this.latestResearch,
       researchHistory: researchHistory ?? this.researchHistory,
@@ -521,6 +526,7 @@ class PublicidadController extends StateNotifier<PublicidadState> {
       final dashboard = await _api.loadDashboard(date);
       final config = await _api.loadConfig();
       final mediaAssets = await _api.loadMediaAssets();
+      final contentGalleryAssets = await _api.loadContentGallery();
       var stories = const <MarketingStory>[];
       var historyItems = const <MarketingStory>[];
       MarketingResearchDetail? latestResearch;
@@ -591,6 +597,7 @@ class PublicidadController extends StateNotifier<PublicidadState> {
         config: config,
         dailyStories: stories,
         mediaAssets: mediaAssets,
+        contentGalleryAssets: contentGalleryAssets,
         history: historyItems,
         latestResearch: latestResearch,
         researchHistory: researchHistory,
@@ -1083,6 +1090,8 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
                                 state: state,
                                 stories: activeStories,
                                 mediaAssets: state.mediaAssets,
+                                contentGalleryAssets:
+                                  state.contentGalleryAssets,
                                 researches: state.researchHistory,
                                 onActivate: controller.activateFlow,
                                 onPause: controller.pauseFlow,
@@ -1134,7 +1143,7 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
                             if (_tab == _PublicidadTab.estados)
                               _DailyStoriesTab(
                                 stories: activeStories,
-                                mediaAssets: state.mediaAssets,
+                                mediaAssets: state.contentGalleryAssets,
                                 researches: state.researchHistory,
                                 busy: state.busy,
                                 imageBusyStoryIds: state.imageBusyStoryIds,
@@ -1469,6 +1478,7 @@ class _DashboardTab extends StatelessWidget {
     required this.state,
     required this.stories,
     required this.mediaAssets,
+    required this.contentGalleryAssets,
     required this.researches,
     required this.onActivate,
     required this.onPause,
@@ -1488,6 +1498,7 @@ class _DashboardTab extends StatelessWidget {
   final PublicidadState state;
   final List<MarketingStory> stories;
   final List<MarketingMediaAsset> mediaAssets;
+  final List<MarketingMediaAsset> contentGalleryAssets;
   final List<MarketingResearchDetail> researches;
   final Future<void> Function() onActivate;
   final Future<void> Function() onPause;
@@ -1642,7 +1653,7 @@ class _DashboardTab extends StatelessWidget {
         const SizedBox(height: 10),
         _DailyStoriesTab(
           stories: stories,
-          mediaAssets: mediaAssets,
+          mediaAssets: contentGalleryAssets,
           researches: researches,
           busy: busy,
           onApprove: onApprove,
@@ -1776,7 +1787,7 @@ class _DailyStoriesTab extends StatelessWidget {
                               builder: (_) => AlertDialog(
                                 title: const Text('Confirmar imagen base'),
                                 content: const Text(
-                                  '¿Deseas usar esta imagen o elegir otra de la Galería de Publicidad?',
+                                  '¿Deseas usar esta imagen o elegir otra de la Galería de contenido?',
                                 ),
                                 actions: [
                                   TextButton(
@@ -1895,7 +1906,7 @@ class _StoryCard extends StatelessWidget {
           ),
         if (hasBaseImage && !baseConfirmed)
           const _ErrorBanner(
-            message: '¿Deseas usar esta imagen o elegir otra de la Galería de Publicidad? Confirma primero para habilitar "Generar diseño".',
+            message: '¿Deseas usar esta imagen o elegir otra de la Galería de contenido? Confirma primero para habilitar "Generar diseño".',
           ),
         if (!isComplete)
           _ErrorBanner(
@@ -2059,7 +2070,7 @@ class _StoryCard extends StatelessWidget {
             ),
             OutlinedButton(
               onPressed: busy || imageBusy ? null : onChangeBaseImage,
-              child: const Text('Cambiar desde galería autorizada'),
+              child: const Text('Cambiar desde Galería de contenido'),
             ),
             FilledButton.icon(
               onPressed: canGenerateDesign ? onGenerateDesign : null,
@@ -4634,7 +4645,7 @@ class _PickMediaAssetDialogState extends State<_PickMediaAssetDialog> {
               Row(
                 children: [
                   Text(
-                    'Galería de Contenido Autorizada',
+                    'Seleccionar desde Galería de contenido',
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
                   ),
                   const Spacer(),
@@ -4687,7 +4698,12 @@ class _PickMediaAssetDialogState extends State<_PickMediaAssetDialog> {
                     Expanded(
                       flex: 3,
                       child: visible.isEmpty
-                          ? const Center(child: Text('No hay imágenes en la Galería de Contenido con este filtro.'))
+                          ? const Center(
+                              child: Text(
+                                'No hay contenido autorizado en Galería de contenido. Agrega imágenes desde Publicidad > Galería de contenido.',
+                                textAlign: TextAlign.center,
+                              ),
+                            )
                           : GridView.builder(
                               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                                 crossAxisCount: 3,
@@ -4718,14 +4734,7 @@ class _PickMediaAssetDialogState extends State<_PickMediaAssetDialog> {
                                         Expanded(
                                           child: ClipRRect(
                                             borderRadius: const BorderRadius.vertical(top: Radius.circular(11)),
-                                            child: SizedBox(
-                                              width: double.infinity,
-                                              child: Image.network(
-                                                item.fileUrl,
-                                                fit: BoxFit.cover,
-                                                errorBuilder: (_, __, ___) => const _BrokenImagePlaceholder(),
-                                              ),
-                                            ),
+                                            child: SizedBox(width: double.infinity, child: _buildAssetPreview(item, BoxFit.cover)),
                                           ),
                                         ),
                                         Padding(
@@ -4765,11 +4774,7 @@ class _PickMediaAssetDialogState extends State<_PickMediaAssetDialog> {
                                       borderRadius: BorderRadius.circular(10),
                                       child: SizedBox(
                                         width: double.infinity,
-                                        child: Image.network(
-                                          selected.fileUrl,
-                                          fit: BoxFit.contain,
-                                          errorBuilder: (_, __, ___) => const _BrokenImagePlaceholder(),
-                                        ),
+                                        child: _buildAssetPreview(selected, BoxFit.contain),
                                       ),
                                     ),
                                   ),
@@ -4777,6 +4782,26 @@ class _PickMediaAssetDialogState extends State<_PickMediaAssetDialog> {
                                   Text(selected.fileName, maxLines: 1, overflow: TextOverflow.ellipsis),
                                   const SizedBox(height: 4),
                                   Text('Categoría: ${selected.category}'),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'Descripción: ${(selected.description ?? '').trim().isEmpty ? 'Sin descripción' : selected.description!.trim()}',
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'Tags: ${selected.tags.isEmpty ? 'Sin tags' : selected.tags.join(', ')}',
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text('Origen: ${_originLabel(selected)}'),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'Uso recomendado: ${(selected.relatedService ?? '').trim().isEmpty ? selected.category : selected.relatedService!.trim()}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
                                   const SizedBox(height: 10),
                                   SizedBox(
                                     width: double.infinity,
@@ -4798,6 +4823,44 @@ class _PickMediaAssetDialogState extends State<_PickMediaAssetDialog> {
         ),
       ),
     );
+  }
+
+  Widget _buildAssetPreview(MarketingMediaAsset item, BoxFit fit) {
+    if (_isVideoAsset(item)) {
+      return DecoratedBox(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF0B1F3B), Color(0xFF102A4C)],
+          ),
+        ),
+        child: const Center(
+          child: Icon(
+            Icons.play_circle_fill_rounded,
+            size: 56,
+            color: Color(0xFF67E8F9),
+          ),
+        ),
+      );
+    }
+
+    return Image.network(
+      item.fileUrl,
+      fit: fit,
+      errorBuilder: (_, __, ___) => const _BrokenImagePlaceholder(),
+    );
+  }
+
+  bool _isVideoAsset(MarketingMediaAsset item) {
+    return item.mimeType.toLowerCase().startsWith('video/');
+  }
+
+  String _originLabel(MarketingMediaAsset item) {
+    final raw = (item.sourceType ?? '').trim().toLowerCase();
+    if (raw.isEmpty) return 'Galería de contenido';
+    if (raw == 'gallery') return 'Galería de contenido';
+    return raw;
   }
 }
 

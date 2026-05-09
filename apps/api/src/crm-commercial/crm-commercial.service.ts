@@ -66,7 +66,11 @@ export class CrmCommercialService {
     normalizedPhone: string;
     remoteJid: string;
   } {
-    const normalizedPhone = normalizeWhatsappPhone(rawPhone) ?? rawPhone.replace(/\D/g, '');
+    let normalizedPhone = normalizeWhatsappPhone(rawPhone) ?? rawPhone.replace(/\D/g, '');
+    // Evolution usually expects E.164-like number for DR locals (809/829/849 => 1XXXXXXXXXX)
+    if (normalizedPhone.length === 10 && /^(809|829|849)/.test(normalizedPhone)) {
+      normalizedPhone = `1${normalizedPhone}`;
+    }
     if (!normalizedPhone || normalizedPhone.length < 7) {
       throw new BadRequestException('Numero de telefono invalido.');
     }
@@ -74,6 +78,15 @@ export class CrmCommercialService {
       normalizedPhone,
       remoteJid: `${normalizedPhone}@s.whatsapp.net`,
     };
+  }
+
+  private stringifyDebug(value: unknown): string {
+    try {
+      if (typeof value === 'string') return value;
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
   }
 
   private isAdmin(user: AuthUser): boolean {
@@ -730,17 +743,35 @@ export class CrmCommercialService {
       dto.phone ?? '',
     );
 
+    console.log(
+      `[CRM-COMMERCIAL][SEND_TEXT][START] instanceName=${instance.instanceName} conversationId=(new) remoteJid=${remoteJid} remotePhone=${dto.phone ?? ''} normalizedPhone=${normalizedPhone}`,
+    );
+    console.log(
+      `[CRM-COMMERCIAL][SEND_TEXT][START] evolutionPayload=${this.stringifyDebug({ number: remoteJid, text })}`,
+    );
+
     const saved = await this.whatsappInboxService.recordOutgoingMessage(
       instance.id,
       remoteJid,
       text,
     );
 
-    const evolutionResult = await this.whatsappService.sendTextMessage(
-      instance.instanceName,
-      remoteJid,
-      text,
-    );
+    let evolutionResult: unknown;
+    try {
+      evolutionResult = await this.whatsappService.sendTextMessage(
+        instance.instanceName,
+        remoteJid,
+        text,
+      );
+      console.log(
+        `[CRM-COMMERCIAL][SEND_TEXT][START] evolutionResponse=${this.stringifyDebug(evolutionResult)}`,
+      );
+    } catch (error) {
+      console.error(
+        `[CRM-COMMERCIAL][SEND_TEXT][START] send failed instanceName=${instance.instanceName} remoteJid=${remoteJid} normalizedPhone=${normalizedPhone} error=${error instanceof Error ? error.message : String(error)}`,
+      );
+      throw error;
+    }
 
     const savedMessageId =
       (saved as { message?: { id?: string } })?.message?.id ?? null;
@@ -822,17 +853,31 @@ export class CrmCommercialService {
       throw new NotFoundException('Conversacion no encontrada para la instancia activa.');
     }
 
-    const destinationRaw = (conversation.remotePhone ?? conversation.remoteJid ?? '').trim();
-    if (!destinationRaw) {
+    const conversationRemoteJid = (conversation.remoteJid ?? '').trim();
+    const conversationRemotePhone = (conversation.remotePhone ?? '').trim();
+
+    if (!conversationRemoteJid && !conversationRemotePhone) {
       throw new BadRequestException({
         message: 'No se pudo enviar el mensaje: la conversación no tiene destino válido.',
         code: 'CRM_SEND_MESSAGE_FAILED',
       });
     }
 
+    // Reuse WhatsApp CRM behavior: prefer existing conversation.remoteJid exactly as stored.
     let remoteJid: string;
+    let normalizedPhone = '';
     try {
-      remoteJid = this.normalizeRemoteJidFromPhone(destinationRaw).remoteJid;
+      if (conversationRemoteJid) {
+        remoteJid = conversationRemoteJid;
+        normalizedPhone =
+          this.normalizeComparablePhone(conversationRemotePhone) ??
+          this.normalizeComparablePhone(conversationRemoteJid) ??
+          '';
+      } else {
+        const normalized = this.normalizeRemoteJidFromPhone(conversationRemotePhone);
+        remoteJid = normalized.remoteJid;
+        normalizedPhone = normalized.normalizedPhone;
+      }
     } catch (error) {
       const reason = error instanceof Error ? error.message : 'Destino inválido.';
       throw new BadRequestException({
@@ -840,6 +885,13 @@ export class CrmCommercialService {
         code: 'CRM_SEND_MESSAGE_FAILED',
       });
     }
+
+    console.log(
+      `[CRM-COMMERCIAL][SEND_TEXT][REPLY] instanceName=${conversation.instance.instanceName} conversationId=${conversationId} remoteJid=${conversationRemoteJid} remotePhone=${conversationRemotePhone} normalizedPhone=${normalizedPhone} finalTarget=${remoteJid}`,
+    );
+    console.log(
+      `[CRM-COMMERCIAL][SEND_TEXT][REPLY] evolutionPayload=${this.stringifyDebug({ number: remoteJid, text })}`,
+    );
 
     const saved = await this.whatsappInboxService.recordOutgoingMessage(
       conversation.instanceId,
@@ -854,8 +906,14 @@ export class CrmCommercialService {
         remoteJid,
         text,
       );
+      console.log(
+        `[CRM-COMMERCIAL][SEND_TEXT][REPLY] evolutionResponse=${this.stringifyDebug(evolutionResult)}`,
+      );
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
+      console.error(
+        `[CRM-COMMERCIAL][SEND_TEXT][REPLY] send failed conversationId=${conversationId} instanceName=${conversation.instance.instanceName} finalTarget=${remoteJid} error=${reason}`,
+      );
       throw new BadRequestException({
         message: `No se pudo enviar el mensaje: ${reason}`,
         code: 'CRM_SEND_MESSAGE_FAILED',

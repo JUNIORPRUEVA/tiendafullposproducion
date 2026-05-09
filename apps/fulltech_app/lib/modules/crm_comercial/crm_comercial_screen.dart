@@ -844,6 +844,9 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
   Future<void> _sendMessageToCurrentConversation() async {
     final selectedConversation = _selectedConversation;
     final text = _chatComposerCtrl.text.trim();
+    debugPrint(
+      '[CRM][UI][_sendMessageToCurrentConversation] called hasConversation=${selectedConversation != null} textLen=${text.length} sending=$_sendingChatMessage',
+    );
     if (selectedConversation == null || text.isEmpty || _sendingChatMessage) {
       return;
     }
@@ -852,12 +855,18 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
       _sendingChatMessage = true;
       _error = '';
     });
+    debugPrint(
+      '[CRM][UI][_sendMessageToCurrentConversation] sending=true conversationId=${selectedConversation.id}',
+    );
 
     try {
       await ref.read(crmComercialRepositoryProvider).replyConversation(
             conversationId: selectedConversation.id,
             text: text,
           );
+      debugPrint(
+        '[CRM][UI][_sendMessageToCurrentConversation] success conversationId=${selectedConversation.id}',
+      );
       _chatComposerCtrl.clear();
       await _openConversation(selectedConversation.id);
       await _loadAll();
@@ -868,6 +877,9 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
         });
       }
     } catch (error) {
+      debugPrint(
+        '[CRM][UI][_sendMessageToCurrentConversation] error=${error is ApiException ? error.message : error.toString()}',
+      );
       if (!mounted) return;
       setState(() {
         _error = error is ApiException ? error.message : error.toString();
@@ -876,6 +888,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
       if (mounted) {
         setState(() => _sendingChatMessage = false);
       }
+      debugPrint('[CRM][UI][_sendMessageToCurrentConversation] sending=false');
     }
   }
 
@@ -3376,7 +3389,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                               ),
                             )
                           : const Icon(Icons.send_rounded, size: 16),
-                      label: const Text('Enviar'),
+                      label: Text(_sendingChatMessage ? 'Enviando...' : 'Enviar'),
                       style: FilledButton.styleFrom(
                         backgroundColor: _waGreenDark,
                         foregroundColor: Colors.white,

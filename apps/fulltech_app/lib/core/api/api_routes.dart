@@ -247,6 +247,7 @@ class ApiRoutes {
   static String marketingStoryChangeBaseImage(String id, String mediaAssetId) =>
       '/marketing/stories/$id/base-image/$mediaAssetId';
   static String marketingStoryEdit(String id) => '/marketing/stories/$id';
+    static const marketingContentGallery = '/marketing/content-gallery';
     static const marketingMediaAssets = '/marketing/media-assets';
     static const marketingPublishedAssets = '/marketing/published-assets';
   static String marketingMediaAssetById(String id) => '/marketing/media-assets/$id';

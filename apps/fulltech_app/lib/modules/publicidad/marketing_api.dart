@@ -367,6 +367,32 @@ class MarketingApi {
     }
   }
 
+  Future<List<MarketingMediaAsset>> loadContentGallery() async {
+    try {
+      final res = await _dio.get(
+        ApiRoutes.marketingContentGallery,
+        options: _backgroundOptions,
+      );
+      final raw =
+          (res.data as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
+      final rows = (raw['items'] is List) ? (raw['items'] as List) : const [];
+      return rows
+          .whereType<Map>()
+          .map(
+            (item) => MarketingMediaAsset.fromJson(
+              item.cast<String, dynamic>(),
+            ),
+          )
+          .toList(growable: false);
+    } on DioException catch (error) {
+      _rethrow(
+        error,
+        'No se pudo cargar la Galería de contenido autorizada de Publicidad',
+      );
+    }
+  }
+
   /// Analyzes multiple media assets and returns AI recommendations ranked by suitability
   Future<Map<String, dynamic>> analyzeMediaAssets({
     required List<String> mediaAssetIds,

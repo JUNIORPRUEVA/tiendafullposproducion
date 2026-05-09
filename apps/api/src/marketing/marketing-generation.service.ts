@@ -395,6 +395,8 @@ export class MarketingGenerationService {
       throw new ConflictException('Debes confirmar la imagen base antes de generar el diseño.');
     }
 
+    await this.assertStoryUsesContentGallery(companyId, story);
+
     const updated = await this.markStoryImageQueued(companyId, storyId, userId, customPrompt, {
       queuedAt: new Date().toISOString(),
       queueReason: 'manual-regenerate-image',
@@ -442,6 +444,8 @@ export class MarketingGenerationService {
     if (!this.isImageSelectionConfirmed(story)) {
       throw new ConflictException('Debes confirmar la imagen base antes de generar el diseño.');
     }
+
+    await this.assertStoryUsesContentGallery(companyId, story);
 
     return this.prisma.marketingDailyStory.update({
       where: { id: storyId },
@@ -521,6 +525,8 @@ export class MarketingGenerationService {
     if (!story) {
       throw new NotFoundException('Contenido no encontrado');
     }
+
+    await this.assertStoryUsesContentGallery(companyId, story);
 
     const enrichedStory = await this.ensureStoryCopyAndHashtagsForDesign(companyId, story);
 
@@ -802,6 +808,31 @@ export class MarketingGenerationService {
     return true;
   }
 
+  private async assertStoryUsesContentGallery(
+    companyId: string,
+    story: { mediaAssetId?: string | null },
+  ) {
+    const mediaAssetId = `${story.mediaAssetId ?? ''}`.trim();
+    if (!mediaAssetId) {
+      throw new ConflictException(
+        'Generar diseño requiere una imagen seleccionada desde Publicidad > Galería de contenido.',
+      );
+    }
+
+    const exists = await this.prisma.marketingMediaAsset.findFirst({
+      where: {
+        id: mediaAssetId,
+        companyId,
+      },
+      select: { id: true },
+    });
+    if (!exists) {
+      throw new ConflictException(
+        'La imagen seleccionada no pertenece a la Galería de contenido de Publicidad.',
+      );
+    }
+  }
+
   async regenerateStoryImageDirect(companyId: string, storyId: string, userId: string, customPrompt?: string) {
     const story = await this.prisma.marketingDailyStory.findFirst({
       where: { id: storyId, companyId },
@@ -813,6 +844,8 @@ export class MarketingGenerationService {
     if (!this.isImageSelectionConfirmed(story)) {
       throw new ConflictException('Debes confirmar la imagen base antes de generar el diseño.');
     }
+
+    await this.assertStoryUsesContentGallery(companyId, story);
 
     await this.markStoryImageProcessing(companyId, storyId, 1);
     try {
@@ -854,8 +887,15 @@ export class MarketingGenerationService {
           confirmedByUserId: null,
           selectedAt: new Date().toISOString(),
           selectedByUserId: userId,
+          contentGalleryItemId: asset.id,
+          imageUrl: normalized.url,
           baseImageSourceUrl: asset.fileUrl,
           selectedMediaAssetId: asset.id,
+          thumbnailUrl: asset.thumbnailUrl ?? null,
+          categoria: asset.category,
+          descripcion: asset.description ?? null,
+          tags: Array.isArray(asset.tags) ? asset.tags : [],
+          origen: `${(asset as any).sourceType ?? ''}`.trim() || 'content-gallery',
           selectedMediaCategory: asset.category,
         } as any,
       },

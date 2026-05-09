@@ -258,6 +258,9 @@ class CrmComercialRepository {
         debugPrint('[CRM][replyConversation] POST $url body=$payload');
       }
       final res = await _dio.post<Map<String, dynamic>>(url, data: payload);
+      if (kDebugMode) {
+        debugPrint('[CRM][replyConversation] OK status=${res.statusCode} response=${res.data}');
+      }
       return res.data ?? const <String, dynamic>{};
     } on DioException catch (error) {
       if (kDebugMode) {

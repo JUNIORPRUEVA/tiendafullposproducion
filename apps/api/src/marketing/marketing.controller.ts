@@ -209,6 +209,12 @@ export class MarketingController {
   }
 
   // Publicity media gallery
+  @Get('content-gallery')
+  async listContentGallery() {
+    const companyId = this.marketing.resolveCompanyId();
+    return this.marketing.listContentGallery(companyId);
+  }
+
   @Get('media-assets')
   async listMediaAssets(@Query() query: MarketingMediaAssetQueryDto) {
     const companyId = this.marketing.resolveCompanyId();

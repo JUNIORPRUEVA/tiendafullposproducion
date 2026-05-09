@@ -478,11 +478,24 @@ export class WhatsappService {
       }
 
       if (response.status < 200 || response.status >= 300) {
-        const msg =
+        const bodyPreview =
           typeof body === 'string'
             ? body.trim()
-            : ((body as { message?: string })?.message ??
-              `HTTP ${response.status}`);
+            : (() => {
+                try {
+                  return JSON.stringify(body ?? null);
+                } catch {
+                  return String(body ?? '');
+                }
+              })();
+        const requestPayload =
+          typeof options?.body === 'string' ? options.body : '';
+        console.error(
+          `[WhatsApp][Evolution] HTTP ${response.status} url=${url} payload=${requestPayload} response=${bodyPreview}`,
+        );
+        const msg =
+          bodyPreview ||
+          ((body as { message?: string })?.message ?? `HTTP ${response.status}`);
         throw new BadRequestException(
           `Evolution API error (HTTP ${response.status}): ${msg}`,
         );
@@ -1050,14 +1063,18 @@ export class WhatsappService {
     remoteJid: string,
     text: string,
   ): Promise<unknown> {
+    const payload = {
+      number: remoteJid,
+      text,
+    };
+    console.log(
+      `[WhatsApp][Evolution][sendText] endpoint=/message/sendText/${encodeURIComponent(instanceName)} instanceName=${instanceName} payload=${JSON.stringify(payload)}`,
+    );
     return this.fetchEvolution(
       `/message/sendText/${encodeURIComponent(instanceName)}`,
       {
         method: 'POST',
-        body: JSON.stringify({
-          number: remoteJid,
-          text,
-        }),
+        body: JSON.stringify(payload),
       },
     );
   }
