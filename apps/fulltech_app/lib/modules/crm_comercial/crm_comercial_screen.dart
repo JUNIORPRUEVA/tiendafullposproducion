@@ -22,6 +22,7 @@ import '../../core/widgets/app_navigation.dart' show kDesktopShellBreakpoint;
 import '../../core/widgets/responsive_shell.dart';
 import '../../core/company/company_settings_model.dart';
 import '../../core/company/company_settings_repository.dart';
+import '../../core/cache/local_json_cache.dart';
 import '../../features/catalogo/data/catalog_repository.dart';
 import 'data/crm_comercial_repository.dart';
 import 'models/crm_comercial_models.dart';
@@ -196,6 +197,8 @@ class CrmComercialScreen extends ConsumerStatefulWidget {
 }
 
 class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
+  static const String _quickRepliesCacheKey = 'crm_comercial_quick_replies_v1';
+
   // Phase 1 controllers
   final TextEditingController _searchCtrl = TextEditingController();
   final TextEditingController _noteCtrl = TextEditingController();
@@ -256,6 +259,13 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
   int _orthographyRequestSeq = 0;
   DateTime? _lastOrthographyRequestAt;
 
+  // Commercial AI suggestion state (separate from orthography)
+  Timer? _commercialAiTimer;
+  CrmComercialAiReplySuggestion? _commercialAiSuggestion;
+  bool _loadingCommercialSuggestion = false;
+  String _lastIgnoredCommercialSuggestion = '';
+  String _lastAutoSuggestedIncomingMessageId = '';
+
   // Media composer state
   final TextEditingController _mediaCaptionCtrl = TextEditingController();
   Uint8List? _selectedMediaBytes;
@@ -263,12 +273,15 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
   String? _selectedMediaType; // 'image', 'video', 'audio', 'document'
   String? _selectedMediaMimeType;
   bool _sendingMedia = false;
+  final LocalJsonCache _quickRepliesCache = LocalJsonCache();
+  List<_CrmQuickReplyTemplate> _quickReplies = const [];
 
   @override
   void initState() {
     super.initState();
     _desktopShellActions = ref.read(desktopShellRouteActionsProvider.notifier);
     _chatComposerCtrl.addListener(_onComposerTextChanged);
+    _loadQuickReplies();
     _loadAll();
   }
 
@@ -291,6 +304,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
     _conversationSearchCtrl.dispose();
     _mediaCaptionCtrl.dispose();
     _composerSpellTimer?.cancel();
+    _commercialAiTimer?.cancel();
     _conversationListScrollCtrl.dispose();
     _chatScrollCtrl.dispose();
     _sidebarSearchFocusNode.dispose();
@@ -548,6 +562,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
         _conversationWarning = conversationsResponse.warning;
         _loading = false;
       });
+      _scheduleSilentCommercialSuggestion();
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -833,6 +848,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
         _selected = linkedCustomer;
         _nextActionCtrl.text = linkedCustomer?.nextAction ?? '';
       });
+      _scheduleSilentCommercialSuggestion();
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         _scrollChatToBottom(animated: false);
@@ -873,6 +889,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
       _error = '';
       _chatComposerCtrl.clear();
       _composerOrthographySuggestion = null;
+      _commercialAiSuggestion = null;
     });
     debugPrint(
       '[CRM][UI][_sendMessageToCurrentConversation] sending=true conversationId=${selectedConversation.id}',
@@ -1054,6 +1071,128 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
       _chatComposerCtrl.selection = TextSelection.collapsed(offset: merged.length);
       _composerOrthographySuggestion = null;
       _lastIgnoredComposerSuggestion = null;
+    });
+  }
+
+  CrmComercialInboxMessage? _latestIncomingMessage() {
+    for (var i = _messages.length - 1; i >= 0; i--) {
+      final item = _messages[i];
+      if (!item.isOutgoing) {
+        final text = (item.body ?? item.caption ?? '').trim();
+        if (text.isNotEmpty) return item;
+      }
+    }
+    return null;
+  }
+
+  Future<String> _catalogSummaryForAi() async {
+    try {
+      final products = await ref.read(catalogRepositoryProvider).fetchProducts(silent: true);
+      if (products.isEmpty) return '';
+      return products
+          .take(6)
+          .map((item) => item.nombre.trim())
+          .where((name) => name.isNotEmpty)
+          .join(', ');
+    } catch (_) {
+      return '';
+    }
+  }
+
+  Future<void> _requestCommercialReplySuggestion({
+    required bool manual,
+  }) async {
+    final selectedConversation = _selectedConversation;
+    if (selectedConversation == null) return;
+    final incoming = _latestIncomingMessage();
+    if (incoming == null) return;
+
+    final incomingText = (incoming.body ?? incoming.caption ?? '').trim();
+    if (incomingText.isEmpty) return;
+    if (!manual && _lastAutoSuggestedIncomingMessageId == incoming.id) return;
+
+    if (mounted) {
+      setState(() => _loadingCommercialSuggestion = true);
+    }
+    try {
+      final settings = await _resolveCompanySettings();
+      final catalogSummary = await _catalogSummaryForAi();
+      final bankAccounts = (settings?.bankAccounts ?? const <BankAccountEntry>[])
+          .map((entry) {
+            final parts = <String>[];
+            if (entry.name.trim().isNotEmpty) parts.add(entry.name.trim());
+            if (entry.bankName.trim().isNotEmpty) parts.add(entry.bankName.trim());
+            if (entry.accountNumber.trim().isNotEmpty) parts.add(entry.accountNumber.trim());
+            return parts.join(' | ');
+          })
+          .where((row) => row.trim().isNotEmpty)
+          .toList(growable: false);
+
+      final suggestion = await ref.read(crmComercialRepositoryProvider).suggestReply(
+            conversationId: selectedConversation.id,
+            lastCustomerMessage: incomingText,
+            recentMessages: _messages,
+            crmStatus: selectedConversation.crmCustomerStatus,
+            customerInfo: {
+              'name': selectedConversation.crmCustomerName ?? selectedConversation.contactName,
+              'phone': selectedConversation.remotePhone,
+            },
+            availableBusinessData: {
+              'location': (settings?.gpsLocationUrl ?? '').trim().isNotEmpty
+                  ? settings!.gpsLocationUrl.trim()
+                  : (settings?.address ?? '').trim(),
+              'businessHours': (settings?.businessHours ?? '').trim(),
+              'bankAccounts': bankAccounts,
+              'catalogSummary': catalogSummary,
+            },
+          );
+
+      if (!mounted) return;
+      if (suggestion == null) return;
+      if (suggestion.suggestedReply.trim().isEmpty) return;
+      if (suggestion.suggestedReply.trim() == _lastIgnoredCommercialSuggestion) return;
+
+      setState(() {
+        _commercialAiSuggestion = suggestion;
+        _lastAutoSuggestedIncomingMessageId = incoming.id;
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _loadingCommercialSuggestion = false);
+      }
+    }
+  }
+
+  void _scheduleSilentCommercialSuggestion() {
+    _commercialAiTimer?.cancel();
+    _commercialAiTimer = Timer(const Duration(milliseconds: 900), () async {
+      await _requestCommercialReplySuggestion(manual: false);
+    });
+  }
+
+  void _insertCommercialSuggestionInComposer() {
+    final suggestion = _commercialAiSuggestion;
+    if (suggestion == null || suggestion.suggestedReply.trim().isEmpty) return;
+    _insertTextInComposer(suggestion.suggestedReply.trim());
+  }
+
+  Future<void> _sendCommercialSuggestion() async {
+    final suggestion = _commercialAiSuggestion;
+    if (suggestion == null || suggestion.suggestedReply.trim().isEmpty) return;
+    setState(() {
+      _chatComposerCtrl.text = suggestion.suggestedReply.trim();
+      _chatComposerCtrl.selection = TextSelection.collapsed(
+        offset: _chatComposerCtrl.text.length,
+      );
+    });
+    await _sendMessageToCurrentConversation();
+  }
+
+  void _ignoreCommercialSuggestion() {
+    final suggestion = _commercialAiSuggestion;
+    setState(() {
+      _lastIgnoredCommercialSuggestion = suggestion?.suggestedReply.trim() ?? '';
+      _commercialAiSuggestion = null;
     });
   }
 
@@ -1307,13 +1446,9 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
   }
 
   Future<void> _openQuickMessagesDialog() async {
-    final quickMessages = <String>[
-      'Gracias por escribirnos. Te atendemos de inmediato.',
-      'Perfecto, te confirmo disponibilidad en unos minutos.',
-      '¿Podrías compartirnos una foto del área para cotizar mejor?',
-      'Con gusto te enviamos una cotización formal hoy.',
-      '¿Prefieres instalación esta semana o la próxima?',
-    ];
+    if (_quickReplies.isEmpty) {
+      await _loadQuickReplies();
+    }
 
     var query = '';
     await showDialog<void>(
@@ -1321,8 +1456,12 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            final filtered = quickMessages
-                .where((item) => item.toLowerCase().contains(query.toLowerCase()))
+            final filtered = _quickReplies
+                .where(
+                  (item) =>
+                      item.label.toLowerCase().contains(query.toLowerCase()) ||
+                      item.text.toLowerCase().contains(query.toLowerCase()),
+                )
                 .toList(growable: false);
 
             Future<void> insertSpecial(Future<String> Function() builder) async {
@@ -1371,6 +1510,14 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                           icon: const Icon(Icons.inventory_2_outlined, size: 16),
                           label: const Text('Catálogo'),
                         ),
+                        OutlinedButton.icon(
+                          onPressed: () async {
+                            Navigator.of(dialogContext).pop();
+                            await _openQuickRepliesManagerDialog();
+                          },
+                          icon: const Icon(Icons.edit_note_rounded, size: 16),
+                          label: const Text('Configurar'),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 10),
@@ -1394,14 +1541,20 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                                   dense: true,
                                   leading: const Icon(Icons.flash_on_rounded, size: 18),
                                   title: Text(
-                                    item,
+                                    item.label,
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(fontSize: 12.5),
                                   ),
+                                  subtitle: Text(
+                                    item.text,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(fontSize: 11, color: _waTextMuted),
+                                  ),
                                   onTap: () {
                                     Navigator.of(dialogContext).pop();
-                                    _insertTextInComposer(item);
+                                    _insertTextInComposer(item.text);
                                   },
                                 );
                               },
@@ -1515,6 +1668,11 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                   icon: Icons.flash_on_rounded,
                   label: 'Mensajes rápidos',
                   onTap: _openQuickMessagesDialog,
+                ),
+                tile(
+                  icon: Icons.edit_note_rounded,
+                  label: 'Configurar mensajes rápidos',
+                  onTap: _openQuickRepliesManagerDialog,
                 ),
                 const SizedBox(height: 6),
               ],
@@ -2442,6 +2600,284 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
     );
   }
 
+  List<_CrmQuickReplyTemplate> _defaultQuickReplies() {
+    return const [
+      _CrmQuickReplyTemplate(
+        id: 'greeting',
+        label: 'Saludo inicial',
+        text: 'Gracias por escribirnos. Te atendemos de inmediato.',
+      ),
+      _CrmQuickReplyTemplate(
+        id: 'availability',
+        label: 'Confirmar disponibilidad',
+        text: 'Perfecto, te confirmo disponibilidad en unos minutos.',
+      ),
+      _CrmQuickReplyTemplate(
+        id: 'photo_request',
+        label: 'Solicitar foto',
+        text: '¿Podrías compartirnos una foto del área para cotizar mejor?',
+      ),
+      _CrmQuickReplyTemplate(
+        id: 'quote_offer',
+        label: 'Enviar cotización',
+        text: 'Con gusto te enviamos una cotización formal hoy.',
+      ),
+      _CrmQuickReplyTemplate(
+        id: 'schedule_question',
+        label: 'Preferencia de instalación',
+        text: '¿Prefieres instalación esta semana o la próxima?',
+      ),
+    ];
+  }
+
+  Future<void> _loadQuickReplies() async {
+    final cached = await _quickRepliesCache.readMap(
+      _quickRepliesCacheKey,
+      maxAge: const Duration(days: 3650),
+    );
+    final rawList = (cached?['items'] as List?) ?? const [];
+    final parsed = rawList
+        .whereType<Map>()
+        .map((raw) => _CrmQuickReplyTemplate.fromMap(raw.cast<String, dynamic>()))
+        .where((item) => item.label.trim().isNotEmpty && item.text.trim().isNotEmpty)
+        .toList(growable: false);
+    final value = parsed.isEmpty ? _defaultQuickReplies() : parsed;
+    if (!mounted) return;
+    setState(() => _quickReplies = value);
+    if (parsed.isEmpty) {
+      await _saveQuickReplies(value);
+    }
+  }
+
+  Future<void> _saveQuickReplies(List<_CrmQuickReplyTemplate> items) async {
+    await _quickRepliesCache.writeMap(_quickRepliesCacheKey, {
+      'items': items.map((item) => item.toMap()).toList(growable: false),
+      'updatedAt': DateTime.now().toIso8601String(),
+    });
+  }
+
+  String _createQuickReplyId() {
+    final now = DateTime.now().microsecondsSinceEpoch;
+    return 'qr_$now';
+  }
+
+  Future<_CrmQuickReplyTemplate?> _openQuickReplyEditorDialog({
+    _CrmQuickReplyTemplate? initial,
+  }) async {
+    final labelCtrl = TextEditingController(text: initial?.label ?? '');
+    final textCtrl = TextEditingController(text: initial?.text ?? '');
+    String error = '';
+
+    final result = await showDialog<_CrmQuickReplyTemplate>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Text(initial == null ? 'Agregar mensaje rápido' : 'Editar mensaje rápido'),
+              content: SizedBox(
+                width: 480,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: labelCtrl,
+                      maxLength: 40,
+                      decoration: const InputDecoration(
+                        labelText: 'Título',
+                        hintText: 'Ej. Ubicación GPS',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: textCtrl,
+                      minLines: 3,
+                      maxLines: 6,
+                      decoration: const InputDecoration(
+                        labelText: 'Contenido',
+                        hintText: 'Texto que se enviará al cliente.',
+                      ),
+                    ),
+                    if (error.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          error,
+                          style: const TextStyle(fontSize: 12, color: AppColors.error),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cancelar'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    final label = labelCtrl.text.trim();
+                    final text = textCtrl.text.trim();
+                    if (label.isEmpty || text.isEmpty) {
+                      setDialogState(() {
+                        error = 'Completa título y contenido.';
+                      });
+                      return;
+                    }
+                    Navigator.of(dialogContext).pop(
+                      _CrmQuickReplyTemplate(
+                        id: initial?.id ?? _createQuickReplyId(),
+                        label: label,
+                        text: text,
+                      ),
+                    );
+                  },
+                  child: const Text('Guardar'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    labelCtrl.dispose();
+    textCtrl.dispose();
+    return result;
+  }
+
+  Future<void> _openQuickRepliesManagerDialog() async {
+    if (_quickReplies.isEmpty) {
+      await _loadQuickReplies();
+    }
+    final working = List<_CrmQuickReplyTemplate>.from(_quickReplies);
+
+    Future<void> addTemplate(StateSetter setDialogState) async {
+      final created = await _openQuickReplyEditorDialog();
+      if (created == null) return;
+      setDialogState(() => working.add(created));
+    }
+
+    Future<void> editTemplate(int index, StateSetter setDialogState) async {
+      final edited = await _openQuickReplyEditorDialog(initial: working[index]);
+      if (edited == null) return;
+      setDialogState(() => working[index] = edited);
+    }
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Configurar mensajes rápidos'),
+              content: SizedBox(
+                width: 560,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: FilledButton.icon(
+                        onPressed: () => addTemplate(setDialogState),
+                        icon: const Icon(Icons.add_rounded, size: 16),
+                        label: const Text('Agregar'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: _waGreenDark,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 340),
+                      child: working.isEmpty
+                          ? const Center(
+                              child: Padding(
+                                padding: EdgeInsets.all(20),
+                                child: Text('Aún no hay mensajes rápidos configurados.'),
+                              ),
+                            )
+                          : ListView.separated(
+                              shrinkWrap: true,
+                              itemCount: working.length,
+                              separatorBuilder: (_, __) =>
+                                  Divider(height: 1, color: _waBorder.withAlpha(80)),
+                              itemBuilder: (context, index) {
+                                final item = working[index];
+                                return ListTile(
+                                  dense: true,
+                                  title: Text(
+                                    item.label,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  subtitle: Text(
+                                    item.text,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        tooltip: 'Editar',
+                                        visualDensity: VisualDensity.compact,
+                                        onPressed: () => editTemplate(index, setDialogState),
+                                        icon: const Icon(Icons.edit_outlined, size: 18),
+                                      ),
+                                      IconButton(
+                                        tooltip: 'Eliminar',
+                                        visualDensity: VisualDensity.compact,
+                                        onPressed: () {
+                                          setDialogState(() => working.removeAt(index));
+                                        },
+                                        icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cancelar'),
+                ),
+                FilledButton(
+                  onPressed: () async {
+                    final sanitized = working
+                        .where(
+                          (item) =>
+                              item.label.trim().isNotEmpty && item.text.trim().isNotEmpty,
+                        )
+                        .toList(growable: false);
+                    await _saveQuickReplies(sanitized);
+                    if (!mounted) return;
+                    setState(() => _quickReplies = sanitized);
+                    if (!dialogContext.mounted) return;
+                    Navigator.of(dialogContext).pop();
+                  },
+                  style: FilledButton.styleFrom(
+                    backgroundColor: _waGreenDark,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('Guardar cambios'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   String _statusLabel(String value) {
     return value
         .replaceAll('_', ' ')
@@ -3355,6 +3791,84 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                if ((_commercialAiSuggestion?.suggestedReply ?? '').isNotEmpty)
+                  Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 6),
+                    padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: _waBorder.withAlpha(130)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.auto_awesome_rounded, size: 16, color: _waGreenDark),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Sugerencia IA (${_commercialAiSuggestion!.intent.replaceAll('_', ' ')})',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: _waText,
+                                ),
+                              ),
+                            ),
+                            Text(
+                              '${(_commercialAiSuggestion!.confidence * 100).round()}%',
+                              style: const TextStyle(fontSize: 10, color: _waTextMuted),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _commercialAiSuggestion!.suggestedReply,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 11.5, color: _waTextMuted),
+                        ),
+                        const SizedBox(height: 6),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 4,
+                          children: [
+                            OutlinedButton(
+                              onPressed: _insertCommercialSuggestionInComposer,
+                              style: OutlinedButton.styleFrom(
+                                visualDensity: VisualDensity.compact,
+                              ),
+                              child: const Text('Insertar en input'),
+                            ),
+                            FilledButton(
+                              onPressed: _sendingChatMessage ? null : _sendCommercialSuggestion,
+                              style: FilledButton.styleFrom(
+                                visualDensity: VisualDensity.compact,
+                                backgroundColor: _waGreenDark,
+                                foregroundColor: Colors.white,
+                              ),
+                              child: const Text('Enviar'),
+                            ),
+                            TextButton(
+                              onPressed: _insertCommercialSuggestionInComposer,
+                              style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+                              child: const Text('Editar'),
+                            ),
+                            TextButton(
+                              onPressed: _ignoreCommercialSuggestion,
+                              style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+                              child: const Text('Ignorar'),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
                 if ((_composerOrthographySuggestion ?? '').isNotEmpty)
                   Container(
                     width: double.infinity,
@@ -3418,6 +3932,20 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                       visualDensity: VisualDensity.compact,
                       onPressed: _openQuickMessagesDialog,
                       icon: const Icon(Icons.flash_on_rounded, size: 20),
+                    ),
+                    IconButton(
+                      tooltip: 'Sugerir respuesta IA',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: !hasConversation || _loadingCommercialSuggestion
+                          ? null
+                          : () => _requestCommercialReplySuggestion(manual: true),
+                      icon: _loadingCommercialSuggestion
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.auto_awesome_rounded, size: 20),
                     ),
                     Expanded(
                       child: TextField(
@@ -3555,10 +4083,61 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
               },
               onClose: onClose ?? () => setState(() => _showDetailsPanel = false),
             ),
-            const Expanded(
+            Expanded(
               child: Padding(
-                padding: EdgeInsets.fromLTRB(12, 10, 12, 12),
-                child: _AiPanelPlaceholder(),
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                child: _CrmAiCommercialPanel(
+                  suggestion: _commercialAiSuggestion,
+                  loading: _loadingCommercialSuggestion,
+                  onSuggest: () => _requestCommercialReplySuggestion(manual: true),
+                  onInsert: _insertCommercialSuggestionInComposer,
+                  onSend: _sendCommercialSuggestion,
+                  onIgnore: _ignoreCommercialSuggestion,
+                  onCreateTask: selected == null
+                      ? null
+                      : () => _openCreateTaskDialog(context),
+                  onCreateQuote: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Creación de cotización desde IA disponible próximamente.'),
+                      ),
+                    );
+                  },
+                  onUseLocation: () async {
+                    final text = await _buildGpsMessage();
+                    _insertTextInComposer(text);
+                  },
+                  onUseHours: () async {
+                    final text = await _buildStoreHoursMessage();
+                    _insertTextInComposer(text);
+                  },
+                  onUseAccounts: () async {
+                    final text = await _buildBankAccountsMessage();
+                    _insertTextInComposer(text);
+                  },
+                  onUseCatalog: () async {
+                    final text = await _buildCatalogMessage();
+                    _insertTextInComposer(text);
+                  },
+                  statusMenu: PopupMenuButton<String>(
+                    tooltip: 'Cambiar estado CRM',
+                    onSelected: (value) async {
+                      await _changeStatus(value);
+                    },
+                    itemBuilder: (context) => _crmStatuses
+                        .map(
+                          (status) => PopupMenuItem<String>(
+                            value: status,
+                            child: Text(_statusLabel(status)),
+                          ),
+                        )
+                        .toList(growable: false),
+                    child: const Chip(
+                      label: Text('Cambiar estado CRM'),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ),
+                ),
               ),
             ),
           ],
@@ -3907,8 +4486,36 @@ class _RightPanelHeader extends StatelessWidget {
   }
 }
 
-class _AiPanelPlaceholder extends StatelessWidget {
-  const _AiPanelPlaceholder();
+class _CrmAiCommercialPanel extends StatelessWidget {
+  const _CrmAiCommercialPanel({
+    required this.suggestion,
+    required this.loading,
+    required this.onSuggest,
+    required this.onInsert,
+    required this.onSend,
+    required this.onIgnore,
+    required this.onUseLocation,
+    required this.onUseHours,
+    required this.onUseAccounts,
+    required this.onUseCatalog,
+    this.onCreateTask,
+    this.onCreateQuote,
+    this.statusMenu,
+  });
+
+  final CrmComercialAiReplySuggestion? suggestion;
+  final bool loading;
+  final VoidCallback onSuggest;
+  final VoidCallback onInsert;
+  final VoidCallback onSend;
+  final VoidCallback onIgnore;
+  final VoidCallback onUseLocation;
+  final VoidCallback onUseHours;
+  final VoidCallback onUseAccounts;
+  final VoidCallback onUseCatalog;
+  final VoidCallback? onCreateTask;
+  final VoidCallback? onCreateQuote;
+  final Widget? statusMenu;
 
   @override
   Widget build(BuildContext context) {
@@ -3922,12 +4529,18 @@ class _AiPanelPlaceholder extends StatelessWidget {
         Container(
           padding: const EdgeInsets.all(10),
           decoration: card,
-          child: const Column(
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Resumen conversacion', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
-              SizedBox(height: 4),
-              Text('UI preparada: aqui se mostrara el resumen inteligente del chat.', style: TextStyle(fontSize: 11, color: _waTextMuted)),
+              const Text(
+                'Intención detectada',
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                (suggestion?.intent ?? 'Sin sugerencia aún').replaceAll('_', ' '),
+                style: const TextStyle(fontSize: 11, color: _waTextMuted),
+              ),
             ],
           ),
         ),
@@ -3935,12 +4548,18 @@ class _AiPanelPlaceholder extends StatelessWidget {
         Container(
           padding: const EdgeInsets.all(10),
           decoration: card,
-          child: const Column(
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Intencion del cliente', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
-              SizedBox(height: 4),
-              Text('Pendiente integracion backend IA', style: TextStyle(fontSize: 11, color: _waTextMuted)),
+              const Text(
+                'Respuesta sugerida',
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                suggestion?.suggestedReply ?? 'Pulsa "Sugerir respuesta" para generar una propuesta.',
+                style: const TextStyle(fontSize: 11, color: _waTextMuted),
+              ),
             ],
           ),
         ),
@@ -3948,38 +4567,94 @@ class _AiPanelPlaceholder extends StatelessWidget {
         Container(
           padding: const EdgeInsets.all(10),
           decoration: card,
-          child: const Column(
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Estado sugerido y proxima accion', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
-              SizedBox(height: 4),
-              Text('Sugerencias automaticas disponibles en siguiente fase.', style: TextStyle(fontSize: 11, color: _waTextMuted)),
+              const Text(
+                'Datos usados y próxima acción',
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Datos: ${suggestion?.dataUsed.join(', ') ?? 'Sin datos'}',
+                style: const TextStyle(fontSize: 11, color: _waTextMuted),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'Próxima acción: ${suggestion?.nextAction ?? 'Sin recomendación'}',
+                style: const TextStyle(fontSize: 11, color: _waTextMuted),
+              ),
+              if ((suggestion?.missingData ?? const <String>[]).isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(
+                  'Faltantes: ${suggestion!.missingData.join(', ')}',
+                  style: const TextStyle(fontSize: 11, color: _waTextMuted),
+                ),
+              ],
             ],
           ),
         ),
         const SizedBox(height: 10),
         FilledButton.icon(
-          onPressed: null,
-          icon: const Icon(Icons.auto_fix_high_rounded, size: 16),
-          label: const Text('Generar respuesta'),
+          onPressed: loading ? null : onSuggest,
+          icon: loading
+              ? const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                )
+              : const Icon(Icons.auto_fix_high_rounded, size: 16),
+          label: const Text('Sugerir respuesta'),
         ),
         const SizedBox(height: 6),
         FilledButton.icon(
-          onPressed: null,
-          icon: const Icon(Icons.edit_rounded, size: 16),
-          label: const Text('Mejorar mensaje'),
+          onPressed: suggestion == null ? null : onInsert,
+          icon: const Icon(Icons.input_rounded, size: 16),
+          label: const Text('Insertar respuesta'),
         ),
         const SizedBox(height: 6),
         FilledButton.icon(
-          onPressed: null,
-          icon: const Icon(Icons.task_alt_rounded, size: 16),
-          label: const Text('Crear tarea'),
+          onPressed: suggestion == null ? null : onSend,
+          icon: const Icon(Icons.send_rounded, size: 16),
+          label: const Text('Enviar sugerencia'),
+          style: FilledButton.styleFrom(
+            backgroundColor: _waGreenDark,
+            foregroundColor: Colors.white,
+          ),
         ),
         const SizedBox(height: 6),
-        OutlinedButton.icon(
-          onPressed: null,
-          icon: const Icon(Icons.request_quote_rounded, size: 16),
-          label: const Text('Crear cotizacion (proximamente)'),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            OutlinedButton.icon(
+              onPressed: suggestion == null ? null : onIgnore,
+              icon: const Icon(Icons.block_rounded, size: 15),
+              label: const Text('Ignorar'),
+            ),
+            OutlinedButton.icon(
+              onPressed: onCreateTask,
+              icon: const Icon(Icons.task_alt_rounded, size: 15),
+              label: const Text('Crear tarea'),
+            ),
+            OutlinedButton.icon(
+              onPressed: onCreateQuote,
+              icon: const Icon(Icons.request_quote_rounded, size: 15),
+              label: const Text('Crear cotización'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            OutlinedButton(onPressed: onUseLocation, child: const Text('Usar ubicación')),
+            OutlinedButton(onPressed: onUseHours, child: const Text('Usar horario')),
+            OutlinedButton(onPressed: onUseAccounts, child: const Text('Usar cuentas')),
+            OutlinedButton(onPressed: onUseCatalog, child: const Text('Usar catálogo')),
+            if (statusMenu != null) statusMenu!,
+          ],
         ),
       ],
     );
@@ -4235,6 +4910,34 @@ class _CrmConversationListItem extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _CrmQuickReplyTemplate {
+  const _CrmQuickReplyTemplate({
+    required this.id,
+    required this.label,
+    required this.text,
+  });
+
+  final String id;
+  final String label;
+  final String text;
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'label': label,
+      'text': text,
+    };
+  }
+
+  factory _CrmQuickReplyTemplate.fromMap(Map<String, dynamic> map) {
+    return _CrmQuickReplyTemplate(
+      id: (map['id'] ?? '').toString(),
+      label: (map['label'] ?? '').toString(),
+      text: (map['text'] ?? '').toString(),
     );
   }
 }

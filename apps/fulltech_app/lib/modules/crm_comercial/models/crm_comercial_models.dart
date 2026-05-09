@@ -469,6 +469,41 @@ class CrmComercialInboxMessageListResponse {
   }
 }
 
+class CrmComercialAiReplySuggestion {
+  const CrmComercialAiReplySuggestion({
+    required this.intent,
+    required this.suggestedReply,
+    required this.nextAction,
+    required this.missingData,
+    required this.confidence,
+    required this.dataUsed,
+  });
+
+  final String intent;
+  final String suggestedReply;
+  final String nextAction;
+  final List<String> missingData;
+  final double confidence;
+  final List<String> dataUsed;
+
+  factory CrmComercialAiReplySuggestion.fromJson(Map<String, dynamic> json) {
+    return CrmComercialAiReplySuggestion(
+      intent: (json['intent'] ?? '').toString(),
+      suggestedReply: (json['suggestedReply'] ?? '').toString(),
+      nextAction: (json['nextAction'] ?? '').toString(),
+      missingData: ((json['missingData'] as List<dynamic>?) ?? const [])
+          .map((entry) => entry.toString())
+          .where((entry) => entry.trim().isNotEmpty)
+          .toList(growable: false),
+      confidence: (json['confidence'] as num?)?.toDouble() ?? 0,
+      dataUsed: ((json['dataUsed'] as List<dynamic>?) ?? const [])
+          .map((entry) => entry.toString())
+          .where((entry) => entry.trim().isNotEmpty)
+          .toList(growable: false),
+    );
+  }
+}
+
 class CrmComercialFollowupTask {
     const CrmComercialFollowupTask({
       required this.id,

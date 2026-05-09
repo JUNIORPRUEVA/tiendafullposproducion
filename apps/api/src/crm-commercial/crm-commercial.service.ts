@@ -34,6 +34,7 @@ import {
   ReplyCrmCommercialMediaMessageDto,
 } from './dto/send-crm-commercial-media-message.dto';
 import { SuggestCrmCommercialOrthographyDto } from './dto/suggest-crm-commercial-orthography.dto';
+import { SuggestCrmCommercialReplyDto } from './dto/suggest-crm-commercial-reply.dto';
 import { AiAssistantService } from '../ai-assistant/ai-assistant.service';
 
 type AuthUser = { id: string; role: Role };
@@ -130,6 +131,126 @@ export class CrmCommercialService {
       changed: result.changed,
       skipped: result.skipped,
       reason: result.reason ?? null,
+    };
+  }
+
+  async suggestReply(user: AuthUser, dto: SuggestCrmCommercialReplyDto) {
+    if (!this.canWrite(user)) {
+      throw new ForbiddenException('No tienes permisos para usar IA en CRM Comercial.');
+    }
+
+    const conversationData = await this.getConversationMessages(user, dto.conversationId, {
+      limit: '60',
+    });
+    const messages = conversationData.items ?? [];
+    const normalizedRecent = messages
+      .map((msg) => {
+        const text = (msg.body ?? msg.caption ?? '').toString().trim();
+        if (!text) return null;
+        return {
+          direction: (msg.direction ?? 'INCOMING').toString().toUpperCase(),
+          text,
+        };
+      })
+      .filter((row): row is { direction: string; text: string } => !!row)
+      .slice(-12);
+
+    let lastIncomingMessage = '';
+    for (var i = normalizedRecent.length - 1; i >= 0; i--) {
+      if (normalizedRecent[i].direction == 'INCOMING') {
+        lastIncomingMessage = normalizedRecent[i].text;
+        break;
+      }
+    }
+
+    const fromDto = (dto.lastCustomerMessage ?? '').toString().trim();
+    const lastCustomerMessage = fromDto.length > 0 ? fromDto : lastIncomingMessage;
+    if (!lastCustomerMessage) {
+      throw new BadRequestException('No hay un mensaje reciente del cliente para analizar.');
+    }
+
+    const [appConfig, products] = await Promise.all([
+      this.prisma.appConfig.findUnique({
+        where: { id: 'global' },
+        select: {
+          address: true,
+          gpsLocationUrl: true,
+          businessHours: true,
+          bankAccounts: true,
+        },
+      }),
+      this.prisma.product.findMany({
+        take: 8,
+        orderBy: { nombre: 'asc' },
+        select: {
+          nombre: true,
+          categoria: true,
+          precio: true,
+        },
+      }),
+    ]);
+
+    const rawAccounts = Array.isArray(appConfig?.bankAccounts)
+      ? (appConfig?.bankAccounts as Array<Record<string, unknown>>)
+      : [];
+    const bankAccounts = rawAccounts
+      .map((entry) => {
+        const name = (entry['name'] ?? '').toString().trim();
+        const bankName = (entry['bankName'] ?? '').toString().trim();
+        const accountNumber = (entry['accountNumber'] ?? '').toString().trim();
+        const parts = [name, bankName, accountNumber].filter((part) => part.length > 0);
+        if (parts.length === 0) return '';
+        return parts.join(' | ');
+      })
+      .filter((value) => value.length > 0);
+
+    const catalogSummary = products.length === 0
+      ? null
+      : products
+          .map((item) => {
+            const category = item.categoria.trim();
+            return category.length === 0
+              ? item.nombre.trim()
+              : `${item.nombre.trim()} (${category})`;
+          })
+          .filter((row) => row.length > 0)
+          .slice(0, 6)
+          .join(', ');
+
+    const suggestion = await this.aiAssistantService.suggestCrmCommercialReply({
+      lastCustomerMessage,
+      recentMessages: normalizedRecent,
+      crmStatus:
+          (dto.crmStatus ??
+                  conversationData.conversation?.crmCustomerStatus ??
+                  'NUEVO')
+              .toString(),
+      customerInfo: {
+        name: (conversationData.conversation?.crmCustomerName ??
+                conversationData.conversation?.contactName ??
+                '')
+            .toString(),
+        phone: (conversationData.conversation?.remotePhone ?? '').toString(),
+      },
+      availableBusinessData: {
+        location:
+            (appConfig?.gpsLocationUrl ?? '').toString().trim().length > 0
+                ? (appConfig?.gpsLocationUrl ?? '').toString().trim()
+                : (appConfig?.address ?? '').toString().trim(),
+        businessHours: (appConfig?.businessHours ?? '').toString().trim(),
+        bankAccounts,
+        catalogSummary,
+      },
+    });
+
+    return {
+      intent: suggestion.intent,
+      suggestedReply: suggestion.suggestedReply,
+      nextAction: suggestion.nextAction,
+      missingData: suggestion.missingData,
+      confidence: suggestion.confidence,
+      dataUsed: suggestion.dataUsed,
+      autoSend: false,
     };
   }
 

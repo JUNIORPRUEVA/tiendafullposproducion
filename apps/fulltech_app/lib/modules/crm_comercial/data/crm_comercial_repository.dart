@@ -314,6 +314,47 @@ class CrmComercialRepository {
     }
   }
 
+  Future<CrmComercialAiReplySuggestion?> suggestReply({
+    required String conversationId,
+    required String lastCustomerMessage,
+    required List<CrmComercialInboxMessage> recentMessages,
+    String? crmStatus,
+    Map<String, dynamic>? customerInfo,
+    Map<String, dynamic>? availableBusinessData,
+  }) async {
+    final text = lastCustomerMessage.trim();
+    if (conversationId.trim().isEmpty || text.isEmpty) return null;
+    try {
+      final payload = <String, dynamic>{
+        'conversationId': conversationId,
+        'lastCustomerMessage': text,
+        'recentMessages': recentMessages
+            .map(
+              (msg) => {
+                'direction': msg.direction,
+                'text': (msg.body ?? msg.caption ?? '').trim(),
+              },
+            )
+            .where((entry) => (entry['text'] ?? '').toString().trim().isNotEmpty)
+            .toList(growable: false),
+        if ((crmStatus ?? '').trim().isNotEmpty) 'crmStatus': crmStatus,
+        if (customerInfo != null) 'customerInfo': customerInfo,
+        if (availableBusinessData != null) 'availableBusinessData': availableBusinessData,
+      };
+      final res = await _dio.post<Map<String, dynamic>>(
+        ApiRoutes.crmCommercialAiSuggestReply,
+        data: payload,
+        options: Options(extra: const {'skipLoader': true, 'silent': true}),
+      );
+      final data = res.data ?? const <String, dynamic>{};
+      final suggestedReply = (data['suggestedReply'] ?? '').toString().trim();
+      if (suggestedReply.isEmpty) return null;
+      return CrmComercialAiReplySuggestion.fromJson(data);
+    } on DioException {
+      return null;
+    }
+  }
+
   Future<Map<String, dynamic>> replyConversationMedia({
     required String conversationId,
     required String mediaType, // 'image', 'video', 'audio', 'document'

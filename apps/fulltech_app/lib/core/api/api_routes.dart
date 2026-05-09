@@ -118,6 +118,8 @@ class ApiRoutes {
       '/crm-commercial/conversations/$id/reply-media';
   static const crmCommercialOrthographySuggestion =
       '/crm-commercial/ai/orthography-suggestion';
+  static const crmCommercialAiSuggestReply =
+      '/crm-commercial/ai/suggest-reply';
 
   // Productos
   static const products = '/products';

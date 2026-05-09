@@ -28,6 +28,7 @@ import { CrmCommercialFollowupTaskQueryDto } from './dto/crm-commercial-followup
 import { UpdateCrmCommercialSettingsDto } from './dto/update-crm-commercial-settings.dto';
 import { SendCrmCommercialMessageDto } from './dto/send-crm-commercial-message.dto';
 import { SuggestCrmCommercialOrthographyDto } from './dto/suggest-crm-commercial-orthography.dto';
+import { SuggestCrmCommercialReplyDto } from './dto/suggest-crm-commercial-reply.dto';
 import {
   SendCrmCommercialMediaMessageDto,
   StartCrmCommercialMediaMessageDto,
@@ -127,6 +128,15 @@ export class CrmCommercialController {
     @Body() dto: SuggestCrmCommercialOrthographyDto,
   ) {
     return this.crmCommercial.suggestOrthography(this.userOrThrow(req), dto);
+  }
+
+  @Post('ai/suggest-reply')
+  @Roles(Role.ADMIN)
+  suggestReply(
+    @Req() req: Request,
+    @Body() dto: SuggestCrmCommercialReplyDto,
+  ) {
+    return this.crmCommercial.suggestReply(this.userOrThrow(req), dto);
   }
 
   @Post('conversations/:id/reply-media')

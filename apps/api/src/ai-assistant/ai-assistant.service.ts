@@ -86,6 +86,28 @@ type AssistantMemoryNote = {
   keywords: string[];
 };
 
+type CrmCommercialAiSuggestInput = {
+  lastCustomerMessage: string;
+  recentMessages: Array<{ direction: string; text: string }>;
+  crmStatus?: string | null;
+  customerInfo?: { name?: string | null; phone?: string | null } | null;
+  availableBusinessData?: {
+    location?: string | null;
+    businessHours?: string | null;
+    bankAccounts?: string[];
+    catalogSummary?: string | null;
+  } | null;
+};
+
+type CrmCommercialAiSuggestOutput = {
+  intent: string;
+  suggestedReply: string;
+  nextAction: string;
+  missingData: string[];
+  confidence: number;
+  dataUsed: string[];
+};
+
 @Injectable()
 export class AiAssistantService {
   private readonly logger = new Logger(AiAssistantService.name);
@@ -176,6 +198,248 @@ export class AiAssistantService {
       });
       return { suggestion: null, changed: false, skipped: true, reason: 'openai_error' };
     }
+  }
+
+  async suggestCrmCommercialReply(
+    input: CrmCommercialAiSuggestInput,
+  ): Promise<CrmCommercialAiSuggestOutput> {
+    const rawMessage = (input.lastCustomerMessage ?? '').toString().trim();
+    if (!rawMessage) {
+      throw new BadRequestException('No hay mensaje del cliente para analizar.');
+    }
+
+    const location = (input.availableBusinessData?.location ?? '').toString().trim();
+    const businessHours = (input.availableBusinessData?.businessHours ?? '').toString().trim();
+    const bankAccounts = (input.availableBusinessData?.bankAccounts ?? [])
+      .map((value) => value.toString().trim())
+      .filter((value) => value.length > 0);
+    const catalogSummary = (input.availableBusinessData?.catalogSummary ?? '')
+      .toString()
+      .trim();
+
+    const status = (input.crmStatus ?? 'NUEVO').toString().trim().toUpperCase() || 'NUEVO';
+    const customerName = (input.customerInfo?.name ?? '').toString().trim();
+    const greetingName = customerName.length > 0 ? ` ${customerName}` : '';
+
+    const normalized = this.normalizeCrmCommercialText(rawMessage);
+    const has = (...terms: string[]) => terms.some((term) => normalized.includes(term));
+
+    let intent = 'interes_general';
+    if (has('ubicacion', 'direccion', 'donde estan', 'donde se encuentran', 'local')) {
+      intent = 'pide_ubicacion';
+    } else if (has('horario', 'hora', 'abren', 'cierran', 'disponible hoy', 'atienden')) {
+      intent = 'pide_horario';
+    } else if (has('cuenta', 'banco', 'transferencia', 'deposito', 'depósito', 'pago por banco')) {
+      intent = 'pide_cuenta_bancaria';
+    } else if (has('catalogo', 'catálogo', 'productos', 'que venden', 'servicios')) {
+      intent = 'pide_catalogo';
+    } else if (has('precio', 'cuanto cuesta', 'cuánto cuesta', 'valor', 'costo')) {
+      intent = 'pregunta_precio';
+    } else if (has('cotizacion', 'cotización', 'cotizar', 'propuesta')) {
+      intent = 'quiere_cotizacion';
+    } else if (has('instalacion', 'instalación', 'instalar', 'montaje')) {
+      intent = 'quiere_instalacion';
+    } else if (has('molesto', 'inconforme', 'queja', 'mala experiencia', 'no me gusta', 'mal servicio')) {
+      intent = 'cliente_molesto';
+    } else if (has('seguimiento', 'dar seguimiento', 'pendiente', 'me confirma')) {
+      intent = 'quiere_seguimiento';
+    } else if (has('comprar', 'lo quiero', 'me interesa', 'vamos a hacerlo', 'quiero eso')) {
+      intent = 'quiere_comprar';
+    }
+
+    const missingData: string[] = [];
+    const dataUsed: string[] = [];
+    let suggestedReply = '';
+    let nextAction = '';
+    let confidence = 0;
+
+    switch (intent) {
+      case 'pide_ubicacion':
+        if (location.length === 0) {
+          missingData.add('ubicacion');
+          suggestedReply =
+              'No hay ubicación configurada. Si deseas, te ayudo por aquí con referencias cercanas mientras la actualizamos.';
+        } else {
+          dataUsed.add('ubicacion');
+          suggestedReply = 'Claro${greetingName}, esta es nuestra ubicación: $location';
+        }
+        nextAction = 'confirmar_visita';
+        confidence = location.length === 0 ? 0.82 : 0.95;
+        break;
+
+      case 'pide_horario':
+        if (businessHours.length === 0) {
+          missingData.add('horario');
+          suggestedReply =
+              'No hay horario configurado. Si gustas, te confirmo disponibilidad apenas lo valide con el equipo.';
+        } else {
+          dataUsed.add('horario');
+          suggestedReply = 'Nuestro horario es: $businessHours';
+        }
+        nextAction = 'confirmar_hora_preferida';
+        confidence = businessHours.length === 0 ? 0.82 : 0.95;
+        break;
+
+      case 'pide_cuenta_bancaria':
+        if (bankAccounts.length === 0) {
+          missingData.add('cuentas_bancarias');
+          suggestedReply =
+              'No hay cuentas bancarias configuradas. Si deseas, puedo confirmar una vía de pago disponible para ti.';
+        } else {
+          dataUsed.add('cuentas_bancarias');
+          const lines = bankAccounts.map((acc) => `- ${acc}`).join('\n');
+          suggestedReply = 'Claro, aquí tienes nuestras cuentas disponibles:\n$lines';
+        }
+        nextAction = 'confirmar_metodo_pago';
+        confidence = bankAccounts.length === 0 ? 0.84 : 0.95;
+        break;
+
+      case 'pide_catalogo':
+        if (catalogSummary.length === 0) {
+          missingData.add('catalogo');
+          suggestedReply =
+              'No hay catálogo configurado. Si me dices qué necesitas, te oriento con una recomendación puntual.';
+        } else {
+          dataUsed.add('catalogo');
+          suggestedReply =
+              'Te comparto una referencia rápida de productos/servicios disponibles: $catalogSummary';
+        }
+        nextAction = 'preguntar_producto_objetivo';
+        confidence = catalogSummary.length === 0 ? 0.84 : 0.93;
+        break;
+
+      case 'pregunta_precio':
+        suggestedReply =
+            'Con gusto te ayudo con el precio. Para cotizarte exacto sin inventar, ¿me confirmas el producto/servicio, cantidad y ubicación de instalación?';
+        nextAction = 'recolectar_datos_cotizacion';
+        confidence = 0.9;
+        break;
+
+      case 'quiere_cotizacion':
+        suggestedReply =
+            'Excelente. Te preparo cotización formal. Solo necesito: producto/servicio, cantidad, ubicación y fecha estimada de instalación.';
+        nextAction = 'crear_cotizacion';
+        confidence = 0.92;
+        break;
+
+      case 'quiere_instalacion':
+        suggestedReply =
+            'Perfecto, te apoyamos con la instalación. ¿Me compartes ubicación, día preferido y una foto del área para coordinarte rápido?';
+        nextAction = 'agendar_instalacion';
+        confidence = 0.9;
+        break;
+
+      case 'cliente_molesto':
+        suggestedReply =
+            'Lamento mucho la situación y gracias por avisarnos. Quiero ayudarte a resolverlo hoy mismo. ¿Me compartes lo ocurrido para darte una solución inmediata?';
+        nextAction = 'priorizar_seguimiento';
+        confidence = 0.9;
+        break;
+
+      case 'quiere_seguimiento':
+        suggestedReply =
+            'Gracias por el seguimiento. Ya te confirmo el estado actualizado en breve para que tengas claridad del próximo paso.';
+        nextAction = 'crear_tarea_seguimiento';
+        confidence = 0.87;
+        break;
+
+      case 'quiere_comprar':
+        suggestedReply =
+            'Excelente decisión. Para dejarte todo listo hoy, ¿me confirmas producto/servicio, cantidad y método de pago preferido?';
+        nextAction = 'cerrar_venta';
+        confidence = 0.91;
+        break;
+
+      default:
+        suggestedReply =
+            'Gracias por escribirnos. Con gusto te ayudo. ¿Me compartes un poco más de detalle para orientarte con la mejor opción?';
+        nextAction = 'aclarar_necesidad';
+        confidence = 0.78;
+        break;
+    }
+
+    const runtime = await this.getOpenAiRuntimeConfig();
+    if (runtime.apiKey) {
+      try {
+        const parsed = await this.requestStrictJsonFromOpenAi<{
+          reply?: unknown;
+          nextAction?: unknown;
+          confidence?: unknown;
+        }>({
+          runtime,
+          temperature: 0.2,
+          systemPrompt:
+              'Eres asesor comercial de FULLTECH para WhatsApp. Responde en español dominicano profesional, breve, humano y vendedor. ' +
+              'Reglas obligatorias: no inventes ubicación, horarios, cuentas bancarias, catálogo, precios ni datos no provistos. ' +
+              'Si un dato falta, dilo de forma natural sin inventar. Nunca auto-envíes mensajes; solo sugerencias.',
+          userPrompt:
+              '${JSON.stringify({
+                intent,
+                crmStatus: status,
+                customerName,
+                lastCustomerMessage: rawMessage,
+                deterministicReply: suggestedReply,
+                nextAction,
+                missingData,
+                availableBusinessData: {
+                  location,
+                  businessHours,
+                  bankAccounts,
+                  catalogSummary,
+                },
+              })}\n\n' +
+              'Devuelve JSON exacto: {"reply":"string","nextAction":"string","confidence":0.0}.',
+        });
+
+        const aiReply = this.normalizeOptionalString(parsed.reply);
+        const aiNextAction = this.normalizeOptionalString(parsed.nextAction);
+        const aiConfidence = Number(parsed.confidence);
+
+        if (aiReply != null) {
+          suggestedReply = aiReply;
+        }
+        if (aiNextAction != null) {
+          nextAction = aiNextAction;
+        }
+        if (Number.isFinite(aiConfidence)) {
+          confidence = Math.max(0, Math.min(1, aiConfidence));
+        }
+      } catch (error) {
+        this.logDebug('crm-commercial.ai_suggest_fallback', {
+          message: error instanceof Error ? error.message : `${error}`,
+        });
+      }
+    }
+
+    dataUsed.add('estado_crm');
+    if (rawMessage.length > 0) {
+      dataUsed.add('mensaje_cliente');
+    }
+    if (customerName.length > 0) {
+      dataUsed.add('cliente');
+    }
+
+    return {
+      intent,
+      suggestedReply,
+      nextAction,
+      missingData,
+      confidence,
+      dataUsed: Array.from(new Set(dataUsed)),
+    };
+  }
+
+  private normalizeCrmCommercialText(value: string) {
+    return value
+      .toLowerCase()
+      .replace(/[áàäâ]/g, 'a')
+      .replace(/[éèëê]/g, 'e')
+      .replace(/[íìïî]/g, 'i')
+      .replace(/[óòöô]/g, 'o')
+      .replace(/[úùüû]/g, 'u')
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   async chat(user: { id: string; role: Role }, dto: ChatAiAssistantDto) {

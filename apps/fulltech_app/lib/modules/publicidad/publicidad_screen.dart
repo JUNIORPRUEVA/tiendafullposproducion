@@ -154,6 +154,8 @@ class PublicidadController extends StateNotifier<PublicidadState> {
   Future<void>? _imagePollingTask;
   DateTime? _imagePollingDeadline;
   final Set<String> _pollingStoryIds = <String>{};
+  final Set<String> _autoSelectionAttemptedStoryIds = <String>{};
+  bool _autoSelectingBaseImages = false;
   bool _disposed = false;
 
   Future<void> loadInitial() async {
@@ -275,11 +277,14 @@ class PublicidadController extends StateNotifier<PublicidadState> {
       }
 
       final selectedContentGalleryItemId =
-          selected!.contentGalleryItemId?.trim() ?? '';
+          selected.contentGalleryItemId?.trim() ?? '';
       final selectedMediaAssetId = selected.mediaAssetId?.trim() ?? '';
       final selectedImageUrl = selected.imageUrl.trim();
       developer.log(
         '[publicidad-estados] selected contentGalleryItemId=${selectedContentGalleryItemId.isEmpty ? 'null' : selectedContentGalleryItemId}',
+      );
+      developer.log(
+        '[publicidad-estados] selected mediaAssetId=${selectedMediaAssetId.isEmpty ? 'null' : selectedMediaAssetId}',
       );
       developer.log('[publicidad-estados] selected imageUrl=$selectedImageUrl');
 
@@ -677,6 +682,7 @@ class PublicidadController extends StateNotifier<PublicidadState> {
         publishedAssets: publishedAssets,
         error: softError,
       );
+      await _autoSelectBaseImagesIfNeeded();
       _syncImagePollingWithStories(stories);
     } catch (error) {
       state = state.copyWith(
@@ -873,7 +879,7 @@ class PublicidadController extends StateNotifier<PublicidadState> {
         error: message,
         imageBusyStoryIds: {...state.imageBusyStoryIds}..remove(storyId),
       );
-      rethrow;
+      return;
     }
     final busyIds = {...state.imageBusyStoryIds};
     if (!_storyHasActiveImageStatus(storyId, state.dailyStories)) {
@@ -926,6 +932,87 @@ class PublicidadController extends StateNotifier<PublicidadState> {
         return 'image/webp';
       default:
         return 'image/jpeg';
+    }
+  }
+
+  Future<void> _autoSelectBaseImagesIfNeeded() async {
+    if (_autoSelectingBaseImages || _disposed) return;
+
+    final gallery = state.contentGalleryAssets;
+    if (gallery.isEmpty) return;
+
+    final candidateMediaAssetIds = gallery
+        .map((item) => item.mediaAssetId?.trim() ?? '')
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+    if (candidateMediaAssetIds.isEmpty) return;
+
+    final pendingStories = state.dailyStories.where((story) {
+      if (_autoSelectionAttemptedStoryIds.contains(story.id)) return false;
+      final hasMediaAsset = (story.mediaAssetId ?? '').trim().isNotEmpty;
+      final isConfirmed =
+          story.imageGenerationMetadata['imageSelectionConfirmed'] == true;
+      return !hasMediaAsset && !isConfirmed;
+    }).toList(growable: false);
+    if (pendingStories.isEmpty) return;
+
+    _autoSelectingBaseImages = true;
+    var changedAny = false;
+    try {
+      for (final story in pendingStories) {
+        _autoSelectionAttemptedStoryIds.add(story.id);
+        try {
+          final analysis = await _api.analyzeMediaAssets(
+            mediaAssetIds: candidateMediaAssetIds,
+            storyType: _storyTypeApiCode(story.type),
+          );
+          final rawRecommended = analysis['recommended'];
+          final recommended = rawRecommended is Map
+              ? rawRecommended.cast<String, dynamic>()
+              : const <String, dynamic>{};
+
+          final suggestedId =
+              '${recommended['mediaAssetId'] ?? recommended['id'] ?? ''}'
+                  .trim();
+          if (suggestedId.isEmpty) continue;
+
+          final selected = _findAuthorizedContentAssetByAnyId(
+            suggestedId,
+            gallery,
+          );
+          final finalId = selected != null
+              ? _resolvePreferredSelectionId(selected)
+              : suggestedId;
+
+          developer.log(
+            '[publicidad-estados] auto-select story=${story.id} suggested=$suggestedId final=$finalId',
+          );
+          await _api.changeBaseImage(story.id, finalId);
+          changedAny = true;
+        } catch (error) {
+          developer.log(
+            '[publicidad-estados] auto-select skipped story=${story.id}: $error',
+          );
+        }
+      }
+    } finally {
+      _autoSelectingBaseImages = false;
+    }
+
+    if (changedAny && !_disposed) {
+      await _refresh(keepLoading: false);
+    }
+  }
+
+  String _storyTypeApiCode(MarketingStoryType type) {
+    switch (type) {
+      case MarketingStoryType.sales:
+        return 'SALES';
+      case MarketingStoryType.trust:
+        return 'TRUST';
+      case MarketingStoryType.educational:
+        return 'EDUCATIONAL';
     }
   }
 
