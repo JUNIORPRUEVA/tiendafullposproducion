@@ -476,9 +476,47 @@ export class MarketingService {
   async listContentGallery(companyId: string) {
     await this.syncContentGalleryFromMediaEvidence(companyId);
 
-    const data = await this.mediaAssets.list(companyId, {
-      active_only: true,
-    } as MarketingMediaAssetQueryDto);
+    const evidenceRows = await this.prisma.serviceEvidence.findMany({
+      where: {
+        forPublicidad: true,
+        type: {
+          in: [
+            ServiceEvidenceType.REFERENCIA_IMAGEN,
+            ServiceEvidenceType.EVIDENCIA_IMAGEN,
+            ServiceEvidenceType.REFERENCIA_VIDEO,
+            ServiceEvidenceType.EVIDENCIA_VIDEO,
+          ],
+        },
+      },
+      select: {
+        content: true,
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: 300,
+    });
+
+    const allowedUrls = [...new Set(
+      evidenceRows
+        .map((row) => `${row.content ?? ''}`.trim())
+        .filter((url) => url.length > 0),
+    )];
+
+    if (allowedUrls.length === 0) {
+      return { items: [] };
+    }
+
+    const data = {
+      items: await this.prisma.marketingMediaAsset.findMany({
+        where: {
+          companyId,
+          isActive: true,
+          fileUrl: {
+            in: allowedUrls,
+          },
+        },
+        orderBy: [{ useCount: 'desc' }, { createdAt: 'desc' }],
+      }),
+    };
 
     return {
       ...data,

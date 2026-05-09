@@ -2914,6 +2914,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
     VoidCallback? onBackToList,
   }) {
     final hasConversation = selectedConversation != null;
+    final canSendText = hasConversation && !_sendingChatMessage && !_saving;
     if (kDebugMode) {
       debugPrint(
         '[CRM][ConversationPanel] called hasConversation=$hasConversation selected=${selectedConversation?.id ?? 'null'} messages=${_messages.length} filtered=${_filteredMessages.length}',
@@ -3387,10 +3388,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                       icon: const Icon(Icons.mic_none_rounded, size: 20),
                     ),
                     FilledButton.icon(
-                      onPressed:
-                          !hasConversation || _sendingChatMessage || _saving
-                              ? null
-                              : _sendMessageToCurrentConversation,
+                      onPressed: canSendText ? _sendMessageToCurrentConversation : null,
                       icon: _sendingChatMessage
                           ? const SizedBox(
                               width: 14,

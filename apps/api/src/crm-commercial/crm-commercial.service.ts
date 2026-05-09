@@ -866,11 +866,6 @@ export class CrmCommercialService {
       throw new BadRequestException('El mensaje no puede estar vacio.');
     }
 
-    const selected = await this.getSelectedWhatsappInstanceForCrm();
-    if (!selected.selectedInstanceId) {
-      throw new BadRequestException('Selecciona una instancia antes de enviar mensajes.');
-    }
-
     const conversation = await this.prisma.whatsappConversation.findUnique({
       where: { id: conversationId },
       include: {
@@ -880,89 +875,41 @@ export class CrmCommercialService {
       },
     });
 
-    if (!conversation || conversation.instanceId !== selected.selectedInstanceId) {
-      throw new NotFoundException('Conversacion no encontrada para la instancia activa.');
+    if (!conversation) {
+      throw new NotFoundException('Conversacion no encontrada.');
     }
 
-    const conversationRemoteJid = (conversation.remoteJid ?? '').trim();
-    const conversationRemotePhone = (conversation.remotePhone ?? '').trim();
-
-    if (!conversationRemoteJid && !conversationRemotePhone) {
+    const remoteJid = (conversation.remoteJid ?? '').trim();
+    if (!remoteJid) {
       throw new BadRequestException({
         message: 'No se pudo enviar el mensaje: la conversación no tiene destino válido.',
         code: 'CRM_SEND_MESSAGE_FAILED',
       });
     }
 
-    // Reuse WhatsApp CRM behavior: prefer existing conversation.remoteJid exactly as stored.
-    let remoteJid: string;
-    let normalizedPhone = '';
-    try {
-      if (conversationRemoteJid) {
-        remoteJid = conversationRemoteJid;
-        normalizedPhone =
-          this.normalizeComparablePhone(conversationRemotePhone) ??
-          this.normalizeComparablePhone(conversationRemoteJid) ??
-          '';
-      } else {
-        const normalized = this.normalizeRemoteJidFromPhone(conversationRemotePhone);
-        remoteJid = normalized.remoteJid;
-        normalizedPhone = normalized.normalizedPhone;
-      }
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : 'Destino inválido.';
-      throw new BadRequestException({
-        message: `No se pudo enviar el mensaje: ${reason}`,
-        code: 'CRM_SEND_MESSAGE_FAILED',
-      });
-    }
-
     console.log(
-      `[CRM-COMMERCIAL][SEND_TEXT][REPLY] instanceName=${conversation.instance.instanceName} conversationId=${conversationId} remoteJid=${conversationRemoteJid} remotePhone=${conversationRemotePhone} normalizedPhone=${normalizedPhone} finalTarget=${remoteJid}`,
+      `[CRM-COMMERCIAL][SEND_TEXT][REPLY] instanceName=${conversation.instance.instanceName} conversationId=${conversationId} remoteJid=${remoteJid} remotePhone=${conversation.remotePhone ?? ''} finalTarget=${remoteJid}`,
     );
     console.log(
       `[CRM-COMMERCIAL][SEND_TEXT][REPLY] evolutionPayload=${this.stringifyDebug({ number: remoteJid, text })}`,
     );
 
-    await this.ensureInstanceConnectedOrThrow(conversation.instance.instanceName);
-
-    let evolutionResult: unknown;
-    try {
-      evolutionResult = await this.whatsappService.sendTextMessage(
-        conversation.instance.instanceName,
-        remoteJid,
-        text,
-      );
-      console.log(
-        `[CRM-COMMERCIAL][SEND_TEXT][REPLY] evolutionResponse=${this.stringifyDebug(evolutionResult)}`,
-      );
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      console.error(
-        `[CRM-COMMERCIAL][SEND_TEXT][REPLY] send failed conversationId=${conversationId} instanceName=${conversation.instance.instanceName} finalTarget=${remoteJid} error=${reason}`,
-      );
-      if (/connection\s*closed/i.test(reason)) {
-        throw new BadRequestException({
-          message:
-            `No se pudo enviar el mensaje: la instancia de WhatsApp ` +
-            `"${conversation.instance.instanceName}" está desconectada ` +
-            `(Connection Closed). Reconéctala y vuelve a intentar.`,
-          code: 'CRM_WHATSAPP_INSTANCE_DISCONNECTED',
-        });
-      }
-      throw new BadRequestException({
-        message: `No se pudo enviar el mensaje: ${reason}`,
-        code: 'CRM_SEND_MESSAGE_FAILED',
-      });
-    }
-
-    const evolutionMessageId = this.extractEvolutionMessageId(evolutionResult);
     const saved = await this.whatsappInboxService.recordOutgoingMessage(
       conversation.instanceId,
       remoteJid,
       text,
-      evolutionMessageId,
     );
+
+    const evolutionResult = await this.whatsappService.sendTextMessage(
+      conversation.instance.instanceName,
+      remoteJid,
+      text,
+    );
+    console.log(
+      `[CRM-COMMERCIAL][SEND_TEXT][REPLY] evolutionResponse=${this.stringifyDebug(evolutionResult)}`,
+    );
+
+    const evolutionMessageId = this.extractEvolutionMessageId(evolutionResult);
 
     const savedMessageId =
       (saved as { message?: { id?: string } })?.message?.id ?? null;
