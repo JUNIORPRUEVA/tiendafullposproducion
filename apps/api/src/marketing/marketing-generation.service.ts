@@ -189,7 +189,7 @@ export class MarketingGenerationService {
             visualConcept: visualData.visualConcept,
             designNotes: visualData.designNotes,
             platformFormat: 'STORY_9_16',
-            imageStatus: 'QUEUED',
+            imageStatus: 'PENDING',
             generatedImageUrl: null,
             generatedImageProvider: null,
             imageGenerationMetadata: visualData.imageGenerationMetadata as any,
@@ -245,7 +245,7 @@ export class MarketingGenerationService {
           visualConcept: visualData.visualConcept,
           designNotes: visualData.designNotes,
           platformFormat: 'STORY_9_16',
-          imageStatus: 'QUEUED',
+          imageStatus: 'PENDING',
           generatedImageUrl: null,
           generatedImageProvider: null,
           imageGenerationMetadata: visualData.imageGenerationMetadata as any,
@@ -334,7 +334,7 @@ export class MarketingGenerationService {
         mediaAssetId: visualData.mediaAssetId,
         visualConcept: visualData.visualConcept,
         designNotes: visualData.designNotes,
-        imageStatus: 'QUEUED',
+        imageStatus: 'PENDING',
         generatedImageUrl: null,
         generatedImageProvider: null,
         imageGenerationMetadata: visualData.imageGenerationMetadata as any,
@@ -391,6 +391,10 @@ export class MarketingGenerationService {
       throw new NotFoundException('Contenido no encontrado');
     }
 
+    if (!this.isImageSelectionConfirmed(story)) {
+      throw new ConflictException('Debes confirmar la imagen base antes de generar el diseño.');
+    }
+
     const updated = await this.markStoryImageQueued(companyId, storyId, userId, customPrompt, {
       queuedAt: new Date().toISOString(),
       queueReason: 'manual-regenerate-image',
@@ -435,6 +439,10 @@ export class MarketingGenerationService {
       throw new NotFoundException('Contenido no encontrado');
     }
 
+    if (!this.isImageSelectionConfirmed(story)) {
+      throw new ConflictException('Debes confirmar la imagen base antes de generar el diseño.');
+    }
+
     return this.prisma.marketingDailyStory.update({
       where: { id: storyId },
       data: {
@@ -446,6 +454,8 @@ export class MarketingGenerationService {
           ...(this.asObject(story.imageGenerationMetadata) ?? {}),
           ...metadata,
           queuedAt: new Date().toISOString(),
+          workflowStage: 'DESIGN_QUEUED',
+          imageSelectionConfirmed: true,
           queuedByUserId: userId,
           customPrompt: customPrompt?.trim() || null,
           lastError: null,
@@ -649,6 +659,10 @@ export class MarketingGenerationService {
       throw new NotFoundException('Contenido no encontrado');
     }
 
+    if (!this.isImageSelectionConfirmed(story)) {
+      throw new ConflictException('Debes confirmar la imagen base antes de generar el diseño.');
+    }
+
     await this.markStoryImageProcessing(companyId, storyId, 1);
     try {
       const updated = await this.processQueuedStoryImage(companyId, storyId, userId, customPrompt);
@@ -681,6 +695,18 @@ export class MarketingGenerationService {
         imageUrl: normalized.url,
         generatedImageUrl: null,
         imageStatus: 'PENDING',
+        imageGenerationMetadata: {
+          ...(this.asObject(story.imageGenerationMetadata) ?? {}),
+          workflowStage: 'SELECTED_PENDING_CONFIRMATION',
+          imageSelectionConfirmed: false,
+          confirmedAt: null,
+          confirmedByUserId: null,
+          selectedAt: new Date().toISOString(),
+          selectedByUserId: userId,
+          baseImageSourceUrl: asset.fileUrl,
+          selectedMediaAssetId: asset.id,
+          selectedMediaCategory: asset.category,
+        } as any,
       },
       include: {
         approvedByUser: { select: { id: true, nombreCompleto: true } },
@@ -692,6 +718,39 @@ export class MarketingGenerationService {
     await this.logAssetUsage(companyId, asset.id, userId, { storyId, mode: 'manual-change' });
 
     return updated;
+  }
+
+  async confirmBaseImageSelection(companyId: string, storyId: string, userId: string) {
+    const story = await this.prisma.marketingDailyStory.findFirst({
+      where: { id: storyId, companyId },
+    });
+    if (!story) {
+      throw new NotFoundException('Contenido no encontrado');
+    }
+
+    const baseImageUrl = `${story.imageUrl ?? ''}`.trim();
+    if (!baseImageUrl) {
+      throw new ConflictException('No hay imagen base seleccionada para confirmar.');
+    }
+
+    return this.prisma.marketingDailyStory.update({
+      where: { id: story.id },
+      data: {
+        imageStatus: 'PENDING',
+        imageGenerationMetadata: {
+          ...(this.asObject(story.imageGenerationMetadata) ?? {}),
+          workflowStage: 'BASE_IMAGE_CONFIRMED',
+          imageSelectionConfirmed: true,
+          confirmedAt: new Date().toISOString(),
+          confirmedByUserId: userId,
+          lastError: null,
+        } as any,
+      },
+      include: {
+        approvedByUser: { select: { id: true, nombreCompleto: true } },
+        mediaAsset: true,
+      },
+    });
   }
 
   private pickResearchEnrichedTemplate(type: MarketingStoryType, research: any): StoryTemplate {
@@ -967,8 +1026,10 @@ export class MarketingGenerationService {
       visualConcept,
       designNotes,
       imageGenerationMetadata: {
-        queuedAt: new Date().toISOString(),
-        queueReason: 'story-image-generation',
+        workflowStage: 'SELECTED_PENDING_CONFIRMATION',
+        imageSelectionConfirmed: false,
+        selectedAt: new Date().toISOString(),
+        queueReason: 'awaiting-base-image-confirmation',
         baseImageSourceUrl: baseImageUrl || null,
         category: selected?.category ?? this.galleryCategoryForType(input.type),
         serviceOrProduct:
@@ -1055,6 +1116,11 @@ export class MarketingGenerationService {
         'No hay imagen publicitaria final válida para este estado.',
       );
     }
+  }
+
+  private isImageSelectionConfirmed(story: { imageGenerationMetadata?: unknown }) {
+    const metadata = this.asObject(story.imageGenerationMetadata) ?? {};
+    return metadata.imageSelectionConfirmed === true;
   }
 
   private pickNaturalCta(recommended: string[], fallback: string) {

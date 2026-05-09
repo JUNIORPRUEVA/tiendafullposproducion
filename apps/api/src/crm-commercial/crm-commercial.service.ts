@@ -27,6 +27,7 @@ import { SendCrmCommercialMessageDto } from './dto/send-crm-commercial-message.d
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { normalizeWhatsappPhone } from '../whatsapp-inbox/whatsapp-identity.util';
 import { WhatsappInboxService } from '../whatsapp-inbox/whatsapp-inbox.service';
+import { RedisService } from '../common/redis/redis.service';
 import {
   SendCrmCommercialMediaMessageDto,
   StartCrmCommercialMediaMessageDto,
@@ -41,6 +42,7 @@ export class CrmCommercialService {
     private readonly prisma: PrismaService,
     private readonly whatsappService: WhatsappService,
     private readonly whatsappInboxService: WhatsappInboxService,
+    private readonly redis: RedisService,
   ) {}
 
   private extractEvolutionMessageId(result: unknown): string | undefined {
@@ -635,6 +637,10 @@ export class CrmCommercialService {
         mediaMimeType: true,
         senderName: true,
         sentAt: true,
+        mediaStorageKey: true,
+        mediaStatus: true,
+        originalFileName: true,
+        mediaFileSize: true,
       },
     });
 
@@ -929,6 +935,16 @@ export class CrmCommercialService {
     try {
       const mediaBuffer = Buffer.from(dto.base64Data, 'base64');
 
+      // ── Redis idempotency lock (prevent double-send for same file) ──
+      const lockKey = `crm-media:${conversationId}:${dto.fileName}:${mediaBuffer.length}`;
+      const acquired = await this.redis.tryLock(lockKey, 30);
+      if (!acquired) {
+        throw new BadRequestException({
+          message: 'El archivo ya está siendo enviado. Por favor espera.',
+          code: 'CRM_MEDIA_DUPLICATE',
+        });
+      }
+
       const saved = await this.whatsappInboxService.recordOutgoingMediaMessage({
         instanceId: conversation.instanceId,
         remoteJid: conversation.remoteJid,
@@ -1029,6 +1045,16 @@ export class CrmCommercialService {
 
     try {
       const mediaBuffer = Buffer.from(dto.base64Data, 'base64');
+
+      // ── Redis idempotency lock ──
+      const lockKey = `crm-start-media:${normalizedPhone}:${dto.fileName}:${mediaBuffer.length}`;
+      const acquired = await this.redis.tryLock(lockKey, 30);
+      if (!acquired) {
+        throw new BadRequestException({
+          message: 'El archivo ya está siendo enviado. Por favor espera.',
+          code: 'CRM_MEDIA_DUPLICATE',
+        });
+      }
 
       const saved = await this.whatsappInboxService.recordOutgoingMediaMessage({
         instanceId: selected.selectedInstanceId,

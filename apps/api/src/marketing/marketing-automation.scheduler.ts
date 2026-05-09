@@ -4,7 +4,6 @@ import { MarketingStoryStatus, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MarketingConfigService } from './marketing-config.service';
 import { MarketingGenerationService } from './marketing-generation.service';
-import { MarketingImageJobService } from './marketing-image-job.service';
 import { MarketingResearchService } from './marketing-research.service';
 
 @Injectable()
@@ -17,7 +16,6 @@ export class MarketingAutomationScheduler {
     private readonly prisma: PrismaService,
     private readonly configService: MarketingConfigService,
     private readonly generationService: MarketingGenerationService,
-    private readonly imageJobs: MarketingImageJobService,
     private readonly researchService: MarketingResearchService,
   ) {}
 
@@ -54,29 +52,12 @@ export class MarketingAutomationScheduler {
         const actorUserId = await this.resolveActorUserId();
         const researchId = await this.ensureResearch(companyId, actorUserId);
         const generated = await this.generationService.generateMissingStories(companyId, today, actorUserId, researchId);
-        // Enqueue image generation for all newly created QUEUED stories
-        for (const story of generated) {
-          if (`${(story as any).imageStatus ?? ''}`.toUpperCase() === 'QUEUED') {
-            this.imageJobs.enqueueStoryImageGeneration(story.id, companyId, actorUserId ?? 'system');
-          }
-        }
         await this.logActivity(companyId, 'AUTO_GENERATED', 'Generacion automatica de estados diarios', {
           date: this.toIsoDate(today),
           generatedCount: generated.length,
           researchId: researchId ?? null,
         }, actorUserId);
         return;
-      }
-
-      // Recovery: re-enqueue any stories stuck in QUEUED/PROCESSING state (e.g. after backend restart)
-      const actorUserIdForRecovery = await this.resolveActorUserId();
-      for (const story of stories) {
-        const imgStatus = `${(story as any).imageStatus ?? ''}`.toUpperCase();
-        const hasImage = !!`${(story as any).generatedImageUrl ?? ''}`.trim();
-        if ((imgStatus === 'QUEUED' || imgStatus === 'PROCESSING') && !hasImage) {
-          this.logger.log(`[scheduler-recovery] Re-enqueuing stuck story id=${story.id} type=${story.type} imageStatus=${imgStatus}`);
-          this.imageJobs.enqueueStoryImageGeneration(story.id, companyId, actorUserIdForRecovery ?? 'system');
-        }
       }
 
       const pendingStories = stories.filter(
@@ -113,12 +94,6 @@ export class MarketingAutomationScheduler {
 
       const researchId2 = await this.ensureResearch(companyId, actorUserId);
       const generated = await this.generationService.generateMissingStories(companyId, today, actorUserId, researchId2);
-      // Enqueue image generation for all regenerated QUEUED stories
-      for (const story of generated) {
-        if (`${(story as any).imageStatus ?? ''}`.toUpperCase() === 'QUEUED') {
-          this.imageJobs.enqueueStoryImageGeneration(story.id, companyId, actorUserId ?? 'system');
-        }
-      }
       await this.logActivity(companyId, 'AUTO_REGENERATED', 'Regeneracion automatica por timeout de aprobacion', {
         date: this.toIsoDate(today),
         regenerateAfterHours: config.regenerateAfterHours,

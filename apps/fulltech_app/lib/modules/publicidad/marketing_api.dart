@@ -190,6 +190,42 @@ class MarketingApi {
     }
   }
 
+  Future<void> confirmBaseImage(String storyId) async {
+    try {
+      await _dio.post('${ApiRoutes.marketingStories}/$storyId/confirm-base-image');
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo confirmar la imagen base');
+    }
+  }
+
+  Future<void> generateDesign(String storyId, {String? customPrompt}) async {
+    try {
+      await _dio.post(
+        '${ApiRoutes.marketingStories}/$storyId/generate-design',
+        data: {
+          if ((customPrompt ?? '').trim().isNotEmpty)
+            'reason': customPrompt!.trim(),
+        },
+      );
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo generar el diseño');
+    }
+  }
+
+  Future<void> regenerateDesign(String storyId, {String? customPrompt}) async {
+    try {
+      await _dio.post(
+        '${ApiRoutes.marketingStories}/$storyId/regenerate-design',
+        data: {
+          if ((customPrompt ?? '').trim().isNotEmpty)
+            'reason': customPrompt!.trim(),
+        },
+      );
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo regenerar el diseño');
+    }
+  }
+
   Future<void> editStory(
     String storyId, {
     required String title,
@@ -338,7 +374,7 @@ class MarketingApi {
   }) async {
     try {
       final res = await _dio.post(
-        '${ApiRoutes.marketingBase}/media-assets/analyze',
+        '${ApiRoutes.marketingMediaAssets}/analyze',
         data: {
           'mediaAssetIds': mediaAssetIds,
           'storyType': storyType,

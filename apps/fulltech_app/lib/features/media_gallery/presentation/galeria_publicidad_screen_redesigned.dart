@@ -1,27 +1,11 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/auth/app_permissions.dart';
 import '../../../core/auth/auth_provider.dart';
-import '../../../core/errors/api_exception.dart';
 import '../../../core/widgets/app_drawer.dart';
 import '../../../core/widgets/custom_app_bar.dart';
-import '../application/gallery_content_controller.dart';
 import '../models/gallery_content_model.dart';
-
-// Provider para GalleryContentController
-// Este será inicializado en tu main.dart o donde configures Riverpod
-final _galleryContentControllerProvider =
-    StateNotifierProvider<GalleryContentController, GalleryContentState>(
-  (ref) {
-    // TODO: Inyectar GalleryContentApi instance aquí
-    throw UnimplementedError(
-      'Configura el proveedor de GalleryContentController con GalleryContentApi',
-    );
-  },
-);
 
 class GaleriaPublicidadScreen extends ConsumerStatefulWidget {
   const GaleriaPublicidadScreen({super.key});

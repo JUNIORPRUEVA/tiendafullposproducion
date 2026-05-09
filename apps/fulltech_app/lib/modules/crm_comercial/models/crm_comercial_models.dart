@@ -365,6 +365,10 @@ class CrmComercialInboxMessage {
     this.mediaMimeType,
     this.senderName,
     this.sentAt,
+    this.mediaStorageKey,
+    this.mediaStatus,
+    this.originalFileName,
+    this.mediaFileSize,
   });
 
   final String id;
@@ -376,8 +380,13 @@ class CrmComercialInboxMessage {
   final String? mediaMimeType;
   final String? senderName;
   final DateTime? sentAt;
+  final String? mediaStorageKey;
+  final String? mediaStatus;
+  final String? originalFileName;
+  final int? mediaFileSize;
 
   bool get isOutgoing => direction.toUpperCase() == 'OUTGOING';
+  bool get mediaFailed => (mediaStatus ?? '').toLowerCase() == 'failed';
 
   String get displayText {
     final main = (body ?? '').trim();
@@ -398,6 +407,10 @@ class CrmComercialInboxMessage {
       mediaMimeType: json['mediaMimeType']?.toString(),
       senderName: json['senderName']?.toString(),
       sentAt: DateTime.tryParse((json['sentAt'] ?? '').toString()),
+      mediaStorageKey: json['mediaStorageKey']?.toString(),
+      mediaStatus: json['mediaStatus']?.toString(),
+      originalFileName: json['originalFileName']?.toString(),
+      mediaFileSize: json['mediaFileSize'] is int ? json['mediaFileSize'] as int : null,
     );
   }
 }

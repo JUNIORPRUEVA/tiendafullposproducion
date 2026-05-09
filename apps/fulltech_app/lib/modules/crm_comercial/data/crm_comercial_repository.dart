@@ -1,6 +1,8 @@
 ﻿import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'dart:typed_data';
+import 'dart:io';
 
 import '../../../core/api/api_routes.dart';
 import '../../../core/auth/auth_repository.dart';
@@ -205,6 +207,30 @@ class CrmComercialRepository {
       queryParameters: {'limit': limit},
     );
     return CrmComercialInboxMessageListResponse.fromJson(res.data ?? const {});
+  }
+
+  /// Downloads media bytes using the authenticated backend proxy.
+  /// For WhatsappMessage media, the endpoint is /whatsapp-inbox/media/:messageId.
+  /// The [mediaUrl] may be a full internal path like /whatsapp-inbox/media/UUID
+  /// or a relative path — it is forwarded as-is through the Dio client (which
+  /// already carries the JWT auth header).
+  Future<Uint8List> downloadMediaBytes(String mediaUrl) async {
+    try {
+      final res = await _dio.get<dynamic>(
+        mediaUrl,
+        options: Options(
+          responseType: ResponseType.bytes,
+          extra: const {'skipLoader': true, 'silent': true},
+        ),
+      );
+      final data = res.data;
+      if (data is Uint8List) return data;
+      if (data is List<int>) return Uint8List.fromList(data);
+      if (data is ByteBuffer) return data.asUint8List();
+      return Uint8List(0);
+    } catch (_) {
+      return Uint8List(0);
+    }
   }
 
   Future<Map<String, dynamic>> startConversationMessage({

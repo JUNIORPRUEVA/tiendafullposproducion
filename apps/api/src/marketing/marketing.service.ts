@@ -174,16 +174,11 @@ export class MarketingService {
       researchId,
       dto?.selected_media_asset_ids ?? [],
     );
-    for (const story of stories) {
-      if (`${story.imageStatus ?? ''}`.toUpperCase() === 'QUEUED') {
-        this.imageJobs.enqueueStoryImageGeneration(story.id, companyId, userId);
-      }
-    }
 
     return {
       date: this.toDateOnly(date),
-      message: 'Contenido generado. Las imágenes están en proceso.',
-      queuedCount: stories.filter((story) => `${story.imageStatus ?? ''}`.toUpperCase() === 'QUEUED').length,
+      message: 'Estados generados con imagen sugerida. Confirma o cambia la imagen antes de generar diseño.',
+      queuedCount: 0,
       items: await Promise.all(stories.map((story) => this.normalizeStoryUrlsAsync(story))),
     };
   }
@@ -260,9 +255,8 @@ export class MarketingService {
 
   async regenerateStory(companyId: string, storyId: string, userId: string) {
     const updated = await this.generation.regenerateStory(companyId, storyId, userId);
-    this.imageJobs.enqueueStoryImageGeneration(updated.id, companyId, userId);
     return {
-      message: 'Contenido regenerado. La imagen está en proceso.',
+      message: 'Contenido regenerado con nueva imagen sugerida. Debes confirmar imagen para generar diseño.',
       item: await this.normalizeStoryUrlsAsync(updated),
     };
   }
@@ -279,9 +273,21 @@ export class MarketingService {
     const updated = await this.generation.queueStoryImageGeneration(companyId, storyId, userId, customPrompt);
     this.imageJobs.enqueueStoryImageGeneration(updated.id, companyId, userId, customPrompt);
     return {
-      message: 'Imagen en proceso',
+      message: 'Diseño en proceso',
       item: await this.normalizeStoryUrlsAsync(updated),
     };
+  }
+
+  async confirmStoryBaseImage(companyId: string, storyId: string, userId: string) {
+    const updated = await this.generation.confirmBaseImageSelection(companyId, storyId, userId);
+    return {
+      message: 'Imagen base confirmada. Ya puedes generar el diseño.',
+      item: await this.normalizeStoryUrlsAsync(updated),
+    };
+  }
+
+  async generateStoryDesign(companyId: string, storyId: string, userId: string, customPrompt?: string) {
+    return this.regenerateStoryImage(companyId, storyId, userId, customPrompt, false);
   }
 
   async getDebugVersion(companyId: string) {

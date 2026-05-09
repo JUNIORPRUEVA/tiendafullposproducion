@@ -14,11 +14,11 @@ export class MarketingApprovalService {
     if (!story) throw new NotFoundException('Contenido no encontrado');
 
     const missing: string[] = [];
-    const hasFinalImage =
-      `${(story as any).generatedImageUrl ?? ''}`.trim().length > 0 ||
-      `${story.imageUrl ?? ''}`.trim().length > 0;
-    if (!hasFinalImage) missing.push('imagen final');
-    if (`${story.imagePrompt ?? ''}`.trim().length === 0) missing.push('prompt');
+    const metadata = ((story as any).imageGenerationMetadata ?? {}) as Record<string, unknown>;
+    const imageConfirmed = metadata.imageSelectionConfirmed === true;
+    const hasGeneratedDesign = `${(story as any).generatedImageUrl ?? ''}`.trim().length > 0;
+    if (!imageConfirmed) missing.push('imagen base confirmada');
+    if (!hasGeneratedDesign) missing.push('diseño generado');
     const hasCopy =
       `${story.title ?? ''}`.trim().length > 0 &&
       `${story.shortText ?? ''}`.trim().length > 0 &&

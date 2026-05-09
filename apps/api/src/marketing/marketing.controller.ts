@@ -118,6 +118,38 @@ export class MarketingController {
     return this.marketing.changeStoryBaseImage(companyId, storyId, mediaAssetId, user.id ?? '');
   }
 
+  @Post('stories/:id/confirm-base-image')
+  async confirmBaseImage(
+    @Req() req: Request,
+    @Param('id') storyId: string,
+  ) {
+    const user = req.user as RequestUser;
+    const companyId = this.marketing.resolveCompanyId();
+    return this.marketing.confirmStoryBaseImage(companyId, storyId, user.id ?? '');
+  }
+
+  @Post('stories/:id/generate-design')
+  async generateDesign(
+    @Req() req: Request,
+    @Param('id') storyId: string,
+    @Body() dto: MarketingActionDto,
+  ) {
+    const user = req.user as RequestUser;
+    const companyId = this.marketing.resolveCompanyId();
+    return this.marketing.generateStoryDesign(companyId, storyId, user.id ?? '', dto.reason);
+  }
+
+  @Post('stories/:id/regenerate-design')
+  async regenerateDesign(
+    @Req() req: Request,
+    @Param('id') storyId: string,
+    @Body() dto: MarketingActionDto,
+  ) {
+    const user = req.user as RequestUser;
+    const companyId = this.marketing.resolveCompanyId();
+    return this.marketing.generateStoryDesign(companyId, storyId, user.id ?? '', dto.reason);
+  }
+
   @Patch('stories/:id')
   async edit(
     @Req() req: Request,

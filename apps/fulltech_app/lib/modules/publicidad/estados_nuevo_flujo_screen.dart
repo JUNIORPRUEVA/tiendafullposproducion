@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../core/api/env.dart';
 import 'image_analysis_models.dart';
 import 'marketing_api.dart';
 import 'marketing_models.dart';
@@ -178,10 +177,10 @@ class _EstadosNuevoFlujoScreenState
           child: Consumer(
             builder: (context, ref, child) {
               final mediaAssets = ref.watch(
-                _mediaAssetsFutureProvider(
-                  category: _filterCategory,
-                  searchQuery: _searchQuery,
-                ),
+                _mediaAssetsFutureProvider({
+                  'category': _filterCategory,
+                  'searchQuery': _searchQuery,
+                }),
               );
 
               return mediaAssets.when(
@@ -308,7 +307,7 @@ class _EstadosNuevoFlujoScreenState
               ),
               padding: const EdgeInsets.all(8),
               child: Text(
-                asset.relatedService ?? asset.category ?? 'Producto',
+                asset.relatedService ?? asset.category,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
@@ -715,6 +714,6 @@ final _mediaAssetsFutureProvider =
   return assets
       .where((asset) =>
           (asset.relatedService?.toLowerCase().contains(searchQuery) ?? false) ||
-          (asset.category?.toLowerCase().contains(searchQuery) ?? false))
+          asset.category.toLowerCase().contains(searchQuery))
       .toList();
 });

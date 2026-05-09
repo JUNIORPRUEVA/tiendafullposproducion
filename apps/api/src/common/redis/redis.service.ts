@@ -95,6 +95,30 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+    /**
+     * Atomic set-if-not-exists (NX) with TTL.
+     * Returns true  → lock acquired (caller may proceed).
+     * Returns false → lock already held (duplicate — reject).
+     * If Redis is disabled or errors, returns true (allow through — no lock).
+     */
+    async tryLock(key: string, ttlSeconds: number): Promise<boolean> {
+      try {
+        const client = await this.getClient();
+        if (!client) return true; // Redis disabled → no lock enforcement
+        const result = await (client as Redis).set(
+          this.buildKey(key),
+          '1',
+          'EX',
+          ttlSeconds,
+          'NX',
+        );
+        return result === 'OK';
+      } catch (error) {
+        this.logError(`Redis tryLock failed for ${key}`, error);
+        return true; // On error → allow through
+      }
+    }
+
   async del(key: string): Promise<number> {
     try {
       const client = await this.getClient();

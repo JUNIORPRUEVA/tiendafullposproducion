@@ -4,7 +4,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
+import 'package:media_kit/media_kit.dart' as media_kit;
+import 'package:media_kit_video/media_kit_video.dart' as media_kit_video;
+import 'package:path_provider/path_provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/auth/auth_provider.dart';
 import '../../core/auth/app_role.dart';
@@ -113,7 +119,6 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
 
   // Composer support state
   CompanySettings? _companySettings;
-  bool _loadingCompanySettings = false;
   Timer? _composerSpellTimer;
   String? _composerOrthographySuggestion;
   String? _lastIgnoredComposerSuggestion;
@@ -636,27 +641,6 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
     }
   }
 
-  String _crmInstanceStatusText() {
-    final settings = _crmSettings;
-    if (settings == null) return 'Cargando configuracion de instancia...';
-    if ((settings.selectedWhatsappInstanceId ?? '').trim().isEmpty) {
-      return 'Selecciona una instancia para recibir mensajes reales.';
-    }
-    if (settings.selectedInstanceExists == false) {
-      return 'La instancia seleccionada ya no existe. Configura una nueva instancia.';
-    }
-    final name = (settings.selectedWhatsappInstanceName ?? '').trim();
-    if (name.isEmpty) {
-      return settings.enabled
-          ? 'Instancia activa configurada.'
-          : 'Instancia configurada (mensajes reales desactivados).';
-    }
-    if (!settings.enabled) {
-      return 'Instancia activa: $name (desactivada)';
-    }
-    return 'Instancia activa: $name';
-  }
-
   bool get _crmInstanceWarning {
     final settings = _crmSettings;
     if (settings == null) return false;
@@ -782,22 +766,6 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
     }
   }
 
-  Future<void> _ensureCompanySettings() async {
-    if (_companySettings != null || _loadingCompanySettings) return;
-    _loadingCompanySettings = true;
-    try {
-      final repo = ref.read(companySettingsRepositoryProvider);
-      final settings = await repo.getSettings();
-      if (!mounted) return;
-      setState(() => _companySettings = settings);
-    } catch (e, st) {
-      if (kDebugMode) debugPrint('[CRM] Failed to load company settings: $e\n$st');
-      // Keep composer operational even if company settings are unavailable.
-    } finally {
-      if (mounted) _loadingCompanySettings = false;
-    }
-  }
-
   Future<CompanySettings?> _resolveCompanySettings() async {
     if (_companySettings != null) return _companySettings;
     try {
@@ -900,7 +868,6 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
 
     final noteCtrl = TextEditingController();
     var saving = false;
-    String? dialogError;
 
     await showDialog<void>(
       context: context,
@@ -931,22 +898,19 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                       : () async {
                           final value = noteCtrl.text.trim();
                           if (value.isEmpty) {
-                            setDialogState(() => dialogError = 'La nota no puede estar vacía.');
                             return;
                           }
                           setDialogState(() {
                             saving = true;
-                            dialogError = null;
                           });
                           _noteCtrl.text = value;
                           try {
                             await _addNote();
                             if (!dialogContext.mounted) return;
                             Navigator.of(dialogContext).pop();
-                          } catch (error) {
+                          } catch (_) {
                             setDialogState(() {
                               saving = false;
-                              dialogError = error.toString();
                             });
                           }
                         },

@@ -4,8 +4,8 @@ export class AnalyzeMediaAssetsDto {
   @IsString({ each: true })
   @ArrayMaxSize(5)
   @IsNotEmpty()
-  mediaAssetIds: string[];
+  mediaAssetIds!: string[];
 
   @IsEnum(['sales', 'trust', 'educational'], { always: true })
-  storyType: 'sales' | 'trust' | 'educational';
+  storyType!: 'sales' | 'trust' | 'educational';
 }

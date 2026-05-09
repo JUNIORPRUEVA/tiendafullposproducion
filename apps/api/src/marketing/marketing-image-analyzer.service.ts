@@ -40,12 +40,6 @@ export class MarketingImageAnalyzerService {
   ): Promise<ImageAnalysisResult> {
     const asset = await this.prisma.marketingMediaAsset.findUnique({
       where: { id: mediaAssetId },
-      include: {
-        usageHistory: {
-          orderBy: { createdAt: 'desc' },
-          take: 10,
-        },
-      },
     });
 
     if (!asset) {
@@ -66,11 +60,7 @@ export class MarketingImageAnalyzerService {
       bestStoryTypes,
     );
 
-    const lastUsage = asset.usageHistory[0];
-    const conversions = asset.usageHistory.reduce(
-      (sum, item) => sum + (item.conversions || 0),
-      0,
-    );
+    const conversions = 0;
 
     return {
       mediaAssetId: asset.id,
@@ -81,7 +71,7 @@ export class MarketingImageAnalyzerService {
       qualityScore,
       recommendation,
       recommendationReason: reasons,
-      bestForStoryTypes,
+      bestForStoryTypes: bestStoryTypes,
       estimatedConversionLift: this._estimateConversionLift(
         asset,
         bestStoryTypes,
@@ -92,16 +82,10 @@ export class MarketingImageAnalyzerService {
       backgroundQuality: this._assessBackground(asset),
       usageHistory: {
         timesUsed: asset.useCount || 0,
-        lastUsedAt: lastUsage?.createdAt || null,
+        lastUsedAt: asset.lastUsedAt || null,
         conversionMetrics: {
-          impressions: asset.usageHistory.reduce(
-            (sum, item) => sum + (item.impressions || 0),
-            0,
-          ),
-          clicks: asset.usageHistory.reduce(
-            (sum, item) => sum + (item.clicks || 0),
-            0,
-          ),
+          impressions: 0,
+          clicks: 0,
           conversions,
         },
       },
