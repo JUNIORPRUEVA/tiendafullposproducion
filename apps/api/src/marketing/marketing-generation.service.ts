@@ -610,7 +610,15 @@ export class MarketingGenerationService {
       throw new BadRequestException('No se pudo persistir la imagen generada');
     }
 
-    this.logger.log(`[marketing-image] saved generatedImageUrl storyId=${storyId} url=${finalGeneratedUrl}`);
+    // Validate generated image quality and format
+    const validation = await this.imageGeneration.validateGeneratedImage(finalGeneratedUrl);
+    if (!validation.valid) {
+      this.logger.warn(`[marketing-image] validation failed: ${validation.reason}`);
+      await this.markStoryImageFailed(companyId, storyId, `Validacion de imagen fallida: ${validation.reason || 'Imagen invalida'}`, 1);
+      throw new BadRequestException(`La imagen generada no cumple los estándares de calidad: ${validation.reason || 'Imagen inválida o dañada'}`);
+    }
+
+    this.logger.log(`[marketing-image] saved and validated generatedImageUrl storyId=${storyId} url=${finalGeneratedUrl}`);
 
     return this.prisma.marketingDailyStory.update({
       where: { id: storyId },

@@ -256,12 +256,12 @@ export class AiAssistantService {
     switch (intent) {
       case 'pide_ubicacion':
         if (location.length === 0) {
-          missingData.add('ubicacion');
+          missingData.push('ubicacion');
           suggestedReply =
               'No hay ubicación configurada. Si deseas, te ayudo por aquí con referencias cercanas mientras la actualizamos.';
         } else {
-          dataUsed.add('ubicacion');
-          suggestedReply = 'Claro${greetingName}, esta es nuestra ubicación: $location';
+          dataUsed.push('ubicacion');
+          suggestedReply = `Claro${greetingName}, esta es nuestra ubicación: ${location}`;
         }
         nextAction = 'confirmar_visita';
         confidence = location.length === 0 ? 0.82 : 0.95;
@@ -269,12 +269,12 @@ export class AiAssistantService {
 
       case 'pide_horario':
         if (businessHours.length === 0) {
-          missingData.add('horario');
+          missingData.push('horario');
           suggestedReply =
               'No hay horario configurado. Si gustas, te confirmo disponibilidad apenas lo valide con el equipo.';
         } else {
-          dataUsed.add('horario');
-          suggestedReply = 'Nuestro horario es: $businessHours';
+          dataUsed.push('horario');
+          suggestedReply = `Nuestro horario es: ${businessHours}`;
         }
         nextAction = 'confirmar_hora_preferida';
         confidence = businessHours.length === 0 ? 0.82 : 0.95;
@@ -282,13 +282,13 @@ export class AiAssistantService {
 
       case 'pide_cuenta_bancaria':
         if (bankAccounts.length === 0) {
-          missingData.add('cuentas_bancarias');
+          missingData.push('cuentas_bancarias');
           suggestedReply =
               'No hay cuentas bancarias configuradas. Si deseas, puedo confirmar una vía de pago disponible para ti.';
         } else {
-          dataUsed.add('cuentas_bancarias');
+          dataUsed.push('cuentas_bancarias');
           const lines = bankAccounts.map((acc) => `- ${acc}`).join('\n');
-          suggestedReply = 'Claro, aquí tienes nuestras cuentas disponibles:\n$lines';
+          suggestedReply = `Claro, aquí tienes nuestras cuentas disponibles:\n${lines}`;
         }
         nextAction = 'confirmar_metodo_pago';
         confidence = bankAccounts.length === 0 ? 0.84 : 0.95;
@@ -296,13 +296,13 @@ export class AiAssistantService {
 
       case 'pide_catalogo':
         if (catalogSummary.length === 0) {
-          missingData.add('catalogo');
+          missingData.push('catalogo');
           suggestedReply =
               'No hay catálogo configurado. Si me dices qué necesitas, te oriento con una recomendación puntual.';
         } else {
-          dataUsed.add('catalogo');
+          dataUsed.push('catalogo');
           suggestedReply =
-              'Te comparto una referencia rápida de productos/servicios disponibles: $catalogSummary';
+              `Te comparto una referencia rápida de productos/servicios disponibles: ${catalogSummary}`;
         }
         nextAction = 'preguntar_producto_objetivo';
         confidence = catalogSummary.length === 0 ? 0.84 : 0.93;
@@ -373,7 +373,7 @@ export class AiAssistantService {
               'Reglas obligatorias: no inventes ubicación, horarios, cuentas bancarias, catálogo, precios ni datos no provistos. ' +
               'Si un dato falta, dilo de forma natural sin inventar. Nunca auto-envíes mensajes; solo sugerencias.',
           userPrompt:
-              '${JSON.stringify({
+              `${JSON.stringify({
                 intent,
                 crmStatus: status,
                 customerName,
@@ -387,7 +387,7 @@ export class AiAssistantService {
                   bankAccounts,
                   catalogSummary,
                 },
-              })}\n\n' +
+              })}\n\n` +
               'Devuelve JSON exacto: {"reply":"string","nextAction":"string","confidence":0.0}.',
         });
 
@@ -411,12 +411,12 @@ export class AiAssistantService {
       }
     }
 
-    dataUsed.add('estado_crm');
+    dataUsed.push('estado_crm');
     if (rawMessage.length > 0) {
-      dataUsed.add('mensaje_cliente');
+      dataUsed.push('mensaje_cliente');
     }
     if (customerName.length > 0) {
-      dataUsed.add('cliente');
+      dataUsed.push('cliente');
     }
 
     return {

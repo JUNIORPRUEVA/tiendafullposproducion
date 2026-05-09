@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:emoji_picker_flutter/emoji_picker_flutter.dart' as ep;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -198,6 +199,7 @@ class CrmComercialScreen extends ConsumerStatefulWidget {
 
 class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
   static const String _quickRepliesCacheKey = 'crm_comercial_quick_replies_v1';
+  static const String _composerToolsCacheKey = 'crm_comercial_composer_tools_v1';
 
   // Phase 1 controllers
   final TextEditingController _searchCtrl = TextEditingController();
@@ -266,6 +268,11 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
   String _lastIgnoredCommercialSuggestion = '';
   String _lastAutoSuggestedIncomingMessageId = '';
 
+  // Emoji picker state
+  bool _showEmojiPicker = false;
+  List<String> _aiSuggestedEmojis = [];
+  final FocusNode _composerFocusNode = FocusNode();
+
   // Media composer state
   final TextEditingController _mediaCaptionCtrl = TextEditingController();
   Uint8List? _selectedMediaBytes;
@@ -275,6 +282,8 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
   bool _sendingMedia = false;
   final LocalJsonCache _quickRepliesCache = LocalJsonCache();
   List<_CrmQuickReplyTemplate> _quickReplies = const [];
+  final LocalJsonCache _composerToolsCache = LocalJsonCache();
+  List<_CrmComposerToolTemplate> _composerTools = const [];
 
   @override
   void initState() {
@@ -282,6 +291,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
     _desktopShellActions = ref.read(desktopShellRouteActionsProvider.notifier);
     _chatComposerCtrl.addListener(_onComposerTextChanged);
     _loadQuickReplies();
+    _loadComposerTools();
     _loadAll();
   }
 
@@ -308,6 +318,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
     _conversationListScrollCtrl.dispose();
     _chatScrollCtrl.dispose();
     _sidebarSearchFocusNode.dispose();
+    _composerFocusNode.dispose();
     super.dispose();
   }
 
@@ -955,6 +966,11 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
   void _onComposerTextChanged() {
     _composerSpellTimer?.cancel();
     final current = _chatComposerCtrl.text;
+    // Update AI-suggested emojis in real-time
+    final newSuggested = _computeAiSuggestedEmojis(current);
+    if (newSuggested.join() != _aiSuggestedEmojis.join()) {
+      setState(() => _aiSuggestedEmojis = newSuggested);
+    }
     if (_shouldSkipOrthographyAi(current)) {
       if (_composerOrthographySuggestion != null) {
         setState(() => _composerOrthographySuggestion = null);
@@ -966,6 +982,101 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
       await _requestOrthographySuggestion(current);
     });
   }
+
+  // ── Emoji picker helpers ──────────────────────────────────────────────────
+  void _toggleEmojiPicker() {
+    setState(() {
+      _showEmojiPicker = !_showEmojiPicker;
+      if (_showEmojiPicker) {
+        _composerFocusNode.unfocus();
+      } else {
+        _composerFocusNode.requestFocus();
+      }
+    });
+  }
+
+  void _insertEmoji(String emoji) {
+    final ctrl = _chatComposerCtrl;
+    final text = ctrl.text;
+    final sel = ctrl.selection;
+    final start = sel.start < 0 ? text.length : sel.start;
+    final end = sel.end < 0 ? text.length : sel.end;
+    final newText = text.replaceRange(start, end, emoji);
+    ctrl.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: start + emoji.length),
+    );
+  }
+
+  /// AI-based local emoji suggestion: maps message keywords to relevant emojis.
+  List<String> _computeAiSuggestedEmojis(String text) {
+    if (text.trim().isEmpty) {
+      return ['👋', '😊', '✅', '🙏', '👍'];
+    }
+    final lower = text.toLowerCase()
+        .replaceAll(RegExp(r'[áàä]'), 'a')
+        .replaceAll(RegExp(r'[éèë]'), 'e')
+        .replaceAll(RegExp(r'[íìï]'), 'i')
+        .replaceAll(RegExp(r'[óòö]'), 'o')
+        .replaceAll(RegExp(r'[úùü]'), 'u');
+
+    final scores = <String, int>{};
+    void add(String emoji, int score) {
+      scores[emoji] = (scores[emoji] ?? 0) + score;
+    }
+
+    bool has(String k) => lower.contains(k);
+
+    // Saludos
+    if (has('hola') || has('buen')) { add('👋', 3); add('😊', 2); }
+    if (has('gracias') || has('agradec')) { add('🙏', 3); add('😊', 2); add('❤️', 1); }
+    if (has('perfecto') || has('excelente') || has('genial')) { add('✅', 3); add('🎉', 2); add('👍', 2); }
+    if (has('ok') || has('dale') || has('listo')) { add('👍', 3); add('✅', 2); }
+
+    // Negocio
+    if (has('precio') || has('costo') || has('cuanto')) { add('💰', 3); add('💵', 2); add('🤔', 1); }
+    if (has('cotiz') || has('presupuesto') || has('propuesta')) { add('📋', 3); add('💼', 2); add('✏️', 1); }
+    if (has('comprar') || has('adquirir') || has('pedir')) { add('🛒', 3); add('💳', 2); add('✅', 1); }
+    if (has('pago') || has('deposito') || has('transferencia') || has('banco')) { add('💳', 3); add('🏦', 2); add('💵', 1); }
+    if (has('product') || has('catalogo') || has('servicio')) { add('📦', 3); add('🛍️', 2); add('✨', 1); }
+    if (has('instalar') || has('instalacion') || has('montaje')) { add('🔧', 3); add('🛠️', 2); add('⚙️', 1); }
+    if (has('tecnico') || has('soporte') || has('reparar')) { add('🔧', 3); add('🛠️', 2); add('💪', 1); }
+    if (has('promo') || has('descuento') || has('oferta')) { add('🔥', 3); add('🎉', 2); add('💥', 1); }
+
+    // Comunicación
+    if (has('llama') || has('llamar') || has('contactar')) { add('📞', 3); add('📱', 2); }
+    if (has('whatsapp') || has('mensaje') || has('escribir')) { add('💬', 3); add('📱', 2); }
+    if (has('correo') || has('email') || has('enviar')) { add('📧', 3); add('✉️', 2); }
+
+    // Tiempo
+    if (has('hoy') || has('ahora') || has('inmediato')) { add('⚡', 3); add('🕐', 2); }
+    if (has('manana') || has('semana') || has('pronto')) { add('📅', 3); add('⏰', 2); }
+    if (has('urgente') || has('rapido') || has('prioridad')) { add('🚨', 3); add('⚡', 2); add('🔴', 1); }
+
+    // Sentimientos
+    if (has('disculpa') || has('perdon') || has('lamento')) { add('😔', 3); add('🙏', 2); }
+    if (has('feliz') || has('alegr') || has('contento')) { add('😊', 3); add('🎉', 2); add('😃', 1); }
+    if (has('problema') || has('queja') || has('inconforme')) { add('😟', 2); add('🔧', 2); add('💪', 1); }
+
+    // Ubicacion
+    if (has('ubicacion') || has('direccion') || has('local') || has('donde')) { add('📍', 3); add('🗺️', 2); add('🏢', 1); }
+    if (has('horario') || has('hora') || has('abren')) { add('🕐', 3); add('📅', 2); }
+
+    // Sort by score and return top 8
+    final sorted = scores.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+    final result = sorted.take(8).map((e) => e.key).toList();
+
+    // Ensure at least 5 emojis
+    if (result.length < 5) {
+      for (final fallback in ['😊', '👍', '✅', '🙏', '💬']) {
+        if (!result.contains(fallback)) result.add(fallback);
+        if (result.length >= 5) break;
+      }
+    }
+    return result;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
 
   bool _shouldSkipOrthographyAi(String raw) {
     final trimmed = raw.trim();
@@ -1144,6 +1255,12 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
               'businessHours': (settings?.businessHours ?? '').trim(),
               'bankAccounts': bankAccounts,
               'catalogSummary': catalogSummary,
+              'quickReplies': _quickReplies
+                  .map((item) => item.toMap())
+                  .toList(growable: false),
+              'composerTools': _composerTools
+                  .map((item) => item.toMap())
+                  .toList(growable: false),
             },
           );
 
@@ -1581,6 +1698,10 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
       context: context,
       showDragHandle: true,
       builder: (context) {
+        final tools = _composerTools.isEmpty
+            ? _defaultComposerTools()
+            : _composerTools;
+
         Widget tile({
           required IconData icon,
           required String label,
@@ -1602,77 +1723,17 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                for (final tool in tools)
+                  tile(
+                    icon: _composerToolIcon(tool.actionType),
+                    label: tool.label,
+                    onTap: () => _runComposerToolAction(tool.actionType),
+                  ),
+                const Divider(height: 12),
                 tile(
-                  icon: Icons.photo_outlined,
-                  label: 'Imagen',
-                  onTap: () => _pickAndSendMedia(kind: 'image'),
-                ),
-                tile(
-                  icon: Icons.videocam_outlined,
-                  label: 'Video',
-                  onTap: () => _pickAndSendMedia(kind: 'video'),
-                ),
-                tile(
-                  icon: Icons.insert_drive_file_outlined,
-                  label: 'Documento',
-                  onTap: () => _pickAndSendMedia(kind: 'document'),
-                ),
-                tile(
-                  icon: Icons.audiotrack_rounded,
-                  label: 'Audio',
-                  onTap: () => _pickAndSendMedia(kind: 'audio'),
-                ),
-                tile(
-                  icon: Icons.sticky_note_2_outlined,
-                  label: 'Nota interna',
-                  onTap: _openInternalNoteDialog,
-                ),
-                tile(
-                  icon: Icons.task_alt_rounded,
-                  label: 'Crear actividad',
-                  onTap: _openComposerActivityDialog,
-                ),
-                tile(
-                  icon: Icons.location_on_outlined,
-                  label: 'Ubicación GPS',
-                  onTap: () async {
-                    final text = await _buildGpsMessage();
-                    _insertTextInComposer(text);
-                  },
-                ),
-                tile(
-                  icon: Icons.schedule_rounded,
-                  label: 'Horario de tienda',
-                  onTap: () async {
-                    final text = await _buildStoreHoursMessage();
-                    _insertTextInComposer(text);
-                  },
-                ),
-                tile(
-                  icon: Icons.account_balance_rounded,
-                  label: 'Cuentas bancarias',
-                  onTap: () async {
-                    final text = await _buildBankAccountsMessage();
-                    _insertTextInComposer(text);
-                  },
-                ),
-                tile(
-                  icon: Icons.inventory_2_outlined,
-                  label: 'Catálogo de productos',
-                  onTap: () async {
-                    final text = await _buildCatalogMessage();
-                    _insertTextInComposer(text);
-                  },
-                ),
-                tile(
-                  icon: Icons.flash_on_rounded,
-                  label: 'Mensajes rápidos',
-                  onTap: _openQuickMessagesDialog,
-                ),
-                tile(
-                  icon: Icons.edit_note_rounded,
-                  label: 'Configurar mensajes rápidos',
-                  onTap: _openQuickRepliesManagerDialog,
+                  icon: Icons.tune_rounded,
+                  label: 'Configurar herramientas',
+                  onTap: _openComposerConfigurationDialog,
                 ),
                 const SizedBox(height: 6),
               ],
@@ -2878,6 +2939,427 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
     );
   }
 
+  Future<void> _runComposerToolAction(String actionType) async {
+    switch (actionType) {
+      case 'image':
+      case 'video':
+      case 'document':
+      case 'audio':
+        await _pickAndSendMedia(kind: actionType);
+        return;
+      case 'note':
+        await _openInternalNoteDialog();
+        return;
+      case 'activity':
+        await _openComposerActivityDialog();
+        return;
+      case 'gps':
+        final text = await _buildGpsMessage();
+        _insertTextInComposer(text);
+        return;
+      case 'store_hours':
+        final text = await _buildStoreHoursMessage();
+        _insertTextInComposer(text);
+        return;
+      case 'bank_accounts':
+        final text = await _buildBankAccountsMessage();
+        _insertTextInComposer(text);
+        return;
+      case 'catalog':
+        final text = await _buildCatalogMessage();
+        _insertTextInComposer(text);
+        return;
+      case 'quick_messages':
+        await _openQuickMessagesDialog();
+        return;
+      default:
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Atajo no reconocido.')),
+          );
+        }
+    }
+  }
+
+  List<_CrmComposerToolTemplate> _defaultComposerTools() {
+    return const [
+      _CrmComposerToolTemplate(id: 'image', label: 'Imagen', actionType: 'image'),
+      _CrmComposerToolTemplate(id: 'video', label: 'Video', actionType: 'video'),
+      _CrmComposerToolTemplate(id: 'document', label: 'Documento', actionType: 'document'),
+      _CrmComposerToolTemplate(id: 'audio', label: 'Audio', actionType: 'audio'),
+      _CrmComposerToolTemplate(id: 'note', label: 'Nota interna', actionType: 'note'),
+      _CrmComposerToolTemplate(id: 'activity', label: 'Crear actividad', actionType: 'activity'),
+      _CrmComposerToolTemplate(id: 'gps', label: 'Ubicación GPS', actionType: 'gps'),
+      _CrmComposerToolTemplate(id: 'hours', label: 'Horario de tienda', actionType: 'store_hours'),
+      _CrmComposerToolTemplate(id: 'bank_accounts', label: 'Cuentas bancarias', actionType: 'bank_accounts'),
+      _CrmComposerToolTemplate(id: 'catalog', label: 'Catálogo de productos', actionType: 'catalog'),
+      _CrmComposerToolTemplate(id: 'quick_messages', label: 'Mensajes rápidos', actionType: 'quick_messages'),
+    ];
+  }
+
+  Future<void> _loadComposerTools() async {
+    final cached = await _composerToolsCache.readMap(
+      _composerToolsCacheKey,
+      maxAge: const Duration(days: 3650),
+    );
+    final rawList = (cached?['items'] as List?) ?? const [];
+    final parsed = rawList
+        .whereType<Map>()
+        .map((raw) => _CrmComposerToolTemplate.fromMap(raw.cast<String, dynamic>()))
+        .where((item) => item.label.trim().isNotEmpty && item.actionType.trim().isNotEmpty)
+        .toList(growable: false);
+    final value = parsed.isEmpty ? _defaultComposerTools() : parsed;
+    if (!mounted) return;
+    setState(() => _composerTools = value);
+    if (parsed.isEmpty) {
+      await _saveComposerTools(value);
+    }
+  }
+
+  Future<void> _saveComposerTools(List<_CrmComposerToolTemplate> items) async {
+    await _composerToolsCache.writeMap(_composerToolsCacheKey, {
+      'items': items.map((item) => item.toMap()).toList(growable: false),
+      'updatedAt': DateTime.now().toIso8601String(),
+    });
+  }
+
+  String _createComposerToolId() {
+    final now = DateTime.now().microsecondsSinceEpoch;
+    return 'ct_$now';
+  }
+
+  IconData _composerToolIcon(String actionType) {
+    switch (actionType) {
+      case 'image':
+        return Icons.photo_outlined;
+      case 'video':
+        return Icons.videocam_outlined;
+      case 'document':
+        return Icons.insert_drive_file_outlined;
+      case 'audio':
+        return Icons.audiotrack_rounded;
+      case 'note':
+        return Icons.sticky_note_2_outlined;
+      case 'activity':
+        return Icons.task_alt_rounded;
+      case 'gps':
+        return Icons.location_on_outlined;
+      case 'store_hours':
+        return Icons.schedule_rounded;
+      case 'bank_accounts':
+        return Icons.account_balance_rounded;
+      case 'catalog':
+        return Icons.inventory_2_outlined;
+      case 'quick_messages':
+        return Icons.flash_on_rounded;
+      default:
+        return Icons.tune_rounded;
+    }
+  }
+
+  String _composerToolActionLabel(String actionType) {
+    switch (actionType) {
+      case 'image':
+        return 'Imagen';
+      case 'video':
+        return 'Video';
+      case 'document':
+        return 'Documento';
+      case 'audio':
+        return 'Audio';
+      case 'note':
+        return 'Nota interna';
+      case 'activity':
+        return 'Crear actividad';
+      case 'gps':
+        return 'Ubicación GPS';
+      case 'store_hours':
+        return 'Horario de tienda';
+      case 'bank_accounts':
+        return 'Cuentas bancarias';
+      case 'catalog':
+        return 'Catálogo de productos';
+      case 'quick_messages':
+        return 'Mensajes rápidos';
+      default:
+        return 'Herramienta';
+    }
+  }
+
+  Future<_CrmComposerToolTemplate?> _openComposerToolEditorDialog({
+    _CrmComposerToolTemplate? initial,
+  }) async {
+    final labelCtrl = TextEditingController(text: initial?.label ?? '');
+    String selectedAction = initial?.actionType ?? 'image';
+    String error = '';
+
+    final result = await showDialog<_CrmComposerToolTemplate>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Text(initial == null ? 'Agregar atajo' : 'Editar atajo'),
+              content: SizedBox(
+                width: 480,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: labelCtrl,
+                      maxLength: 40,
+                      decoration: const InputDecoration(
+                        labelText: 'Título visible',
+                        hintText: 'Ej. Imagen o Cotización rápida',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<String>(
+                      value: selectedAction,
+                      decoration: const InputDecoration(
+                        labelText: 'Acción',
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'image', child: Text('Imagen')),
+                        DropdownMenuItem(value: 'video', child: Text('Video')),
+                        DropdownMenuItem(value: 'document', child: Text('Documento')),
+                        DropdownMenuItem(value: 'audio', child: Text('Audio')),
+                        DropdownMenuItem(value: 'note', child: Text('Nota interna')),
+                        DropdownMenuItem(value: 'activity', child: Text('Crear actividad')),
+                        DropdownMenuItem(value: 'gps', child: Text('Ubicación GPS')),
+                        DropdownMenuItem(value: 'store_hours', child: Text('Horario de tienda')),
+                        DropdownMenuItem(value: 'bank_accounts', child: Text('Cuentas bancarias')),
+                        DropdownMenuItem(value: 'catalog', child: Text('Catálogo de productos')),
+                        DropdownMenuItem(value: 'quick_messages', child: Text('Mensajes rápidos')),
+                      ],
+                      onChanged: (value) {
+                        if (value == null) return;
+                        setDialogState(() => selectedAction = value);
+                      },
+                    ),
+                    if (error.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          error,
+                          style: const TextStyle(fontSize: 12, color: AppColors.error),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cancelar'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    final label = labelCtrl.text.trim();
+                    if (label.isEmpty) {
+                      setDialogState(() => error = 'Escribe un título visible.');
+                      return;
+                    }
+                    Navigator.of(dialogContext).pop(
+                      _CrmComposerToolTemplate(
+                        id: initial?.id ?? _createComposerToolId(),
+                        label: label,
+                        actionType: selectedAction,
+                      ),
+                    );
+                  },
+                  child: const Text('Guardar'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    labelCtrl.dispose();
+    return result;
+  }
+
+  Future<void> _openComposerToolsManagerDialog() async {
+    if (_composerTools.isEmpty) {
+      await _loadComposerTools();
+    }
+    final working = List<_CrmComposerToolTemplate>.from(_composerTools);
+
+    Future<void> addTool(StateSetter setDialogState) async {
+      final created = await _openComposerToolEditorDialog();
+      if (created == null) return;
+      setDialogState(() => working.add(created));
+    }
+
+    Future<void> editTool(int index, StateSetter setDialogState) async {
+      final edited = await _openComposerToolEditorDialog(initial: working[index]);
+      if (edited == null) return;
+      setDialogState(() => working[index] = edited);
+    }
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Configurar adjuntos y atajos'),
+              content: SizedBox(
+                width: 600,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: FilledButton.icon(
+                        onPressed: () => addTool(setDialogState),
+                        icon: const Icon(Icons.add_rounded, size: 16),
+                        label: const Text('Agregar'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: _waGreenDark,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 360),
+                      child: working.isEmpty
+                          ? const Center(
+                              child: Padding(
+                                padding: EdgeInsets.all(20),
+                                child: Text('Aún no hay atajos configurados.'),
+                              ),
+                            )
+                          : ListView.separated(
+                              shrinkWrap: true,
+                              itemCount: working.length,
+                              separatorBuilder: (_, __) =>
+                                  Divider(height: 1, color: _waBorder.withAlpha(80)),
+                              itemBuilder: (context, index) {
+                                final item = working[index];
+                                return ListTile(
+                                  dense: true,
+                                  leading: Icon(
+                                    _composerToolIcon(item.actionType),
+                                    color: _waGreenDark,
+                                  ),
+                                  title: Text(
+                                    item.label,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  subtitle: Text(
+                                    _composerToolActionLabel(item.actionType),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        tooltip: 'Editar',
+                                        visualDensity: VisualDensity.compact,
+                                        onPressed: () => editTool(index, setDialogState),
+                                        icon: const Icon(Icons.edit_outlined, size: 18),
+                                      ),
+                                      IconButton(
+                                        tooltip: 'Eliminar',
+                                        visualDensity: VisualDensity.compact,
+                                        onPressed: () {
+                                          setDialogState(() => working.removeAt(index));
+                                        },
+                                        icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cancelar'),
+                ),
+                FilledButton(
+                  onPressed: () async {
+                    final sanitized = working
+                        .where((item) =>
+                            item.label.trim().isNotEmpty && item.actionType.trim().isNotEmpty)
+                        .toList(growable: false);
+                    await _saveComposerTools(sanitized);
+                    if (!mounted) return;
+                    setState(() => _composerTools = sanitized);
+                    if (!dialogContext.mounted) return;
+                    Navigator.of(dialogContext).pop();
+                  },
+                  style: FilledButton.styleFrom(
+                    backgroundColor: _waGreenDark,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('Guardar cambios'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _openComposerConfigurationDialog() async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Configuración de herramientas'),
+          content: SizedBox(
+            width: 520,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.flash_on_rounded),
+                  title: const Text('Mensajes rápidos'),
+                  subtitle: const Text('Agregar, editar o eliminar respuestas predefinidas.'),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () async {
+                    Navigator.of(dialogContext).pop();
+                    await _openQuickRepliesManagerDialog();
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.attach_file_rounded),
+                  title: const Text('Adjuntos y atajos'),
+                  subtitle: const Text('Configurar acciones visibles en el menú de adjuntar.'),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () async {
+                    Navigator.of(dialogContext).pop();
+                    await _openComposerToolsManagerDialog();
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cerrar'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   String _statusLabel(String value) {
     return value
         .replaceAll('_', ' ')
@@ -3907,19 +4389,87 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                       ],
                     ),
                   ),
+                // ── Emoji picker panel ────────────────────────────────────
+                if (_showEmojiPicker)
+                  SizedBox(
+                    height: 280,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // AI-suggested emojis row
+                        Container(
+                          color: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(Icons.auto_awesome_rounded, size: 13, color: _waGreenDark),
+                                  const SizedBox(width: 4),
+                                  const Text(
+                                    'IA sugiere',
+                                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: _waGreenDark),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Wrap(
+                                spacing: 4,
+                                children: _aiSuggestedEmojis.map((emoji) {
+                                  return InkWell(
+                                    onTap: () => _insertEmoji(emoji),
+                                    borderRadius: BorderRadius.circular(6),
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(4),
+                                      child: Text(emoji, style: const TextStyle(fontSize: 24)),
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Divider(height: 1),
+                        // Full emoji picker
+                        Expanded(
+                          child: ep.EmojiPicker(
+                            onEmojiSelected: (_, emoji) {
+                              _insertEmoji(emoji.emoji);
+                            },
+                            config: ep.Config(
+                              height: 220,
+                              emojiTextStyle: const TextStyle(fontSize: 22),
+                              categoryViewConfig: ep.CategoryViewConfig(
+                                indicatorColor: _waGreenDark,
+                                iconColorSelected: _waGreenDark,
+                              ),
+                              bottomActionBarConfig: const ep.BottomActionBarConfig(
+                                enabled: false,
+                              ),
+                              searchViewConfig: ep.SearchViewConfig(
+                                backgroundColor: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                // ─────────────────────────────────────────────────────────
                 Row(
                   children: [
                     IconButton(
-                      tooltip: 'Emoji',
+                      tooltip: _showEmojiPicker ? 'Cerrar emojis' : 'Emojis',
                       visualDensity: VisualDensity.compact,
-                      onPressed: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Selector de emoji disponible próximamente.'),
-                          ),
-                        );
-                      },
-                      icon: const Icon(Icons.emoji_emotions_outlined, size: 20),
+                      onPressed: _toggleEmojiPicker,
+                      icon: Icon(
+                        _showEmojiPicker
+                            ? Icons.keyboard_rounded
+                            : Icons.emoji_emotions_outlined,
+                        size: 20,
+                        color: _showEmojiPicker ? _waGreenDark : null,
+                      ),
                     ),
                     IconButton(
                       tooltip: 'Adjuntar',
@@ -3932,6 +4482,12 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                       visualDensity: VisualDensity.compact,
                       onPressed: _openQuickMessagesDialog,
                       icon: const Icon(Icons.flash_on_rounded, size: 20),
+                    ),
+                    IconButton(
+                      tooltip: 'Configurar atajos',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: _openComposerConfigurationDialog,
+                      icon: const Icon(Icons.tune_rounded, size: 20),
                     ),
                     IconButton(
                       tooltip: 'Sugerir respuesta IA',
@@ -3950,8 +4506,14 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                     Expanded(
                       child: TextField(
                         controller: _chatComposerCtrl,
+                        focusNode: _composerFocusNode,
                         minLines: 1,
                         maxLines: 4,
+                        onTap: () {
+                          if (_showEmojiPicker) {
+                            setState(() => _showEmojiPicker = false);
+                          }
+                        },
                         decoration: const InputDecoration(
                           hintText: 'Escribe un mensaje',
                           isDense: true,
@@ -4938,6 +5500,34 @@ class _CrmQuickReplyTemplate {
       id: (map['id'] ?? '').toString(),
       label: (map['label'] ?? '').toString(),
       text: (map['text'] ?? '').toString(),
+    );
+  }
+}
+
+class _CrmComposerToolTemplate {
+  const _CrmComposerToolTemplate({
+    required this.id,
+    required this.label,
+    required this.actionType,
+  });
+
+  final String id;
+  final String label;
+  final String actionType;
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'label': label,
+      'actionType': actionType,
+    };
+  }
+
+  factory _CrmComposerToolTemplate.fromMap(Map<String, dynamic> map) {
+    return _CrmComposerToolTemplate(
+      id: (map['id'] ?? '').toString(),
+      label: (map['label'] ?? '').toString(),
+      actionType: (map['actionType'] ?? '').toString(),
     );
   }
 }

@@ -253,60 +253,66 @@ export class MarketingImageGenerationService {
     if (storyType === 'TRUST') {
       return [
         productPreservation,
-        `Ultra-realistic professional editorial advertisement photography, strict vertical 9:16 portrait format.`,
+        `Complete premium vertical 9:16 social media advertisement, STRICT format requirement: 1024x1792 pixels or equivalent 9:16 ratio, fill entire frame top-to-bottom.`,
         hasProductImage
-          ? `Subject: The product from the reference image as the clear hero, with a confident professional service technician (30s, Dominican/Latino appearance, neat professional uniform) actively demonstrating or installing it in a modern commercial or upscale residential environment in ${city}, ${country}.`
-          : `Subject: A confident professional service technician (30s, Dominican/Latino appearance, neat professional uniform) actively performing installation or service demonstration of ${service} in a modern commercial or upscale residential environment.`,
-        `People: Real photographic quality human figure, natural authentic expression, professional body language, NOT posed artificially. Clean dark branded work uniform.`,
-        `Environment: Modern organized interior space (commercial office, upscale home, or clean workshop). Contemporary Dominican urban setting. Good quality window light entering from side.`,
-        `Composition: Product and technician as main subjects filling 65% of frame, authentic action moment captured, upper zone clean for brand placement, product prominently visible.`,
+          ? `Subject: The product from the reference image as clear hero, with confident professional service technician (30s, Dominican/Latino appearance, neat professional uniform) actively demonstrating or installing it in modern commercial or upscale residential environment in ${city}, ${country}. Product must be clearly visible and recognizable.`
+          : `Subject: Confident professional service technician (30s, Dominican/Latino appearance, neat professional uniform) actively performing installation or service demonstration of ${service} in modern commercial or upscale residential environment.`,
+        `People: Real photographic quality human figure, natural authentic expression, professional body language, NOT posed artificially. Clean dark branded work uniform. No deformed hands or faces.`,
+        `Environment: Modern organized interior space (commercial office, upscale home, or clean workshop). Contemporary Dominican urban setting. Good quality window light from side.`,
+        `Composition: Product and technician as main subjects filling 65% of frame, authentic action moment, product PROMINENTLY VISIBLE and LARGE, upper 15% clean for brand overlay, lower 20% clean for CTA overlay.`,
+        `Product prominence: Product MUST be clearly identifiable, large, sharp, and visually dominant. No small product. Product occupies minimum 40% of visible area.`,
         `Lighting: Natural editorial daylight quality, side window key light, clean warm fill, soft professional shadows. Authentic corporate service advertising photography.`,
-        `Atmosphere: Premium professional services brand. Trust, reliability, human expertise. Similar to Hikvision/Axis partner installation imagery.`,
-        `Quality: Commercial editorial photography at magazine ad quality. Photorealistic. Zero AI cartoon style. Genuine human faces only.`,
+        `Atmosphere: Premium professional services brand. Trust, reliability, human expertise. Hikvision/Axis partner installation photography quality.`,
+        `Quality: Commercial editorial photography at magazine ad quality. Photorealistic only. Zero AI art style. Zero cartoon. Genuine faces only. Every detail sharp and professional.`,
         `Color palette: Natural professional tones, clean whites, deep blues. ${colors}.`,
         `Context: Technology security company in ${city}, ${country}. Sales angle: ${angle}.`,
-        `STRICT: No text in image. No watermarks. Photorealistic humans only. No deformed faces or hands. Natural professional scene.`,
+        `Text encoding: CRITICAL - NO broken text, NO weird characters, NO encoding issues, NO mojibake, NO placeholder text, NO random symbols.`,
+        `STRICT: No text IN the image itself. No watermarks. Clean zones for brand and CTA text overlay at top and bottom. Photorealistic humans only. Pure advertisement photography quality.`,
       ].filter(Boolean).join(' ');
     }
 
     if (storyType === 'EDUCATIONAL') {
       return [
         productPreservation,
-        `Ultra-realistic professional educational advertisement photography, strict vertical 9:16 portrait format.`,
+        `Complete premium vertical 9:16 educational advertisement photography, STRICT format: 1024x1792 pixels or 9:16 ratio, fill entire frame.`,
         hasProductImage
-          ? `Subject: The exact product from the reference image as the clear visual focus in a clean professional studio or modern office environment.`
-          : `Subject: ${service} displayed as the clear visual focus in a clean professional studio or modern office environment.`,
-        `Background: Clean white, soft warm pearl gray gradient, or modern light minimalist office surface. Bright, airy, spacious feel.`,
-        `Composition: Product centered as primary subject with generous negative space at top (20%) and bottom (25%) for text overlay. Clean product photography perspective. Full product visibility with all features identifiable.`,
-        `Lighting: Bright even studio lighting. Three soft box studio lights. Product perfectly illuminated without harsh shadows. Professional product photography standard.`,
-        `Product presentation: Ultra sharp detail throughout, professional isolation, slight 3/4 angle view showing product depth and all key features.`,
-        `Atmosphere: Modern tech brand educational content. Informative, clear, approachable. Apple/Samsung how-to content aesthetic.`,
-        `Quality: Ultra-sharp commercial product photography, advertising grade. Every product detail pristine and clear.`,
+          ? `Subject: The exact product from reference image as clear visual focus in clean professional studio or modern office environment. Product MUST be LARGE and VISIBLE.`
+          : `Subject: ${service} displayed as clear visual focus in clean professional studio or modern office environment. Product MUST be large, visible, and recognizable.`,
+        `Background: Clean white, soft warm pearl gray gradient, or light minimalist office surface. Bright, airy, spacious feel.`,
+        `Composition: Product CENTERED as PRIMARY SUBJECT, occupying 60-70% of frame height, with generous negative space at top (20%) and bottom (25%) for text overlay. Full product visibility with all features identifiable.`,
+        `Product size: Product MUST BE LARGE and PROMINENTLY displayed. Minimum 60% of visible frame area shows product detail.`,
+        `Lighting: Bright even studio lighting. Multiple soft box studio lights. Product perfectly illuminated without harsh shadows. Professional product photography standard.`,
+        `Product presentation: Ultra sharp detail throughout, professional product isolation, slight 3/4 angle showing depth and features. Every edge crisp and clear.`,
+        `Atmosphere: Modern tech brand educational content. Informative, clear, approachable. Apple/Samsung product showcase aesthetic.`,
+        `Quality: Ultra-sharp commercial product photography, advertising grade. Every product detail pristine, clear, and professional.`,
         `Color palette: Clean whites, light pearl grays, soft electric blue technology accents. ${colors}.`,
         `Technology context: ${service} for ${city}, ${country} smart technology and security systems.`,
-        `Visual concept: ${input.visualConcept || 'Clear educational product showcase'}.`,
-        `STRICT: No text in image. Photorealistic product only. No cluttered background.`,
+        `Visual concept: ${input.visualConcept || 'Clear professional product showcase for education'}.`,
+        `Text encoding: CRITICAL - NO broken text, NO encoding issues, NO placeholder text, NO random symbols, NO weird characters.`,
+        `STRICT: No text IN the image. Leave clean zones for overlay. Photorealistic product only. No cluttered background. No animations. Pure photography quality.`,
       ].filter(Boolean).join(' ');
     }
 
     // SALES (direct sales ad - premium hero product shot)
     return [
       productPreservation,
-      `Ultra-realistic premium hero product advertisement photography, strict vertical 9:16 portrait format. Direct sales commercial ad.`,
+      `Complete premium vertical 9:16 hero product commercial advertisement, STRICT format requirement: 1024x1792 pixels or 9:16 ratio, fill frame top-to-bottom. SALES advertisement for direct commercial impact.`,
       hasProductImage
-        ? `Hero product: The exact product from the reference image, elevated to premium commercial advertising quality, displayed as the undisputed star of the shot in a dramatic premium studio environment.`
-        : `Hero product: ${service} displayed as the undisputed star of the shot in a dramatic premium studio environment.`,
-      `Background: Deep dark gradient from deep navy blue (#0A1628) at edges transitioning to rich charcoal (#1a1a2e) behind product center, with subtle atmospheric electric blue-cyan backlight glow emanating from behind the product giving depth and premium atmosphere.`,
-      `Product presentation: ${hasProductImage ? 'The reference product' : service} at slight elevated angle (15-20 degrees from eye level), ultra-sharp detail across entire product surface, perfect professional product isolation, subtle clean shadow directly beneath product.`,
-      `Lighting: Professional cinematic three-point studio setup: strong warm key light from upper-right creating product depth highlights, soft blue fill from left preventing pure shadow, electric blue-cyan rim backlight from behind product creating premium separation glow from background.`,
-      `Surface: Dark premium reflective surface (like black granite or dark tempered glass) below product showing clean subtle product reflection.`,
+        ? `Hero product: The exact product from reference image, elevated to premium commercial advertising quality, displayed as UNDISPUTED STAR of the shot. Product MUST be LARGE, VISIBLE, SHARP, and DOMINANT. Dramatic premium studio environment.`
+        : `Hero product: ${service} displayed as UNDISPUTED STAR of the shot. Product MUST be large, visible, recognizable. Dramatic premium studio environment.`,
+      `Product prominence: CRITICAL - Product MUST occupy 50-70% of frame height. Product must be absolutely the focal point. No product must be small or secondary. Maximum visual impact on product.`,
+      `Background: Deep dark gradient from deep navy blue (#0A1628) at edges to rich charcoal (#1a1a2e) behind product center, subtle atmospheric electric blue-cyan backlight glow emanating from behind product giving depth and premium atmosphere.`,
+      `Product presentation: At slight elevated angle (15-20 degrees eye level), ultra-sharp detail across entire product surface, perfect professional isolation, subtle clean shadow beneath product.`,
+      `Lighting: Professional cinematic three-point studio: strong warm key light from upper-right creating product highlights, soft blue fill from left, electric blue-cyan rim backlight from behind product creating premium separation glow.`,
+      `Surface: Dark premium reflective surface (black granite, dark tempered glass) below product showing clean subtle product reflection.`,
       `Color accents: Electric blue LED ambient glow (#00B4D8), ultra clean white product edge highlights, subtle cyan technology atmosphere. Brand palette: ${colors}.`,
-      `Composition: Product hero centered-to-right occupying 55-60% of frame height. Upper 15% intentionally clean dark zone reserved for brand logo. Lower 20% semi-clean gradient zone reserved for price and CTA text. Rule of thirds premium composition.`,
-      `Atmosphere: Premium flagship technology product commercial reveal photography. Hikvision/Axis/Samsung product launch commercial quality. Sophisticated, high-value, modern.`,
-      `Quality: 8K ultra-realistic commercial product photography. Advertising grade. Photographic quality only, zero AI art style, zero illustration.`,
+      `Composition: Product HERO centered-to-right occupying 55-70% of frame height. Upper 15% clean dark zone for brand logo. Lower 20% clean zone for price/CTA text. Rule of thirds premium composition.`,
+      `Atmosphere: Premium flagship technology product commercial reveal photography. Hikvision/Axis/Samsung product launch quality. Sophisticated, high-value, modern, professional.`,
+      `Quality: 8K ultra-realistic commercial product photography. Advertising grade. Pure photographic quality, zero AI art style, zero illustration. Every detail sharp and professional.`,
+      `Text encoding: CRITICAL - NO broken text, NO encoding issues, NO placeholder text, NO weird characters, NO mojibake.`,
       `Offer context: ${offer}. Sales angle: ${angle}.`,
       `Technology category: ${service} for ${city}, ${country} security and technology market.`,
-      `STRICT: No text in image. No watermarks. Pure photorealistic product photography. Advertising ready. Leave clean text zones.`,
+      `STRICT: No text IN image. No watermarks. Pure photorealistic product photography. Advertisement ready. Leave clean zones top/bottom for brand/CTA overlay. Published quality.`,
     ].filter(Boolean).join(' ');
   }
 
@@ -514,10 +520,10 @@ export class MarketingImageGenerationService {
     const cta = this.truncate(input.cta, 44);
 
     const typeDirection = storyType === 'TRUST'
-      ? `Transform this into a professional editorial advertisement scene showing the technician or professional environment. Add realistic professional lighting, branded uniform context, modern clean workspace environment.`
+      ? `Transform this into a professional editorial advertisement scene showing the technician or professional environment using the product. Add realistic professional lighting, branded uniform context, modern clean workspace environment. Product must remain clearly visible and recognizable.`
       : storyType === 'EDUCATIONAL'
-      ? `Transform this into a clean educational product showcase advertisement. Add bright professional studio lighting, clean white/gray minimalist background, ultra-sharp product detail visible.`
-      : `Transform this into a premium dark-studio hero product advertisement. Add dramatic three-point studio lighting with electric blue-cyan backlight, deep navy gradient background, product surface reflection below, premium cinematic product reveal atmosphere.`;
+      ? `Transform this into a clean educational product showcase advertisement. Add bright professional studio lighting, clean white/gray minimalist background, ultra-sharp product detail PROMINENTLY VISIBLE. Product MUST be large and occupy 60-70% of frame.`
+      : `Transform this into a premium dark-studio hero product advertisement. Add dramatic three-point studio lighting with electric blue-cyan backlight, deep navy gradient background, product surface reflection below, premium cinematic product reveal atmosphere. Product MUST occupy 55-70% of frame and be LARGE, SHARP, VISIBLE.`;
 
     return [
       `Transform this product image into a premium vertical 9:16 commercial advertisement for FULLTECH SRL in ${input.city}, ${input.country}.`,
@@ -528,9 +534,9 @@ export class MarketingImageGenerationService {
       `Brand palette: ${colors}.`,
       `Story objective: ${input.visualConcept}.`,
       `Advertising angle: ${input.usedResearchAngle}.`,
-      `Leave clean text zones at top 15% and bottom 20% of frame for brand and CTA overlay.`,
-      `Quality: 8K commercial photography grade. Photorealistic only. Zero AI art style.`,
-      `STRICT: No text in image. No watermarks. Pure advertising photography quality.`,
+      `Leave clean text zones at top 15% and bottom 20% for brand and CTA overlay.`,
+      `Quality: 8K commercial photography grade. Photorealistic only. Zero AI art style. Every detail sharp and professional.`,
+      `STRICT: No text in image. No watermarks. Pure advertising photography quality. Leave zones clean for overlay.`,
       `Headline context (do not render): ${title}. CTA context (do not render): ${cta}.`,
     ].join(' ');
   }
@@ -560,21 +566,23 @@ export class MarketingImageGenerationService {
     const service = input.serviceOrProduct || input.imageCategory || 'professional security technology system';
 
     const typeScene = storyType === 'TRUST'
-      ? `Professional service technician (30s, Dominican/Latino, clean dark uniform) actively installing or demonstrating ${service} in a modern clean commercial or residential space. Authentic action shot, natural professional expression, editorial corporate photography style.`
+      ? `Professional service technician (30s, Dominican/Latino, clean dark uniform) actively installing or demonstrating ${service} in modern clean commercial or residential space. Product MUST be clearly visible. Authentic action shot, natural professional expression, editorial corporate photography style.`
       : storyType === 'EDUCATIONAL'
-      ? `${service} displayed as hero product in pristine white studio environment. Perfect product photography with all features clearly visible, bright even professional lighting, clean minimal background. Educational product showcase composition.`
-      : `${service} as dramatic hero product on deep navy-charcoal dark gradient studio background. Three-point cinematic lighting: warm key light from upper right, soft blue fill from left, electric cyan-blue rim backlight creating premium product separation glow. Dark reflective surface below showing subtle product reflection. Sophisticated premium tech brand commercial reveal.`;
+      ? `${service} displayed as LARGE hero product in pristine white studio environment. Product OCCUPIES 60-70% of frame, all features clearly visible, bright professional lighting, clean background. Educational product showcase.`
+      : `${service} as dramatic hero product on deep navy-charcoal dark gradient studio background. Product MUST BE LARGE (50-70% of frame). Three-point cinematic lighting: warm key from upper right, soft blue fill from left, cyan rim backlight creating premium separation. Dark surface showing product reflection.`;
 
     return [
-      `Ultra-realistic commercial advertisement photography for FULLTECH SRL technology company in ${input.city}, ${input.country}. Vertical 9:16 portrait format optimized for Instagram Stories and WhatsApp Status.`,
+      `Ultra-realistic commercial advertisement photography for FULLTECH SRL in ${input.city}, ${input.country}. STRICT vertical 9:16 portrait format (1024x1792px) for Instagram Stories and WhatsApp Status.`,
       typeScene,
+      `Product prominence: Product MUST be LARGE, SHARP, and VISUALLY DOMINANT (minimum 50% of frame). Product must be clearly recognizable.`,
       `Visual concept: ${input.visualConcept}.`,
       `Brand color palette: ${colors}.`,
-      `Advertising angle: ${input.usedResearchAngle || 'reliability, professional quality, and real results'}.`,
-      `Quality requirements: 8K ultra-realistic commercial photography, advertising grade, zero AI art style, no cartoon, no illustration, pure photorealistic.`,
-      `Composition: Leave upper 15% and lower 20% as intentionally clean zones for brand/CTA text post-production overlays.`,
+      `Advertising angle: ${input.usedResearchAngle || 'reliability, professional quality, real results'}.`,
+      `Quality requirements: 8K ultra-realistic commercial photography, advertising grade. Zero AI art style, no cartoon, no illustration. Pure photorealistic photography only.`,
+      `Text encoding: CRITICAL - NO broken text, NO encoding issues, NO weird characters, NO placeholder text.`,
+      `Composition: Leave upper 15% and lower 20% clean zones for brand/CTA text post-production overlays. No text in image itself.`,
       `Design approach: ${input.designNotes}.`,
-      `STRICT: No text in image. No watermarks. No logos in image. Pure photorealistic commercial photography only. Advertising ready.`,
+      `STRICT: No text IN image. No watermarks. No logos in image. Pure photorealistic commercial photography. Advertisement ready for publication.`,
     ].join(' ');
   }
 
@@ -593,6 +601,50 @@ export class MarketingImageGenerationService {
     const clean = (value || '').replace(/\s+/g, ' ').trim();
     if (clean.length <= max) return clean;
     return `${clean.slice(0, Math.max(0, max - 3)).trim()}...`;
+  }
+
+  /** Validate generated image: accessibility, format, aspect ratio, basic quality checks */
+  async validateGeneratedImage(imageUrl: string, expectedFormat: string = '9:16'): Promise<{ valid: boolean; reason?: string }> {
+    if (!imageUrl?.trim()) {
+      return { valid: false, reason: 'Image URL is empty' };
+    }
+
+    try {
+      // For data URLs, basic validation only
+      if (imageUrl.startsWith('data:')) {
+        const parts = imageUrl.split(',');
+        if (parts.length < 2 || parts[1].length < 100) {
+          return { valid: false, reason: 'Data URL image appears too small or corrupted' };
+        }
+        // Basic check: size should be reasonable
+        const buffer = Buffer.from(parts[1], 'base64');
+        if (buffer.length < 5000) {
+          return { valid: false, reason: 'Generated image is too small (likely placeholder or error)' };
+        }
+        return { valid: true };
+      }
+
+      // For HTTP(S) URLs, try to fetch and validate
+      const response = await this.fetchWithTimeout(imageUrl, undefined, 15000);
+      if (!response.ok) {
+        return { valid: false, reason: `Image URL returned HTTP ${response.status}` };
+      }
+
+      const contentLength = response.headers.get('content-length');
+      if (contentLength && parseInt(contentLength, 10) < 5000) {
+        return { valid: false, reason: 'Image file is too small (likely placeholder)' };
+      }
+
+      const contentType = response.headers.get('content-type');
+      if (!contentType?.includes('image')) {
+        return { valid: false, reason: 'Response is not an image file' };
+      }
+
+      return { valid: true };
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : 'Unknown validation error';
+      return { valid: false, reason: `Image validation failed: ${reason}` };
+    }
   }
 
   buildPrompt(input: ImageGenerationInput) {

@@ -290,6 +290,8 @@ class PublicidadController extends StateNotifier<PublicidadState> {
 
       final preferredId = _resolvePreferredSelectionId(selected);
       await _api.changeBaseImage(storyId, preferredId);
+      // Confirm immediately so the user can generate design without an extra step.
+      await _api.confirmBaseImage(storyId);
       await _refresh(keepLoading: false);
     });
   }
@@ -989,6 +991,7 @@ class PublicidadController extends StateNotifier<PublicidadState> {
             '[publicidad-estados] auto-select story=${story.id} suggested=$suggestedId final=$finalId',
           );
           await _api.changeBaseImage(story.id, finalId);
+          await _api.confirmBaseImage(story.id);
           changedAny = true;
         } catch (error) {
           developer.log(
@@ -1941,28 +1944,13 @@ class _DailyStoriesTab extends StatelessWidget {
                           if (chosen != null && chosen.isNotEmpty) {
                             await onChangeBaseImage(story.id, chosen);
                             if (!context.mounted) return;
-                            final useNow = await showDialog<bool>(
-                              context: context,
-                              builder: (_) => AlertDialog(
-                                title: const Text('Confirmar imagen base'),
-                                content: const Text(
-                                  '¿Deseas usar esta imagen o elegir otra de la Galería de contenido?',
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Imagen base confirmada. Ya puedes generar diseño.',
                                 ),
-                                actions: [
-                                  TextButton(
-                                    onPressed: () => Navigator.of(context).pop(false),
-                                    child: const Text('Elegir otra'),
-                                  ),
-                                  FilledButton(
-                                    onPressed: () => Navigator.of(context).pop(true),
-                                    child: const Text('Usar esta imagen'),
-                                  ),
-                                ],
                               ),
                             );
-                            if (useNow == true) {
-                              await onConfirmBaseImage(story.id);
-                            }
                           }
                         },
                         onEdit: () async {
@@ -2277,8 +2265,8 @@ class _StoryCard extends StatelessWidget {
       builder: (_) => Dialog(
         insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
         child: SizedBox(
-          width: 980,
-          height: 760,
+          width: 500,
+          height: 900,
           child: _StoryFullscreenPreview(
             story: story,
             imageUrl: image,
@@ -5497,7 +5485,6 @@ class _StoryFullscreenPreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasImage = imageUrl.trim().isNotEmpty;
-    final cta = story.usedCTA.trim().isEmpty ? 'Escríbenos por WhatsApp para cotizar' : story.usedCTA.trim();
 
     return Material(
       color: const Color(0xFF07111F),
@@ -5510,7 +5497,7 @@ class _StoryFullscreenPreview extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      'Vista completa 9:16',
+                      'Diseño final 9:16',
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
                         color: Colors.white,
                         fontWeight: FontWeight.w800,
@@ -5531,82 +5518,37 @@ class _StoryFullscreenPreview extends StatelessWidget {
                   ),
                 ),
               Expanded(
-                child: Row(
-                  children: [
-                    Expanded(
-                      flex: 3,
-                      child: Center(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(18),
-                          child: AspectRatio(
-                            aspectRatio: 9 / 16,
-                            child: hasImage
-                                ? _StoryImageView(url: imageUrl)
-                                : const _BrokenImagePlaceholder(),
-                          ),
+                child: Center(
+                  child: SingleChildScrollView(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(18),
+                      child: AspectRatio(
+                        aspectRatio: 9 / 16,
+                        child: SizedBox(
+                          width: 360,
+                          child: hasImage
+                              ? _StoryImageView(url: imageUrl)
+                              : const _BrokenImagePlaceholder(),
                         ),
                       ),
                     ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      flex: 2,
-                      child: Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _MetaChip(label: 'Tipo', value: _storyTypeShort(story.type)),
-                            const SizedBox(height: 12),
-                            Text(
-                              story.title.trim().isEmpty ? '-' : story.title.trim(),
-                              style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
-                            ),
-                            const SizedBox(height: 10),
-                            Text(
-                              story.shortText.trim().isEmpty ? '-' : story.shortText.trim(),
-                              style: Theme.of(context).textTheme.bodyMedium,
-                            ),
-                            const SizedBox(height: 12),
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFE0F2FE),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Text(
-                                cta,
-                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                  color: const Color(0xFF0C4A6E),
-                                ),
-                              ),
-                            ),
-                            const Spacer(),
-                            SizedBox(
-                              width: double.infinity,
-                              child: FilledButton.icon(
-                                onPressed: canApprove
-                                    ? () async {
-                                        await onApprove();
-                                        if (context.mounted) {
-                                          Navigator.of(context).pop();
-                                        }
-                                      }
-                                    : null,
-                                icon: const Icon(Icons.check_circle_rounded),
-                                label: const Text('Aprobar estado'),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: canApprove
+                      ? () async {
+                          await onApprove();
+                          if (context.mounted) {
+                            Navigator.of(context).pop();
+                          }
+                        }
+                      : null,
+                  icon: const Icon(Icons.check_circle_rounded),
+                  label: const Text('Aprobar estado'),
                 ),
               ),
             ],
