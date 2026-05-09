@@ -86,11 +86,11 @@ export class ContabilidadController {
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('type') type?: string,
-    @Req() req?: Request,
+    @Req() req: Request,
   ) {
     return this.contabilidadService.getCloses(
       { date, from, to, type },
-      (req?.user ?? {}) as RequestActor,
+      (req.user ?? {}) as RequestActor,
     );
   }
 

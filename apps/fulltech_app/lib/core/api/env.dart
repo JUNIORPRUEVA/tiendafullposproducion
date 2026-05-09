@@ -22,6 +22,10 @@ class Env {
       const v = String.fromEnvironment('API_BASE_URL', defaultValue: '');
       if (v.trim().isNotEmpty) return v;
     }
+    if (key == 'APP_BASE_URL') {
+      const v = String.fromEnvironment('APP_BASE_URL', defaultValue: '');
+      if (v.trim().isNotEmpty) return v;
+    }
     if (key == 'API_TIMEOUT_MS') {
       const v = String.fromEnvironment('API_TIMEOUT_MS', defaultValue: '');
       if (v.trim().isNotEmpty) return v;
