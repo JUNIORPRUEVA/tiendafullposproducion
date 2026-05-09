@@ -53,7 +53,7 @@ export class MarketingStorageService {
     const raw = (objectKeyOrUrl || '').trim();
     if (!raw) return '';
     if (raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('data:image/')) {
-      return raw;
+      return this.rewriteLoopbackUrl(raw);
     }
     if (raw.startsWith('uploads/')) {
       return this.buildPublicUploadsUrl(raw);
@@ -105,7 +105,7 @@ export class MarketingStorageService {
     const raw = (objectKeyOrUrl || '').trim();
     if (!raw) return '';
     if (raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('data:image/')) {
-      return raw;
+      return this.rewriteLoopbackUrl(raw);
     }
     if (raw.startsWith('uploads/')) {
       return this.buildPublicUploadsUrl(raw);
@@ -341,7 +341,14 @@ export class MarketingStorageService {
   }
 
   private buildPublicUploadsUrl(objectKey: string) {
-    const base = (
+    const base = this.resolvePublicBaseUrl();
+
+    const relativePath = `/${posix.join(...objectKey.split(/[/\\]+/))}`;
+    return base ? `${base}${relativePath}` : relativePath;
+  }
+
+  private resolvePublicBaseUrl() {
+    return (
       this.config.get<string>('PUBLIC_BASE_URL') ??
       this.config.get<string>('API_BASE_URL') ??
       process.env.PUBLIC_BASE_URL ??
@@ -350,9 +357,28 @@ export class MarketingStorageService {
     )
       .trim()
       .replace(/\/$/, '');
+  }
 
-    const relativePath = `/${posix.join(...objectKey.split(/[/\\]+/))}`;
-    return base ? `${base}${relativePath}` : relativePath;
+  private rewriteLoopbackUrl(rawUrl: string) {
+    try {
+      const parsed = new URL(rawUrl);
+      const host = parsed.hostname.toLowerCase();
+      if (!['localhost', '127.0.0.1', '::1'].includes(host)) {
+        return rawUrl;
+      }
+
+      const base = this.resolvePublicBaseUrl();
+      if (!base) return rawUrl;
+      const target = new URL(base);
+
+      parsed.protocol = target.protocol;
+      parsed.hostname = target.hostname;
+      parsed.port = target.port;
+
+      return parsed.toString();
+    } catch {
+      return rawUrl;
+    }
   }
 
   private slugify(value: string) {

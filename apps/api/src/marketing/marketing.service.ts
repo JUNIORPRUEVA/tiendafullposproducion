@@ -1,6 +1,6 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { MarketingStoryStatus, MarketingStoryType } from '@prisma/client';
+import { MarketingStoryStatus, MarketingStoryType, ServiceEvidenceType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MarketingApprovalService } from './marketing-approval.service';
 import { MarketingConfigService } from './marketing-config.service';
@@ -474,6 +474,8 @@ export class MarketingService {
   }
 
   async listContentGallery(companyId: string) {
+    await this.syncContentGalleryFromMediaEvidence(companyId);
+
     const data = await this.mediaAssets.list(companyId, {
       active_only: true,
     } as MarketingMediaAssetQueryDto);
@@ -493,6 +495,78 @@ export class MarketingService {
         };
       }),
     };
+  }
+
+  private async syncContentGalleryFromMediaEvidence(companyId: string) {
+    const rows = await this.prisma.serviceEvidence.findMany({
+      where: {
+        forPublicidad: true,
+        type: {
+          in: [
+            ServiceEvidenceType.REFERENCIA_IMAGEN,
+            ServiceEvidenceType.EVIDENCIA_IMAGEN,
+            ServiceEvidenceType.REFERENCIA_VIDEO,
+            ServiceEvidenceType.EVIDENCIA_VIDEO,
+          ],
+        },
+      },
+      include: {
+        serviceOrder: {
+          select: {
+            serviceType: true,
+            status: true,
+          },
+        },
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: 300,
+    });
+
+    for (const row of rows) {
+      const sourceUrl = `${row.content ?? ''}`.trim();
+      if (!sourceUrl) continue;
+
+      const existing = await this.prisma.marketingMediaAsset.findFirst({
+        where: {
+          companyId,
+          fileUrl: sourceUrl,
+        },
+        select: { id: true },
+      });
+      if (existing) continue;
+
+      const fileName = this.extractFileNameFromUrl(sourceUrl, row.id);
+      const isVideo =
+        row.type === ServiceEvidenceType.REFERENCIA_VIDEO ||
+        row.type === ServiceEvidenceType.EVIDENCIA_VIDEO;
+      const mimeType = this.inferMimeTypeFromUrl(sourceUrl, isVideo ? 'video' : 'image');
+      const category = isVideo ? 'Galería media (video)' : 'Galería media (imagen)';
+      const relatedService = `${row.serviceOrder?.serviceType ?? ''}`.trim() || 'Galería media';
+      const status = `${row.serviceOrder?.status ?? ''}`.trim().toLowerCase();
+      const description = '';
+
+      await this.prisma.marketingMediaAsset.create({
+        data: {
+          companyId,
+          fileUrl: sourceUrl,
+          thumbnailUrl: null,
+          fileName,
+          mimeType,
+          category,
+          relatedService,
+          tags: [
+            'galeria-media',
+            'for-publicidad',
+            'evidencia-tecnica',
+            isVideo ? 'video' : 'imagen',
+            status,
+          ].filter((tag) => tag.trim().length > 0),
+          description: description.length === 0 ? null : description,
+          isActive: true,
+          isFeatured: false,
+        },
+      });
+    }
   }
 
   async createMediaAsset(companyId: string, dto: CreateMarketingMediaAssetDto, userId: string) {
@@ -980,5 +1054,34 @@ export class MarketingService {
     }
 
     return 'GALLERY_IMAGE';
+  }
+
+  private extractFileNameFromUrl(url: string, fallbackId: string) {
+    const parsed = this.safeParseUrl(url);
+    const path = (parsed?.pathname ?? '').trim();
+    if (!path) return `content-${fallbackId}.jpg`;
+    const parts = path.split('/').filter((part) => part.trim().length > 0);
+    const last = (parts[parts.length - 1] ?? '').trim();
+    if (!last) return `content-${fallbackId}.jpg`;
+    return last;
+  }
+
+  private inferMimeTypeFromUrl(url: string, mediaKind: 'image' | 'video') {
+    const lower = `${url}`.toLowerCase();
+    if (lower.endsWith('.mp4')) return 'video/mp4';
+    if (lower.endsWith('.mov')) return 'video/quicktime';
+    if (lower.endsWith('.webm')) return 'video/webm';
+    if (lower.endsWith('.png')) return 'image/png';
+    if (lower.endsWith('.webp')) return 'image/webp';
+    if (lower.endsWith('.jpeg') || lower.endsWith('.jpg')) return 'image/jpeg';
+    return mediaKind === 'video' ? 'video/mp4' : 'image/jpeg';
+  }
+
+  private safeParseUrl(url: string) {
+    try {
+      return new URL(url);
+    } catch {
+      return null;
+    }
   }
 }
