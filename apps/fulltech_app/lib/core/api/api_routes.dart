@@ -106,8 +106,12 @@ class ApiRoutes {
   static const crmCommercialAvailableWhatsappInstances =
       '/crm-commercial/available-whatsapp-instances';
   static const crmCommercialConversations = '/crm-commercial/conversations';
+  static const crmCommercialStartConversationMessage =
+      '/crm-commercial/conversations/start-message';
   static String crmCommercialConversationMessages(String id) =>
       '/crm-commercial/conversations/$id/messages';
+  static String crmCommercialConversationReply(String id) =>
+      '/crm-commercial/conversations/$id/reply';
 
   // Productos
   static const products = '/products';

@@ -19,6 +19,8 @@ class RouteAccess {
       case Routes.ponche:
       case Routes.poncheHistorial:
         return AppPermission.viewPunch;
+      case Routes.publicidadGaleria:
+        return AppPermission.viewPublicidad;
       case Routes.catalogo:
         return AppPermission.viewCatalog;
       case Routes.ventas:

@@ -293,6 +293,10 @@ final routerProvider = Provider<GoRouter>((ref) {
             builder: (context, state) => const GaleriaPublicidadScreen(),
           ),
           GoRoute(
+            path: Routes.publicidadGaleria,
+            builder: (context, state) => const GaleriaPublicidadScreen(),
+          ),
+          GoRoute(
             path: Routes.whatsappCrm,
             builder: (context, state) => const WhatsappCrmScreen(),
           ),

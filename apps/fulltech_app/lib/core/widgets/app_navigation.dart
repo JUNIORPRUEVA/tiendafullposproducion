@@ -272,6 +272,7 @@ String resolveNavigationTitle(
   if (path == Routes.publicidadEstados) return 'Publicidad / Estados';
   if (path == Routes.publicidadCampanas) return 'Publicidad / Campañas';
   if (path == Routes.publicidadMarketplace) return 'Publicidad / Marketplace';
+  if (path == Routes.publicidadGaleria) return 'Publicidad / Galería de Contenido';
   if (path == Routes.galeriaPublicidad) return 'Galería de Publicidad';
   if (path == Routes.whatsappCrm) return 'CRM WhatsApp';
   if (path == Routes.crmComercial) return 'CRM Comercial';

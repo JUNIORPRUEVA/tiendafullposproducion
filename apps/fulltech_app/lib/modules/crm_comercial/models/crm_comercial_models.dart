@@ -298,6 +298,7 @@ class CrmComercialInboxConversation {
     required this.contactName,
     this.remotePhone,
     this.remoteJid,
+    this.remoteAvatarUrl,
     this.lastMessageAt,
     this.lastMessagePreview,
     this.lastMessageType,
@@ -315,6 +316,7 @@ class CrmComercialInboxConversation {
   final String contactName;
   final String? remotePhone;
   final String? remoteJid;
+  final String? remoteAvatarUrl;
   final DateTime? lastMessageAt;
   final String? lastMessagePreview;
   final String? lastMessageType;
@@ -336,6 +338,7 @@ class CrmComercialInboxConversation {
       contactName: (json['contactName'] ?? 'Nuevo contacto').toString(),
       remotePhone: json['remotePhone']?.toString(),
       remoteJid: json['remoteJid']?.toString(),
+      remoteAvatarUrl: json['remoteAvatarUrl']?.toString(),
       lastMessageAt: DateTime.tryParse((json['lastMessageAt'] ?? '').toString()),
       lastMessagePreview: json['lastMessagePreview']?.toString(),
       lastMessageType: json['lastMessageType']?.toString(),

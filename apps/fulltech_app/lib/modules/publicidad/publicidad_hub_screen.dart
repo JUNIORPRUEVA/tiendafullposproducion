@@ -272,9 +272,17 @@ class _HubMainColumn extends StatelessWidget {
           icon: Icons.storefront_rounded,
           onEnter: () => context.go(Routes.publicidadMarketplace),
         ),
+        const SizedBox(height: 8),
+        _ModuleRowItem(
+          title: 'Galería de Contenido',
+          description: 'Centro multimedia: productos, uploads, y fuente global.',
+          summary: 'Multimedia hub',
+          icon: Icons.image_collection_rounded,
+          onEnter: () => context.go(Routes.publicidadGaleria),
+        ),
       ],
     );
-  }
+          icon: Icons.collections_rounded,
 }
 
 class _ModuleRowItem extends StatelessWidget {

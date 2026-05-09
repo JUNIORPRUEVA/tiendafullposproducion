@@ -26,6 +26,7 @@ import { CreateCrmCommercialFollowupTaskDto } from './dto/create-crm-commercial-
 import { UpdateCrmCommercialFollowupTaskDto } from './dto/update-crm-commercial-followup-task.dto';
 import { CrmCommercialFollowupTaskQueryDto } from './dto/crm-commercial-followup-task-query.dto';
 import { UpdateCrmCommercialSettingsDto } from './dto/update-crm-commercial-settings.dto';
+import { SendCrmCommercialMessageDto } from './dto/send-crm-commercial-message.dto';
 
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 @Controller('crm-commercial')
@@ -88,6 +89,29 @@ export class CrmCommercialController {
       before,
       after,
     });
+  }
+
+  @Post('conversations/start-message')
+  @Roles(Role.ADMIN)
+  startConversationMessage(
+    @Req() req: Request,
+    @Body() dto: SendCrmCommercialMessageDto,
+  ) {
+    return this.crmCommercial.startConversationMessage(this.userOrThrow(req), dto);
+  }
+
+  @Post('conversations/:id/reply')
+  @Roles(Role.ADMIN)
+  replyConversation(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() dto: SendCrmCommercialMessageDto,
+  ) {
+    return this.crmCommercial.replyConversation(
+      this.userOrThrow(req),
+      id,
+      dto,
+    );
   }
 
   // Phase 1: Customers

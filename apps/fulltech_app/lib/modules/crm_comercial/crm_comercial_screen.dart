@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/auth/auth_provider.dart';
+import '../../core/auth/app_role.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import 'data/crm_comercial_repository.dart';
@@ -39,6 +41,8 @@ const List<String> _taskPriorities = <String>[
   'URGENTE',
 ];
 
+enum _CrmRightPanelTab { detail, ia }
+
 class CrmComercialScreen extends ConsumerStatefulWidget {
   const CrmComercialScreen({super.key});
 
@@ -60,6 +64,10 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
   // Phase 2 controllers
   final TextEditingController _taskTitleCtrl = TextEditingController();
   final TextEditingController _taskDescCtrl = TextEditingController();
+  final TextEditingController _chatComposerCtrl = TextEditingController();
+  final TextEditingController _newChatPhoneCtrl = TextEditingController();
+  final TextEditingController _newChatMessageCtrl = TextEditingController();
+  final TextEditingController _conversationSearchCtrl = TextEditingController();
 
   bool _loading = true;
   bool _saving = false;
@@ -81,8 +89,12 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
   // Phase 2 state
   List<CrmComercialFollowupTask> _allTasks = const <CrmComercialFollowupTask>[];
   bool _loadingTasks = false;
-  bool _showDetailsPanel = true;
+  bool _showDetailsPanel = false;
   bool _mobileConversationMode = false;
+  bool _showSidebarSearch = false;
+  bool _showConversationSearch = false;
+  bool _sendingChatMessage = false;
+  _CrmRightPanelTab _activeRightPanelTab = _CrmRightPanelTab.detail;
 
   @override
   void initState() {
@@ -99,6 +111,10 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
     _activityDescriptionCtrl.dispose();
     _taskTitleCtrl.dispose();
     _taskDescCtrl.dispose();
+    _chatComposerCtrl.dispose();
+    _newChatPhoneCtrl.dispose();
+    _newChatMessageCtrl.dispose();
+    _conversationSearchCtrl.dispose();
     super.dispose();
   }
 
@@ -529,6 +545,285 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
     }
   }
 
+  String? _normalizePhoneForSend(String raw) {
+    final digits = raw.replaceAll(RegExp(r'\D'), '');
+    if (digits.length < 7) return null;
+    return digits;
+  }
+
+  Future<void> _sendMessageToCurrentConversation() async {
+    final selectedConversation = _selectedConversation;
+    final text = _chatComposerCtrl.text.trim();
+    if (selectedConversation == null || text.isEmpty || _sendingChatMessage) {
+      return;
+    }
+
+    setState(() {
+      _sendingChatMessage = true;
+      _error = '';
+    });
+
+    try {
+      await ref.read(crmComercialRepositoryProvider).replyConversation(
+            conversationId: selectedConversation.id,
+            text: text,
+          );
+      _chatComposerCtrl.clear();
+      await _openConversation(selectedConversation.id);
+      await _loadAll();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = error.toString();
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _sendingChatMessage = false);
+      }
+    }
+  }
+
+  Future<void> _openNewChatDialog() async {
+    _newChatPhoneCtrl.clear();
+    _newChatMessageCtrl.clear();
+    String? dialogError;
+    var sending = false;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Nuevo chat por numero'),
+              content: SizedBox(
+                width: 420,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: _newChatPhoneCtrl,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(
+                        labelText: 'Numero de telefono',
+                        hintText: 'Ej. 8095551234',
+                        prefixIcon: Icon(Icons.phone_rounded),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: _newChatMessageCtrl,
+                      minLines: 2,
+                      maxLines: 4,
+                      decoration: const InputDecoration(
+                        labelText: 'Mensaje',
+                        hintText: 'Escribe el primer mensaje...',
+                        prefixIcon: Icon(Icons.message_rounded),
+                      ),
+                    ),
+                    if ((dialogError ?? '').isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          dialogError!,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.error,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: sending
+                      ? null
+                      : () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cancelar'),
+                ),
+                FilledButton.icon(
+                  onPressed: sending
+                      ? null
+                      : () async {
+                          final settings = _crmSettings;
+                          if (settings == null ||
+                              (settings.selectedWhatsappInstanceId ?? '')
+                                  .trim()
+                                  .isEmpty) {
+                            setDialogState(() {
+                              dialogError =
+                                  'Selecciona una instancia antes de enviar mensajes.';
+                            });
+                            return;
+                          }
+
+                          final normalized = _normalizePhoneForSend(
+                            _newChatPhoneCtrl.text.trim(),
+                          );
+                          if (normalized == null) {
+                            setDialogState(() {
+                              dialogError = 'Numero de telefono invalido.';
+                            });
+                            return;
+                          }
+
+                          final message = _newChatMessageCtrl.text.trim();
+                          if (message.isEmpty) {
+                            setDialogState(() {
+                              dialogError =
+                                  'Escribe un mensaje para iniciar la conversacion.';
+                            });
+                            return;
+                          }
+
+                          setDialogState(() {
+                            sending = true;
+                            dialogError = null;
+                          });
+
+                          try {
+                            final result = await ref
+                                .read(crmComercialRepositoryProvider)
+                                .startConversationMessage(
+                                  phone: normalized,
+                                  text: message,
+                                );
+
+                            final createdConversationId =
+                                (result['conversationId'] ?? '').toString();
+
+                            if (!mounted) return;
+                            await _loadAll();
+
+                            if (createdConversationId.isNotEmpty) {
+                              await _openConversation(createdConversationId);
+                            } else {
+                              final matched = _conversations
+                                  .where(
+                                    (c) =>
+                                        (c.remotePhone ?? '')
+                                            .replaceAll(RegExp(r'\D'), '') ==
+                                        normalized,
+                                  )
+                                  .toList(growable: false);
+                              if (matched.isNotEmpty) {
+                                await _openConversation(matched.first.id);
+                              }
+                            }
+
+                            if (!dialogContext.mounted) return;
+                            Navigator.of(dialogContext).pop();
+                          } catch (error) {
+                            setDialogState(() {
+                              sending = false;
+                              dialogError = error.toString();
+                            });
+                          }
+                        },
+                  icon: sending
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.send_rounded, size: 16),
+                  label: const Text('Iniciar chat'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: _waGreenDark,
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _openRightPanelSheet(
+    _CrmRightPanelTab tab,
+    CrmComercialCustomer? selected,
+  ) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return SafeArea(
+          child: FractionallySizedBox(
+            heightFactor: 0.9,
+            child: Container(
+              decoration: const BoxDecoration(
+                color: _waPanel,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+              ),
+              child: _buildDetailsPanel(
+                context,
+                selected,
+                compact: false,
+                tabOverride: tab,
+                onClose: () => Navigator.of(context).pop(),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _openRightPanelDrawer(
+    _CrmRightPanelTab tab,
+    CrmComercialCustomer? selected,
+  ) async {
+    await showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Cerrar panel',
+      barrierColor: Colors.black.withAlpha(80),
+      transitionDuration: const Duration(milliseconds: 180),
+      pageBuilder: (_, __, ___) {
+        return SafeArea(
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: Material(
+              color: Colors.transparent,
+              child: Container(
+                width: 360,
+                margin: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: _waPanel,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: _waBorder.withAlpha(120)),
+                ),
+                child: _buildDetailsPanel(
+                  context,
+                  selected,
+                  compact: false,
+                  tabOverride: tab,
+                  onClose: () => Navigator.of(context).pop(),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+      transitionBuilder: (context, animation, _, child) {
+        final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
+        return SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0.08, 0),
+            end: Offset.zero,
+          ).animate(curved),
+          child: FadeTransition(opacity: curved, child: child),
+        );
+      },
+    );
+  }
+
   void _showConvertPlaceholder() {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
@@ -536,6 +831,136 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
           'Proximamente: convertir contacto WhatsApp a cliente CRM comercial.',
         ),
       ),
+    );
+  }
+
+  Future<void> _openAvatarPreview(
+    String title, {
+    String? imageUrl,
+  }) async {
+    final hasImage = (imageUrl ?? '').trim().isNotEmpty;
+    await showDialog<void>(
+      context: context,
+      barrierColor: Colors.black.withAlpha(200),
+      builder: (context) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 260,
+                height: 260,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0F171A),
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: Colors.white.withAlpha(160), width: 2),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: hasImage
+                      ? Image.network(
+                          imageUrl!,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) {
+                            return Center(
+                              child: Text(
+                                _initials(title),
+                                style: const TextStyle(
+                                  fontSize: 72,
+                                  fontWeight: FontWeight.w700,
+                                  color: _waGreen,
+                                ),
+                              ),
+                            );
+                          },
+                        )
+                      : Center(
+                          child: Text(
+                            _initials(title),
+                            style: const TextStyle(
+                              fontSize: 72,
+                              fontWeight: FontWeight.w700,
+                              color: _waGreen,
+                            ),
+                          ),
+                        ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                title,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              if (hasImage) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Foto de perfil',
+                  style: TextStyle(
+                    color: Colors.white.withAlpha(190),
+                    fontSize: 12,
+                  ),
+                ),
+              ] else ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Sin foto disponible',
+                  style: TextStyle(
+                    color: Colors.white.withAlpha(190),
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 4),
+              TextButton.icon(
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(
+                  Icons.close_rounded,
+                  size: 16,
+                  color: Colors.white,
+                ),
+                label: const Text(
+                  'Cerrar',
+                  style: TextStyle(color: Colors.white),
+                ),
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildConversationAvatar({
+    required String title,
+    required Color accent,
+    required double radius,
+    String? imageUrl,
+  }) {
+    final hasImage = (imageUrl ?? '').trim().isNotEmpty;
+    return CircleAvatar(
+      radius: radius,
+      backgroundColor: accent.withAlpha(24),
+      backgroundImage: hasImage ? NetworkImage(imageUrl!) : null,
+      child: hasImage
+          ? null
+          : Text(
+              _initials(title),
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: accent,
+                fontSize: radius < 18 ? 10 : 12,
+              ),
+            ),
     );
   }
 
@@ -948,6 +1373,17 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final auth = ref.watch(authStateProvider);
+    final isAdmin = auth.user?.appRole == AppRole.admin;
+    if (!isAdmin) {
+      return const Scaffold(
+        backgroundColor: _waBg,
+        body: Center(
+          child: Text('Acceso denegado. Solo ADMIN puede usar CRM Comercial.'),
+        ),
+      );
+    }
+
     final selected = _selected;
     return Scaffold(
       backgroundColor: _waBg,
@@ -966,7 +1402,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
     }
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+      padding: const EdgeInsets.fromLTRB(6, 6, 6, 6),
       child: LayoutBuilder(
         builder: (context, constraints) {
           final width = constraints.maxWidth;
@@ -987,6 +1423,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
               selected,
               _selectedConversation,
               allowDetailToggle: true,
+              isTablet: false,
               isMobile: true,
               onBackToList: () {
                 setState(() => _mobileConversationMode = false);
@@ -994,10 +1431,8 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
             );
           }
 
-          final leftWidth = isTablet ? 320.0 : 360.0;
-          final rightWidth = _showDetailsPanel
-              ? (isTablet ? 320.0 : 360.0)
-              : 56.0;
+          final leftWidth = isTablet ? 312.0 : 338.0;
+          final rightWidth = _showDetailsPanel ? 360.0 : 0.0;
 
           return Row(
             children: [
@@ -1017,20 +1452,25 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                   selected,
                   _selectedConversation,
                   allowDetailToggle: true,
+                  isTablet: isTablet,
                   isMobile: false,
                 ),
               ),
-              const SizedBox(width: 8),
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
-                curve: Curves.easeOut,
-                width: rightWidth,
-                child: _buildDetailsPanel(
-                  context,
-                  selected,
-                  compact: !_showDetailsPanel,
+              if (!isTablet) ...[
+                const SizedBox(width: 8),
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOut,
+                  width: rightWidth,
+                  child: _showDetailsPanel
+                      ? _buildDetailsPanel(
+                          context,
+                          selected,
+                          compact: false,
+                        )
+                      : const SizedBox.shrink(),
                 ),
-              ),
+              ],
             ],
           );
         },
@@ -1135,80 +1575,160 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
             padding: const EdgeInsets.fromLTRB(10, 8, 10, 6),
             child: Column(
               children: [
-                TextField(
-                  controller: _searchCtrl,
-                  onSubmitted: (_) => _loadAll(),
-                  decoration: InputDecoration(
-                    hintText: 'Buscar cliente o telefono',
-                    prefixIcon: const Icon(Icons.search_rounded, size: 20),
-                    isDense: true,
-                    filled: true,
-                    fillColor: const Color(0xFFF6F7F7),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide(color: _waBorder.withAlpha(110)),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide(color: _waBorder.withAlpha(110)),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 6),
                 Row(
                   children: [
                     Expanded(
-                      child: DropdownButtonFormField<String>(
-                        key: ValueKey('status-filter-$_statusFilter'),
-                        initialValue: _statusFilter,
-                        decoration: InputDecoration(
-                          labelText: 'Estado',
-                          isDense: true,
-                          filled: true,
-                          fillColor: const Color(0xFFF6F7F7),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            borderSide: BorderSide(
-                              color: _waBorder.withAlpha(110),
-                            ),
-                          ),
-                        ),
-                        items: [
-                          const DropdownMenuItem<String>(
-                            value: '',
-                            child: Text('Todos'),
-                          ),
-                          ..._crmStatuses.map(
-                            (status) => DropdownMenuItem<String>(
-                              value: status,
-                              child: Text(_statusLabel(status)),
-                            ),
-                          ),
-                        ],
-                        onChanged: (value) {
-                          setState(() {
-                            _statusFilter = (value ?? '').trim();
-                          });
-                          _loadAll();
+                      child: LayoutBuilder(
+                        builder: (context, toolbarConstraints) {
+                          final compactActions = toolbarConstraints.maxWidth < 312;
+                          return Row(
+                            children: [
+                              IconButton(
+                                tooltip: 'Buscar',
+                                visualDensity: VisualDensity.compact,
+                                onPressed: () {
+                                  setState(() => _showSidebarSearch = !_showSidebarSearch);
+                                },
+                                icon: const Icon(Icons.search_rounded, size: 19),
+                              ),
+                              const SizedBox(width: 3),
+                              SizedBox(
+                                width: compactActions ? 102 : 124,
+                                child: DropdownButtonFormField<String>(
+                                  key: ValueKey('status-filter-$_statusFilter'),
+                                  initialValue: _statusFilter,
+                                  isExpanded: true,
+                                  decoration: InputDecoration(
+                                    isDense: true,
+                                    filled: true,
+                                    fillColor: const Color(0xFFF6F7F7),
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 7,
+                                    ),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(9),
+                                      borderSide: BorderSide(color: _waBorder.withAlpha(110)),
+                                    ),
+                                  ),
+                                  items: [
+                                    const DropdownMenuItem<String>(
+                                      value: '',
+                                      child: Text('Todos', overflow: TextOverflow.ellipsis),
+                                    ),
+                                    ..._crmStatuses.map(
+                                      (status) => DropdownMenuItem<String>(
+                                        value: status,
+                                        child: Text(
+                                          _statusLabel(status),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                  onChanged: (value) {
+                                    setState(() {
+                                      _statusFilter = (value ?? '').trim();
+                                    });
+                                    _loadAll();
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 5),
+                              FilterChip(
+                                selected: _onlyMine,
+                                showCheckmark: false,
+                                side: BorderSide(color: _waBorder.withAlpha(100)),
+                                backgroundColor: const Color(0xFFF6F7F7),
+                                selectedColor: _waGreen.withAlpha(20),
+                                visualDensity: VisualDensity.compact,
+                                label: const Text('Mio', style: TextStyle(fontSize: 11)),
+                                onSelected: (value) {
+                                  setState(() => _onlyMine = value);
+                                  _loadAll();
+                                },
+                              ),
+                              const Spacer(),
+                              if (!compactActions)
+                                IconButton(
+                                  tooltip: 'Nuevo chat',
+                                  visualDensity: VisualDensity.compact,
+                                  onPressed: _saving ? null : _openNewChatDialog,
+                                  icon: const Icon(Icons.edit_square, size: 19),
+                                ),
+                              if (!compactActions)
+                                IconButton(
+                                  tooltip: 'Actualizar',
+                                  visualDensity: VisualDensity.compact,
+                                  onPressed: _saving ? null : _loadAll,
+                                  icon: const Icon(Icons.refresh_rounded, size: 19),
+                                ),
+                              PopupMenuButton<String>(
+                                tooltip: 'Mas acciones',
+                                onSelected: (value) {
+                                  if (value == 'settings') {
+                                    _openCrmSettingsDialog();
+                                  }
+                                  if (value == 'refresh') {
+                                    _loadAll();
+                                  }
+                                  if (value == 'new-chat') {
+                                    _openNewChatDialog();
+                                  }
+                                },
+                                itemBuilder: (context) => [
+                                  if (compactActions)
+                                    const PopupMenuItem<String>(
+                                      value: 'new-chat',
+                                      child: Text('Nuevo chat por numero'),
+                                    ),
+                                  if (compactActions)
+                                    const PopupMenuItem<String>(
+                                      value: 'refresh',
+                                      child: Text('Actualizar lista'),
+                                    ),
+                                  const PopupMenuItem<String>(
+                                    value: 'settings',
+                                    child: Text('Configuracion de instancia'),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          );
                         },
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    FilterChip(
-                      selected: _onlyMine,
-                      showCheckmark: false,
-                      side: BorderSide(color: _waBorder.withAlpha(100)),
-                      backgroundColor: const Color(0xFFF6F7F7),
-                      selectedColor: _waGreen.withAlpha(20),
-                      visualDensity: VisualDensity.compact,
-                      label: const Text('Mio'),
-                      onSelected: (value) {
-                        setState(() => _onlyMine = value);
-                        _loadAll();
-                      },
-                    ),
                   ],
                 ),
+                if (_showSidebarSearch) ...[
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: _searchCtrl,
+                    onSubmitted: (_) => _loadAll(),
+                    decoration: InputDecoration(
+                      hintText: 'Buscar cliente o telefono',
+                      prefixIcon: const Icon(Icons.search_rounded, size: 18),
+                      suffixIcon: IconButton(
+                        onPressed: () {
+                          _searchCtrl.clear();
+                          _loadAll();
+                        },
+                        icon: const Icon(Icons.close_rounded, size: 18),
+                      ),
+                      isDense: true,
+                      filled: true,
+                      fillColor: const Color(0xFFF6F7F7),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: BorderSide(color: _waBorder.withAlpha(110)),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: BorderSide(color: _waBorder.withAlpha(110)),
+                      ),
+                    ),
+                  ),
+                ],
                 if (_allTasks.isNotEmpty) ...[
                   const SizedBox(height: 6),
                   SingleChildScrollView(
@@ -1277,12 +1797,17 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                         item: item,
                         isActive: isActive,
                         taskCount: taskCount,
+                        avatarUrl: item.remoteAvatarUrl,
                         statusLabel: item.crmCustomerStatus == null
                             ? 'SIN CRM'
                             : _statusLabel(item.crmCustomerStatus!),
                         statusColor: item.crmCustomerStatus == null
                             ? const Color(0xFF7A8A96)
                             : _statusAccentColor(item.crmCustomerStatus!),
+                        onAvatarTap: () => _openAvatarPreview(
+                          item.contactName,
+                          imageUrl: item.remoteAvatarUrl,
+                        ),
                         onTap: _saving
                             ? null
                             : () async {
@@ -1306,6 +1831,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
     CrmComercialCustomer? selected,
     CrmComercialInboxConversation? selectedConversation, {
     required bool allowDetailToggle,
+    required bool isTablet,
     required bool isMobile,
     VoidCallback? onBackToList,
   }) {
@@ -1338,8 +1864,8 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
       child: Column(
         children: [
           Container(
-            height: 68,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            height: 58,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
             decoration: BoxDecoration(
               color: const Color(0xFFF7F8F8),
               borderRadius: const BorderRadius.vertical(
@@ -1356,16 +1882,16 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                     onPressed: onBackToList,
                     icon: const Icon(Icons.arrow_back_rounded),
                   ),
-                CircleAvatar(
-                  radius: 18,
-                  backgroundColor: _waGreen.withAlpha(24),
-                  child: Text(
-                    _initials(selectedConversation?.contactName ?? 'CRM'),
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: _waGreenDark,
-                      fontSize: 12,
-                    ),
+                GestureDetector(
+                  onTap: () => _openAvatarPreview(
+                    selectedConversation?.contactName ?? 'Contacto',
+                    imageUrl: selectedConversation?.remoteAvatarUrl,
+                  ),
+                  child: _buildConversationAvatar(
+                    title: selectedConversation?.contactName ?? 'CRM',
+                    accent: _waGreenDark,
+                    radius: 18,
+                    imageUrl: selectedConversation?.remoteAvatarUrl,
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -1385,41 +1911,128 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                         ),
                       ),
                       const SizedBox(height: 2),
-                      Text(
-                        hasConversation
-                            ? '${selectedConversation.remotePhone ?? selectedConversation.remoteJid ?? 'Sin telefono'}  |  ${selectedConversation.crmCustomerName ?? 'Nuevo contacto'}'
-                            : 'Selecciona una conversacion para ver mensajes reales',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: _waTextMuted,
-                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              hasConversation
+                                  ? (selectedConversation.crmCustomerName ??
+                                      (selectedConversation.isNewContact
+                                          ? 'Nuevo contacto'
+                                          : 'Sin CRM'))
+                                  : 'Selecciona una conversacion para ver mensajes reales',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 10.5,
+                                color: _waTextMuted,
+                              ),
+                            ),
+                          ),
+                          if (hasConversation &&
+                              (selectedConversation.crmCustomerStatus ?? '')
+                                  .isNotEmpty)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 5,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: _statusAccentColor(
+                                  selectedConversation.crmCustomerStatus!,
+                                ).withAlpha(20),
+                                borderRadius: BorderRadius.circular(7),
+                              ),
+                              child: Text(
+                                _statusLabel(
+                                  selectedConversation.crmCustomerStatus!,
+                                ),
+                                style: TextStyle(
+                                  fontSize: 8.5,
+                                  color: _statusAccentColor(
+                                    selectedConversation.crmCustomerStatus!,
+                                  ),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                     ],
                   ),
                 ),
-                if (selectedConversation?.isNewContact == true)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 7,
-                      vertical: 3,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.orange.withAlpha(22),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Text(
-                      'Nuevo contacto',
-                      style: TextStyle(fontSize: 10, color: Color(0xFF9A5C00)),
-                    ),
-                  ),
-                const SizedBox(width: 6),
                 if (selectedConversation?.canConvertToCrm == true)
                   TextButton.icon(
                     onPressed: _saving ? null : _showConvertPlaceholder,
                     icon: const Icon(Icons.person_add_alt_1_rounded, size: 16),
-                    label: const Text('Convertir en cliente CRM'),
+                    label: const Text('Convertir'),
+                    style: TextButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ),
+                IconButton(
+                  tooltip: 'Buscar en conversacion',
+                  onPressed: hasConversation
+                      ? () {
+                          setState(() {
+                            _showConversationSearch = !_showConversationSearch;
+                          });
+                        }
+                      : null,
+                  icon: const Icon(Icons.search_rounded, size: 20),
+                ),
+                IconButton(
+                  tooltip: 'Panel IA',
+                  onPressed: !hasConversation
+                      ? null
+                      : () {
+                          if (isMobile) {
+                            _openRightPanelSheet(
+                              _CrmRightPanelTab.ia,
+                              selected,
+                            );
+                            return;
+                          }
+                          if (isTablet) {
+                            _openRightPanelDrawer(
+                              _CrmRightPanelTab.ia,
+                              selected,
+                            );
+                            return;
+                          }
+                          setState(() {
+                            _activeRightPanelTab = _CrmRightPanelTab.ia;
+                            _showDetailsPanel = true;
+                          });
+                        },
+                  icon: const Icon(Icons.auto_awesome_rounded, size: 20),
+                ),
+                if (allowDetailToggle)
+                  IconButton(
+                    tooltip: 'Panel detalle',
+                    onPressed: !hasConversation
+                        ? null
+                        : () {
+                            if (isMobile) {
+                              _openRightPanelSheet(
+                                _CrmRightPanelTab.detail,
+                                selected,
+                              );
+                              return;
+                            }
+                            if (isTablet) {
+                              _openRightPanelDrawer(
+                                _CrmRightPanelTab.detail,
+                                selected,
+                              );
+                              return;
+                            }
+                            setState(() {
+                              _activeRightPanelTab = _CrmRightPanelTab.detail;
+                              _showDetailsPanel = !_showDetailsPanel;
+                            });
+                          },
+                    icon: const Icon(Icons.info_outline_rounded, size: 20),
                   ),
                 IconButton(
                   tooltip: 'Actualizar conversacion',
@@ -1428,24 +2041,44 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                       : () => _openConversation(selectedConversation.id),
                   icon: const Icon(Icons.refresh_rounded, size: 20),
                 ),
-                if (allowDetailToggle)
-                  IconButton(
-                    tooltip: _showDetailsPanel
-                        ? 'Ocultar panel derecho'
-                        : 'Mostrar panel derecho',
-                    onPressed: () {
-                      setState(() => _showDetailsPanel = !_showDetailsPanel);
-                    },
-                    icon: Icon(
-                      _showDetailsPanel
-                          ? Icons.view_sidebar_rounded
-                          : Icons.dashboard_customize_rounded,
-                      size: 20,
+                PopupMenuButton<String>(
+                  tooltip: 'Mas opciones',
+                  onSelected: (value) {
+                    if (value == 'new-chat') {
+                      _openNewChatDialog();
+                    }
+                  },
+                  itemBuilder: (context) => const [
+                    PopupMenuItem<String>(
+                      value: 'new-chat',
+                      child: Text('Nuevo chat por numero'),
                     ),
-                  ),
+                  ],
+                  icon: const Icon(Icons.more_vert_rounded, size: 20),
+                ),
               ],
             ),
           ),
+          if (_showConversationSearch)
+            Container(
+              padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF7F8F8),
+                border: Border(
+                  bottom: BorderSide(color: _waBorder.withAlpha(90)),
+                ),
+              ),
+              child: TextField(
+                controller: _conversationSearchCtrl,
+                decoration: const InputDecoration(
+                  hintText: 'Buscar en la conversacion',
+                  isDense: true,
+                  filled: true,
+                  fillColor: Colors.white,
+                  prefixIcon: Icon(Icons.search_rounded, size: 18),
+                ),
+              ),
+            ),
           Expanded(
             child: Stack(
               children: [
@@ -1513,35 +2146,41 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                     ),
                   )
                 else
-                  ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-                    itemCount: timeline.length,
-                    itemBuilder: (context, index) {
-                      final entry = timeline[index];
-                      final previous = index > 0 ? timeline[index - 1] : null;
-                      final showDate =
-                          previous == null ||
-                          !_isSameDay(entry.createdAt, previous.createdAt);
-                      return Column(
-                        children: [
-                          if (showDate)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 8, top: 2),
-                              child: _DateSeparator(
-                                label: _formatDayLabel(entry.createdAt),
+                  ScrollConfiguration(
+                    behavior: const MaterialScrollBehavior().copyWith(
+                      scrollbars: false,
+                    ),
+                    child: ListView.builder(
+                      physics: const BouncingScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(7, 6, 7, 6),
+                      itemCount: timeline.length,
+                      itemBuilder: (context, index) {
+                        final entry = timeline[index];
+                        final previous = index > 0 ? timeline[index - 1] : null;
+                        final showDate =
+                            previous == null ||
+                            !_isSameDay(entry.createdAt, previous.createdAt);
+                        return Column(
+                          children: [
+                            if (showDate)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 8, top: 2),
+                                child: _DateSeparator(
+                                  label: _formatDayLabel(entry.createdAt),
+                                ),
                               ),
-                            ),
-                          _CrmTimelineTile(entry: entry),
-                          const SizedBox(height: 8),
-                        ],
-                      );
-                    },
+                            _CrmTimelineTile(entry: entry),
+                            const SizedBox(height: 5),
+                          ],
+                        );
+                      },
+                    ),
                   ),
               ],
             ),
           ),
           Container(
-            padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+            padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
             decoration: BoxDecoration(
               color: const Color(0xFFF7F8F8),
               border: Border(top: BorderSide(color: _waBorder.withAlpha(110))),
@@ -1550,37 +2189,61 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
               children: [
                 Row(
                   children: [
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      onPressed: null,
+                      icon: const Icon(Icons.emoji_emotions_outlined, size: 20),
+                    ),
                     Expanded(
                       child: TextField(
-                        controller: _noteCtrl,
+                        controller: _chatComposerCtrl,
                         minLines: 1,
-                        maxLines: 2,
+                        maxLines: 4,
                         decoration: const InputDecoration(
-                          hintText: 'Escribir nota interna',
+                          hintText: 'Escribe un mensaje',
                           isDense: true,
                           filled: true,
                           fillColor: Colors.white,
                           border: OutlineInputBorder(
                             borderSide: BorderSide(color: _waBorder),
                           ),
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
                         ),
                       ),
                     ),
                     const SizedBox(width: 8),
                     FilledButton.icon(
-                      onPressed: !hasSelection || _saving ? null : _addNote,
+                      onPressed:
+                          !hasConversation || _sendingChatMessage || _saving
+                              ? null
+                              : _sendMessageToCurrentConversation,
                       icon: const Icon(Icons.send_rounded, size: 16),
-                      label: const Text('Nota'),
+                      label: const Text('Enviar'),
                       style: FilledButton.styleFrom(
                         backgroundColor: _waGreenDark,
                         foregroundColor: Colors.white,
+                        visualDensity: VisualDensity.compact,
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                Row(
+                const SizedBox(height: 6),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
                   children: [
+                    TextButton.icon(
+                      onPressed: !hasSelection || _saving ? null : _addNote,
+                      icon: const Icon(Icons.note_add_outlined, size: 16),
+                      label: const Text('Nota interna'),
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
                     SizedBox(
                       width: 140,
                       child: TextField(
@@ -1616,13 +2279,12 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                     const SizedBox(width: 8),
                     FilledButton(
                       onPressed: !hasSelection || _saving ? null : _addActivity,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: _waGreenDark,
-                        foregroundColor: Colors.white,
-                      ),
+                      style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
+                      
                       child: const Text('Actividad'),
                     ),
                   ],
+                ),
                 ),
               ],
             ),
@@ -1636,7 +2298,10 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
     BuildContext context,
     CrmComercialCustomer? selected, {
     required bool compact,
+    _CrmRightPanelTab? tabOverride,
+    VoidCallback? onClose,
   }) {
+    final activeTab = tabOverride ?? _activeRightPanelTab;
     if (compact) {
       return Container(
         decoration: BoxDecoration(
@@ -1647,28 +2312,78 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
         child: Center(
           child: IconButton(
             tooltip: 'Mostrar detalles',
-            onPressed: () => setState(() => _showDetailsPanel = true),
+            onPressed: () => setState(() {
+              _activeRightPanelTab = _CrmRightPanelTab.detail;
+              _showDetailsPanel = true;
+            }),
             icon: const Icon(Icons.chevron_left_rounded),
           ),
         ),
       );
     }
 
-    if (selected == null) {
+    if (selected == null && activeTab == _CrmRightPanelTab.detail) {
       return Container(
         decoration: BoxDecoration(
           color: _waPanel,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: _waBorder.withAlpha(110)),
         ),
-        child: const Center(
-          child: Text(
-            'Panel de detalle del cliente',
-            style: AppTextStyles.subtitle,
-          ),
+        child: Column(
+          children: [
+            _RightPanelHeader(
+              activeTab: activeTab,
+              onTabChanged: (tab) {
+                if (tabOverride != null) return;
+                setState(() => _activeRightPanelTab = tab);
+              },
+              onClose: onClose ?? () => setState(() => _showDetailsPanel = false),
+            ),
+            const Expanded(
+              child: Center(
+                child: Text(
+                  'Panel de detalle del cliente',
+                  style: AppTextStyles.subtitle,
+                ),
+              ),
+            ),
+          ],
         ),
       );
     }
+
+    if (activeTab == _CrmRightPanelTab.ia) {
+      return Container(
+        decoration: BoxDecoration(
+          color: _waPanel,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: _waBorder.withAlpha(110)),
+        ),
+        child: Column(
+          children: [
+            _RightPanelHeader(
+              activeTab: activeTab,
+              onTabChanged: (tab) {
+                if (tabOverride != null) return;
+                setState(() => _activeRightPanelTab = tab);
+              },
+              onClose: onClose ?? () => setState(() => _showDetailsPanel = false),
+            ),
+            const Expanded(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(12, 10, 12, 12),
+                child: _AiPanelPlaceholder(),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (selected == null) {
+      return const SizedBox.shrink();
+    }
+    final customer = selected;
 
     return Container(
       decoration: BoxDecoration(
@@ -1682,40 +2397,30 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  const Text(
-                    'Informacion del contacto',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: _waText,
-                    ),
-                  ),
-                  const Spacer(),
-                  IconButton(
-                    tooltip: 'Colapsar panel',
-                    onPressed: () => setState(() => _showDetailsPanel = false),
-                    icon: const Icon(Icons.chevron_right_rounded),
-                  ),
-                ],
+              _RightPanelHeader(
+                activeTab: activeTab,
+                onTabChanged: (tab) {
+                  if (tabOverride != null) return;
+                  setState(() => _activeRightPanelTab = tab);
+                },
+                onClose: onClose ?? () => setState(() => _showDetailsPanel = false),
               ),
               const SizedBox(height: 8),
-              _InfoRow(label: 'Telefono', value: selected.telefono),
+              _InfoRow(label: 'Telefono', value: customer.telefono),
               _InfoRow(
                 label: 'Ciudad',
-                value: selected.ciudad ?? 'No definida',
+                value: customer.ciudad ?? 'No definida',
               ),
               _InfoRow(
                 label: 'Direccion',
-                value: selected.direccion ?? 'No definida',
+                value: customer.direccion ?? 'No definida',
               ),
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
                 key: ValueKey(
-                  'responsable-${selected.id}-${selected.responsable?.id ?? ''}',
+                  'responsable-${customer.id}-${customer.responsable?.id ?? ''}',
                 ),
-                initialValue: selected.responsable?.id,
+                initialValue: customer.responsable?.id,
                 decoration: const InputDecoration(
                   labelText: 'Responsable',
                   isDense: true,
@@ -1755,7 +2460,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                           _statusLabel(status),
                           style: const TextStyle(fontSize: 11),
                         ),
-                        selected: selected.estadoActual == status,
+                        selected: customer.estadoActual == status,
                         selectedColor: _statusAccentColor(status).withAlpha(26),
                         side: BorderSide(color: _waBorder.withAlpha(100)),
                         visualDensity: VisualDensity.compact,
@@ -1835,7 +2540,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
               ),
               const SizedBox(height: 3),
               Text(
-                'Estado actual: ${_statusLabel(selected.estadoActual)}',
+                'Estado actual: ${_statusLabel(customer.estadoActual)}',
                 style: const TextStyle(fontSize: 11, color: _waTextMuted),
               ),
               const SizedBox(height: 6),
@@ -1853,7 +2558,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                 ),
               ),
               const SizedBox(height: 5),
-              ...selected.statusHistory
+              ...customer.statusHistory
                   .take(6)
                   .map(
                     (entry) => Padding(
@@ -1940,7 +2645,11 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
     final diff = today.difference(day).inDays;
     if (diff == 0) return 'Hoy';
     if (diff == 1) return 'Ayer';
-    return DateFormat('dd MMM yyyy').format(value);
+    if (diff > 1 && diff <= 7) {
+      final raw = DateFormat('EEEE', 'es').format(value);
+      return raw.substring(0, 1).toUpperCase() + raw.substring(1);
+    }
+    return DateFormat('dd/MM/yyyy').format(value);
   }
 }
 
@@ -1953,20 +2662,140 @@ class _DateSeparator extends StatelessWidget {
   Widget build(BuildContext context) {
     return Center(
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 3.5),
         decoration: BoxDecoration(
-          color: Colors.white.withAlpha(180),
-          borderRadius: BorderRadius.circular(7),
+          color: const Color(0xFFE2E8ED),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: Colors.white.withAlpha(120)),
         ),
         child: Text(
           label,
           style: const TextStyle(
-            fontSize: 10,
+            fontSize: 9.5,
             fontWeight: FontWeight.w500,
             color: _waTextMuted,
           ),
         ),
       ),
+    );
+  }
+}
+
+class _RightPanelHeader extends StatelessWidget {
+  const _RightPanelHeader({
+    required this.activeTab,
+    required this.onTabChanged,
+    required this.onClose,
+  });
+
+  final _CrmRightPanelTab activeTab;
+  final ValueChanged<_CrmRightPanelTab> onTabChanged;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        ChoiceChip(
+          label: const Text('Detalle', style: TextStyle(fontSize: 11)),
+          selected: activeTab == _CrmRightPanelTab.detail,
+          onSelected: (_) => onTabChanged(_CrmRightPanelTab.detail),
+          visualDensity: VisualDensity.compact,
+        ),
+        const SizedBox(width: 6),
+        ChoiceChip(
+          label: const Text('IA', style: TextStyle(fontSize: 11)),
+          selected: activeTab == _CrmRightPanelTab.ia,
+          onSelected: (_) => onTabChanged(_CrmRightPanelTab.ia),
+          visualDensity: VisualDensity.compact,
+        ),
+        const Spacer(),
+        IconButton(
+          tooltip: 'Cerrar panel',
+          onPressed: onClose,
+          icon: const Icon(Icons.close_rounded, size: 20),
+          visualDensity: VisualDensity.compact,
+        ),
+      ],
+    );
+  }
+}
+
+class _AiPanelPlaceholder extends StatelessWidget {
+  const _AiPanelPlaceholder();
+
+  @override
+  Widget build(BuildContext context) {
+    final card = BoxDecoration(
+      color: const Color(0xFFF6F8F9),
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(color: _waBorder.withAlpha(120)),
+    );
+    return ListView(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: card,
+          child: const Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Resumen conversacion', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+              SizedBox(height: 4),
+              Text('UI preparada: aqui se mostrara el resumen inteligente del chat.', style: TextStyle(fontSize: 11, color: _waTextMuted)),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: card,
+          child: const Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Intencion del cliente', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+              SizedBox(height: 4),
+              Text('Pendiente integracion backend IA', style: TextStyle(fontSize: 11, color: _waTextMuted)),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: card,
+          child: const Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Estado sugerido y proxima accion', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+              SizedBox(height: 4),
+              Text('Sugerencias automaticas disponibles en siguiente fase.', style: TextStyle(fontSize: 11, color: _waTextMuted)),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        FilledButton.icon(
+          onPressed: null,
+          icon: const Icon(Icons.auto_fix_high_rounded, size: 16),
+          label: const Text('Generar respuesta'),
+        ),
+        const SizedBox(height: 6),
+        FilledButton.icon(
+          onPressed: null,
+          icon: const Icon(Icons.edit_rounded, size: 16),
+          label: const Text('Mejorar mensaje'),
+        ),
+        const SizedBox(height: 6),
+        FilledButton.icon(
+          onPressed: null,
+          icon: const Icon(Icons.task_alt_rounded, size: 16),
+          label: const Text('Crear tarea'),
+        ),
+        const SizedBox(height: 6),
+        OutlinedButton.icon(
+          onPressed: null,
+          icon: const Icon(Icons.request_quote_rounded, size: 16),
+          label: const Text('Crear cotizacion (proximamente)'),
+        ),
+      ],
     );
   }
 }
@@ -2052,16 +2881,20 @@ class _CrmConversationListItem extends StatefulWidget {
     required this.item,
     required this.isActive,
     required this.taskCount,
+    required this.avatarUrl,
     required this.statusLabel,
     required this.statusColor,
+    this.onAvatarTap,
     this.onTap,
   });
 
   final CrmComercialInboxConversation item;
   final bool isActive;
   final int taskCount;
+  final String? avatarUrl;
   final String statusLabel;
   final Color statusColor;
+  final VoidCallback? onAvatarTap;
   final VoidCallback? onTap;
 
   @override
@@ -2087,6 +2920,7 @@ class _CrmConversationListItemState extends State<_CrmConversationListItem> {
         : _hover
         ? _waHover
         : Colors.transparent;
+    final hasAvatar = (widget.avatarUrl ?? '').trim().isNotEmpty;
 
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -2097,14 +2931,14 @@ class _CrmConversationListItemState extends State<_CrmConversationListItem> {
           onTap: widget.onTap,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 140),
-            padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+            padding: const EdgeInsets.fromLTRB(10, 5, 10, 5),
             color: tileColor,
             child: Row(
               children: [
                 if (widget.isActive)
                   Container(
                     width: 3,
-                    height: 44,
+                    height: 42,
                     margin: const EdgeInsets.only(right: 7),
                     decoration: BoxDecoration(
                       color: _waGreenDark,
@@ -2113,16 +2947,22 @@ class _CrmConversationListItemState extends State<_CrmConversationListItem> {
                   )
                 else
                   const SizedBox(width: 10),
-                CircleAvatar(
-                  radius: 18,
-                  backgroundColor: widget.statusColor.withAlpha(26),
-                  child: Text(
-                    _initials(widget.item.contactName),
-                    style: TextStyle(
-                      color: widget.statusColor,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 11,
-                    ),
+                GestureDetector(
+                  onTap: widget.onAvatarTap,
+                  child: CircleAvatar(
+                    radius: 19,
+                    backgroundColor: widget.statusColor.withAlpha(26),
+                    backgroundImage: hasAvatar ? NetworkImage(widget.avatarUrl!) : null,
+                    child: hasAvatar
+                        ? null
+                        : Text(
+                            _initials(widget.item.contactName),
+                            style: TextStyle(
+                              color: widget.statusColor,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 11,
+                            ),
+                          ),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -2138,22 +2978,23 @@ class _CrmConversationListItemState extends State<_CrmConversationListItem> {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
-                                fontSize: 14,
+                                fontSize: 13,
                                 fontWeight: FontWeight.w600,
                                 color: _waText,
                               ),
                             ),
                           ),
                           Text(
-                            widget.item.lastMessageAt == null
-                                ? '--:--'
-                                : DateFormat(
-                                    'HH:mm',
-                                  ).format(widget.item.lastMessageAt!),
-                            style: const TextStyle(
-                              fontSize: 10,
-                              color: _waTextMuted,
-                            ),
+                              _formatConversationTime(widget.item.lastMessageAt),
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: widget.item.unreadCount > 0
+                                    ? _waGreenDark
+                                    : _waTextMuted,
+                                fontWeight: widget.item.unreadCount > 0
+                                    ? FontWeight.w700
+                                    : FontWeight.w400,
+                              ),
                           ),
                         ],
                       ),
@@ -2169,12 +3010,12 @@ class _CrmConversationListItemState extends State<_CrmConversationListItem> {
                           color: _waTextMuted,
                         ),
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 2),
                       Row(
                         children: [
                           Container(
                             padding: const EdgeInsets.symmetric(
-                              horizontal: 5,
+                              horizontal: 4,
                               vertical: 1,
                             ),
                             decoration: BoxDecoration(
@@ -2184,7 +3025,7 @@ class _CrmConversationListItemState extends State<_CrmConversationListItem> {
                             child: Text(
                               widget.statusLabel,
                               style: TextStyle(
-                                fontSize: 9,
+                                fontSize: 8.5,
                                 color: widget.statusColor,
                               ),
                             ),
@@ -2203,25 +3044,45 @@ class _CrmConversationListItemState extends State<_CrmConversationListItem> {
                               child: Text(
                                 '${widget.taskCount} tarea${widget.taskCount == 1 ? '' : 's'}',
                                 style: const TextStyle(
-                                  fontSize: 9,
+                                  fontSize: 8.5,
                                   color: AppColors.warning,
                                 ),
                               ),
                             ),
                           ],
                           const Spacer(),
-                          Text(
-                            widget.item.crmCustomerName ??
-                                (widget.item.isNewContact
-                                    ? 'Nuevo contacto'
-                                    : 'Sin vincular'),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 9,
-                              color: _waTextMuted,
+                          if (widget.item.unreadCount > 0)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 1,
+                              ),
+                              decoration: BoxDecoration(
+                                color: _waGreenDark,
+                                borderRadius: BorderRadius.circular(9),
+                              ),
+                              child: Text(
+                                '${widget.item.unreadCount}',
+                                style: const TextStyle(
+                                  fontSize: 8.5,
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            )
+                          else
+                            Text(
+                              widget.item.crmCustomerName ??
+                                  (widget.item.isNewContact
+                                      ? 'Nuevo contacto'
+                                      : 'Sin vincular'),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 8.5,
+                                color: _waTextMuted,
+                              ),
                             ),
-                          ),
                         ],
                       ),
                     ],
@@ -2233,6 +3094,17 @@ class _CrmConversationListItemState extends State<_CrmConversationListItem> {
         ),
       ),
     );
+  }
+
+  String _formatConversationTime(DateTime? value) {
+    if (value == null) return '--:--';
+    final now = DateTime.now();
+    final sameDay =
+        now.year == value.year && now.month == value.month && now.day == value.day;
+    if (sameDay) {
+      return DateFormat('HH:mm').format(value);
+    }
+    return DateFormat('dd/MM').format(value);
   }
 }
 
@@ -2263,72 +3135,62 @@ class _CrmTimelineTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final maxBubbleWidth = MediaQuery.of(context).size.width < 900 ? 320.0 : 760.0;
     final bubbleColor = entry.isOutgoing
         ? const Color(0xFFD9FDD3)
-        : Colors.white.withAlpha(220);
+        : Colors.white.withAlpha(235);
+    final bubbleRadius = BorderRadius.only(
+      topLeft: const Radius.circular(12),
+      topRight: const Radius.circular(12),
+      bottomLeft: Radius.circular(entry.isOutgoing ? 12 : 4),
+      bottomRight: Radius.circular(entry.isOutgoing ? 4 : 12),
+    );
 
     return Row(
       mainAxisAlignment:
           entry.isOutgoing ? MainAxisAlignment.end : MainAxisAlignment.start,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (!entry.isOutgoing) ...[
-          Container(
-            width: 24,
-            height: 24,
-            decoration: BoxDecoration(
-              color: _waGreen.withAlpha(16),
-              borderRadius: BorderRadius.circular(7),
-            ),
-            child: Icon(entry.icon, size: 14, color: _waGreenDark),
-          ),
-          const SizedBox(width: 7),
-        ],
         ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560),
+          constraints: BoxConstraints(maxWidth: maxBubbleWidth),
           child: Container(
-            padding: const EdgeInsets.fromLTRB(10, 7, 10, 7),
+            padding: const EdgeInsets.fromLTRB(10, 6, 10, 5),
             decoration: BoxDecoration(
               color: bubbleColor,
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: bubbleRadius,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withAlpha(10),
+                  blurRadius: 3,
+                  offset: const Offset(0, 1),
+                ),
+              ],
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '${entry.subtitle} · ${entry.messageType}',
+                  entry.title,
                   style: const TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                    color: _waTextMuted,
+                    fontSize: 13,
+                    color: _waText,
+                    height: 1.3,
                   ),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  entry.title,
-                  style: const TextStyle(fontSize: 12, color: _waText),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  '${entry.author} · ${entry.createdAt == null ? 'Sin fecha' : DateFormat('dd/MM HH:mm').format(entry.createdAt!)}',
-                  style: const TextStyle(fontSize: 10, color: _waTextMuted),
+                const SizedBox(height: 3),
+                Align(
+                  alignment: Alignment.bottomRight,
+                  child: Text(
+                    entry.createdAt == null
+                        ? 'Sin fecha'
+                        : DateFormat('HH:mm').format(entry.createdAt!),
+                    style: const TextStyle(fontSize: 9.5, color: _waTextMuted),
+                  ),
                 ),
               ],
             ),
           ),
         ),
-        if (entry.isOutgoing) ...[
-          const SizedBox(width: 7),
-          Container(
-            width: 24,
-            height: 24,
-            decoration: BoxDecoration(
-              color: _waGreen.withAlpha(16),
-              borderRadius: BorderRadius.circular(7),
-            ),
-            child: Icon(entry.icon, size: 14, color: _waGreenDark),
-          ),
-        ],
       ],
     );
   }

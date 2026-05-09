@@ -23,8 +23,10 @@ import { CreateCrmCommercialFollowupTaskDto } from './dto/create-crm-commercial-
 import { UpdateCrmCommercialFollowupTaskDto } from './dto/update-crm-commercial-followup-task.dto';
 import { CrmCommercialFollowupTaskQueryDto } from './dto/crm-commercial-followup-task-query.dto';
 import { UpdateCrmCommercialSettingsDto } from './dto/update-crm-commercial-settings.dto';
+import { SendCrmCommercialMessageDto } from './dto/send-crm-commercial-message.dto';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { normalizeWhatsappPhone } from '../whatsapp-inbox/whatsapp-identity.util';
+import { WhatsappInboxService } from '../whatsapp-inbox/whatsapp-inbox.service';
 
 type AuthUser = { id: string; role: Role };
 
@@ -33,7 +35,39 @@ export class CrmCommercialService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly whatsappService: WhatsappService,
+    private readonly whatsappInboxService: WhatsappInboxService,
   ) {}
+
+  private extractEvolutionMessageId(result: unknown): string | undefined {
+    if (!result || typeof result !== 'object') return undefined;
+    const map = result as Record<string, unknown>;
+    const direct = map['id'];
+    if (typeof direct === 'string' && direct.trim().length > 0) {
+      return direct.trim();
+    }
+    const key = map['key'];
+    if (key && typeof key === 'object') {
+      const keyId = (key as Record<string, unknown>)['id'];
+      if (typeof keyId === 'string' && keyId.trim().length > 0) {
+        return keyId.trim();
+      }
+    }
+    return undefined;
+  }
+
+  private normalizeRemoteJidFromPhone(rawPhone: string): {
+    normalizedPhone: string;
+    remoteJid: string;
+  } {
+    const normalizedPhone = normalizeWhatsappPhone(rawPhone) ?? rawPhone.replace(/\D/g, '');
+    if (!normalizedPhone || normalizedPhone.length < 7) {
+      throw new BadRequestException('Numero de telefono invalido.');
+    }
+    return {
+      normalizedPhone,
+      remoteJid: `${normalizedPhone}@s.whatsapp.net`,
+    };
+  }
 
   private isAdmin(user: AuthUser): boolean {
     return user.role === Role.ADMIN;
@@ -433,6 +467,46 @@ export class CrmCommercialService {
       },
     });
 
+    const avatarByConversationId = new Map<string, string>();
+    const avatarByIdentity = new Map<string, string>();
+    try {
+      const inboxConversations = await this.whatsappInboxService.getConversations(
+        selected.selectedInstanceId,
+        limit,
+        updatedAfter,
+      );
+      for (const item of inboxConversations as Array<{
+        id?: string;
+        remoteJid?: string | null;
+        remotePhone?: string | null;
+        remoteAvatarUrl?: string | null;
+      }>) {
+        const avatar = (item.remoteAvatarUrl ?? '').trim();
+        if (!avatar) continue;
+
+        const id = (item.id ?? '').trim();
+        if (id) {
+          avatarByConversationId.set(id, avatar);
+        }
+
+        const normalizedPhone = this.normalizeComparablePhone(item.remotePhone);
+        if (normalizedPhone) {
+          avatarByIdentity.set(normalizedPhone, avatar);
+        }
+
+        const normalizedJid = this.normalizeComparablePhone(item.remoteJid);
+        if (normalizedJid) {
+          avatarByIdentity.set(normalizedJid, avatar);
+        }
+      }
+    } catch (error) {
+      console.warn(
+        `[CrmCommercial] No se pudo cargar avatar de conversaciones: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+
     const crmCustomers = await this.prisma.crmCommercialCustomer.findMany({
       select: {
         id: true,
@@ -468,6 +542,10 @@ export class CrmCommercialService {
         (conversation.remoteName ?? '').trim() ||
         (conversation.remotePhone ?? '').trim() ||
         'Nuevo contacto';
+      const avatarUrl =
+        avatarByConversationId.get(conversation.id) ??
+        (phone ? avatarByIdentity.get(phone) : null) ??
+        null;
 
       return {
         id: conversation.id,
@@ -482,6 +560,7 @@ export class CrmCommercialService {
         lastMessagePreview: last?.body ?? last?.caption ?? null,
         lastMessageType: last?.messageType ?? null,
         lastMessageDirection: last?.direction ?? null,
+        remoteAvatarUrl: avatarUrl,
         crmCustomerId: linked?.id ?? null,
         crmCustomerName: linked?.nombre ?? null,
         crmCustomerStatus: linked?.estadoActual ?? null,
@@ -606,6 +685,180 @@ export class CrmCommercialService {
       },
       items: messages,
       warning: null,
+    };
+  }
+
+  async startConversationMessage(
+    user: AuthUser,
+    dto: SendCrmCommercialMessageDto,
+  ) {
+    if (!this.isAdmin(user)) {
+      throw new ForbiddenException('Solo ADMIN puede enviar mensajes en CRM Comercial');
+    }
+
+    const text = (dto.text ?? '').trim();
+    if (!text) {
+      throw new BadRequestException('El mensaje no puede estar vacio.');
+    }
+
+    const selected = await this.getSelectedWhatsappInstanceForCrm();
+    if (!selected.selectedInstanceId) {
+      throw new BadRequestException('Selecciona una instancia antes de enviar mensajes.');
+    }
+
+    const instance = await this.prisma.userWhatsappInstance.findUnique({
+      where: { id: selected.selectedInstanceId },
+      select: { id: true, instanceName: true },
+    });
+
+    if (!instance) {
+      throw new BadRequestException('La instancia seleccionada no existe.');
+    }
+
+    const { normalizedPhone, remoteJid } = this.normalizeRemoteJidFromPhone(
+      dto.phone ?? '',
+    );
+
+    const saved = await this.whatsappInboxService.recordOutgoingMessage(
+      instance.id,
+      remoteJid,
+      text,
+    );
+
+    const evolutionResult = await this.whatsappService.sendTextMessage(
+      instance.instanceName,
+      remoteJid,
+      text,
+    );
+
+    const savedMessageId =
+      (saved as { message?: { id?: string } })?.message?.id ?? null;
+    if (savedMessageId) {
+      await this.whatsappInboxService.attachEvolutionIdToMessage(
+        savedMessageId,
+        this.extractEvolutionMessageId(evolutionResult),
+      );
+    }
+
+    const refreshedConversation = await this.prisma.whatsappConversation.findFirst({
+      where: {
+        instanceId: instance.id,
+        OR: [{ remotePhone: normalizedPhone }, { remoteJid }],
+      },
+      orderBy: [{ lastMessageAt: 'desc' }, { updatedAt: 'desc' }],
+      select: { id: true },
+    });
+
+    const normalizedComparable = this.normalizeComparablePhone(normalizedPhone);
+    if (normalizedComparable) {
+      const customers = await this.prisma.crmCommercialCustomer.findMany({
+        select: { id: true, telefono: true, updatedAt: true },
+        orderBy: { updatedAt: 'desc' },
+      });
+      for (const customer of customers) {
+        if (this.normalizeComparablePhone(customer.telefono) === normalizedComparable) {
+          await this.prisma.crmCommercialActivity.create({
+            data: {
+              customerId: customer.id,
+              activityType: 'MENSAJE_SALIENTE',
+              description: `Mensaje enviado por CRM Comercial: ${text.slice(0, 180)}`,
+              createdByUserId: user.id,
+            },
+          });
+          break;
+        }
+      }
+    }
+
+    return {
+      ok: true,
+      conversationId:
+        refreshedConversation?.id ??
+        ((saved as { conversation?: { id?: string } })?.conversation?.id ?? null),
+      messageId: (saved as { message?: { id?: string } })?.message?.id ?? null,
+    };
+  }
+
+  async replyConversation(
+    user: AuthUser,
+    conversationId: string,
+    dto: SendCrmCommercialMessageDto,
+  ) {
+    if (!this.isAdmin(user)) {
+      throw new ForbiddenException('Solo ADMIN puede responder mensajes en CRM Comercial');
+    }
+
+    const text = (dto.text ?? '').trim();
+    if (!text) {
+      throw new BadRequestException('El mensaje no puede estar vacio.');
+    }
+
+    const selected = await this.getSelectedWhatsappInstanceForCrm();
+    if (!selected.selectedInstanceId) {
+      throw new BadRequestException('Selecciona una instancia antes de enviar mensajes.');
+    }
+
+    const conversation = await this.prisma.whatsappConversation.findUnique({
+      where: { id: conversationId },
+      include: {
+        instance: {
+          select: { id: true, instanceName: true },
+        },
+      },
+    });
+
+    if (!conversation || conversation.instanceId !== selected.selectedInstanceId) {
+      throw new NotFoundException('Conversacion no encontrada para la instancia activa.');
+    }
+
+    const saved = await this.whatsappInboxService.recordOutgoingMessage(
+      conversation.instanceId,
+      conversation.remoteJid,
+      text,
+    );
+
+    const evolutionResult = await this.whatsappService.sendTextMessage(
+      conversation.instance.instanceName,
+      conversation.remoteJid,
+      text,
+    );
+
+    const savedMessageId =
+      (saved as { message?: { id?: string } })?.message?.id ?? null;
+    if (savedMessageId) {
+      await this.whatsappInboxService.attachEvolutionIdToMessage(
+        savedMessageId,
+        this.extractEvolutionMessageId(evolutionResult),
+      );
+    }
+
+    const normalizedComparable = this.normalizeComparablePhone(
+      conversation.remotePhone ?? conversation.remoteJid,
+    );
+    if (normalizedComparable) {
+      const customers = await this.prisma.crmCommercialCustomer.findMany({
+        select: { id: true, telefono: true, updatedAt: true },
+        orderBy: { updatedAt: 'desc' },
+      });
+      for (const customer of customers) {
+        if (this.normalizeComparablePhone(customer.telefono) === normalizedComparable) {
+          await this.prisma.crmCommercialActivity.create({
+            data: {
+              customerId: customer.id,
+              activityType: 'MENSAJE_SALIENTE',
+              description: `Mensaje enviado por CRM Comercial: ${text.slice(0, 180)}`,
+              createdByUserId: user.id,
+            },
+          });
+          break;
+        }
+      }
+    }
+
+    return {
+      ok: true,
+      conversationId,
+      messageId: (saved as { message?: { id?: string } })?.message?.id ?? null,
     };
   }
 

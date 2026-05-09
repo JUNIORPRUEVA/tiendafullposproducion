@@ -44,6 +44,7 @@ class Routes {
   static const publicidadCampanas = '/publicidad/campanas';
   static const publicidadMarketplace = '/publicidad/marketplace';
   static const administracion = '/administracion';
+  static const publicidadGaleria = '/publicidad/galeria';
   static const administracionPonches = '/administracion/ponches';
   static const administracionVentas = '/administracion/ventas';
   static const administracionComisiones = '/administracion/comisiones';

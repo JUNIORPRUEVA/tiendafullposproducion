@@ -178,6 +178,34 @@ class CrmComercialRepository {
     return CrmComercialInboxMessageListResponse.fromJson(res.data ?? const {});
   }
 
+  Future<Map<String, dynamic>> startConversationMessage({
+    required String phone,
+    required String text,
+  }) async {
+    final res = await _dio.post<Map<String, dynamic>>(
+      ApiRoutes.crmCommercialStartConversationMessage,
+      data: {
+        'phone': phone.trim(),
+        'text': text.trim(),
+      },
+    );
+    return res.data ?? const <String, dynamic>{};
+  }
+
+  Future<Map<String, dynamic>> replyConversation({
+    required String conversationId,
+    required String text,
+  }) async {
+    final res = await _dio.post<Map<String, dynamic>>(
+      ApiRoutes.crmCommercialConversationReply(conversationId),
+      data: {
+        'conversationId': conversationId,
+        'text': text.trim(),
+      },
+    );
+    return res.data ?? const <String, dynamic>{};
+  }
+
   // Phase 2: Follow-up Tasks
 
   Future<List<CrmComercialFollowupTask>> listFollowupTasks({
