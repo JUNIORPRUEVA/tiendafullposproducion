@@ -1,4 +1,4 @@
-import {
+﻿import {
   Body,
   Controller,
   Get,
@@ -22,6 +22,9 @@ import { CreateCrmCommercialCustomerDto } from './dto/create-crm-commercial-cust
 import { CreateCrmCommercialNoteDto } from './dto/create-crm-commercial-note.dto';
 import { CrmCommercialQueryDto } from './dto/crm-commercial-query.dto';
 import { UpdateCrmCommercialCustomerDto } from './dto/update-crm-commercial-customer.dto';
+import { CreateCrmCommercialFollowupTaskDto } from './dto/create-crm-commercial-followup-task.dto';
+import { UpdateCrmCommercialFollowupTaskDto } from './dto/update-crm-commercial-followup-task.dto';
+import { CrmCommercialFollowupTaskQueryDto } from './dto/crm-commercial-followup-task-query.dto';
 
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 @Controller('crm-commercial')
@@ -35,6 +38,8 @@ export class CrmCommercialController {
     }
     return { id: user.id, role: user.role };
   }
+
+  // Phase 1: Customers
 
   @Post('customers')
   @Roles(Role.ADMIN)
@@ -92,5 +97,48 @@ export class CrmCommercialController {
     @Body() dto: CreateCrmCommercialActivityDto,
   ) {
     return this.crmCommercial.addActivity(this.userOrThrow(req), id, dto);
+  }
+
+  // Phase 2: Follow-up Tasks
+
+  @Get('followup-tasks')
+  @Roles(Role.ADMIN)
+  listFollowupTasks(
+    @Req() req: Request,
+    @Query() query: CrmCommercialFollowupTaskQueryDto,
+  ) {
+    return this.crmCommercial.listFollowupTasks(this.userOrThrow(req), query);
+  }
+
+  @Post('customers/:id/followup-tasks')
+  @Roles(Role.ADMIN)
+  createFollowupTask(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() dto: CreateCrmCommercialFollowupTaskDto,
+  ) {
+    return this.crmCommercial.createFollowupTask(this.userOrThrow(req), id, dto);
+  }
+
+  @Patch('followup-tasks/:id')
+  @Roles(Role.ADMIN)
+  updateFollowupTask(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() dto: UpdateCrmCommercialFollowupTaskDto,
+  ) {
+    return this.crmCommercial.updateFollowupTask(this.userOrThrow(req), id, dto);
+  }
+
+  @Patch('followup-tasks/:id/complete')
+  @Roles(Role.ADMIN)
+  completeFollowupTask(@Req() req: Request, @Param('id') id: string) {
+    return this.crmCommercial.completeFollowupTask(this.userOrThrow(req), id);
+  }
+
+  @Patch('followup-tasks/:id/cancel')
+  @Roles(Role.ADMIN)
+  cancelFollowupTask(@Req() req: Request, @Param('id') id: string) {
+    return this.crmCommercial.cancelFollowupTask(this.userOrThrow(req), id);
   }
 }

@@ -212,3 +212,69 @@ class CrmComercialCustomerListResponse {
     );
   }
 }
+
+  class CrmComercialFollowupTask {
+    const CrmComercialFollowupTask({
+      required this.id,
+      required this.customerId,
+      required this.title,
+      required this.status,
+      required this.effectiveStatus,
+      required this.priority,
+      this.description,
+      this.dueDate,
+      this.completedAt,
+      this.createdAt,
+      this.assignedTo,
+      this.createdBy,
+      this.completedBy,
+    });
+
+    final String id;
+    final String customerId;
+    final String title;
+    final String status;
+    final String effectiveStatus;
+    final String priority;
+    final String? description;
+    final DateTime? dueDate;
+    final DateTime? completedAt;
+    final DateTime? createdAt;
+    final CrmComercialUserRef? assignedTo;
+    final CrmComercialUserRef? createdBy;
+    final CrmComercialUserRef? completedBy;
+
+    bool get isPending => effectiveStatus == 'PENDIENTE';
+    bool get isOverdue => effectiveStatus == 'VENCIDA';
+    bool get isCompleted => status == 'COMPLETADA';
+    bool get isCancelled => status == 'CANCELADA';
+    bool get isActive => status == 'PENDIENTE';
+
+    factory CrmComercialFollowupTask.fromJson(Map<String, dynamic> json) {
+      return CrmComercialFollowupTask(
+        id: (json['id'] ?? '').toString(),
+        customerId: (json['customerId'] ?? '').toString(),
+        title: (json['title'] ?? '').toString(),
+        status: (json['status'] ?? 'PENDIENTE').toString(),
+        effectiveStatus:
+            (json['effectiveStatus'] ?? json['status'] ?? 'PENDIENTE').toString(),
+        priority: (json['priority'] ?? 'NORMAL').toString(),
+        description: json['description']?.toString(),
+        dueDate: DateTime.tryParse((json['dueDate'] ?? '').toString()),
+        completedAt: DateTime.tryParse((json['completedAt'] ?? '').toString()),
+        createdAt: DateTime.tryParse((json['createdAt'] ?? '').toString()),
+        assignedTo: (json['assignedUser'] is Map<String, dynamic>)
+            ? CrmComercialUserRef.fromJson(
+                json['assignedUser'] as Map<String, dynamic>)
+            : null,
+        createdBy: (json['createdByUser'] is Map<String, dynamic>)
+            ? CrmComercialUserRef.fromJson(
+                json['createdByUser'] as Map<String, dynamic>)
+            : null,
+        completedBy: (json['completedByUser'] is Map<String, dynamic>)
+            ? CrmComercialUserRef.fromJson(
+                json['completedByUser'] as Map<String, dynamic>)
+            : null,
+      );
+    }
+  }

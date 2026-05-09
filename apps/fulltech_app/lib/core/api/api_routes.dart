@@ -93,6 +93,16 @@ class ApiRoutes {
   static String crmCommercialCustomerActivities(String id) =>
       '/crm-commercial/customers/$id/activities';
 
+  static const crmCommercialFollowupTasks = '/crm-commercial/followup-tasks';
+  static String crmCommercialCustomerFollowupTasks(String id) =>
+      '/crm-commercial/customers/$id/followup-tasks';
+  static String crmCommercialFollowupTaskComplete(String id) =>
+      '/crm-commercial/followup-tasks/$id/complete';
+  static String crmCommercialFollowupTaskCancel(String id) =>
+      '/crm-commercial/followup-tasks/$id/cancel';
+  static String crmCommercialFollowupTaskById(String id) =>
+      '/crm-commercial/followup-tasks/$id';
+
   // Productos
   static const products = '/products';
   static const catalogProducts = '/catalog/products';

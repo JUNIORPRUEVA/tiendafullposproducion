@@ -1,4 +1,4 @@
-import 'package:dio/dio.dart';
+﻿import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_routes.dart';
@@ -105,8 +105,65 @@ class CrmComercialRepository {
     final res = await _dio.get<List<dynamic>>(ApiRoutes.users);
     final rows = (res.data ?? const [])
         .whereType<Map>()
-        .map((entry) => CrmComercialUserRef.fromJson(entry.cast<String, dynamic>()))
+        .map((entry) =>
+            CrmComercialUserRef.fromJson(entry.cast<String, dynamic>()))
         .toList(growable: false);
     return rows;
+  }
+
+  // Phase 2: Follow-up Tasks
+
+  Future<List<CrmComercialFollowupTask>> listFollowupTasks({
+    String? customerId,
+    bool overdueOnly = false,
+  }) async {
+    final res = await _dio.get<List<dynamic>>(
+      ApiRoutes.crmCommercialFollowupTasks,
+      queryParameters: {
+        if ((customerId ?? '').isNotEmpty) 'customerId': customerId,
+        if (overdueOnly) 'overdueOnly': 'true',
+      },
+    );
+    return (res.data ?? const [])
+        .whereType<Map>()
+        .map((e) =>
+            CrmComercialFollowupTask.fromJson(e.cast<String, dynamic>()))
+        .toList(growable: false);
+  }
+
+  Future<CrmComercialFollowupTask> createFollowupTask(
+    String customerId, {
+    required String title,
+    String? description,
+    DateTime? dueDate,
+    String priority = 'NORMAL',
+    String? assignedUserId,
+  }) async {
+    final res = await _dio.post<Map<String, dynamic>>(
+      ApiRoutes.crmCommercialCustomerFollowupTasks(customerId),
+      data: {
+        'title': title.trim(),
+        if ((description ?? '').trim().isNotEmpty)
+          'description': description!.trim(),
+        if (dueDate != null) 'dueDate': dueDate.toIso8601String(),
+        'priority': priority,
+        if ((assignedUserId ?? '').isNotEmpty) 'assignedUserId': assignedUserId,
+      },
+    );
+    return CrmComercialFollowupTask.fromJson(res.data ?? const {});
+  }
+
+  Future<CrmComercialFollowupTask> completeFollowupTask(String taskId) async {
+    final res = await _dio.patch<Map<String, dynamic>>(
+      ApiRoutes.crmCommercialFollowupTaskComplete(taskId),
+    );
+    return CrmComercialFollowupTask.fromJson(res.data ?? const {});
+  }
+
+  Future<CrmComercialFollowupTask> cancelFollowupTask(String taskId) async {
+    final res = await _dio.patch<Map<String, dynamic>>(
+      ApiRoutes.crmCommercialFollowupTaskCancel(taskId),
+    );
+    return CrmComercialFollowupTask.fromJson(res.data ?? const {});
   }
 }
