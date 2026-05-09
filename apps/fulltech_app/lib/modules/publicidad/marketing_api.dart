@@ -432,6 +432,14 @@ class MarketingApi {
     }
   }
 
+  Future<void> forceResearchNow() async {
+    try {
+      await _dio.post(ApiRoutes.marketingResearchForce, data: const {});
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo generar la investigación manual');
+    }
+  }
+
   Future<MarketingLearningStats> loadLearningStats() async {
     try {
       final res = await _dio.get(

@@ -24,6 +24,7 @@ import { UpdateCrmCommercialFollowupTaskDto } from './dto/update-crm-commercial-
 import { CrmCommercialFollowupTaskQueryDto } from './dto/crm-commercial-followup-task-query.dto';
 import { UpdateCrmCommercialSettingsDto } from './dto/update-crm-commercial-settings.dto';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
+import { normalizeWhatsappPhone } from '../whatsapp-inbox/whatsapp-identity.util';
 
 type AuthUser = { id: string; role: Role };
 
@@ -60,6 +61,60 @@ export class CrmCommercialService {
 
   private normalizePhone(value: string): string {
     return value.trim().replace(/\s+/g, ' ');
+  }
+
+  private parseLimit(raw: string | undefined, fallback: number, max: number) {
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return fallback;
+    return Math.min(max, Math.max(1, Math.trunc(parsed)));
+  }
+
+  private parseDate(raw?: string) {
+    if (!raw) return undefined;
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return undefined;
+    return parsed;
+  }
+
+  private normalizeComparablePhone(value: string | null | undefined) {
+    if (!value) return null;
+    const byInbox = normalizeWhatsappPhone(value);
+    if (byInbox) return byInbox;
+    const digits = value.replace(/\D/g, '');
+    return digits.length >= 7 ? digits : null;
+  }
+
+  private async getSelectedWhatsappInstanceForCrm() {
+    const settings = await this.prisma.crmCommercialSetting.upsert({
+      where: { id: 'global' },
+      create: { id: 'global' },
+      update: {},
+    });
+
+    const selectedId = settings.selectedWhatsappInstanceId?.trim() ?? '';
+    if (!selectedId) {
+      return {
+        selectedInstanceId: null as string | null,
+        warning: 'Selecciona una instancia para recibir mensajes reales.',
+      };
+    }
+
+    const available = await this.getAvailableWhatsappInstances({
+      id: settings.updatedByUserId ?? 'system',
+      role: Role.ADMIN,
+    });
+    const exists = available.some((instance) => instance.id === selectedId);
+    if (!exists) {
+      return {
+        selectedInstanceId: null as string | null,
+        warning: 'La instancia seleccionada ya no existe o fue eliminada.',
+      };
+    }
+
+    return {
+      selectedInstanceId: selectedId,
+      warning: null as string | null,
+    };
   }
 
   private async ensureClientExists(clientId?: string) {
@@ -307,6 +362,233 @@ export class CrmCommercialService {
       settings,
       updated,
     }));
+  }
+
+  async getConversations(
+    user: AuthUser,
+    query: { limit?: string; updatedAfter?: string },
+  ) {
+    if (!this.isAdmin(user)) {
+      throw new ForbiddenException('Solo ADMIN puede leer conversaciones de CRM Comercial');
+    }
+
+    const selected = await this.getSelectedWhatsappInstanceForCrm();
+    if (!selected.selectedInstanceId) {
+      return {
+        items: [],
+        warning: selected.warning,
+      };
+    }
+
+    const limit = this.parseLimit(query.limit, 60, 200);
+    const updatedAfter = this.parseDate(query.updatedAfter);
+
+    const conversations = await this.prisma.whatsappConversation.findMany({
+      where: {
+        instanceId: selected.selectedInstanceId,
+        NOT: [{ remoteJid: { contains: '@g.us' } }],
+        ...(updatedAfter
+          ? {
+              OR: [
+                { updatedAt: { gt: updatedAfter } },
+                { lastMessageAt: { gt: updatedAfter } },
+              ],
+            }
+          : {}),
+      },
+      orderBy: [{ lastMessageAt: 'desc' }, { updatedAt: 'desc' }],
+      take: limit,
+      include: {
+        _count: { select: { messages: true } },
+        messages: {
+          orderBy: { sentAt: 'desc' },
+          take: 1,
+          select: {
+            id: true,
+            direction: true,
+            messageType: true,
+            body: true,
+            caption: true,
+            sentAt: true,
+          },
+        },
+      },
+    });
+
+    const crmCustomers = await this.prisma.crmCommercialCustomer.findMany({
+      select: {
+        id: true,
+        nombre: true,
+        telefono: true,
+        estadoActual: true,
+      },
+    });
+
+    const customerByPhone = new Map<
+      string,
+      { id: string; nombre: string; estadoActual: CrmCommercialCustomerStatus }
+    >();
+    for (const customer of crmCustomers) {
+      const key = this.normalizeComparablePhone(customer.telefono);
+      if (!key) continue;
+      if (!customerByPhone.has(key)) {
+        customerByPhone.set(key, {
+          id: customer.id,
+          nombre: customer.nombre,
+          estadoActual: customer.estadoActual,
+        });
+      }
+    }
+
+    const items = conversations.map((conversation) => {
+      const phone = this.normalizeComparablePhone(
+        conversation.remotePhone ?? conversation.remoteJid,
+      );
+      const linked = phone ? customerByPhone.get(phone) : undefined;
+      const last = conversation.messages[0] ?? null;
+      const contactName =
+        (conversation.remoteName ?? '').trim() ||
+        (conversation.remotePhone ?? '').trim() ||
+        'Nuevo contacto';
+
+      return {
+        id: conversation.id,
+        instanceId: conversation.instanceId,
+        remoteJid: conversation.remoteJid,
+        remotePhone: conversation.remotePhone,
+        remoteName: conversation.remoteName,
+        contactName,
+        lastMessageAt: conversation.lastMessageAt,
+        unreadCount: conversation.unreadCount,
+        messageCount: conversation._count.messages,
+        lastMessagePreview: last?.body ?? last?.caption ?? null,
+        lastMessageType: last?.messageType ?? null,
+        lastMessageDirection: last?.direction ?? null,
+        crmCustomerId: linked?.id ?? null,
+        crmCustomerName: linked?.nombre ?? null,
+        crmCustomerStatus: linked?.estadoActual ?? null,
+        isNewContact: !linked,
+        canConvertToCrm: !linked,
+      };
+    });
+
+    return {
+      items,
+      warning: null,
+    };
+  }
+
+  async getConversationMessages(
+    user: AuthUser,
+    conversationId: string,
+    query: { limit?: string; before?: string; after?: string },
+  ) {
+    if (!this.isAdmin(user)) {
+      throw new ForbiddenException('Solo ADMIN puede leer mensajes de CRM Comercial');
+    }
+
+    const selected = await this.getSelectedWhatsappInstanceForCrm();
+    if (!selected.selectedInstanceId) {
+      return {
+        items: [],
+        warning: selected.warning,
+      };
+    }
+
+    const conversation = await this.prisma.whatsappConversation.findUnique({
+      where: { id: conversationId },
+      select: {
+        id: true,
+        instanceId: true,
+        remoteJid: true,
+        remotePhone: true,
+        remoteName: true,
+      },
+    });
+
+    if (!conversation || conversation.instanceId !== selected.selectedInstanceId) {
+      throw new NotFoundException('Conversacion no encontrada para la instancia activa del CRM Comercial');
+    }
+
+    const limit = this.parseLimit(query.limit, 120, 300);
+    const before = this.parseDate(query.before);
+    const after = this.parseDate(query.after);
+
+    const messages = await this.prisma.whatsappMessage.findMany({
+      where: {
+        conversationId,
+        ...(before ? { sentAt: { lt: before } } : {}),
+        ...(after ? { sentAt: { gt: after } } : {}),
+      },
+      orderBy: { sentAt: 'asc' },
+      take: limit,
+      select: {
+        id: true,
+        evolutionId: true,
+        direction: true,
+        messageType: true,
+        body: true,
+        caption: true,
+        mediaUrl: true,
+        mediaMimeType: true,
+        senderName: true,
+        sentAt: true,
+      },
+    });
+
+    const conversationPhone = this.normalizeComparablePhone(
+      conversation.remotePhone ?? conversation.remoteJid,
+    );
+    let linkedCustomer:
+      | {
+          id: string;
+          nombre: string;
+          estadoActual: CrmCommercialCustomerStatus;
+        }
+      | null = null;
+    if (conversationPhone) {
+      const candidates = await this.prisma.crmCommercialCustomer.findMany({
+        select: {
+          id: true,
+          nombre: true,
+          telefono: true,
+          estadoActual: true,
+          updatedAt: true,
+        },
+        orderBy: { updatedAt: 'desc' },
+      });
+      for (const candidate of candidates) {
+        const key = this.normalizeComparablePhone(candidate.telefono);
+        if (key == conversationPhone) {
+          linkedCustomer = {
+            id: candidate.id,
+            nombre: candidate.nombre,
+            estadoActual: candidate.estadoActual,
+          };
+          break;
+        }
+      }
+    }
+
+    return {
+      conversation: {
+        id: conversation.id,
+        remoteJid: conversation.remoteJid,
+        remotePhone: conversation.remotePhone,
+        remoteName: conversation.remoteName,
+        contactName:
+          (conversation.remoteName ?? '').trim() ||
+          (conversation.remotePhone ?? '').trim() ||
+          'Nuevo contacto',
+        crmCustomerId: linkedCustomer?.id ?? null,
+        crmCustomerName: linkedCustomer?.nombre ?? null,
+        crmCustomerStatus: linkedCustomer?.estadoActual ?? null,
+        isNewContact: !linkedCustomer,
+        canConvertToCrm: !linkedCustomer,
+      },
+      items: messages,
+      warning: null,
+    };
   }
 
   async create(user: AuthUser, dto: CreateCrmCommercialCustomerDto) {

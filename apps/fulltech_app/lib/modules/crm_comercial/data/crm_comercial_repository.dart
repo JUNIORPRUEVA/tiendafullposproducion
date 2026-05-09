@@ -155,6 +155,29 @@ class CrmComercialRepository {
         .toList(growable: false);
   }
 
+  Future<CrmComercialInboxConversationListResponse> listConversations({
+    int limit = 100,
+  }) async {
+    final res = await _dio.get<Map<String, dynamic>>(
+      ApiRoutes.crmCommercialConversations,
+      queryParameters: {'limit': limit},
+    );
+    return CrmComercialInboxConversationListResponse.fromJson(
+      res.data ?? const {},
+    );
+  }
+
+  Future<CrmComercialInboxMessageListResponse> getConversationMessages(
+    String conversationId, {
+    int limit = 200,
+  }) async {
+    final res = await _dio.get<Map<String, dynamic>>(
+      ApiRoutes.crmCommercialConversationMessages(conversationId),
+      queryParameters: {'limit': limit},
+    );
+    return CrmComercialInboxMessageListResponse.fromJson(res.data ?? const {});
+  }
+
   // Phase 2: Follow-up Tasks
 
   Future<List<CrmComercialFollowupTask>> listFollowupTasks({

@@ -292,7 +292,168 @@ class CrmComercialSettings {
   }
 }
 
-  class CrmComercialFollowupTask {
+class CrmComercialInboxConversation {
+  const CrmComercialInboxConversation({
+    required this.id,
+    required this.contactName,
+    this.remotePhone,
+    this.remoteJid,
+    this.lastMessageAt,
+    this.lastMessagePreview,
+    this.lastMessageType,
+    this.lastMessageDirection,
+    this.unreadCount = 0,
+    this.messageCount = 0,
+    this.crmCustomerId,
+    this.crmCustomerName,
+    this.crmCustomerStatus,
+    this.isNewContact = false,
+    this.canConvertToCrm = false,
+  });
+
+  final String id;
+  final String contactName;
+  final String? remotePhone;
+  final String? remoteJid;
+  final DateTime? lastMessageAt;
+  final String? lastMessagePreview;
+  final String? lastMessageType;
+  final String? lastMessageDirection;
+  final int unreadCount;
+  final int messageCount;
+  final String? crmCustomerId;
+  final String? crmCustomerName;
+  final String? crmCustomerStatus;
+  final bool isNewContact;
+  final bool canConvertToCrm;
+
+  bool get isOutgoingLastMessage =>
+      (lastMessageDirection ?? '').toUpperCase() == 'OUTGOING';
+
+  factory CrmComercialInboxConversation.fromJson(Map<String, dynamic> json) {
+    return CrmComercialInboxConversation(
+      id: (json['id'] ?? '').toString(),
+      contactName: (json['contactName'] ?? 'Nuevo contacto').toString(),
+      remotePhone: json['remotePhone']?.toString(),
+      remoteJid: json['remoteJid']?.toString(),
+      lastMessageAt: DateTime.tryParse((json['lastMessageAt'] ?? '').toString()),
+      lastMessagePreview: json['lastMessagePreview']?.toString(),
+      lastMessageType: json['lastMessageType']?.toString(),
+      lastMessageDirection: json['lastMessageDirection']?.toString(),
+      unreadCount: (json['unreadCount'] as num?)?.toInt() ?? 0,
+      messageCount: (json['messageCount'] as num?)?.toInt() ?? 0,
+      crmCustomerId: json['crmCustomerId']?.toString(),
+      crmCustomerName: json['crmCustomerName']?.toString(),
+      crmCustomerStatus: json['crmCustomerStatus']?.toString(),
+      isNewContact: json['isNewContact'] == true,
+      canConvertToCrm: json['canConvertToCrm'] == true,
+    );
+  }
+}
+
+class CrmComercialInboxMessage {
+  const CrmComercialInboxMessage({
+    required this.id,
+    required this.direction,
+    required this.messageType,
+    this.body,
+    this.caption,
+    this.mediaUrl,
+    this.mediaMimeType,
+    this.senderName,
+    this.sentAt,
+  });
+
+  final String id;
+  final String direction;
+  final String messageType;
+  final String? body;
+  final String? caption;
+  final String? mediaUrl;
+  final String? mediaMimeType;
+  final String? senderName;
+  final DateTime? sentAt;
+
+  bool get isOutgoing => direction.toUpperCase() == 'OUTGOING';
+
+  String get displayText {
+    final main = (body ?? '').trim();
+    if (main.isNotEmpty) return main;
+    final alt = (caption ?? '').trim();
+    if (alt.isNotEmpty) return alt;
+    return '[${messageType.toLowerCase()}]';
+  }
+
+  factory CrmComercialInboxMessage.fromJson(Map<String, dynamic> json) {
+    return CrmComercialInboxMessage(
+      id: (json['id'] ?? '').toString(),
+      direction: (json['direction'] ?? 'INCOMING').toString(),
+      messageType: (json['messageType'] ?? 'TEXT').toString(),
+      body: json['body']?.toString(),
+      caption: json['caption']?.toString(),
+      mediaUrl: json['mediaUrl']?.toString(),
+      mediaMimeType: json['mediaMimeType']?.toString(),
+      senderName: json['senderName']?.toString(),
+      sentAt: DateTime.tryParse((json['sentAt'] ?? '').toString()),
+    );
+  }
+}
+
+class CrmComercialInboxConversationListResponse {
+  const CrmComercialInboxConversationListResponse({
+    required this.items,
+    this.warning,
+  });
+
+  final List<CrmComercialInboxConversation> items;
+  final String? warning;
+
+  factory CrmComercialInboxConversationListResponse.fromJson(
+    Map<String, dynamic> json,
+  ) {
+    return CrmComercialInboxConversationListResponse(
+      items: ((json['items'] as List<dynamic>?) ?? const [])
+          .whereType<Map>()
+          .map((entry) =>
+              CrmComercialInboxConversation.fromJson(entry.cast<String, dynamic>()))
+          .toList(growable: false),
+      warning: json['warning']?.toString(),
+    );
+  }
+}
+
+class CrmComercialInboxMessageListResponse {
+  const CrmComercialInboxMessageListResponse({
+    required this.items,
+    this.conversation,
+    this.warning,
+  });
+
+  final List<CrmComercialInboxMessage> items;
+  final CrmComercialInboxConversation? conversation;
+  final String? warning;
+
+  factory CrmComercialInboxMessageListResponse.fromJson(
+    Map<String, dynamic> json,
+  ) {
+    final conversationJson = json['conversation'];
+    return CrmComercialInboxMessageListResponse(
+      items: ((json['items'] as List<dynamic>?) ?? const [])
+          .whereType<Map>()
+          .map(
+            (entry) =>
+                CrmComercialInboxMessage.fromJson(entry.cast<String, dynamic>()),
+          )
+          .toList(growable: false),
+      conversation: conversationJson is Map<String, dynamic>
+          ? CrmComercialInboxConversation.fromJson(conversationJson)
+          : null,
+      warning: json['warning']?.toString(),
+    );
+  }
+}
+
+class CrmComercialFollowupTask {
     const CrmComercialFollowupTask({
       required this.id,
       required this.customerId,

@@ -61,6 +61,35 @@ export class CrmCommercialController {
     return this.crmCommercial.getAvailableWhatsappInstances(this.userOrThrow(req));
   }
 
+  @Get('conversations')
+  @Roles(Role.ADMIN)
+  getConversations(
+    @Req() req: Request,
+    @Query('limit') limit?: string,
+    @Query('updatedAfter') updatedAfter?: string,
+  ) {
+    return this.crmCommercial.getConversations(this.userOrThrow(req), {
+      limit,
+      updatedAfter,
+    });
+  }
+
+  @Get('conversations/:id/messages')
+  @Roles(Role.ADMIN)
+  getConversationMessages(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Query('limit') limit?: string,
+    @Query('before') before?: string,
+    @Query('after') after?: string,
+  ) {
+    return this.crmCommercial.getConversationMessages(this.userOrThrow(req), id, {
+      limit,
+      before,
+      after,
+    });
+  }
+
   // Phase 1: Customers
 
   @Post('customers')

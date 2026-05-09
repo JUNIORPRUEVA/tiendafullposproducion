@@ -66,12 +66,17 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
   bool _onlyMine = false;
   String _statusFilter = '';
   String _error = '';
-  List<CrmComercialCustomer> _items = const <CrmComercialCustomer>[];
   List<CrmComercialUserRef> _users = const <CrmComercialUserRef>[];
   List<CrmComercialWhatsappInstance> _availableWhatsappInstances =
       const <CrmComercialWhatsappInstance>[];
   CrmComercialSettings? _crmSettings;
   CrmComercialCustomer? _selected;
+  List<CrmComercialInboxConversation> _conversations =
+      const <CrmComercialInboxConversation>[];
+  CrmComercialInboxConversation? _selectedConversation;
+  List<CrmComercialInboxMessage> _messages =
+      const <CrmComercialInboxMessage>[];
+  String? _conversationWarning;
 
   // Phase 2 state
   List<CrmComercialFollowupTask> _allTasks = const <CrmComercialFollowupTask>[];
@@ -146,6 +151,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
       final allTasks = await repo.listFollowupTasks();
       final crmSettings = await repo.getSettings();
       final availableInstances = await repo.listAvailableWhatsappInstances();
+      final conversationsResponse = await repo.listConversations();
 
       CrmComercialCustomer? selected = _selected;
       if (selected != null) {
@@ -154,19 +160,53 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
       }
       selected ??= customers.items.isEmpty ? null : customers.items.first;
 
+      CrmComercialInboxConversation? selectedConversation = _selectedConversation;
+      if (selectedConversation != null) {
+        final found = conversationsResponse.items.where(
+          (e) => e.id == selectedConversation!.id,
+        );
+        selectedConversation = found.isEmpty ? null : found.first;
+      }
+      selectedConversation ??=
+          conversationsResponse.items.isEmpty ? null : conversationsResponse.items.first;
+
+      List<CrmComercialInboxMessage> messages = const [];
+      if (selectedConversation != null) {
+        final messageResponse = await repo.getConversationMessages(
+          selectedConversation.id,
+        );
+        messages = messageResponse.items;
+        if (messageResponse.conversation != null) {
+          selectedConversation = messageResponse.conversation;
+        }
+      }
+
       if (selected != null) {
         selected = await repo.getCustomer(selected.id);
         _nextActionCtrl.text = selected.nextAction ?? '';
       }
 
+      if (selectedConversation != null && selectedConversation.crmCustomerId != null) {
+        final linked = customers.items
+            .where((e) => e.id == selectedConversation!.crmCustomerId)
+            .toList(growable: false);
+        if (linked.isNotEmpty) {
+          selected = await repo.getCustomer(linked.first.id);
+          _nextActionCtrl.text = selected.nextAction ?? '';
+        }
+      }
+
       if (!mounted) return;
       setState(() {
-        _items = customers.items;
         _users = users;
         _crmSettings = crmSettings;
         _availableWhatsappInstances = availableInstances;
         _selected = selected;
         _allTasks = allTasks;
+        _conversations = conversationsResponse.items;
+        _selectedConversation = selectedConversation;
+        _messages = messages;
+        _conversationWarning = conversationsResponse.warning;
         _loading = false;
       });
     } catch (error) {
@@ -445,6 +485,58 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
         });
       }
     }
+  }
+
+  Future<void> _openConversation(String conversationId) async {
+    setState(() {
+      _saving = true;
+      _error = '';
+    });
+    try {
+      final repo = ref.read(crmComercialRepositoryProvider);
+      final response = await repo.getConversationMessages(conversationId);
+      CrmComercialInboxConversation? conversation = response.conversation;
+      if (conversation == null) {
+        final found = _conversations.where((e) => e.id == conversationId).toList();
+        if (found.isNotEmpty) {
+          conversation = found.first;
+        }
+      }
+      CrmComercialCustomer? linkedCustomer;
+      if (conversation?.crmCustomerId != null) {
+        linkedCustomer = await repo.getCustomer(conversation!.crmCustomerId!);
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _selectedConversation = conversation;
+        _messages = response.items;
+        _conversationWarning = response.warning;
+        _selected = linkedCustomer;
+        _nextActionCtrl.text = linkedCustomer?.nextAction ?? '';
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = error.toString();
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+        });
+      }
+    }
+  }
+
+  void _showConvertPlaceholder() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Proximamente: convertir contacto WhatsApp a cliente CRM comercial.',
+        ),
+      ),
+    );
   }
 
   Future<void> _saveNextAction() async {
@@ -882,7 +974,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
           final isTablet = width >= 900 && width < 1280;
 
           if (isMobile) {
-            if (!_mobileConversationMode || selected == null) {
+            if (!_mobileConversationMode || _selectedConversation == null) {
               return _buildSidebarPanel(
                 context,
                 selected: selected,
@@ -893,6 +985,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
             return _buildConversationPanel(
               context,
               selected,
+              _selectedConversation,
               allowDetailToggle: true,
               isMobile: true,
               onBackToList: () {
@@ -922,6 +1015,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                 child: _buildConversationPanel(
                   context,
                   selected,
+                  _selectedConversation,
                   allowDetailToggle: true,
                   isMobile: false,
                 ),
@@ -1160,32 +1254,47 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
               ),
             ),
           Expanded(
-            child: ListView.separated(
-              padding: const EdgeInsets.only(bottom: 8),
-              itemCount: _items.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 1),
-              itemBuilder: (context, index) {
-                final item = _items[index];
-                final isActive = selected?.id == item.id;
-                final taskCount = activeTaskCountByCustomer[item.id] ?? 0;
-                return _CrmConversationListItem(
-                  item: item,
-                  isActive: isActive,
-                  taskCount: taskCount,
-                  statusLabel: _statusLabel(item.estadoActual),
-                  statusColor: _statusAccentColor(item.estadoActual),
-                  onTap: _saving
-                      ? null
-                      : () async {
-                          await _openCustomer(item.id);
-                          if (!mounted) return;
-                          if (isMobile) {
-                            setState(() => _mobileConversationMode = true);
-                          }
-                        },
-                );
-              },
-            ),
+            child: _conversations.isEmpty
+                ? Center(
+                    child: Text(
+                      _conversationWarning ??
+                          'Sin conversaciones para la instancia seleccionada.',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 12, color: _waTextMuted),
+                    ),
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    itemCount: _conversations.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 1),
+                    itemBuilder: (context, index) {
+                      final item = _conversations[index];
+                      final isActive = _selectedConversation?.id == item.id;
+                      final taskCount = item.crmCustomerId == null
+                          ? 0
+                          : (activeTaskCountByCustomer[item.crmCustomerId!] ?? 0);
+                      return _CrmConversationListItem(
+                        item: item,
+                        isActive: isActive,
+                        taskCount: taskCount,
+                        statusLabel: item.crmCustomerStatus == null
+                            ? 'SIN CRM'
+                            : _statusLabel(item.crmCustomerStatus!),
+                        statusColor: item.crmCustomerStatus == null
+                            ? const Color(0xFF7A8A96)
+                            : _statusAccentColor(item.crmCustomerStatus!),
+                        onTap: _saving
+                            ? null
+                            : () async {
+                                await _openConversation(item.id);
+                                if (!mounted) return;
+                                if (isMobile) {
+                                  setState(() => _mobileConversationMode = true);
+                                }
+                              },
+                      );
+                    },
+                  ),
           ),
         ],
       ),
@@ -1194,46 +1303,31 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
 
   Widget _buildConversationPanel(
     BuildContext context,
-    CrmComercialCustomer? selected, {
+    CrmComercialCustomer? selected,
+    CrmComercialInboxConversation? selectedConversation, {
     required bool allowDetailToggle,
     required bool isMobile,
     VoidCallback? onBackToList,
   }) {
     final hasSelection = selected != null;
+    final hasConversation = selectedConversation != null;
     final timeline =
-        <_CrmTimelineEntry>[
-          ...(selected?.notes ?? const <CrmComercialNote>[]).map(
-            (note) => _CrmTimelineEntry(
-              title: note.note,
-              subtitle: 'Nota interna',
-              author: note.author?.nombreCompleto ?? 'Sistema',
-              createdAt: note.createdAt,
-              icon: Icons.sticky_note_2_outlined,
-            ),
-          ),
-          ...(selected?.activities ?? const <CrmComercialActivity>[]).map(
-            (activity) => _CrmTimelineEntry(
-              title: activity.description,
-              subtitle: activity.activityType,
-              author: activity.createdBy?.nombreCompleto ?? 'Sistema',
-              createdAt: activity.createdAt,
-              icon: Icons.bolt_rounded,
-            ),
-          ),
-          ...(selected?.statusHistory ?? const <CrmComercialStatusEntry>[]).map(
-            (entry) => _CrmTimelineEntry(
-              title:
-                  '${_statusLabel(entry.estadoAnterior ?? 'NUEVO')} -> ${_statusLabel(entry.estadoNuevo)}',
-              subtitle: 'Cambio de estado',
-              author: entry.changedBy?.nombreCompleto ?? 'Sistema',
-              createdAt: entry.createdAt,
-              icon: Icons.sync_alt_rounded,
-            ),
-          ),
-        ]..sort(
-          (a, b) => (b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0))
-              .compareTo(a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0)),
-        );
+        _messages
+            .map(
+              (message) => _CrmTimelineEntry(
+                title: message.displayText,
+                subtitle: message.isOutgoing ? 'Tu mensaje' : 'Cliente',
+                author: message.senderName ??
+                    (message.isOutgoing ? 'Equipo FULLTECH' : 'Cliente'),
+                createdAt: message.sentAt,
+                icon: message.isOutgoing
+                    ? Icons.north_east_rounded
+                    : Icons.south_west_rounded,
+                isOutgoing: message.isOutgoing,
+                messageType: message.messageType,
+              ),
+            )
+            .toList(growable: false);
 
     return Container(
       decoration: BoxDecoration(
@@ -1264,16 +1358,12 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                   ),
                 CircleAvatar(
                   radius: 18,
-                  backgroundColor: _statusAccentColor(
-                    selected?.estadoActual ?? 'NUEVO',
-                  ).withAlpha(34),
+                  backgroundColor: _waGreen.withAlpha(24),
                   child: Text(
-                    _initials(selected?.nombre ?? 'CRM'),
-                    style: TextStyle(
+                    _initials(selectedConversation?.contactName ?? 'CRM'),
+                    style: const TextStyle(
                       fontWeight: FontWeight.w700,
-                      color: _statusAccentColor(
-                        selected?.estadoActual ?? 'NUEVO',
-                      ),
+                      color: _waGreenDark,
                       fontSize: 12,
                     ),
                   ),
@@ -1285,7 +1375,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        selected?.nombre ?? 'Conversaciones CRM',
+                        selectedConversation?.contactName ?? 'Conversaciones CRM',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
@@ -1296,9 +1386,9 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        hasSelection
-                            ? '${selected.telefono}  |  ${_statusLabel(selected.estadoActual)}'
-                            : 'Selecciona una conversacion para ver actividad comercial',
+                        hasConversation
+                            ? '${selectedConversation.remotePhone ?? selectedConversation.remoteJid ?? 'Sin telefono'}  |  ${selectedConversation.crmCustomerName ?? 'Nuevo contacto'}'
+                            : 'Selecciona una conversacion para ver mensajes reales',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
@@ -1309,28 +1399,33 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                     ],
                   ),
                 ),
-                if (selected?.etiqueta != null &&
-                    selected!.etiqueta!.isNotEmpty)
+                if (selectedConversation?.isNewContact == true)
                   Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 7,
                       vertical: 3,
                     ),
                     decoration: BoxDecoration(
-                      color: _waGreen.withAlpha(18),
+                      color: Colors.orange.withAlpha(22),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: Text(
-                      selected.etiqueta!,
-                      style: const TextStyle(fontSize: 10, color: _waGreenDark),
+                    child: const Text(
+                      'Nuevo contacto',
+                      style: TextStyle(fontSize: 10, color: Color(0xFF9A5C00)),
                     ),
                   ),
                 const SizedBox(width: 6),
+                if (selectedConversation?.canConvertToCrm == true)
+                  TextButton.icon(
+                    onPressed: _saving ? null : _showConvertPlaceholder,
+                    icon: const Icon(Icons.person_add_alt_1_rounded, size: 16),
+                    label: const Text('Convertir en cliente CRM'),
+                  ),
                 IconButton(
-                  tooltip: 'Actualizar cliente',
-                  onPressed: !hasSelection || _saving
+                  tooltip: 'Actualizar conversacion',
+                  onPressed: !hasConversation || _saving
                       ? null
-                      : () => _openCustomer(selected.id),
+                      : () => _openConversation(selectedConversation.id),
                   icon: const Icon(Icons.refresh_rounded, size: 20),
                 ),
                 if (allowDetailToggle)
@@ -1409,10 +1504,12 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                   ),
                 ),
                 if (timeline.isEmpty)
-                  const Center(
+                  Center(
                     child: Text(
-                      'Selecciona una conversacion para ver actividad comercial',
-                      style: TextStyle(fontSize: 13, color: _waTextMuted),
+                      hasConversation
+                          ? (_conversationWarning ?? 'Sin mensajes en esta conversacion.')
+                          : 'Selecciona una conversacion para ver mensajes reales',
+                      style: const TextStyle(fontSize: 13, color: _waTextMuted),
                     ),
                   )
                 else
@@ -1960,7 +2057,7 @@ class _CrmConversationListItem extends StatefulWidget {
     this.onTap,
   });
 
-  final CrmComercialCustomer item;
+  final CrmComercialInboxConversation item;
   final bool isActive;
   final int taskCount;
   final String statusLabel;
@@ -2020,7 +2117,7 @@ class _CrmConversationListItemState extends State<_CrmConversationListItem> {
                   radius: 18,
                   backgroundColor: widget.statusColor.withAlpha(26),
                   child: Text(
-                    _initials(widget.item.nombre),
+                    _initials(widget.item.contactName),
                     style: TextStyle(
                       color: widget.statusColor,
                       fontWeight: FontWeight.w700,
@@ -2037,7 +2134,7 @@ class _CrmConversationListItemState extends State<_CrmConversationListItem> {
                         children: [
                           Expanded(
                             child: Text(
-                              widget.item.nombre,
+                              widget.item.contactName,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
@@ -2048,11 +2145,11 @@ class _CrmConversationListItemState extends State<_CrmConversationListItem> {
                             ),
                           ),
                           Text(
-                            widget.item.updatedAt == null
+                            widget.item.lastMessageAt == null
                                 ? '--:--'
                                 : DateFormat(
                                     'HH:mm',
-                                  ).format(widget.item.updatedAt!),
+                                  ).format(widget.item.lastMessageAt!),
                             style: const TextStyle(
                               fontSize: 10,
                               color: _waTextMuted,
@@ -2062,9 +2159,9 @@ class _CrmConversationListItemState extends State<_CrmConversationListItem> {
                       ),
                       const SizedBox(height: 1),
                       Text(
-                        widget.item.nextAction?.isNotEmpty == true
-                            ? widget.item.nextAction!
-                            : widget.item.telefono,
+                        widget.item.lastMessagePreview?.isNotEmpty == true
+                            ? widget.item.lastMessagePreview!
+                            : (widget.item.remotePhone ?? 'Sin contenido'),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
@@ -2114,8 +2211,10 @@ class _CrmConversationListItemState extends State<_CrmConversationListItem> {
                           ],
                           const Spacer(),
                           Text(
-                            widget.item.responsable?.nombreCompleto ??
-                                'Sin responsable',
+                            widget.item.crmCustomerName ??
+                                (widget.item.isNewContact
+                                    ? 'Nuevo contacto'
+                                    : 'Sin vincular'),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
@@ -2144,6 +2243,8 @@ class _CrmTimelineEntry {
     required this.author,
     required this.createdAt,
     required this.icon,
+    required this.isOutgoing,
+    required this.messageType,
   });
 
   final String title;
@@ -2151,6 +2252,8 @@ class _CrmTimelineEntry {
   final String author;
   final DateTime? createdAt;
   final IconData icon;
+  final bool isOutgoing;
+  final String messageType;
 }
 
 class _CrmTimelineTile extends StatelessWidget {
@@ -2160,31 +2263,40 @@ class _CrmTimelineTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bubbleColor = entry.isOutgoing
+        ? const Color(0xFFD9FDD3)
+        : Colors.white.withAlpha(220);
+
     return Row(
+      mainAxisAlignment:
+          entry.isOutgoing ? MainAxisAlignment.end : MainAxisAlignment.start,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Container(
-          width: 24,
-          height: 24,
-          decoration: BoxDecoration(
-            color: _waGreen.withAlpha(16),
-            borderRadius: BorderRadius.circular(7),
+        if (!entry.isOutgoing) ...[
+          Container(
+            width: 24,
+            height: 24,
+            decoration: BoxDecoration(
+              color: _waGreen.withAlpha(16),
+              borderRadius: BorderRadius.circular(7),
+            ),
+            child: Icon(entry.icon, size: 14, color: _waGreenDark),
           ),
-          child: Icon(entry.icon, size: 14, color: _waGreenDark),
-        ),
-        const SizedBox(width: 7),
-        Expanded(
+          const SizedBox(width: 7),
+        ],
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
           child: Container(
             padding: const EdgeInsets.fromLTRB(10, 7, 10, 7),
             decoration: BoxDecoration(
-              color: Colors.white.withAlpha(210),
+              color: bubbleColor,
               borderRadius: BorderRadius.circular(10),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  entry.subtitle,
+                  '${entry.subtitle} · ${entry.messageType}',
                   style: const TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.w600,
@@ -2205,6 +2317,18 @@ class _CrmTimelineTile extends StatelessWidget {
             ),
           ),
         ),
+        if (entry.isOutgoing) ...[
+          const SizedBox(width: 7),
+          Container(
+            width: 24,
+            height: 24,
+            decoration: BoxDecoration(
+              color: _waGreen.withAlpha(16),
+              borderRadius: BorderRadius.circular(7),
+            ),
+            child: Icon(entry.icon, size: 14, color: _waGreenDark),
+          ),
+        ],
       ],
     );
   }

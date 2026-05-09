@@ -170,6 +170,13 @@ class PublicidadController extends StateNotifier<PublicidadState> {
     });
   }
 
+  Future<void> forceResearchNow() async {
+    await _runBusy(() async {
+      await _api.forceResearchNow();
+      await _refresh(keepLoading: false);
+    });
+  }
+
   Future<MarketingRepairIncompleteSummary> repairIncompleteNow() async {
     return _runBusyValue(() async {
       final summary = await _api.repairIncomplete(state.date);
@@ -954,6 +961,34 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
     }
   }
 
+  Future<void> _handleForceResearch(
+    BuildContext context,
+    PublicidadController controller,
+  ) async {
+    try {
+      await controller.forceResearchNow();
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Investigación manual generada correctamente.',
+          ),
+        ),
+      );
+    } on ApiException catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            error.message.trim().isEmpty
+                ? 'No se pudo generar la investigación manual.'
+                : error.message,
+          ),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = ref.watch(authStateProvider);
@@ -1051,6 +1086,11 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
                                 latestResearch: state.latestResearch,
                                 researchHistory: state.researchHistory,
                                 learningStats: state.learningStats,
+                                busy: state.busy,
+                                onForceResearch: () => _handleForceResearch(
+                                  context,
+                                  controller,
+                                ),
                               ),
                             if (_tab == _PublicidadTab.galeria)
                               _GalleryTab(
@@ -2737,20 +2777,47 @@ class _ResearchSummaryTab extends StatelessWidget {
     required this.latestResearch,
     required this.researchHistory,
     required this.learningStats,
+    required this.busy,
+    required this.onForceResearch,
   });
 
   final MarketingDashboard? dashboard;
   final MarketingResearchDetail? latestResearch;
   final List<MarketingResearchDetail> researchHistory;
   final MarketingLearningStats? learningStats;
+  final bool busy;
+  final Future<void> Function() onForceResearch;
 
   @override
   Widget build(BuildContext context) {
     final research = latestResearch;
     if (research == null) {
-      return const _EmptyState(
-        text:
-            'No hay investigación todavía. El sistema la generará automáticamente o puedes generar estados para forzarla.',
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: Theme.of(
+              context,
+            ).colorScheme.outlineVariant.withValues(alpha: 0.35),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'No hay investigación todavía. El sistema la generará automáticamente o puedes forzarla manualmente.',
+            ),
+            const SizedBox(height: 10),
+            FilledButton.icon(
+              onPressed: busy ? null : onForceResearch,
+              icon: const Icon(Icons.bolt_rounded),
+              label: const Text('Generar investigación manual'),
+            ),
+          ],
+        ),
       );
     }
 
@@ -2769,16 +2836,17 @@ class _ResearchSummaryTab extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          Text(
+            'Investigación automática completa',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
             children: [
-              Expanded(
-                child: Text(
-                  'Investigación automática completa',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
               OutlinedButton.icon(
                 onPressed: researchHistory.isEmpty
                     ? null
@@ -2791,6 +2859,11 @@ class _ResearchSummaryTab extends StatelessWidget {
                       },
                 icon: const Icon(Icons.history_rounded),
                 label: const Text('Ver historial de investigaciones'),
+              ),
+              FilledButton.icon(
+                onPressed: busy ? null : onForceResearch,
+                icon: const Icon(Icons.bolt_rounded),
+                label: const Text('Investigar de nuevo'),
               ),
             ],
           ),
