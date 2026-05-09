@@ -63,7 +63,7 @@ class PublicidadHubScreen extends ConsumerWidget {
 
     return Scaffold(
       drawer: buildAdaptiveDrawer(context, currentUser: user),
-      appBar: const CustomAppBar(title: 'Publicidad', fallbackRoute: '/home'),
+      appBar: const CustomAppBar(title: 'Publicidad'),
       backgroundColor: scheme.surfaceContainerLowest,
       body: DecoratedBox(
         decoration: BoxDecoration(

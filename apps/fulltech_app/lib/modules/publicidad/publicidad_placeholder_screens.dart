@@ -68,7 +68,7 @@ class _PublicidadComingSoonScreen extends ConsumerWidget {
 
     return Scaffold(
       drawer: buildAdaptiveDrawer(context, currentUser: user),
-      appBar: CustomAppBar(title: 'Publicidad / $title', fallbackRoute: '/home'),
+      appBar: CustomAppBar(title: 'Publicidad / $title'),
       backgroundColor: scheme.surfaceContainerLowest,
       body: Center(
         child: ConstrainedBox(

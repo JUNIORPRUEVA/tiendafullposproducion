@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { MarketingStoryType } from '@prisma/client';
+import { MarketingStoryType, ServiceEvidenceType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MarketingCreativeComposerService } from './marketing-creative-composer.service';
 import { MarketingImageGenerationService } from './marketing-image-generation.service';
@@ -865,7 +865,7 @@ export class MarketingGenerationService {
     if (!story) {
       throw new NotFoundException('Contenido no encontrado');
     }
-    const asset = await this.mediaAssets.ensure(companyId, mediaAssetId);
+    const asset = await this.ensureSelectableAsset(companyId, mediaAssetId);
     const normalized = await this.marketingStorage.saveBaseImageReference({
       companyId,
       storyType: this.storyTypeSlug(story.type),
@@ -909,6 +909,147 @@ export class MarketingGenerationService {
     await this.logAssetUsage(companyId, asset.id, userId, { storyId, mode: 'manual-change' });
 
     return updated;
+  }
+
+  private async ensureSelectableAsset(companyId: string, mediaAssetId: string) {
+    try {
+      return await this.mediaAssets.ensure(companyId, mediaAssetId);
+    } catch (error) {
+      if (!(error instanceof NotFoundException)) {
+        throw error;
+      }
+    }
+
+    const evidence = await this.prisma.serviceEvidence.findFirst({
+      where: {
+        id: mediaAssetId,
+        forPublicidad: true,
+        type: {
+          in: [
+            ServiceEvidenceType.REFERENCIA_IMAGEN,
+            ServiceEvidenceType.EVIDENCIA_IMAGEN,
+            ServiceEvidenceType.REFERENCIA_VIDEO,
+            ServiceEvidenceType.EVIDENCIA_VIDEO,
+          ],
+        },
+      },
+      include: {
+        serviceOrder: {
+          select: {
+            serviceType: true,
+            status: true,
+          },
+        },
+      },
+    });
+
+    if (evidence) {
+      const sourceUrl = `${evidence.content ?? ''}`.trim();
+      if (!sourceUrl) {
+        throw new ConflictException('La imagen seleccionada no tiene URL válida.');
+      }
+
+      const existingByUrl = await this.prisma.marketingMediaAsset.findFirst({
+        where: {
+          companyId,
+          fileUrl: sourceUrl,
+        },
+      });
+      if (existingByUrl) {
+        return existingByUrl;
+      }
+
+      const isVideo =
+        evidence.type === ServiceEvidenceType.REFERENCIA_VIDEO ||
+        evidence.type === ServiceEvidenceType.EVIDENCIA_VIDEO;
+      return this.prisma.marketingMediaAsset.create({
+        data: {
+          companyId,
+          fileUrl: sourceUrl,
+          thumbnailUrl: null,
+          fileName: this.extractFileName(sourceUrl, evidence.id),
+          mimeType: this.inferMimeType(sourceUrl, isVideo),
+          category: isVideo ? 'Galería media (video)' : 'Galería media (imagen)',
+          relatedService: `${evidence.serviceOrder?.serviceType ?? ''}`.trim() || 'Galería media',
+          tags: [
+            'galeria-media',
+            'for-publicidad',
+            'evidencia-tecnica',
+            isVideo ? 'video' : 'imagen',
+          ],
+          description: null,
+          isActive: true,
+          isFeatured: false,
+        },
+      });
+    }
+
+    const ownImage = await this.prisma.publicidadImage.findUnique({
+      where: { id: mediaAssetId },
+    });
+    if (ownImage) {
+      const sourceUrl = `${ownImage.url ?? ''}`.trim();
+      if (!sourceUrl) {
+        throw new ConflictException('La imagen seleccionada no tiene URL válida.');
+      }
+
+      const existingByUrl = await this.prisma.marketingMediaAsset.findFirst({
+        where: {
+          companyId,
+          fileUrl: sourceUrl,
+        },
+      });
+      if (existingByUrl) {
+        return existingByUrl;
+      }
+
+      return this.prisma.marketingMediaAsset.create({
+        data: {
+          companyId,
+          fileUrl: sourceUrl,
+          thumbnailUrl: null,
+          fileName: this.extractFileName(sourceUrl, ownImage.id),
+          mimeType: this.inferMimeType(sourceUrl, false),
+          category: 'Galería publicidad',
+          relatedService: null,
+          tags: ['galeria-publicidad', 'subida-directamente', 'imagen'],
+          description: ownImage.caption ?? null,
+          isActive: true,
+          isFeatured: false,
+        },
+      });
+    }
+
+    throw new NotFoundException('Asset de publicidad no encontrado');
+  }
+
+  private extractFileName(url: string, fallbackId: string) {
+    const parsed = this.safeParseUrl(url);
+    const path = (parsed?.pathname ?? '').trim();
+    if (!path) return `content-${fallbackId}.jpg`;
+    const parts = path.split('/').filter((part) => part.trim().length > 0);
+    const last = (parts[parts.length - 1] ?? '').trim();
+    if (!last) return `content-${fallbackId}.jpg`;
+    return last;
+  }
+
+  private inferMimeType(url: string, isVideo: boolean) {
+    const lower = `${url}`.toLowerCase();
+    if (lower.endsWith('.mp4')) return 'video/mp4';
+    if (lower.endsWith('.mov')) return 'video/quicktime';
+    if (lower.endsWith('.webm')) return 'video/webm';
+    if (lower.endsWith('.png')) return 'image/png';
+    if (lower.endsWith('.webp')) return 'image/webp';
+    if (lower.endsWith('.jpeg') || lower.endsWith('.jpg')) return 'image/jpeg';
+    return isVideo ? 'video/mp4' : 'image/jpeg';
+  }
+
+  private safeParseUrl(url: string) {
+    try {
+      return new URL(url);
+    } catch {
+      return null;
+    }
   }
 
   async confirmBaseImageSelection(companyId: string, storyId: string, userId: string) {
