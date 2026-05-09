@@ -859,7 +859,8 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
 
   Future<void> _sendMessageToCurrentConversation() async {
     final selectedConversation = _selectedConversation;
-    final text = _chatComposerCtrl.text.trim();
+    final rawText = _chatComposerCtrl.text;
+    final text = rawText.trim();
     debugPrint(
       '[CRM][UI][_sendMessageToCurrentConversation] called hasConversation=${selectedConversation != null} textLen=${text.length} sending=$_sendingChatMessage',
     );
@@ -870,6 +871,8 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
     setState(() {
       _sendingChatMessage = true;
       _error = '';
+      _chatComposerCtrl.clear();
+      _composerOrthographySuggestion = null;
     });
     debugPrint(
       '[CRM][UI][_sendMessageToCurrentConversation] sending=true conversationId=${selectedConversation.id}',
@@ -883,9 +886,14 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
       debugPrint(
         '[CRM][UI][_sendMessageToCurrentConversation] success conversationId=${selectedConversation.id}',
       );
-      _chatComposerCtrl.clear();
-      await _openConversation(selectedConversation.id);
-      await _loadAll();
+      try {
+        await _openConversation(selectedConversation.id);
+        await _loadAll();
+      } catch (refreshError) {
+        debugPrint(
+          '[CRM][UI][_sendMessageToCurrentConversation] post-send refresh error=$refreshError',
+        );
+      }
       if (mounted) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
@@ -899,6 +907,12 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
       if (!mounted) return;
       setState(() {
         _error = error is ApiException ? error.message : error.toString();
+        if (_chatComposerCtrl.text.trim().isEmpty) {
+          _chatComposerCtrl.text = rawText;
+          _chatComposerCtrl.selection = TextSelection.collapsed(
+            offset: _chatComposerCtrl.text.length,
+          );
+        }
       });
     } finally {
       if (mounted) {

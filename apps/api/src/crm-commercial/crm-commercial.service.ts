@@ -951,49 +951,62 @@ export class CrmCommercialService {
     );
 
     const evolutionMessageId = this.extractEvolutionMessageId(evolutionResult);
-    const saved = await this.whatsappInboxService.recordOutgoingMessage(
-      conversation.instanceId,
-      remoteJid,
-      text,
-      evolutionMessageId,
-    );
-
-    const savedMessageId =
-      (saved as { message?: { id?: string } })?.message?.id ?? null;
-    if (savedMessageId) {
-      await this.whatsappInboxService.attachEvolutionIdToMessage(
-        savedMessageId,
+    let savedMessageId: string | null = null;
+    try {
+      const saved = await this.whatsappInboxService.recordOutgoingMessage(
+        conversation.instanceId,
+        remoteJid,
+        text,
         evolutionMessageId,
+      );
+
+      savedMessageId =
+        (saved as { message?: { id?: string } })?.message?.id ?? null;
+      if (savedMessageId) {
+        await this.whatsappInboxService.attachEvolutionIdToMessage(
+          savedMessageId,
+          evolutionMessageId,
+        );
+      }
+    } catch (persistError) {
+      console.error(
+        `[CRM-COMMERCIAL][SEND_TEXT][REPLY] post-send persist warning conversationId=${conversationId} remoteJid=${remoteJid} error=${this.stringifyDebug(persistError)}`,
       );
     }
 
-    const normalizedComparable = this.normalizeComparablePhone(
-      conversation.remotePhone ?? remoteJid,
-    );
-    if (normalizedComparable) {
-      const customers = await this.prisma.crmCommercialCustomer.findMany({
-        select: { id: true, telefono: true, updatedAt: true },
-        orderBy: { updatedAt: 'desc' },
-      });
-      for (const customer of customers) {
-        if (this.normalizeComparablePhone(customer.telefono) === normalizedComparable) {
-          await this.prisma.crmCommercialActivity.create({
-            data: {
-              customerId: customer.id,
-              activityType: 'MENSAJE_SALIENTE',
-              description: `Mensaje enviado por CRM Comercial: ${text.slice(0, 180)}`,
-              createdByUserId: user.id,
-            },
-          });
-          break;
+    try {
+      const normalizedComparable = this.normalizeComparablePhone(
+        conversation.remotePhone ?? remoteJid,
+      );
+      if (normalizedComparable) {
+        const customers = await this.prisma.crmCommercialCustomer.findMany({
+          select: { id: true, telefono: true, updatedAt: true },
+          orderBy: { updatedAt: 'desc' },
+        });
+        for (const customer of customers) {
+          if (this.normalizeComparablePhone(customer.telefono) === normalizedComparable) {
+            await this.prisma.crmCommercialActivity.create({
+              data: {
+                customerId: customer.id,
+                activityType: 'MENSAJE_SALIENTE',
+                description: `Mensaje enviado por CRM Comercial: ${text.slice(0, 180)}`,
+                createdByUserId: user.id,
+              },
+            });
+            break;
+          }
         }
       }
+    } catch (activityError) {
+      console.error(
+        `[CRM-COMMERCIAL][SEND_TEXT][REPLY] activity-log warning conversationId=${conversationId} remoteJid=${remoteJid} error=${this.stringifyDebug(activityError)}`,
+      );
     }
 
     return {
       ok: true,
       conversationId,
-      messageId: (saved as { message?: { id?: string } })?.message?.id ?? null,
+      messageId: savedMessageId,
     };
   }
 
