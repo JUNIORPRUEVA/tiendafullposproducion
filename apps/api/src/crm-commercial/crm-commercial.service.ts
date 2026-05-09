@@ -33,6 +33,8 @@ import {
   StartCrmCommercialMediaMessageDto,
   ReplyCrmCommercialMediaMessageDto,
 } from './dto/send-crm-commercial-media-message.dto';
+import { SuggestCrmCommercialOrthographyDto } from './dto/suggest-crm-commercial-orthography.dto';
+import { AiAssistantService } from '../ai-assistant/ai-assistant.service';
 
 type AuthUser = { id: string; role: Role };
 
@@ -43,6 +45,7 @@ export class CrmCommercialService {
     private readonly whatsappService: WhatsappService,
     private readonly whatsappInboxService: WhatsappInboxService,
     private readonly redis: RedisService,
+    private readonly aiAssistantService: AiAssistantService,
   ) {}
 
   private extractEvolutionMessageId(result: unknown): string | undefined {
@@ -104,6 +107,30 @@ export class CrmCommercialService {
         `Reconéctala en el panel de instancias y vuelve a intentar.`,
       code: 'CRM_WHATSAPP_INSTANCE_DISCONNECTED',
     });
+  }
+
+  async suggestOrthography(
+    user: AuthUser,
+    dto: SuggestCrmCommercialOrthographyDto,
+  ) {
+    if (!this.canWrite(user)) {
+      throw new ForbiddenException('No tienes permisos para usar corrección IA en CRM Comercial.');
+    }
+
+    const text = (dto.text ?? '').toString();
+    const previousText = (dto.previousText ?? '').toString();
+
+    const result = await this.aiAssistantService.suggestCommercialOrthography({
+      text,
+      previousText,
+    });
+
+    return {
+      suggestion: result.suggestion,
+      changed: result.changed,
+      skipped: result.skipped,
+      reason: result.reason ?? null,
+    };
   }
 
   private isAdmin(user: AuthUser): boolean {

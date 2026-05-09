@@ -473,66 +473,123 @@ export class MarketingService {
     };
   }
 
-  async listContentGallery(companyId: string) {
-    await this.syncContentGalleryFromMediaEvidence(companyId);
+  async listContentGallery(_companyId: string) {
+    // Mirrors exactly the two sources shown in the main Publicidad gallery screen:
+    //   1. serviceEvidence where forPublicidad=true  (top section)
+    //   2. publicidadImage records (bottom "Imágenes subidas directamente" section)
 
-    const evidenceRows = await this.prisma.serviceEvidence.findMany({
-      where: {
-        forPublicidad: true,
-        type: {
-          in: [
-            ServiceEvidenceType.REFERENCIA_IMAGEN,
-            ServiceEvidenceType.EVIDENCIA_IMAGEN,
-            ServiceEvidenceType.REFERENCIA_VIDEO,
-            ServiceEvidenceType.EVIDENCIA_VIDEO,
-          ],
-        },
-      },
-      select: {
-        content: true,
-      },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: 300,
-    });
-
-    const allowedUrls = [...new Set(
-      evidenceRows
-        .map((row) => `${row.content ?? ''}`.trim())
-        .filter((url) => url.length > 0),
-    )];
-
-    if (allowedUrls.length === 0) {
-      return { items: [] };
-    }
-
-    const data = {
-      items: await this.prisma.marketingMediaAsset.findMany({
+    // ── Source 1: serviceEvidence forPublicidad=true ──────────────────────────
+    const [evidenceRows, ownImages] = await Promise.all([
+      this.prisma.serviceEvidence.findMany({
         where: {
-          companyId,
-          isActive: true,
-          fileUrl: {
-            in: allowedUrls,
+          forPublicidad: true,
+          type: {
+            in: [
+              ServiceEvidenceType.REFERENCIA_IMAGEN,
+              ServiceEvidenceType.EVIDENCIA_IMAGEN,
+              ServiceEvidenceType.REFERENCIA_VIDEO,
+              ServiceEvidenceType.EVIDENCIA_VIDEO,
+            ],
           },
         },
-        orderBy: [{ useCount: 'desc' }, { createdAt: 'desc' }],
+        include: {
+          serviceOrder: {
+            select: {
+              serviceType: true,
+              status: true,
+            },
+          },
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: 300,
       }),
-    };
+      // ── Source 2: publicidadImage (imágenes subidas directamente) ──────────
+      this.prisma.publicidadImage.findMany({
+        orderBy: { createdAt: 'desc' },
+        take: 300,
+      }),
+    ]);
 
-    return {
-      ...data,
-      items: (data.items ?? []).map((item: any) => {
-        const normalized = this.normalizeMediaAssetUrls(item);
+    const evidenceItems = evidenceRows
+      .map((row) => {
+        const rawUrl = `${row.content ?? ''}`.trim();
+        if (!rawUrl) return null;
+
+        const isVideo =
+          row.type === ServiceEvidenceType.REFERENCIA_VIDEO ||
+          row.type === ServiceEvidenceType.EVIDENCIA_VIDEO;
+        const mimeType = isVideo ? 'video/mp4' : 'image/jpeg';
+        const category = isVideo ? 'Galería media (video)' : 'Galería media (imagen)';
+        const relatedService =
+          `${row.serviceOrder?.serviceType ?? ''}`.trim() || 'Galería media';
+        const tags = [
+          'galeria-media',
+          'for-publicidad',
+          'evidencia-tecnica',
+          isVideo ? 'video' : 'imagen',
+        ];
+
+        const publicUrl = this.marketingStorage.getPublicUrl(rawUrl);
+        const fileName = this.extractFileNameFromUrl(rawUrl, row.id);
+        const sourceType = this.inferAssetSourceType(publicUrl, fileName, tags);
+
         return {
-          ...normalized,
+          id: row.id,
+          fileUrl: publicUrl,
+          thumbnailUrl: null,
+          fileName,
+          mimeType,
+          category,
+          relatedService,
+          tags,
+          description: null,
+          isActive: true,
+          isFeatured: false,
+          useCount: 0,
+          lastUsedAt: null,
+          latestStory: null,
+          sourceType,
           approvedForPublicidad: true,
-          origin: `${normalized.sourceType ?? ''}`.trim() || 'content-gallery',
-          recommendedUse:
-            `${normalized.relatedService ?? ''}`.trim() ||
-            `${normalized.category ?? ''}`.trim() ||
-            'General',
+          origin: sourceType || 'content-gallery',
+          recommendedUse: relatedService || category || 'General',
         };
-      }),
-    };
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null);
+
+    const ownItems = ownImages
+      .map((img) => {
+        const rawUrl = `${img.url ?? ''}`.trim();
+        if (!rawUrl) return null;
+
+        const publicUrl = this.marketingStorage.getPublicUrl(rawUrl);
+        const fileName = this.extractFileNameFromUrl(rawUrl, img.id);
+        const tags = ['galeria-publicidad', 'subida-directamente', 'imagen'];
+        const sourceType = 'GALLERY_IMAGE';
+
+        return {
+          id: img.id,
+          fileUrl: publicUrl,
+          thumbnailUrl: null,
+          fileName,
+          mimeType: 'image/jpeg',
+          category: 'Galería publicidad',
+          relatedService: null,
+          tags,
+          description: img.caption ?? null,
+          isActive: true,
+          isFeatured: false,
+          useCount: 0,
+          lastUsedAt: null,
+          latestStory: null,
+          sourceType,
+          approvedForPublicidad: true,
+          origin: sourceType,
+          recommendedUse: 'General',
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null);
+
+    return { items: [...evidenceItems, ...ownItems] };
   }
 
   private async syncContentGalleryFromMediaEvidence(companyId: string) {

@@ -275,6 +275,33 @@ class CrmComercialRepository {
     }
   }
 
+  Future<String?> suggestOrthography({
+    required String text,
+    String? previousText,
+  }) async {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return null;
+    try {
+      final payload = <String, dynamic>{
+        'text': text,
+        if ((previousText ?? '').trim().isNotEmpty) 'previousText': previousText,
+      };
+      final res = await _dio.post<Map<String, dynamic>>(
+        ApiRoutes.crmCommercialOrthographySuggestion,
+        data: payload,
+        options: Options(extra: const {'skipLoader': true, 'silent': true}),
+      );
+      final data = res.data ?? const <String, dynamic>{};
+      final changed = data['changed'] == true;
+      if (!changed) return null;
+      final suggestion = data['suggestion']?.toString().trim() ?? '';
+      if (suggestion.isEmpty || suggestion == trimmed) return null;
+      return suggestion;
+    } on DioException {
+      return null;
+    }
+  }
+
   Future<Map<String, dynamic>> replyConversationMedia({
     required String conversationId,
     required String mediaType, // 'image', 'video', 'audio', 'document'

@@ -251,6 +251,10 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
   Timer? _composerSpellTimer;
   String? _composerOrthographySuggestion;
   String? _lastIgnoredComposerSuggestion;
+  String _lastOrthographyInputKey = '';
+  String _lastOrthographyRequestedText = '';
+  int _orthographyRequestSeq = 0;
+  DateTime? _lastOrthographyRequestAt;
 
   // Media composer state
   final TextEditingController _mediaCaptionCtrl = TextEditingController();
@@ -919,45 +923,91 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
 
   void _onComposerTextChanged() {
     _composerSpellTimer?.cancel();
-    _composerSpellTimer = Timer(const Duration(milliseconds: 420), () {
-      if (!mounted) return;
-      final current = _chatComposerCtrl.text;
-      final suggestion = _buildOrthographySuggestion(current);
-      if (suggestion == null || suggestion == current || suggestion == _lastIgnoredComposerSuggestion) {
-        if (_composerOrthographySuggestion != null) {
-          setState(() => _composerOrthographySuggestion = null);
-        }
-        return;
+    final current = _chatComposerCtrl.text;
+    if (_shouldSkipOrthographyAi(current)) {
+      if (_composerOrthographySuggestion != null) {
+        setState(() => _composerOrthographySuggestion = null);
       }
-      setState(() => _composerOrthographySuggestion = suggestion);
+      return;
+    }
+
+    _composerSpellTimer = Timer(const Duration(milliseconds: 680), () async {
+      await _requestOrthographySuggestion(current);
     });
   }
 
-  String? _buildOrthographySuggestion(String raw) {
+  bool _shouldSkipOrthographyAi(String raw) {
     final trimmed = raw.trim();
-    if (trimmed.isEmpty || trimmed.length < 6) return null;
+    if (trimmed.length < 6) return true;
+    if (trimmed.length > 2500) return true;
+    final words = trimmed
+        .split(RegExp(r'\s+'))
+        .where((w) => w.trim().isNotEmpty)
+        .length;
+    if (words <= 1) {
+      final low = trimmed.toLowerCase();
+      if (const {'ok', 'dale', 'si', 'sí', 'gracias', 'hola'}.contains(low)) {
+        return true;
+      }
+    }
+    return false;
+  }
 
-    var normalized = trimmed
+  String _orthographyInputKey(String raw) {
+    return raw
+        .trim()
         .replaceAll(RegExp(r'\s+'), ' ')
-        .replaceAll(' q ', ' que ')
-        .replaceAll(' xq ', ' porque ')
-        .replaceAll(' porq ', ' porque ');
+        .toLowerCase();
+  }
 
-    if (normalized.isEmpty) return null;
+  Future<void> _requestOrthographySuggestion(String snapshotText) async {
+    if (!mounted) return;
+    if (_chatComposerCtrl.text != snapshotText) return;
+    if (_shouldSkipOrthographyAi(snapshotText)) return;
 
-    final first = normalized.substring(0, 1).toUpperCase();
-    if (normalized.length > 1) {
-      normalized = '$first${normalized.substring(1)}';
-    } else {
-      normalized = first;
+    final key = _orthographyInputKey(snapshotText);
+    if (key == _lastOrthographyInputKey &&
+        _composerOrthographySuggestion != null) {
+      return;
     }
 
-    final hasClosingPunctuation = RegExp(r'[.!?]$').hasMatch(normalized);
-    if (!hasClosingPunctuation && normalized.length > 18) {
-      normalized = '$normalized.';
+    final now = DateTime.now();
+    final recent = _lastOrthographyRequestAt != null &&
+        now.difference(_lastOrthographyRequestAt!).inMilliseconds < 350;
+    if (recent &&
+        _lastOrthographyRequestedText.isNotEmpty &&
+        (snapshotText.length - _lastOrthographyRequestedText.length).abs() <= 2) {
+      return;
     }
 
-    return normalized == raw ? null : normalized;
+    final previousRequested = _lastOrthographyRequestedText;
+    _lastOrthographyRequestAt = now;
+    _lastOrthographyRequestedText = snapshotText;
+    final requestSeq = ++_orthographyRequestSeq;
+
+    final suggestion = await ref
+        .read(crmComercialRepositoryProvider)
+        .suggestOrthography(
+          text: snapshotText,
+          previousText: previousRequested,
+        );
+
+    if (!mounted) return;
+    if (requestSeq != _orthographyRequestSeq) return;
+    if (_chatComposerCtrl.text != snapshotText) return;
+
+    if (suggestion == null ||
+        suggestion == snapshotText ||
+        suggestion == _lastIgnoredComposerSuggestion) {
+      _lastOrthographyInputKey = key;
+      if (_composerOrthographySuggestion != null) {
+        setState(() => _composerOrthographySuggestion = null);
+      }
+      return;
+    }
+
+    _lastOrthographyInputKey = key;
+    setState(() => _composerOrthographySuggestion = suggestion);
   }
 
   void _applyOrthographySuggestion() {

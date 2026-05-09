@@ -102,6 +102,82 @@ export class AiAssistantService {
     private readonly catalogProducts: CatalogProductsService,
   ) {}
 
+  async suggestCommercialOrthography(input: {
+    text: string;
+    previousText?: string | null;
+  }): Promise<{
+    suggestion: string | null;
+    changed: boolean;
+    skipped: boolean;
+    reason?: string;
+  }> {
+    const original = (input.text ?? '').toString();
+    const trimmed = original.trim();
+    if (!trimmed || trimmed.length < 6) {
+      return { suggestion: null, changed: false, skipped: true, reason: 'too_short' };
+    }
+
+    const lower = trimmed.toLowerCase();
+    if (['ok', 'dale', 'si', 'sí', 'gracias', 'hello', 'hola', 'perfecto'].includes(lower)) {
+      return { suggestion: null, changed: false, skipped: true, reason: 'trivial' };
+    }
+
+    const runtime = await this.getOpenAiRuntimeConfig();
+    if (!runtime.apiKey) {
+      return { suggestion: null, changed: false, skipped: true, reason: 'openai_unavailable' };
+    }
+
+    const systemPrompt =
+      'Actúa como corrector profesional del idioma español especializado en conversaciones comerciales de WhatsApp para República Dominicana. ' +
+      'Objetivo: corregir ortografía, tildes, signos de puntuación, espacios y redacción claramente rota, SIN cambiar intención ni tono humano. ' +
+      'Debes conservar el estilo natural dominicano, no sonar robótico, no volverlo corporativo frío, no resumir, no inventar, no eliminar emojis. ' +
+      'Respeta el contenido comercial y de servicio al cliente. Corrige abreviaciones comunes de escritura rápida cuando sea claro: ' +
+      'k->que, q->que, bn->bien, tmb->también, grasias->gracias, alguiemte->alguien, erre->eres. ' +
+      'Si el texto ya está bien, devuélvelo prácticamente igual.';
+
+    const userPrompt =
+      `${JSON.stringify({
+        text: original,
+        previousText: input.previousText ?? null,
+      })}\n\n` +
+      'Devuelve exactamente JSON con esta forma: ' +
+      '{"correctedText":"string","changed":true|false,"notes":"string breve"}. ' +
+      'Reglas estrictas: ' +
+      '1) correctedText debe mantener el mismo sentido e intención; ' +
+      '2) no agregues información nueva; ' +
+      '3) no elimines emojis; ' +
+      '4) no uses tono excesivamente formal; ' +
+      '5) aplica signos de apertura (¿, ¡) cuando corresponda.';
+
+    try {
+      const parsed = await this.requestStrictJsonFromOpenAi<{
+        correctedText?: unknown;
+        changed?: unknown;
+      }>({
+        runtime,
+        temperature: 0.1,
+        systemPrompt,
+        userPrompt,
+      });
+
+      const corrected = this.normalizeOptionalString(parsed.correctedText) ?? trimmed;
+      const changed = parsed.changed === true || corrected !== trimmed;
+      if (!changed) {
+        return { suggestion: null, changed: false, skipped: false };
+      }
+      return {
+        suggestion: corrected,
+        changed: true,
+        skipped: false,
+      };
+    } catch (error) {
+      this.logDebug('orthography.openai_fallback', {
+        message: error instanceof Error ? error.message : `${error}`,
+      });
+      return { suggestion: null, changed: false, skipped: true, reason: 'openai_error' };
+    }
+  }
+
   async chat(user: { id: string; role: Role }, dto: ChatAiAssistantDto) {
     const message = dto.message.trim();
     if (!message) throw new BadRequestException('El mensaje es obligatorio');

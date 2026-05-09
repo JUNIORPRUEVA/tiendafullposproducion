@@ -116,6 +116,8 @@ class ApiRoutes {
       '/crm-commercial/conversations/$id/reply';
   static String crmCommercialConversationReplyMedia(String id) =>
       '/crm-commercial/conversations/$id/reply-media';
+  static const crmCommercialOrthographySuggestion =
+      '/crm-commercial/ai/orthography-suggestion';
 
   // Productos
   static const products = '/products';
