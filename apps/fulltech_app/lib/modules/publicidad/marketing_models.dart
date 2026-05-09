@@ -540,7 +540,7 @@ class MarketingDashboard {
       researchUsable: json['researchUsable'] == true,
       nextAutoResearch: DateTime.tryParse('${json['nextAutoResearch'] ?? ''}'),
       researchFrequencyDays:
-          (json['researchFrequencyDays'] as num?)?.toInt() ?? 2,
+          (json['researchFrequencyDays'] as num?)?.toInt() ?? 7,
       serviceRadiusKm: (json['serviceRadiusKm'] as num?)?.toInt() ?? 25,
       serviceZone: '${json['serviceZone'] ?? 'Higüey, La Altagracia'}',
       storiesFromCurrentResearch:

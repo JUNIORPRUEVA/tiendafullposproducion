@@ -7,6 +7,7 @@ import { GenerateResearchDto, UpdateMarketingResearchConfigDto } from './dto/mar
 @Injectable()
 export class MarketingResearchService {
   private readonly logger = new Logger(MarketingResearchService.name);
+  private static readonly WEEKLY_RESEARCH_DAYS = 7;
 
   private readonly defaultPrompt = `Realizar una investigación de mercado profunda y actualizada para FULLTECH SRL en la provincia La Altagracia (Higüey), República Dominicana.
 
@@ -28,7 +29,15 @@ Entrega análisis accionable con hooks concretos, CTAs que funcionen en este mer
 
   async getOrCreateConfig(companyId: string) {
     const existing = await this.prisma.marketingResearchConfig.findUnique({ where: { companyId } });
-    if (existing) return existing;
+    if (existing) {
+      if (existing.researchFrequencyDays !== MarketingResearchService.WEEKLY_RESEARCH_DAYS) {
+        return this.prisma.marketingResearchConfig.update({
+          where: { id: existing.id },
+          data: { researchFrequencyDays: MarketingResearchService.WEEKLY_RESEARCH_DAYS },
+        });
+      }
+      return existing;
+    }
     return this.prisma.marketingResearchConfig.create({
       data: {
         companyId,
@@ -55,7 +64,7 @@ Entrega análisis accionable con hooks concretos, CTAs que funcionen en este mer
         targetMarket: 'Negocios y residencias en Higüey, La Altagracia y República Dominicana.',
         brandTone: 'Profesional, confiable, claro, dominicano, directo, moderno, orientado a ventas.',
         learningEnabled: true,
-        researchFrequencyDays: 2,
+        researchFrequencyDays: MarketingResearchService.WEEKLY_RESEARCH_DAYS,
         requireApproval: false,
         city: 'Higüey',
         province: 'La Altagracia',
@@ -70,6 +79,7 @@ Entrega análisis accionable con hooks concretos, CTAs que funcionen en este mer
 
   async updateConfig(companyId: string, dto: UpdateMarketingResearchConfigDto, userId: string) {
     const config = await this.getOrCreateConfig(companyId);
+    const hasFrequencyOverride = dto.research_frequency_days != null;
     return this.prisma.marketingResearchConfig.update({
       where: { id: config.id },
       data: {
@@ -82,7 +92,9 @@ Entrega análisis accionable con hooks concretos, CTAs que funcionen en este mer
         ...(dto.target_market != null ? { targetMarket: dto.target_market.trim() } : {}),
         ...(dto.brand_tone != null ? { brandTone: dto.brand_tone.trim() } : {}),
         ...(dto.learning_enabled != null ? { learningEnabled: dto.learning_enabled } : {}),
-        ...(dto.research_frequency_days != null ? { researchFrequencyDays: dto.research_frequency_days } : {}),
+        ...(hasFrequencyOverride
+          ? { researchFrequencyDays: MarketingResearchService.WEEKLY_RESEARCH_DAYS }
+          : {}),
         // requireApproval is always false — research auto-approved
         requireApproval: false,
         // New company profile fields
@@ -114,7 +126,7 @@ Entrega análisis accionable con hooks concretos, CTAs que funcionen en este mer
   async getUsableResearch(companyId: string) {
     const config = await this.getOrCreateConfig(companyId);
     const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - config.researchFrequencyDays);
+    cutoff.setDate(cutoff.getDate() - MarketingResearchService.WEEKLY_RESEARCH_DAYS);
 
     return this.prisma.marketingResearch.findFirst({
       where: {

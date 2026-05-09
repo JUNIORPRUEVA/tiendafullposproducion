@@ -2821,7 +2821,7 @@ class _ResearchSummaryTab extends StatelessWidget {
               ),
               _MetaChip(
                 label: 'Frecuencia',
-                value: 'Cada ${dashboard?.researchFrequencyDays ?? 2} días',
+                value: 'Cada ${dashboard?.researchFrequencyDays ?? 7} días',
               ),
               _MetaChip(
                 label: 'Próxima auto',

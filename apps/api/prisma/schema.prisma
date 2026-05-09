@@ -811,7 +811,7 @@ model MarketingResearchConfig {
   targetMarket           String?  @db.Text @map("target_market")
   brandTone              String   @default("Profesional, confiable, claro, dominicano, directo, moderno, orientado a ventas.") @map("brand_tone")
   learningEnabled        Boolean  @default(true) @map("learning_enabled")
-  researchFrequencyDays  Int      @default(2) @map("research_frequency_days")
+  researchFrequencyDays  Int      @default(7) @map("research_frequency_days")
   requireApproval        Boolean  @default(false) @map("require_approval")
   phone                  String?  @db.Text
   address                String?  @db.Text

@@ -110,7 +110,7 @@ export class MarketingService {
         : null,
       researchUsable,
       nextAutoResearch,
-      researchFrequencyDays: researchConfig?.researchFrequencyDays ?? 2,
+      researchFrequencyDays: researchConfig?.researchFrequencyDays ?? 7,
       serviceRadiusKm: researchConfig?.serviceRadiusKm ?? 25,
       serviceZone: researchConfig ? `${researchConfig.city}, ${researchConfig.province}` : 'Higüey, La Altagracia',
       storiesFromCurrentResearch,

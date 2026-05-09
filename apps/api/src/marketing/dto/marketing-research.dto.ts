@@ -39,8 +39,8 @@ export class UpdateMarketingResearchConfigDto {
 
   @IsOptional()
   @IsInt()
-  @Min(1)
-  @Max(30)
+  @Min(7)
+  @Max(7)
   research_frequency_days?: number;
 
   @IsOptional()
