@@ -16,6 +16,7 @@ class CrmComercialRepository {
   CrmComercialRepository(this._dio);
 
   final Dio _dio;
+  bool _orthographyEndpointUnavailable = false;
 
   String _extractErrorMessage(dynamic data, String fallback) {
     if (data is String && data.trim().isNotEmpty) return data.trim();
@@ -281,6 +282,7 @@ class CrmComercialRepository {
   }) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return null;
+    if (_orthographyEndpointUnavailable) return null;
     try {
       final payload = <String, dynamic>{
         'text': text,
@@ -297,7 +299,10 @@ class CrmComercialRepository {
       final suggestion = data['suggestion']?.toString().trim() ?? '';
       if (suggestion.isEmpty || suggestion == trimmed) return null;
       return suggestion;
-    } on DioException {
+    } on DioException catch (error) {
+      if (error.response?.statusCode == 404) {
+        _orthographyEndpointUnavailable = true;
+      }
       return null;
     }
   }

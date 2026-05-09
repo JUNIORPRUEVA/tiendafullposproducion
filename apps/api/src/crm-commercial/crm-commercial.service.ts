@@ -921,22 +921,42 @@ export class CrmCommercialService {
       `[CRM-COMMERCIAL][SEND_TEXT][REPLY] evolutionPayload=${this.stringifyDebug({ number: remoteJid, text })}`,
     );
 
-    const saved = await this.whatsappInboxService.recordOutgoingMessage(
-      conversation.instanceId,
-      remoteJid,
-      text,
-    );
+    await this.ensureInstanceConnectedOrThrow(conversation.instance.instanceName);
 
-    const evolutionResult = await this.whatsappService.sendTextMessage(
-      conversation.instance.instanceName,
-      remoteJid,
-      text,
-    );
+    let evolutionResult: unknown;
+    try {
+      evolutionResult = await this.whatsappService.sendTextMessage(
+        conversation.instance.instanceName,
+        remoteJid,
+        text,
+      );
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      console.error(
+        `[CRM-COMMERCIAL][SEND_TEXT][REPLY] send failed instanceName=${conversation.instance.instanceName} conversationId=${conversationId} remoteJid=${remoteJid} error=${reason}`,
+      );
+      if (/connection\s*closed/i.test(reason)) {
+        throw new BadRequestException({
+          message:
+            `No se pudo enviar el mensaje: la instancia de WhatsApp ` +
+            `"${conversation.instance.instanceName}" está desconectada (Connection Closed). ` +
+            `Reconéctala y vuelve a intentar.`,
+          code: 'CRM_WHATSAPP_INSTANCE_DISCONNECTED',
+        });
+      }
+      throw error;
+    }
     console.log(
       `[CRM-COMMERCIAL][SEND_TEXT][REPLY] evolutionResponse=${this.stringifyDebug(evolutionResult)}`,
     );
 
     const evolutionMessageId = this.extractEvolutionMessageId(evolutionResult);
+    const saved = await this.whatsappInboxService.recordOutgoingMessage(
+      conversation.instanceId,
+      remoteJid,
+      text,
+      evolutionMessageId,
+    );
 
     const savedMessageId =
       (saved as { message?: { id?: string } })?.message?.id ?? null;
