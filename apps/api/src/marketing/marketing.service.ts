@@ -479,7 +479,7 @@ export class MarketingService {
     //   2. publicidadImage records (bottom "Imágenes subidas directamente" section)
 
     // ── Source 1: serviceEvidence forPublicidad=true ──────────────────────────
-    const [evidenceRows, ownImages] = await Promise.all([
+    const [evidenceResult, ownImagesResult] = await Promise.allSettled([
       this.prisma.serviceEvidence.findMany({
         where: {
           forPublicidad: true,
@@ -509,6 +509,11 @@ export class MarketingService {
         take: 300,
       }),
     ]);
+
+    const evidenceRows =
+      evidenceResult.status === 'fulfilled' ? evidenceResult.value : [];
+    const ownImages =
+      ownImagesResult.status === 'fulfilled' ? ownImagesResult.value : [];
 
     const evidenceItems = evidenceRows
       .map((row) => {
