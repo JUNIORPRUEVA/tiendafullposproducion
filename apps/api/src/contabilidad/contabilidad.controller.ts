@@ -82,11 +82,11 @@ export class ContabilidadController {
   @Get('closes')
   @Roles(...CLOSING_ROLES)
   async getCloses(
+    @Req() req: Request,
     @Query('date') date?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('type') type?: string,
-    @Req() req: Request,
   ) {
     return this.contabilidadService.getCloses(
       { date, from, to, type },
