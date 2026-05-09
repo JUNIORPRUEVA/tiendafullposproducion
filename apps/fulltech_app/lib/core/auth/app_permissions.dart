@@ -38,6 +38,11 @@ enum AppPermission {
   manageCompanyManual,
   viewAdminTechDepartures,
   viewWhatsappCrm,
+  viewCrmComercial,
+  createCrmComercialCustomer,
+  editCrmComercialCustomer,
+  changeCrmComercialStatus,
+  viewCrmComercialHistory,
 
   // HR
   viewWarnings,
@@ -73,6 +78,11 @@ const Map<AppRole, Set<AppPermission>> rolePermissions = {
     AppPermission.manageCompanyManual,
     AppPermission.viewAdminTechDepartures,
     AppPermission.viewWhatsappCrm,
+    AppPermission.viewCrmComercial,
+    AppPermission.createCrmComercialCustomer,
+    AppPermission.editCrmComercialCustomer,
+    AppPermission.changeCrmComercialStatus,
+    AppPermission.viewCrmComercialHistory,
     AppPermission.viewWarnings,
     AppPermission.viewMyWarnings,
   },

@@ -30,6 +30,7 @@ import '../../features/media_gallery/presentation/galeria_publicidad_screen.dart
 import '../../modules/nomina/mis_pagos_screen.dart';
 import '../../modules/configuracion/configuracion_screen.dart';
 import '../../modules/whatsapp/whatsapp_screen.dart';
+import '../../modules/crm_comercial/crm_comercial_screen.dart';
 import '../../modules/whatsapp_crm/whatsapp_crm_screen.dart';
 import '../../features/amonestaciones/presentation/amonestaciones_screen.dart';
 import '../../features/amonestaciones/presentation/warning_detail_screen.dart';
@@ -276,6 +277,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: Routes.whatsappCrm,
             builder: (context, state) => const WhatsappCrmScreen(),
+          ),
+          GoRoute(
+            path: Routes.crmComercial,
+            builder: (context, state) => const CrmComercialScreen(),
           ),
           GoRoute(
             path: Routes.amonestaciones,

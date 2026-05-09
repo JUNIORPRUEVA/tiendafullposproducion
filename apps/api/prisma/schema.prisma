@@ -312,6 +312,21 @@ enum NotificationContentType {
   DOCUMENT
 }
 
+enum CrmCommercialCustomerStatus {
+  NUEVO
+  INTERESADO
+  COTIZACION
+  NEGOCIACION
+  PENDIENTE_PAGO
+  GANADO
+  PERDIDO
+  SEGUIMIENTO
+  SOPORTE
+  COBRO_PENDIENTE
+
+  @@map("crm_commercial_customer_status")
+}
+
 enum ServiceOrderNotificationJobKind {
   THIRTY_MINUTES_BEFORE
   FIFTEEN_MINUTES_PENDING
@@ -541,6 +556,13 @@ model User {
   serviceClosingsRejected ServiceClosing[] @relation("ServiceClosingRejectedBy")
 
   technicalVisits TechnicalVisit[] @relation("TechnicalVisitTechnician")
+
+  crmCommercialCustomersAssigned CrmCommercialCustomer[] @relation("CrmCommercialResponsibleUser")
+  crmCommercialCustomersCreated CrmCommercialCustomer[] @relation("CrmCommercialCreatedByUser")
+  crmCommercialStatusChanges CrmCommercialStatusHistory[] @relation("CrmCommercialStatusChangedByUser")
+  crmCommercialNotes CrmCommercialNote[] @relation("CrmCommercialNoteAuthorUser")
+  crmCommercialActivitiesAssigned CrmCommercialActivity[] @relation("CrmCommercialActivityAssignedToUser")
+  crmCommercialActivitiesCreated CrmCommercialActivity[] @relation("CrmCommercialActivityCreatedByUser")
 
   workEmployeeConfig WorkEmployeeConfig?
   warrantyProductConfigs WarrantyProductConfig[]
@@ -1284,6 +1306,7 @@ model Client {
   services Service[]
   serviceOrders ServiceOrder[]
   cotizaciones Cotizacion[]
+  crmCommercialCustomers CrmCommercialCustomer[]
 
   @@index([ownerId])
   @@index([ownerId, nombre])
@@ -1291,6 +1314,93 @@ model Client {
   @@index([phoneNormalized])
   @@index([lastActivityAt])
   @@index([latitude, longitude])
+}
+
+model CrmCommercialCustomer {
+  id                String                      @id @default(uuid()) @db.Uuid
+  clientId          String?                     @map("client_id") @db.Uuid
+  nombre            String
+  telefono          String
+  direccion         String?
+  ciudad            String?
+  estadoActual      CrmCommercialCustomerStatus @default(NUEVO) @map("estado_actual")
+  etiqueta          String?
+  responsableUserId String?                     @map("responsable_user_id") @db.Uuid
+  lastInteractionAt DateTime?                   @map("ultima_interaccion")
+  nextActionAt      DateTime?                   @map("proxima_accion_fecha")
+  nextAction        String?                     @map("proxima_accion")
+  observacion       String?                     @db.Text
+  createdByUserId   String                      @map("created_by_user_id") @db.Uuid
+  createdAt         DateTime                    @default(now()) @map("fecha_creacion")
+  updatedAt         DateTime                    @updatedAt @map("fecha_actualizacion")
+
+  client         Client?                      @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  responsableUser User?                       @relation("CrmCommercialResponsibleUser", fields: [responsableUserId], references: [id], onDelete: SetNull)
+  createdByUser   User                        @relation("CrmCommercialCreatedByUser", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  statusHistory   CrmCommercialStatusHistory[]
+  notes           CrmCommercialNote[]
+  activities      CrmCommercialActivity[]
+
+  @@index([estadoActual])
+  @@index([responsableUserId])
+  @@index([nombre])
+  @@index([telefono])
+  @@index([clientId])
+  @@map("crm_commercial_customers")
+}
+
+model CrmCommercialStatusHistory {
+  id              String                      @id @default(uuid()) @db.Uuid
+  customerId      String                      @map("cliente_id") @db.Uuid
+  estadoAnterior  CrmCommercialCustomerStatus? @map("estado_anterior")
+  estadoNuevo     CrmCommercialCustomerStatus @map("estado_nuevo")
+  changedByUserId String                      @map("usuario_que_cambio") @db.Uuid
+  nota            String?                     @db.Text
+  createdAt       DateTime                    @default(now()) @map("fecha")
+
+  customer      CrmCommercialCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  changedByUser User                  @relation("CrmCommercialStatusChangedByUser", fields: [changedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([customerId, createdAt])
+  @@index([changedByUserId])
+  @@map("crm_commercial_status_history")
+}
+
+model CrmCommercialNote {
+  id           String   @id @default(uuid()) @db.Uuid
+  customerId   String   @map("cliente_id") @db.Uuid
+  authorUserId String   @map("usuario_id") @db.Uuid
+  note         String   @map("nota") @db.Text
+  createdAt    DateTime @default(now()) @map("fecha_creacion")
+  updatedAt    DateTime @updatedAt @map("fecha_actualizacion")
+
+  customer   CrmCommercialCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  authorUser User                  @relation("CrmCommercialNoteAuthorUser", fields: [authorUserId], references: [id], onDelete: Restrict)
+
+  @@index([customerId, createdAt])
+  @@index([authorUserId])
+  @@map("crm_commercial_notes")
+}
+
+model CrmCommercialActivity {
+  id               String    @id @default(uuid()) @db.Uuid
+  customerId       String    @map("cliente_id") @db.Uuid
+  createdByUserId  String    @map("creado_por_usuario_id") @db.Uuid
+  assignedToUserId String?   @map("asignado_usuario_id") @db.Uuid
+  activityType     String    @map("tipo")
+  description      String    @map("descripcion") @db.Text
+  dueAt            DateTime? @map("fecha_programada")
+  completedAt      DateTime? @map("fecha_completada")
+  createdAt        DateTime  @default(now()) @map("fecha_creacion")
+  updatedAt        DateTime  @updatedAt @map("fecha_actualizacion")
+
+  customer       CrmCommercialCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  createdByUser  User                  @relation("CrmCommercialActivityCreatedByUser", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  assignedToUser User?                 @relation("CrmCommercialActivityAssignedToUser", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+
+  @@index([customerId, createdAt])
+  @@index([assignedToUserId])
+  @@map("crm_commercial_activities")
 }
 
 model Sale {

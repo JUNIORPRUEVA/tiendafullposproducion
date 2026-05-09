@@ -177,6 +177,12 @@ List<AppNavigationSection> buildAppNavigationSections(
             title: 'CRM WhatsApp',
             route: Routes.whatsappCrm,
           ),
+        if (can(AppPermission.viewCrmComercial))
+          const AppNavigationItem(
+            icon: Icons.badge_outlined,
+            title: 'CRM Comercial',
+            route: Routes.crmComercial,
+          ),
         if (can(AppPermission.viewWarnings))
           const AppNavigationItem(
             icon: Icons.warning_amber_rounded,
@@ -264,6 +270,7 @@ String resolveNavigationTitle(
   if (path == Routes.publicidad) return 'Publicidad';
   if (path == Routes.galeriaPublicidad) return 'Galería de Publicidad';
   if (path == Routes.whatsappCrm) return 'CRM WhatsApp';
+  if (path == Routes.crmComercial) return 'CRM Comercial';
   if (path == Routes.amonestaciones) return 'Amonestaciones';
   if (path == Routes.misAmonestacionesPendientes) {
     return 'Mis pendientes de firma';

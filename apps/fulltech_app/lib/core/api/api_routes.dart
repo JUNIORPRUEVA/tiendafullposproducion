@@ -82,6 +82,17 @@ class ApiRoutes {
   static String clientProfile(String id) => '/clients/$id/profile';
   static String clientTimeline(String id) => '/clients/$id/timeline';
 
+  // CRM Comercial
+  static const crmCommercialCustomers = '/crm-commercial/customers';
+  static String crmCommercialCustomerById(String id) =>
+      '/crm-commercial/customers/$id';
+  static String crmCommercialCustomerStatus(String id) =>
+      '/crm-commercial/customers/$id/status';
+  static String crmCommercialCustomerNotes(String id) =>
+      '/crm-commercial/customers/$id/notes';
+  static String crmCommercialCustomerActivities(String id) =>
+      '/crm-commercial/customers/$id/activities';
+
   // Productos
   static const products = '/products';
   static const catalogProducts = '/catalog/products';

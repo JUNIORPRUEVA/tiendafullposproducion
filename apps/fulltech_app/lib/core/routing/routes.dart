@@ -45,6 +45,7 @@ class Routes {
   static const administracionComisiones = '/administracion/comisiones';
   static const administracionCotizaciones = '/administracion/cotizaciones';
   static const whatsappCrm = '/whatsapp-crm';
+  static const crmComercial = '/crm-comercial';
 
   // Amonestaciones
   static const amonestaciones = '/amonestaciones';

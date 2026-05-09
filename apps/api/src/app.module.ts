@@ -30,6 +30,7 @@ import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { WhatsappInboxModule } from './whatsapp-inbox/whatsapp-inbox.module';
 import { EmployeeWarningsModule } from './employee-warnings/employee-warnings.module';
 import { MarketingModule } from './marketing/marketing.module';
+import { CrmCommercialModule } from './crm-commercial/crm-commercial.module';
 
 @Module({
   imports: [
@@ -70,6 +71,7 @@ import { MarketingModule } from './marketing/marketing.module';
     WhatsappInboxModule,
     EmployeeWarningsModule,
     MarketingModule,
+    CrmCommercialModule,
   ]
 })
 export class AppModule {}
