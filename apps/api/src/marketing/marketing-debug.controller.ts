@@ -43,4 +43,18 @@ export class MarketingDebugController {
       sync,
     );
   }
+
+  @Get('stories/today')
+  async debugStoriesForToday() {
+    const companyId = this.marketing.resolveCompanyId();
+    const now = new Date();
+    const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const result = await this.marketing.listDailyStories(companyId, today);
+    return {
+      companyId,
+      date: today.toISOString(),
+      timestamp: new Date().toISOString(),
+      ...result,
+    };
+  }
 }
