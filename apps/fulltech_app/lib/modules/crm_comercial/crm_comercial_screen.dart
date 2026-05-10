@@ -1,5 +1,6 @@
 ﻿import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart' as ep;
@@ -1562,120 +1563,669 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
     }
   }
 
-  Future<void> _openQuickMessagesDialog() async {
-    if (_quickReplies.isEmpty) {
-      await _loadQuickReplies();
+  IconData _libraryTypeIcon(String type) {
+    switch (type.toUpperCase()) {
+      case 'IMAGE':
+        return Icons.photo_outlined;
+      case 'VIDEO':
+        return Icons.videocam_outlined;
+      case 'AUDIO':
+        return Icons.audiotrack_rounded;
+      case 'DOCUMENT':
+        return Icons.insert_drive_file_outlined;
+      case 'LOCATION':
+        return Icons.location_on_outlined;
+      case 'BANK_ACCOUNT':
+        return Icons.account_balance_rounded;
+      case 'BUSINESS_HOURS':
+        return Icons.schedule_rounded;
+      case 'CATALOG':
+        return Icons.inventory_2_outlined;
+      case 'QUOTE_TEMPLATE':
+        return Icons.description_outlined;
+      case 'LINK':
+        return Icons.link_rounded;
+      case 'PROMOTION':
+        return Icons.local_offer_outlined;
+      case 'WARRANTY':
+        return Icons.verified_outlined;
+      case 'FAQ':
+        return Icons.quiz_outlined;
+      case 'FOLLOW_UP':
+        return Icons.follow_the_signs_rounded;
+      default:
+        return Icons.text_fields_rounded;
+    }
+  }
+
+  String _libraryTypeLabel(String type) {
+    switch (type.toUpperCase()) {
+      case 'IMAGE':
+        return 'Imagen';
+      case 'VIDEO':
+        return 'Video';
+      case 'AUDIO':
+        return 'Audio';
+      case 'DOCUMENT':
+        return 'Documento';
+      case 'LOCATION':
+        return 'Ubicación';
+      case 'BANK_ACCOUNT':
+        return 'Cuenta bancaria';
+      case 'BUSINESS_HOURS':
+        return 'Horario';
+      case 'CATALOG':
+        return 'Catálogo';
+      case 'QUOTE_TEMPLATE':
+        return 'Plantilla cotización';
+      case 'LINK':
+        return 'Enlace';
+      case 'PROMOTION':
+        return 'Promoción';
+      case 'WARRANTY':
+        return 'Garantía';
+      case 'FAQ':
+        return 'FAQ';
+      case 'FOLLOW_UP':
+        return 'Seguimiento';
+      default:
+        return 'Texto';
+    }
+  }
+
+  bool _isLibraryItemMedia(CrmComercialLibraryItem item) {
+    return const {'IMAGE', 'VIDEO', 'AUDIO', 'DOCUMENT'}.contains(item.type.toUpperCase());
+  }
+
+  String _libraryInsertText(CrmComercialLibraryItem item) {
+    final text = (item.contentText ?? '').trim();
+    if (text.isNotEmpty) return text;
+    final url = (item.externalUrl ?? '').trim();
+    if (url.isNotEmpty) return url;
+    return item.title.trim();
+  }
+
+  String _formatLibraryPreview(CrmComercialLibraryItem item) {
+    final parts = <String>[];
+    if ((item.description ?? '').trim().isNotEmpty) parts.add(item.description!.trim());
+    if ((item.contentText ?? '').trim().isNotEmpty) parts.add(item.contentText!.trim());
+    if ((item.externalUrl ?? '').trim().isNotEmpty) parts.add(item.externalUrl!.trim());
+    if ((item.mediaUrl ?? '').trim().isNotEmpty) parts.add(item.mediaUrl!.trim());
+    return parts.join('\n\n');
+  }
+
+  Future<void> _copyLibraryItemToClipboard(CrmComercialLibraryItem item) async {
+    final text = _libraryInsertText(item);
+    if (text.trim().isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Recurso copiado al portapapeles.')),
+    );
+  }
+
+  Future<void> _insertLibraryItemIntoComposer(CrmComercialLibraryItem item) async {
+    final text = _libraryInsertText(item);
+    if (text.trim().isEmpty) return;
+    _insertTextInComposer(text);
+    await ref.read(crmComercialRepositoryProvider).useLibraryItem(item.id);
+  }
+
+  Future<void> _sendLibraryItemDirect(CrmComercialLibraryItem item) async {
+    if (_selectedConversation == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Selecciona una conversación antes de enviar directamente.')),
+        );
+      }
+      return;
     }
 
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Enviar recurso'),
+          content: Text('¿Deseas enviar "${item.title}" directamente al cliente?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Enviar'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) return;
+
+    if (_isLibraryItemMedia(item) && (item.mediaUrl ?? '').trim().isNotEmpty) {
+      final bytes = await ref.read(crmComercialRepositoryProvider).downloadMediaBytes(item.mediaUrl!.trim());
+      if (bytes.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No se pudo cargar el archivo del recurso.')),
+          );
+        }
+        return;
+      }
+      final base64Data = base64Encode(bytes);
+      final conversation = _selectedConversation!;
+      final mediaType = item.type.toLowerCase();
+      final mimeType = (item.mimeType ?? '').trim().isNotEmpty
+          ? item.mimeType!.trim()
+          : 'application/octet-stream';
+      final fileName = (item.fileName ?? item.title).trim();
+      if (conversation.id.isNotEmpty) {
+        await ref.read(crmComercialRepositoryProvider).replyConversationMedia(
+          conversationId: conversation.id,
+          mediaType: mediaType,
+          mimeType: mimeType,
+          fileName: fileName,
+          base64Data: base64Data,
+          caption: (item.contentText ?? '').trim().isNotEmpty ? item.contentText!.trim() : null,
+        );
+      }
+    } else {
+      final text = _libraryInsertText(item);
+      if (text.trim().isEmpty) return;
+      _chatComposerCtrl.text = text;
+      await _sendMessageToCurrentConversation();
+    }
+
+    await ref.read(crmComercialRepositoryProvider).useLibraryItem(item.id);
+  }
+
+  Future<CrmComercialLibraryItem?> _openCommercialLibraryItemEditorDialog({
+    CrmComercialLibraryItem? initial,
+  }) async {
+    final titleCtrl = TextEditingController(text: initial?.title ?? '');
+    final descriptionCtrl = TextEditingController(text: initial?.description ?? '');
+    final contentCtrl = TextEditingController(text: initial?.contentText ?? '');
+    final mediaUrlCtrl = TextEditingController(text: initial?.mediaUrl ?? '');
+    final fileNameCtrl = TextEditingController(text: initial?.fileName ?? '');
+    final mimeTypeCtrl = TextEditingController(text: initial?.mimeType ?? '');
+    final externalUrlCtrl = TextEditingController(text: initial?.externalUrl ?? '');
+    final categoryCtrl = TextEditingController(text: initial?.category ?? '');
+    final tagsCtrl = TextEditingController(text: (initial?.tags ?? const []).join(', '));
+    final latitudeCtrl = TextEditingController(text: initial?.latitude?.toString() ?? '');
+    final longitudeCtrl = TextEditingController(text: initial?.longitude?.toString() ?? '');
+    final sortOrderCtrl = TextEditingController(text: initial?.sortOrder.toString() ?? '0');
+    var isActive = initial?.isActive ?? true;
+    String selectedType = initial?.type ?? 'TEXT';
+    String error = '';
+
+    final result = await showDialog<CrmComercialLibraryItem>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Text(initial == null ? 'Crear recurso' : 'Editar recurso'),
+              content: SizedBox(
+                width: 760,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextField(
+                        controller: titleCtrl,
+                        decoration: const InputDecoration(labelText: 'Título'),
+                      ),
+                      const SizedBox(height: 8),
+                      DropdownButtonFormField<String>(
+                        value: selectedType,
+                        decoration: const InputDecoration(labelText: 'Tipo'),
+                        items: const [
+                          DropdownMenuItem(value: 'TEXT', child: Text('Texto')),
+                          DropdownMenuItem(value: 'IMAGE', child: Text('Imagen')),
+                          DropdownMenuItem(value: 'VIDEO', child: Text('Video')),
+                          DropdownMenuItem(value: 'AUDIO', child: Text('Audio')),
+                          DropdownMenuItem(value: 'DOCUMENT', child: Text('Documento')),
+                          DropdownMenuItem(value: 'LOCATION', child: Text('Ubicación')),
+                          DropdownMenuItem(value: 'BANK_ACCOUNT', child: Text('Cuenta bancaria')),
+                          DropdownMenuItem(value: 'BUSINESS_HOURS', child: Text('Horario')),
+                          DropdownMenuItem(value: 'CATALOG', child: Text('Catálogo')),
+                          DropdownMenuItem(value: 'QUOTE_TEMPLATE', child: Text('Plantilla cotización')),
+                          DropdownMenuItem(value: 'LINK', child: Text('Enlace')),
+                          DropdownMenuItem(value: 'PROMOTION', child: Text('Promoción')),
+                          DropdownMenuItem(value: 'WARRANTY', child: Text('Garantía')),
+                          DropdownMenuItem(value: 'FAQ', child: Text('FAQ')),
+                          DropdownMenuItem(value: 'FOLLOW_UP', child: Text('Seguimiento')),
+                        ],
+                        onChanged: (value) {
+                          if (value == null) return;
+                          setDialogState(() => selectedType = value);
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: descriptionCtrl,
+                        minLines: 2,
+                        maxLines: 4,
+                        decoration: const InputDecoration(labelText: 'Descripción'),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: contentCtrl,
+                        minLines: 3,
+                        maxLines: 6,
+                        decoration: const InputDecoration(labelText: 'Contenido de texto'),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: mediaUrlCtrl,
+                        decoration: const InputDecoration(labelText: 'Media URL'),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: fileNameCtrl,
+                        decoration: const InputDecoration(labelText: 'Nombre del archivo'),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: mimeTypeCtrl,
+                        decoration: const InputDecoration(labelText: 'MIME type'),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: externalUrlCtrl,
+                        decoration: const InputDecoration(labelText: 'Enlace externo'),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: categoryCtrl,
+                        decoration: const InputDecoration(labelText: 'Categoría'),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: tagsCtrl,
+                        decoration: const InputDecoration(labelText: 'Etiquetas separadas por coma'),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: latitudeCtrl,
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(labelText: 'Latitud'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: TextField(
+                              controller: longitudeCtrl,
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(labelText: 'Longitud'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: sortOrderCtrl,
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(labelText: 'Orden'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          FilterChip(
+                            selected: isActive,
+                            label: const Text('Activo'),
+                            onSelected: (value) => setDialogState(() => isActive = value),
+                          ),
+                        ],
+                      ),
+                      if (error.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            error,
+                            style: const TextStyle(fontSize: 12, color: AppColors.error),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cancelar'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    final title = titleCtrl.text.trim();
+                    if (title.isEmpty) {
+                      setDialogState(() => error = 'El título es obligatorio.');
+                      return;
+                    }
+                    final tags = tagsCtrl.text
+                        .split(',')
+                        .map((tag) => tag.trim())
+                        .where((tag) => tag.isNotEmpty)
+                        .toList(growable: false);
+                    final latitude = double.tryParse(latitudeCtrl.text.trim());
+                    final longitude = double.tryParse(longitudeCtrl.text.trim());
+                    final sortOrder = int.tryParse(sortOrderCtrl.text.trim()) ?? 0;
+                    Navigator.of(dialogContext).pop(
+                      CrmComercialLibraryItem(
+                        id: initial?.id ?? '',
+                        companyId: initial?.companyId ?? '',
+                        title: title,
+                        type: selectedType,
+                        isActive: isActive,
+                        sortOrder: sortOrder,
+                        tags: tags,
+                        useCount: initial?.useCount ?? 0,
+                        description: descriptionCtrl.text.trim().isEmpty
+                            ? null
+                            : descriptionCtrl.text.trim(),
+                        contentText: contentCtrl.text.trim().isEmpty
+                            ? null
+                            : contentCtrl.text.trim(),
+                        mediaUrl: mediaUrlCtrl.text.trim().isEmpty
+                            ? null
+                            : mediaUrlCtrl.text.trim(),
+                        fileName: fileNameCtrl.text.trim().isEmpty
+                            ? null
+                            : fileNameCtrl.text.trim(),
+                        mimeType: mimeTypeCtrl.text.trim().isEmpty
+                            ? null
+                            : mimeTypeCtrl.text.trim(),
+                        latitude: latitude,
+                        longitude: longitude,
+                        externalUrl: externalUrlCtrl.text.trim().isEmpty
+                            ? null
+                            : externalUrlCtrl.text.trim(),
+                        category: categoryCtrl.text.trim().isEmpty
+                            ? null
+                            : categoryCtrl.text.trim(),
+                      ),
+                    );
+                  },
+                  child: const Text('Guardar'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    titleCtrl.dispose();
+    descriptionCtrl.dispose();
+    contentCtrl.dispose();
+    mediaUrlCtrl.dispose();
+    fileNameCtrl.dispose();
+    mimeTypeCtrl.dispose();
+    externalUrlCtrl.dispose();
+    categoryCtrl.dispose();
+    tagsCtrl.dispose();
+    latitudeCtrl.dispose();
+    longitudeCtrl.dispose();
+    sortOrderCtrl.dispose();
+    return result;
+  }
+
+  Future<void> _openCommercialLibraryDialog() async {
     var query = '';
+    String? selectedType;
+    var selectedCategory = '';
+    var onlyActive = true;
+    var loading = true;
+    var items = <CrmComercialLibraryItem>[];
+
+    Future<void> reload(StateSetter setDialogState) async {
+      setDialogState(() => loading = true);
+      final response = await ref.read(crmComercialRepositoryProvider).listLibrary(
+            type: selectedType,
+            category: selectedCategory.trim().isEmpty ? null : selectedCategory.trim(),
+            search: query.trim().isEmpty ? null : query.trim(),
+            isActive: onlyActive ? true : null,
+          );
+      if (!mounted) return;
+      setDialogState(() {
+        items = response.items;
+        loading = false;
+      });
+    }
+
+    Future<void> createItem(StateSetter setDialogState) async {
+      final created = await _openCommercialLibraryItemEditorDialog();
+      if (created == null) return;
+      await ref.read(crmComercialRepositoryProvider).createLibraryItem({
+        'title': created.title,
+        'type': created.type,
+        if ((created.description ?? '').trim().isNotEmpty) 'description': created.description,
+        if ((created.contentText ?? '').trim().isNotEmpty) 'contentText': created.contentText,
+        if ((created.mediaUrl ?? '').trim().isNotEmpty) 'mediaUrl': created.mediaUrl,
+        if ((created.fileName ?? '').trim().isNotEmpty) 'fileName': created.fileName,
+        if ((created.mimeType ?? '').trim().isNotEmpty) 'mimeType': created.mimeType,
+        if (created.latitude != null) 'latitude': created.latitude,
+        if (created.longitude != null) 'longitude': created.longitude,
+        if ((created.externalUrl ?? '').trim().isNotEmpty) 'externalUrl': created.externalUrl,
+        if ((created.category ?? '').trim().isNotEmpty) 'category': created.category,
+        'tags': created.tags,
+        'isActive': created.isActive,
+        'sortOrder': created.sortOrder,
+      });
+      await reload(setDialogState);
+    }
+
+    Future<void> editItem(CrmComercialLibraryItem item, StateSetter setDialogState) async {
+      final edited = await _openCommercialLibraryItemEditorDialog(initial: item);
+      if (edited == null) return;
+      await ref.read(crmComercialRepositoryProvider).updateLibraryItem(item.id, {
+        'title': edited.title,
+        'type': edited.type,
+        if ((edited.description ?? '').trim().isNotEmpty) 'description': edited.description,
+        if ((edited.contentText ?? '').trim().isNotEmpty) 'contentText': edited.contentText,
+        if ((edited.mediaUrl ?? '').trim().isNotEmpty) 'mediaUrl': edited.mediaUrl,
+        if ((edited.fileName ?? '').trim().isNotEmpty) 'fileName': edited.fileName,
+        if ((edited.mimeType ?? '').trim().isNotEmpty) 'mimeType': edited.mimeType,
+        if (edited.latitude != null) 'latitude': edited.latitude,
+        if (edited.longitude != null) 'longitude': edited.longitude,
+        if ((edited.externalUrl ?? '').trim().isNotEmpty) 'externalUrl': edited.externalUrl,
+        if ((edited.category ?? '').trim().isNotEmpty) 'category': edited.category,
+        'tags': edited.tags,
+        'isActive': edited.isActive,
+        'sortOrder': edited.sortOrder,
+      });
+      await reload(setDialogState);
+    }
+
+    Future<void> deleteItem(CrmComercialLibraryItem item, StateSetter setDialogState) async {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Eliminar recurso'),
+          content: Text('¿Deseas desactivar "${item.title}"?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Eliminar'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+      await ref.read(crmComercialRepositoryProvider).deleteLibraryItem(item.id);
+      await reload(setDialogState);
+    }
+
     await showDialog<void>(
       context: context,
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            final filtered = _quickReplies
-                .where(
-                  (item) =>
-                      item.label.toLowerCase().contains(query.toLowerCase()) ||
-                      item.text.toLowerCase().contains(query.toLowerCase()),
-                )
-                .toList(growable: false);
-
-            Future<void> insertSpecial(Future<String> Function() builder) async {
-              Navigator.of(dialogContext).pop();
-              final text = await builder();
-              if (!mounted) return;
-              _insertTextInComposer(text);
+            if (loading && items.isEmpty) {
+              reload(setDialogState);
             }
 
+            final filtered = items;
+
             return AlertDialog(
-              title: const Text('Mensajes rápidos'),
+              title: const Text('Biblioteca Comercial'),
               content: SizedBox(
-                width: 520,
+                width: 920,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     TextField(
-                      onChanged: (value) => setDialogState(() => query = value),
+                      onChanged: (value) {
+                        query = value;
+                        reload(setDialogState);
+                      },
                       decoration: const InputDecoration(
-                        hintText: 'Buscar mensaje rápido',
+                        hintText: 'Buscar recurso',
                         prefixIcon: Icon(Icons.search_rounded),
                       ),
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 8),
                     Wrap(
                       spacing: 6,
                       runSpacing: 6,
                       children: [
-                        OutlinedButton.icon(
-                          onPressed: () => insertSpecial(_buildGpsMessage),
-                          icon: const Icon(Icons.location_on_outlined, size: 16),
-                          label: const Text('Ubicación GPS'),
-                        ),
-                        OutlinedButton.icon(
-                          onPressed: () => insertSpecial(_buildStoreHoursMessage),
-                          icon: const Icon(Icons.schedule_rounded, size: 16),
-                          label: const Text('Horario'),
-                        ),
-                        OutlinedButton.icon(
-                          onPressed: () => insertSpecial(_buildBankAccountsMessage),
-                          icon: const Icon(Icons.account_balance_rounded, size: 16),
-                          label: const Text('Cuentas'),
-                        ),
-                        OutlinedButton.icon(
-                          onPressed: () => insertSpecial(_buildCatalogMessage),
-                          icon: const Icon(Icons.inventory_2_outlined, size: 16),
-                          label: const Text('Catálogo'),
-                        ),
-                        OutlinedButton.icon(
-                          onPressed: () async {
-                            Navigator.of(dialogContext).pop();
-                            await _openQuickRepliesManagerDialog();
+                        FilterChip(
+                          label: const Text('Activos'),
+                          selected: onlyActive,
+                          onSelected: (value) {
+                            onlyActive = value;
+                            reload(setDialogState);
                           },
-                          icon: const Icon(Icons.edit_note_rounded, size: 16),
-                          label: const Text('Configurar'),
                         ),
+                        for (final type in const [
+                          'TEXT',
+                          'IMAGE',
+                          'VIDEO',
+                          'AUDIO',
+                          'DOCUMENT',
+                          'LOCATION',
+                          'BANK_ACCOUNT',
+                          'BUSINESS_HOURS',
+                          'CATALOG',
+                          'QUOTE_TEMPLATE',
+                          'LINK',
+                          'PROMOTION',
+                          'WARRANTY',
+                          'FAQ',
+                          'FOLLOW_UP',
+                        ])
+                          FilterChip(
+                            label: Text(_libraryTypeLabel(type)),
+                            selected: selectedType == type,
+                            onSelected: (value) {
+                              selectedType = value ? type : null;
+                              reload(setDialogState);
+                            },
+                          ),
                       ],
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: FilledButton.icon(
+                        onPressed: () => createItem(setDialogState),
+                        icon: const Icon(Icons.add_rounded, size: 16),
+                        label: const Text('Crear'),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
                     ConstrainedBox(
-                      constraints: const BoxConstraints(maxHeight: 260),
-                      child: filtered.isEmpty
-                          ? const Center(
-                              child: Padding(
-                                padding: EdgeInsets.all(16),
-                                child: Text('No se encontraron mensajes.'),
-                              ),
-                            )
-                          : ListView.separated(
-                              shrinkWrap: true,
-                              itemCount: filtered.length,
-                              separatorBuilder: (_, __) =>
-                                  Divider(height: 1, color: _waBorder.withAlpha(80)),
-                              itemBuilder: (context, index) {
-                                final item = filtered[index];
-                                return ListTile(
-                                  dense: true,
-                                  leading: const Icon(Icons.flash_on_rounded, size: 18),
-                                  title: Text(
-                                    item.label,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(fontSize: 12.5),
-                                  ),
-                                  subtitle: Text(
-                                    item.text,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(fontSize: 11, color: _waTextMuted),
-                                  ),
-                                  onTap: () {
-                                    Navigator.of(dialogContext).pop();
-                                    _insertTextInComposer(item.text);
+                      constraints: const BoxConstraints(maxHeight: 440),
+                      child: loading
+                          ? const Center(child: CircularProgressIndicator())
+                          : filtered.isEmpty
+                              ? const Center(child: Text('No hay recursos configurados.'))
+                              : ListView.separated(
+                                  shrinkWrap: true,
+                                  itemCount: filtered.length,
+                                  separatorBuilder: (_, __) =>
+                                      Divider(height: 1, color: _waBorder.withAlpha(80)),
+                                  itemBuilder: (context, index) {
+                                    final item = filtered[index];
+                                    return Card(
+                                      child: ListTile(
+                                        leading: Icon(_libraryTypeIcon(item.type), color: _waGreenDark),
+                                        title: Text(item.title),
+                                        subtitle: Text(
+                                          '${_libraryTypeLabel(item.type)}${(item.category ?? '').trim().isNotEmpty ? ' · ${item.category}' : ''}',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        isThreeLine: true,
+                                        onTap: () => _insertLibraryItemIntoComposer(item),
+                                        trailing: Wrap(
+                                          spacing: 0,
+                                          children: [
+                                            IconButton(
+                                              tooltip: 'Copiar',
+                                              icon: const Icon(Icons.copy_rounded),
+                                              onPressed: () => _copyLibraryItemToClipboard(item),
+                                            ),
+                                            IconButton(
+                                              tooltip: 'Insertar',
+                                              icon: const Icon(Icons.input_rounded),
+                                              onPressed: () => _insertLibraryItemIntoComposer(item),
+                                            ),
+                                            IconButton(
+                                              tooltip: 'Editar',
+                                              icon: const Icon(Icons.edit_outlined),
+                                              onPressed: () => editItem(item, setDialogState),
+                                            ),
+                                            IconButton(
+                                              tooltip: 'Eliminar',
+                                              icon: const Icon(Icons.delete_outline_rounded),
+                                              onPressed: () => deleteItem(item, setDialogState),
+                                            ),
+                                            IconButton(
+                                              tooltip: 'Vista previa',
+                                              icon: const Icon(Icons.visibility_outlined),
+                                              onPressed: () async {
+                                                final preview = _formatLibraryPreview(item);
+                                                await showDialog<void>(
+                                                  context: context,
+                                                  builder: (previewContext) => AlertDialog(
+                                                    title: Text(item.title),
+                                                    content: SingleChildScrollView(
+                                                      child: SelectableText(preview.isNotEmpty ? preview : 'Sin contenido adicional.'),
+                                                    ),
+                                                    actions: [
+                                                      TextButton(
+                                                        onPressed: () => Navigator.of(previewContext).pop(),
+                                                        child: const Text('Cerrar'),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                );
+                                              },
+                                            ),
+                                            IconButton(
+                                              tooltip: 'Enviar directo',
+                                              icon: const Icon(Icons.send_rounded),
+                                              onPressed: () => _sendLibraryItemDirect(item),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    );
                                   },
-                                );
-                              },
-                            ),
+                                ),
                     ),
                   ],
                 ),
@@ -1691,6 +2241,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
         );
       },
     );
+    }
   }
 
   Future<void> _openAttachmentMenu() async {
@@ -1698,10 +2249,6 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
       context: context,
       showDragHandle: true,
       builder: (context) {
-        final tools = _composerTools.isEmpty
-            ? _defaultComposerTools()
-            : _composerTools;
-
         Widget tile({
           required IconData icon,
           required String label,
@@ -1723,17 +2270,25 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                for (final tool in tools)
-                  tile(
-                    icon: _composerToolIcon(tool.actionType),
-                    label: tool.label,
-                    onTap: () => _runComposerToolAction(tool.actionType),
-                  ),
-                const Divider(height: 12),
                 tile(
-                  icon: Icons.tune_rounded,
-                  label: 'Configurar herramientas',
-                  onTap: _openComposerConfigurationDialog,
+                  icon: Icons.photo_outlined,
+                  label: 'Imagen',
+                  onTap: () => _runComposerToolAction('image'),
+                ),
+                tile(
+                  icon: Icons.videocam_outlined,
+                  label: 'Video',
+                  onTap: () => _runComposerToolAction('video'),
+                ),
+                tile(
+                  icon: Icons.audiotrack_rounded,
+                  label: 'Audio',
+                  onTap: () => _runComposerToolAction('audio'),
+                ),
+                tile(
+                  icon: Icons.insert_drive_file_outlined,
+                  label: 'Documento',
+                  onTap: () => _runComposerToolAction('document'),
                 ),
                 const SizedBox(height: 6),
               ],
@@ -2810,7 +3365,9 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
   }
 
   Future<void> _openQuickRepliesManagerDialog() async {
-    if (_quickReplies.isEmpty) {
+    await _openCommercialLibraryDialog();
+    if (DateTime.now().microsecondsSinceEpoch == -1) {
+      if (_quickReplies.isEmpty) {
       await _loadQuickReplies();
     }
     final working = List<_CrmQuickReplyTemplate>.from(_quickReplies);
@@ -2833,7 +3390,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              title: const Text('Configurar mensajes rápidos'),
+              title: const Text('Configurar Biblioteca Comercial'),
               content: SizedBox(
                 width: 560,
                 child: Column(
@@ -2858,7 +3415,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                           ? const Center(
                               child: Padding(
                                 padding: EdgeInsets.all(20),
-                                child: Text('Aún no hay mensajes rápidos configurados.'),
+                                child: Text('Aún no hay recursos configurados.'),
                               ),
                             )
                           : ListView.separated(
@@ -2970,7 +3527,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
         _insertTextInComposer(text);
         return;
       case 'quick_messages':
-        await _openQuickMessagesDialog();
+        await _openCommercialLibraryDialog();
         return;
       default:
         if (mounted) {
@@ -2993,7 +3550,6 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
       _CrmComposerToolTemplate(id: 'hours', label: 'Horario de tienda', actionType: 'store_hours'),
       _CrmComposerToolTemplate(id: 'bank_accounts', label: 'Cuentas bancarias', actionType: 'bank_accounts'),
       _CrmComposerToolTemplate(id: 'catalog', label: 'Catálogo de productos', actionType: 'catalog'),
-      _CrmComposerToolTemplate(id: 'quick_messages', label: 'Mensajes rápidos', actionType: 'quick_messages'),
     ];
   }
 
@@ -3051,7 +3607,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
       case 'catalog':
         return Icons.inventory_2_outlined;
       case 'quick_messages':
-        return Icons.flash_on_rounded;
+        return Icons.library_books_outlined;
       default:
         return Icons.tune_rounded;
     }
@@ -3080,7 +3636,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
       case 'catalog':
         return 'Catálogo de productos';
       case 'quick_messages':
-        return 'Mensajes rápidos';
+        return 'Biblioteca Comercial';
       default:
         return 'Herramienta';
     }
@@ -3130,7 +3686,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                         DropdownMenuItem(value: 'store_hours', child: Text('Horario de tienda')),
                         DropdownMenuItem(value: 'bank_accounts', child: Text('Cuentas bancarias')),
                         DropdownMenuItem(value: 'catalog', child: Text('Catálogo de productos')),
-                        DropdownMenuItem(value: 'quick_messages', child: Text('Mensajes rápidos')),
+                        DropdownMenuItem(value: 'quick_messages', child: Text('Biblioteca Comercial')),
                       ],
                       onChanged: (value) {
                         if (value == null) return;
@@ -3327,9 +3883,9 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 ListTile(
-                  leading: const Icon(Icons.flash_on_rounded),
-                  title: const Text('Mensajes rápidos'),
-                  subtitle: const Text('Agregar, editar o eliminar respuestas predefinidas.'),
+                  leading: const Icon(Icons.library_books_outlined),
+                  title: const Text('Biblioteca Comercial'),
+                  subtitle: const Text('Crear, editar y reutilizar recursos comerciales.'),
                   trailing: const Icon(Icons.chevron_right_rounded),
                   onTap: () async {
                     Navigator.of(dialogContext).pop();
@@ -3338,7 +3894,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                 ),
                 ListTile(
                   leading: const Icon(Icons.attach_file_rounded),
-                  title: const Text('Adjuntos y atajos'),
+                  title: const Text('Atajos manuales'),
                   subtitle: const Text('Configurar acciones visibles en el menú de adjuntar.'),
                   trailing: const Icon(Icons.chevron_right_rounded),
                   onTap: () async {
@@ -4478,10 +5034,10 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                       icon: const Icon(Icons.attach_file_rounded, size: 20),
                     ),
                     IconButton(
-                      tooltip: 'Mensajes rápidos',
+                      tooltip: 'Biblioteca Comercial',
                       visualDensity: VisualDensity.compact,
-                      onPressed: _openQuickMessagesDialog,
-                      icon: const Icon(Icons.flash_on_rounded, size: 20),
+                      onPressed: _openCommercialLibraryDialog,
+                      icon: const Icon(Icons.library_books_outlined, size: 20),
                     ),
                     IconButton(
                       tooltip: 'Configurar atajos',

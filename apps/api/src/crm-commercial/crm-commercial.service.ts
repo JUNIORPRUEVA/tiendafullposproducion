@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import {
   CrmCommercialCustomerStatus,
+  CrmCommercialLibraryItemType,
   CrmCommercialFollowupTaskPriority,
   CrmCommercialFollowupTaskStatus,
   Prisma,
@@ -36,8 +37,27 @@ import {
 import { SuggestCrmCommercialOrthographyDto } from './dto/suggest-crm-commercial-orthography.dto';
 import { SuggestCrmCommercialReplyDto } from './dto/suggest-crm-commercial-reply.dto';
 import { AiAssistantService } from '../ai-assistant/ai-assistant.service';
+import {
+  CreateCrmCommercialLibraryItemDto,
+  CrmCommercialLibraryItemQueryDto,
+  UpdateCrmCommercialLibraryItemDto,
+} from './dto/crm-commercial-library-item.dto';
 
 type AuthUser = { id: string; role: Role };
+
+type CrmLibraryKnowledgeItem = {
+  id: string;
+  title: string;
+  type: CrmCommercialLibraryItemType;
+  contentText: string | null;
+  mediaUrl: string | null;
+  fileName: string | null;
+  mimeType: string | null;
+  externalUrl: string | null;
+  category: string | null;
+  tags: string[];
+  isActive: boolean;
+};
 
 @Injectable()
 export class CrmCommercialService {
@@ -48,6 +68,146 @@ export class CrmCommercialService {
     private readonly redis: RedisService,
     private readonly aiAssistantService: AiAssistantService,
   ) {}
+
+  private getCompanyId(): string {
+    return process.env.COMPANY_ID ?? '00000000-0000-0000-0000-000000000001';
+  }
+
+  private normalizeLibraryText(value: string) {
+    return value
+      .toLowerCase()
+      .replace(/[áàäâ]/g, 'a')
+      .replace(/[éèëê]/g, 'e')
+      .replace(/[íìïî]/g, 'i')
+      .replace(/[óòöô]/g, 'o')
+      .replace(/[úùüû]/g, 'u')
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  private libraryTypeFromIntent(intent: string): CrmCommercialLibraryItemType[] {
+    switch (intent) {
+      case 'pide_ubicacion':
+        return [CrmCommercialLibraryItemType.LOCATION, CrmCommercialLibraryItemType.LINK];
+      case 'pide_horario':
+        return [CrmCommercialLibraryItemType.BUSINESS_HOURS, CrmCommercialLibraryItemType.TEXT];
+      case 'pide_cuenta_bancaria':
+        return [CrmCommercialLibraryItemType.BANK_ACCOUNT, CrmCommercialLibraryItemType.TEXT];
+      case 'pide_catalogo':
+      case 'pregunta_precio':
+      case 'quiere_cotizacion':
+        return [CrmCommercialLibraryItemType.CATALOG, CrmCommercialLibraryItemType.QUOTE_TEMPLATE, CrmCommercialLibraryItemType.TEXT, CrmCommercialLibraryItemType.LINK];
+      case 'quiere_instalacion':
+      case 'quiere_seguimiento':
+        return [CrmCommercialLibraryItemType.FOLLOW_UP, CrmCommercialLibraryItemType.TEXT];
+      case 'cliente_molesto':
+        return [CrmCommercialLibraryItemType.FAQ, CrmCommercialLibraryItemType.WARRANTY, CrmCommercialLibraryItemType.TEXT];
+      case 'quiere_comprar':
+        return [CrmCommercialLibraryItemType.PROMOTION, CrmCommercialLibraryItemType.QUOTE_TEMPLATE, CrmCommercialLibraryItemType.TEXT];
+      default:
+        return [CrmCommercialLibraryItemType.TEXT, CrmCommercialLibraryItemType.FAQ, CrmCommercialLibraryItemType.PROMOTION];
+    }
+  }
+
+  private buildLibrarySearchTerms(message: string): string[] {
+    return this.normalizeLibraryText(message)
+      .split(' ')
+      .map((term) => term.trim())
+      .filter((term) => term.length >= 3)
+      .slice(0, 8);
+  }
+
+  private async findLibraryItemsForMessage(
+    companyId: string,
+    message: string,
+    limit = 12,
+  ) {
+    const normalized = this.normalizeLibraryText(message);
+    const typeHints = this.libraryTypeFromIntent(
+      normalized.includes('ubicacion') || normalized.includes('direccion') || normalized.includes('donde')
+        ? 'pide_ubicacion'
+        : normalized.includes('horario') || normalized.includes('hora')
+          ? 'pide_horario'
+          : normalized.includes('cuenta') || normalized.includes('banco') || normalized.includes('transferencia')
+            ? 'pide_cuenta_bancaria'
+            : normalized.includes('catalogo') || normalized.includes('productos')
+              ? 'pide_catalogo'
+              : normalized.includes('precio')
+                ? 'pregunta_precio'
+                : normalized.includes('cotizacion')
+                  ? 'quiere_cotizacion'
+                  : normalized.includes('seguimiento')
+                    ? 'quiere_seguimiento'
+                    : normalized.includes('garantia')
+                      ? 'cliente_molesto'
+                      : normalized.includes('comprar')
+                        ? 'quiere_comprar'
+                        : 'general',
+    );
+    const searchTerms = this.buildLibrarySearchTerms(message);
+
+    const items = await this.prisma.crmCommercialLibraryItem.findMany({
+      where: {
+        companyId,
+        isActive: true,
+        ...(typeHints.length > 0 ? { type: { in: typeHints } } : {}),
+        ...(searchTerms.length > 0
+          ? {
+              OR: [
+                { title: { contains: normalized, mode: 'insensitive' } },
+                { description: { contains: normalized, mode: 'insensitive' } },
+                { contentText: { contains: normalized, mode: 'insensitive' } },
+                { category: { contains: normalized, mode: 'insensitive' } },
+                { externalUrl: { contains: normalized, mode: 'insensitive' } },
+                { tags: { hasSome: searchTerms } },
+              ],
+            }
+          : {}),
+      },
+      orderBy: [{ sortOrder: 'asc' }, { updatedAt: 'desc' }],
+      take: limit,
+    });
+
+    return items.map((item) => ({
+      id: item.id,
+      title: item.title,
+      type: item.type,
+      contentText: item.contentText,
+      mediaUrl: item.mediaUrl,
+      fileName: item.fileName,
+      mimeType: item.mimeType,
+      externalUrl: item.externalUrl,
+      category: item.category,
+      tags: item.tags ?? [],
+      isActive: item.isActive,
+    } satisfies CrmLibraryKnowledgeItem));
+  }
+
+  private librarySelect = {
+    id: true,
+    companyId: true,
+    title: true,
+    description: true,
+    type: true,
+    contentText: true,
+    mediaUrl: true,
+    fileName: true,
+    mimeType: true,
+    latitude: true,
+    longitude: true,
+    externalUrl: true,
+    category: true,
+    tags: true,
+    isActive: true,
+    sortOrder: true,
+    createdByUserId: true,
+    updatedByUserId: true,
+    useCount: true,
+    lastUsedAt: true,
+    createdAt: true,
+    updatedAt: true,
+  } as const;
 
   private extractEvolutionMessageId(result: unknown): string | undefined {
     if (!result || typeof result !== 'object') return undefined;
@@ -169,7 +329,8 @@ export class CrmCommercialService {
       throw new BadRequestException('No hay un mensaje reciente del cliente para analizar.');
     }
 
-    const [appConfig, products] = await Promise.all([
+    const companyId = this.getCompanyId();
+    const [appConfig, products, libraryItems] = await Promise.all([
       this.prisma.appConfig.findUnique({
         where: { id: 'global' },
         select: {
@@ -188,6 +349,7 @@ export class CrmCommercialService {
           precio: true,
         },
       }),
+      this.findLibraryItemsForMessage(companyId, lastCustomerMessage, 12),
     ]);
 
     const rawAccounts = Array.isArray(appConfig?.bankAccounts)
@@ -240,6 +402,7 @@ export class CrmCommercialService {
         businessHours: (appConfig?.businessHours ?? '').toString().trim(),
         bankAccounts,
         catalogSummary,
+        libraryItems,
       },
     });
 
@@ -252,6 +415,156 @@ export class CrmCommercialService {
       dataUsed: suggestion.dataUsed,
       autoSend: false,
     };
+  }
+
+  async listLibrary(user: AuthUser, query: CrmCommercialLibraryItemQueryDto) {
+    if (!this.isAdmin(user)) {
+      throw new ForbiddenException('Solo ADMIN puede leer la biblioteca comercial');
+    }
+
+    const companyId = this.getCompanyId();
+    const where: Prisma.CrmCommercialLibraryItemWhereInput = { companyId };
+    if (query.type) where.type = query.type;
+    if (typeof query.isActive === 'boolean') where.isActive = query.isActive;
+    if (query.category?.trim()) {
+      where.category = { contains: query.category.trim(), mode: 'insensitive' };
+    }
+    if (query.search?.trim()) {
+      const search = query.search.trim();
+      where.OR = [
+        { title: { contains: search, mode: 'insensitive' } },
+        { description: { contains: search, mode: 'insensitive' } },
+        { contentText: { contains: search, mode: 'insensitive' } },
+        { externalUrl: { contains: search, mode: 'insensitive' } },
+        { fileName: { contains: search, mode: 'insensitive' } },
+        { category: { contains: search, mode: 'insensitive' } },
+        { tags: { hasSome: this.buildLibrarySearchTerms(search) } },
+      ];
+    }
+
+    const items = await this.prisma.crmCommercialLibraryItem.findMany({
+      where,
+      orderBy: [{ sortOrder: 'asc' }, { updatedAt: 'desc' }],
+      take: query.limit ? Math.min(Math.max(query.limit, 1), 200) : 100,
+      select: this.librarySelect,
+    });
+
+    return { items };
+  }
+
+  async createLibraryItem(user: AuthUser, dto: CreateCrmCommercialLibraryItemDto) {
+    if (!this.isAdmin(user)) {
+      throw new ForbiddenException('Solo ADMIN puede crear recursos de biblioteca');
+    }
+
+    const item = await this.prisma.crmCommercialLibraryItem.create({
+      data: {
+        companyId: (dto.companyId ?? this.getCompanyId()).trim(),
+        title: dto.title.trim(),
+        description: this.normalizeText(dto.description),
+        type: dto.type,
+        contentText: this.normalizeText(dto.contentText),
+        mediaUrl: this.normalizeText(dto.mediaUrl),
+        fileName: this.normalizeText(dto.fileName),
+        mimeType: this.normalizeText(dto.mimeType),
+        latitude: dto.latitude != null ? new Prisma.Decimal(dto.latitude) : undefined,
+        longitude: dto.longitude != null ? new Prisma.Decimal(dto.longitude) : undefined,
+        externalUrl: this.normalizeText(dto.externalUrl),
+        category: this.normalizeText(dto.category),
+        tags: (dto.tags ?? []).map((tag) => tag.trim()).filter((tag) => tag.length > 0),
+        isActive: dto.isActive ?? true,
+        sortOrder: dto.sortOrder ?? 0,
+        createdByUserId: user.id,
+        updatedByUserId: user.id,
+      },
+      select: this.librarySelect,
+    });
+
+    return item;
+  }
+
+  async updateLibraryItem(
+    user: AuthUser,
+    id: string,
+    dto: UpdateCrmCommercialLibraryItemDto,
+  ) {
+    if (!this.isAdmin(user)) {
+      throw new ForbiddenException('Solo ADMIN puede editar recursos de biblioteca');
+    }
+
+    await this.ensureLibraryItemExists(id);
+    const item = await this.prisma.crmCommercialLibraryItem.update({
+      where: { id },
+      data: {
+        ...(dto.companyId ? { companyId: dto.companyId.trim() } : {}),
+        ...(dto.title != null ? { title: dto.title.trim() } : {}),
+        ...(dto.description != null ? { description: this.normalizeText(dto.description) } : {}),
+        ...(dto.type != null ? { type: dto.type } : {}),
+        ...(dto.contentText != null ? { contentText: this.normalizeText(dto.contentText) } : {}),
+        ...(dto.mediaUrl != null ? { mediaUrl: this.normalizeText(dto.mediaUrl) } : {}),
+        ...(dto.fileName != null ? { fileName: this.normalizeText(dto.fileName) } : {}),
+        ...(dto.mimeType != null ? { mimeType: this.normalizeText(dto.mimeType) } : {}),
+        ...(dto.latitude != null ? { latitude: new Prisma.Decimal(dto.latitude) } : {}),
+        ...(dto.longitude != null ? { longitude: new Prisma.Decimal(dto.longitude) } : {}),
+        ...(dto.externalUrl != null ? { externalUrl: this.normalizeText(dto.externalUrl) } : {}),
+        ...(dto.category != null ? { category: this.normalizeText(dto.category) } : {}),
+        ...(dto.tags != null
+          ? {
+              tags: dto.tags.map((tag) => tag.trim()).filter((tag) => tag.length > 0),
+            }
+          : {}),
+        ...(dto.isActive != null ? { isActive: dto.isActive } : {}),
+        ...(dto.sortOrder != null ? { sortOrder: dto.sortOrder } : {}),
+        updatedByUserId: user.id,
+      },
+      select: this.librarySelect,
+    });
+
+    return item;
+  }
+
+  async deleteLibraryItem(user: AuthUser, id: string) {
+    if (!this.isAdmin(user)) {
+      throw new ForbiddenException('Solo ADMIN puede eliminar recursos de biblioteca');
+    }
+
+    await this.ensureLibraryItemExists(id);
+    return this.prisma.crmCommercialLibraryItem.update({
+      where: { id },
+      data: {
+        isActive: false,
+        updatedByUserId: user.id,
+      },
+      select: this.librarySelect,
+    });
+  }
+
+  async useLibraryItem(user: AuthUser, id: string) {
+    if (!this.isAdmin(user)) {
+      throw new ForbiddenException('Solo ADMIN puede registrar uso de biblioteca');
+    }
+
+    await this.ensureLibraryItemExists(id);
+    return this.prisma.crmCommercialLibraryItem.update({
+      where: { id },
+      data: {
+        useCount: { increment: 1 },
+        lastUsedAt: new Date(),
+        updatedByUserId: user.id,
+      },
+      select: this.librarySelect,
+    });
+  }
+
+  private async ensureLibraryItemExists(id: string) {
+    const item = await this.prisma.crmCommercialLibraryItem.findFirst({
+      where: { id, companyId: this.getCompanyId() },
+      select: { id: true },
+    });
+    if (!item) {
+      throw new NotFoundException('Recurso de biblioteca no encontrado');
+    }
+    return item;
   }
 
   private isAdmin(user: AuthUser): boolean {

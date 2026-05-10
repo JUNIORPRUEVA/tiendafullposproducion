@@ -1,6 +1,7 @@
 ﻿import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -34,6 +35,11 @@ import {
   StartCrmCommercialMediaMessageDto,
   ReplyCrmCommercialMediaMessageDto,
 } from './dto/send-crm-commercial-media-message.dto';
+import {
+  CreateCrmCommercialLibraryItemDto,
+  CrmCommercialLibraryItemQueryDto,
+  UpdateCrmCommercialLibraryItemDto,
+} from './dto/crm-commercial-library-item.dto';
 
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 @Controller('crm-commercial')
@@ -163,6 +169,46 @@ export class CrmCommercialController {
       this.userOrThrow(req),
       dto,
     );
+  }
+
+  @Get('library')
+  @Roles(Role.ADMIN)
+  listLibrary(
+    @Req() req: Request,
+    @Query() query: CrmCommercialLibraryItemQueryDto,
+  ) {
+    return this.crmCommercial.listLibrary(this.userOrThrow(req), query);
+  }
+
+  @Post('library')
+  @Roles(Role.ADMIN)
+  createLibraryItem(
+    @Req() req: Request,
+    @Body() dto: CreateCrmCommercialLibraryItemDto,
+  ) {
+    return this.crmCommercial.createLibraryItem(this.userOrThrow(req), dto);
+  }
+
+  @Patch('library/:id')
+  @Roles(Role.ADMIN)
+  updateLibraryItem(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() dto: UpdateCrmCommercialLibraryItemDto,
+  ) {
+    return this.crmCommercial.updateLibraryItem(this.userOrThrow(req), id, dto);
+  }
+
+  @Post('library/:id/use')
+  @Roles(Role.ADMIN)
+  useLibraryItem(@Req() req: Request, @Param('id') id: string) {
+    return this.crmCommercial.useLibraryItem(this.userOrThrow(req), id);
+  }
+
+  @Delete('library/:id')
+  @Roles(Role.ADMIN)
+  deleteLibraryItem(@Req() req: Request, @Param('id') id: string) {
+    return this.crmCommercial.deleteLibraryItem(this.userOrThrow(req), id);
   }
 
   // Phase 1: Customers

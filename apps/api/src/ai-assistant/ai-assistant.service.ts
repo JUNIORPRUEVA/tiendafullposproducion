@@ -96,6 +96,18 @@ type CrmCommercialAiSuggestInput = {
     businessHours?: string | null;
     bankAccounts?: string[];
     catalogSummary?: string | null;
+    libraryItems?: Array<{
+      id: string;
+      title: string;
+      type: string;
+      contentText?: string | null;
+      mediaUrl?: string | null;
+      fileName?: string | null;
+      mimeType?: string | null;
+      externalUrl?: string | null;
+      category?: string | null;
+      tags?: string[];
+    }>;
   } | null;
 };
 
@@ -216,6 +228,22 @@ export class AiAssistantService {
     const catalogSummary = (input.availableBusinessData?.catalogSummary ?? '')
       .toString()
       .trim();
+    const libraryItems = (input.availableBusinessData?.libraryItems ?? [])
+      .map((item) => ({
+        id: item.id,
+        title: (item.title ?? '').toString().trim(),
+        type: (item.type ?? '').toString().trim().toUpperCase(),
+        contentText: (item.contentText ?? '').toString().trim(),
+        mediaUrl: (item.mediaUrl ?? '').toString().trim(),
+        fileName: (item.fileName ?? '').toString().trim(),
+        mimeType: (item.mimeType ?? '').toString().trim(),
+        externalUrl: (item.externalUrl ?? '').toString().trim(),
+        category: (item.category ?? '').toString().trim(),
+        tags: Array.isArray(item.tags)
+          ? item.tags.map((tag) => tag.toString().trim()).filter((tag) => tag.length > 0)
+          : [],
+      }))
+      .filter((item) => item.title.length > 0 || item.contentText.length > 0 || item.mediaUrl.length > 0);
 
     const status = (input.crmStatus ?? 'NUEVO').toString().trim().toUpperCase() || 'NUEVO';
     const customerName = (input.customerInfo?.name ?? '').toString().trim();
@@ -247,6 +275,15 @@ export class AiAssistantService {
       intent = 'quiere_comprar';
     }
 
+    const pickLibrary = (...types: string[]) =>
+      libraryItems.find((item) => types.includes(item.type)) ?? null;
+
+    const pickLibraryText = (...types: string[]) => {
+      const item = pickLibrary(...types);
+      if (!item) return null;
+      return item.contentText || item.externalUrl || item.title || null;
+    };
+
     const missingData: string[] = [];
     const dataUsed: string[] = [];
     let suggestedReply = '';
@@ -257,8 +294,10 @@ export class AiAssistantService {
       case 'pide_ubicacion':
         if (location.length === 0) {
           missingData.push('ubicacion');
-          suggestedReply =
-              'No hay ubicación configurada. Si deseas, te ayudo por aquí con referencias cercanas mientras la actualizamos.';
+          const item = pickLibraryText('LOCATION', 'LINK', 'TEXT');
+          suggestedReply = item
+            ? `Claro${greetingName}, esta es nuestra ubicación: ${item}`
+            : 'No hay información configurada para esto.';
         } else {
           dataUsed.push('ubicacion');
           suggestedReply = `Claro${greetingName}, esta es nuestra ubicación: ${location}`;
@@ -270,8 +309,10 @@ export class AiAssistantService {
       case 'pide_horario':
         if (businessHours.length === 0) {
           missingData.push('horario');
-          suggestedReply =
-              'No hay horario configurado. Si gustas, te confirmo disponibilidad apenas lo valide con el equipo.';
+          const item = pickLibraryText('BUSINESS_HOURS', 'TEXT');
+          suggestedReply = item
+            ? `Nuestro horario es: ${item}`
+            : 'No hay información configurada para esto.';
         } else {
           dataUsed.push('horario');
           suggestedReply = `Nuestro horario es: ${businessHours}`;
@@ -283,8 +324,11 @@ export class AiAssistantService {
       case 'pide_cuenta_bancaria':
         if (bankAccounts.length === 0) {
           missingData.push('cuentas_bancarias');
-          suggestedReply =
-              'No hay cuentas bancarias configuradas. Si deseas, puedo confirmar una vía de pago disponible para ti.';
+          const item = pickLibrary('BANK_ACCOUNT', 'TEXT');
+          const text = item ? (item.contentText || item.title) : null;
+          suggestedReply = text
+            ? `Claro, aquí tienes nuestras cuentas disponibles:\n${text}`
+            : 'No hay información configurada para esto.';
         } else {
           dataUsed.push('cuentas_bancarias');
           const lines = bankAccounts.map((acc) => `- ${acc}`).join('\n');
@@ -297,8 +341,10 @@ export class AiAssistantService {
       case 'pide_catalogo':
         if (catalogSummary.length === 0) {
           missingData.push('catalogo');
-          suggestedReply =
-              'No hay catálogo configurado. Si me dices qué necesitas, te oriento con una recomendación puntual.';
+          const item = pickLibraryText('CATALOG', 'QUOTE_TEMPLATE', 'TEXT');
+          suggestedReply = item
+            ? `Te comparto una referencia rápida de productos/servicios disponibles: ${item}`
+            : 'No hay información configurada para esto.';
         } else {
           dataUsed.push('catalogo');
           suggestedReply =
@@ -310,42 +356,48 @@ export class AiAssistantService {
 
       case 'pregunta_precio':
         suggestedReply =
-            'Con gusto te ayudo con el precio. Para cotizarte exacto sin inventar, ¿me confirmas el producto/servicio, cantidad y ubicación de instalación?';
+          pickLibraryText('QUOTE_TEMPLATE', 'PROMOTION', 'TEXT') ??
+          'Con gusto te ayudo con el precio. Para cotizarte exacto sin inventar, ¿me confirmas el producto/servicio, cantidad y ubicación de instalación?';
         nextAction = 'recolectar_datos_cotizacion';
         confidence = 0.9;
         break;
 
       case 'quiere_cotizacion':
         suggestedReply =
-            'Excelente. Te preparo cotización formal. Solo necesito: producto/servicio, cantidad, ubicación y fecha estimada de instalación.';
+          pickLibraryText('QUOTE_TEMPLATE', 'TEXT') ??
+          'Excelente. Te preparo cotización formal. Solo necesito: producto/servicio, cantidad, ubicación y fecha estimada de instalación.';
         nextAction = 'crear_cotizacion';
         confidence = 0.92;
         break;
 
       case 'quiere_instalacion':
         suggestedReply =
-            'Perfecto, te apoyamos con la instalación. ¿Me compartes ubicación, día preferido y una foto del área para coordinarte rápido?';
+          pickLibraryText('FOLLOW_UP', 'TEXT') ??
+          'Perfecto, te apoyamos con la instalación. ¿Me compartes ubicación, día preferido y una foto del área para coordinarte rápido?';
         nextAction = 'agendar_instalacion';
         confidence = 0.9;
         break;
 
       case 'cliente_molesto':
         suggestedReply =
-            'Lamento mucho la situación y gracias por avisarnos. Quiero ayudarte a resolverlo hoy mismo. ¿Me compartes lo ocurrido para darte una solución inmediata?';
+          pickLibraryText('WARRANTY', 'FAQ', 'TEXT') ??
+          'Lamento mucho la situación y gracias por avisarnos. Quiero ayudarte a resolverlo hoy mismo. ¿Me compartes lo ocurrido para darte una solución inmediata?';
         nextAction = 'priorizar_seguimiento';
         confidence = 0.9;
         break;
 
       case 'quiere_seguimiento':
         suggestedReply =
-            'Gracias por el seguimiento. Ya te confirmo el estado actualizado en breve para que tengas claridad del próximo paso.';
+          pickLibraryText('FOLLOW_UP', 'TEXT') ??
+          'Gracias por el seguimiento. Ya te confirmo el estado actualizado en breve para que tengas claridad del próximo paso.';
         nextAction = 'crear_tarea_seguimiento';
         confidence = 0.87;
         break;
 
       case 'quiere_comprar':
         suggestedReply =
-            'Excelente decisión. Para dejarte todo listo hoy, ¿me confirmas producto/servicio, cantidad y método de pago preferido?';
+          pickLibraryText('PROMOTION', 'QUOTE_TEMPLATE', 'TEXT') ??
+          'Excelente decisión. Para dejarte todo listo hoy, ¿me confirmas producto/servicio, cantidad y método de pago preferido?';
         nextAction = 'cerrar_venta';
         confidence = 0.91;
         break;
@@ -386,6 +438,7 @@ export class AiAssistantService {
                   businessHours,
                   bankAccounts,
                   catalogSummary,
+                  libraryItems,
                 },
               })}\n\n` +
               'Devuelve JSON exacto: {"reply":"string","nextAction":"string","confidence":0.0}.',

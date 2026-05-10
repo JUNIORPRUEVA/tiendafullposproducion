@@ -142,6 +142,59 @@ class CrmComercialRepository {
     return rows;
   }
 
+  Future<CrmCommercialLibraryListResponse> listLibrary({
+    String? type,
+    String? category,
+    String? search,
+    bool? isActive,
+    int? limit,
+  }) async {
+    final res = await _dio.get<Map<String, dynamic>>(
+      ApiRoutes.crmCommercialLibrary,
+      queryParameters: {
+        if ((type ?? '').trim().isNotEmpty) 'type': type,
+        if ((category ?? '').trim().isNotEmpty) 'category': category,
+        if ((search ?? '').trim().isNotEmpty) 'search': search,
+        if (isActive != null) 'isActive': isActive,
+        if (limit != null) 'limit': limit,
+      },
+    );
+    return CrmCommercialLibraryListResponse.fromJson(res.data ?? const {});
+  }
+
+  Future<CrmComercialLibraryItem> createLibraryItem(Map<String, dynamic> payload) async {
+    final res = await _dio.post<Map<String, dynamic>>(
+      ApiRoutes.crmCommercialLibrary,
+      data: payload,
+    );
+    return CrmComercialLibraryItem.fromJson(res.data ?? const {});
+  }
+
+  Future<CrmComercialLibraryItem> updateLibraryItem(
+    String id,
+    Map<String, dynamic> payload,
+  ) async {
+    final res = await _dio.patch<Map<String, dynamic>>(
+      ApiRoutes.crmCommercialLibraryItem(id),
+      data: payload,
+    );
+    return CrmComercialLibraryItem.fromJson(res.data ?? const {});
+  }
+
+  Future<CrmComercialLibraryItem> deleteLibraryItem(String id) async {
+    final res = await _dio.delete<Map<String, dynamic>>(
+      ApiRoutes.crmCommercialLibraryItem(id),
+    );
+    return CrmComercialLibraryItem.fromJson(res.data ?? const {});
+  }
+
+  Future<CrmComercialLibraryItem> useLibraryItem(String id) async {
+    final res = await _dio.post<Map<String, dynamic>>(
+      ApiRoutes.crmCommercialLibraryUse(id),
+    );
+    return CrmComercialLibraryItem.fromJson(res.data ?? const {});
+  }
+
   Future<CrmComercialSettings> getSettings() async {
     final res = await _dio.get<Map<String, dynamic>>(
       ApiRoutes.crmCommercialSettings,

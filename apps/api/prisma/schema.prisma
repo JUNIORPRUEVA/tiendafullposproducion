@@ -345,6 +345,26 @@ enum CrmCommercialFollowupTaskPriority {
   @@map("crm_commercial_followup_task_priority")
 }
 
+enum CrmCommercialLibraryItemType {
+  TEXT
+  IMAGE
+  VIDEO
+  AUDIO
+  DOCUMENT
+  LOCATION
+  BANK_ACCOUNT
+  BUSINESS_HOURS
+  CATALOG
+  QUOTE_TEMPLATE
+  LINK
+  PROMOTION
+  WARRANTY
+  FAQ
+  FOLLOW_UP
+
+  @@map("crm_commercial_library_item_type")
+}
+
 enum ServiceOrderNotificationJobKind {
   THIRTY_MINUTES_BEFORE
   FIFTEEN_MINUTES_PENDING
@@ -1465,6 +1485,39 @@ model CrmCommercialSetting {
   updatedByUser User? @relation("CrmCommercialSettingsUpdatedByUser", fields: [updatedByUserId], references: [id], onDelete: SetNull)
 
   @@map("crm_commercial_settings")
+}
+
+model CrmCommercialLibraryItem {
+  id              String                       @id @default(uuid()) @db.Uuid
+  companyId       String                       @map("company_id") @db.Uuid
+  title           String
+  description     String?                      @db.Text
+  type            CrmCommercialLibraryItemType
+  contentText     String?                      @map("content_text") @db.Text
+  mediaUrl        String?                      @map("media_url") @db.Text
+  fileName        String?                      @map("file_name")
+  mimeType        String?                      @map("mime_type")
+  latitude        Decimal?                     @db.Decimal(10, 7)
+  longitude       Decimal?                     @db.Decimal(10, 7)
+  externalUrl     String?                      @map("external_url") @db.Text
+  category        String?
+  tags            String[]                     @default([])
+  isActive        Boolean                      @default(true) @map("is_active")
+  sortOrder       Int                          @default(0) @map("sort_order")
+  createdByUserId String                       @map("created_by_user_id") @db.Uuid
+  updatedByUserId String                       @map("updated_by_user_id") @db.Uuid
+  useCount        Int                          @default(0) @map("use_count")
+  lastUsedAt      DateTime?                    @map("last_used_at")
+  createdAt       DateTime                     @default(now()) @map("created_at")
+  updatedAt       DateTime                     @updatedAt @map("updated_at")
+
+  createdByUser   User                         @relation("CrmCommercialLibraryCreatedByUser", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  updatedByUser   User                         @relation("CrmCommercialLibraryUpdatedByUser", fields: [updatedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, isActive, sortOrder])
+  @@index([companyId, type, isActive])
+  @@index([companyId, category, isActive])
+  @@map("crm_commercial_library_items")
 }
 
 model Sale {

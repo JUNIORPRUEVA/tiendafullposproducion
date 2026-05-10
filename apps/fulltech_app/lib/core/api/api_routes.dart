@@ -116,6 +116,11 @@ class ApiRoutes {
       '/crm-commercial/conversations/$id/reply';
   static String crmCommercialConversationReplyMedia(String id) =>
       '/crm-commercial/conversations/$id/reply-media';
+  static const crmCommercialLibrary = '/crm-commercial/library';
+  static String crmCommercialLibraryUse(String id) =>
+      '/crm-commercial/library/$id/use';
+  static String crmCommercialLibraryItem(String id) =>
+      '/crm-commercial/library/$id';
   static const crmCommercialOrthographySuggestion =
       '/crm-commercial/ai/orthography-suggestion';
   static const crmCommercialAiSuggestReply =

@@ -293,6 +293,28 @@ class PublicidadController extends StateNotifier<PublicidadState> {
       // Confirm immediately so the user can generate design without an extra step.
       await _api.confirmBaseImage(storyId);
       await _refresh(keepLoading: false);
+      
+      // After selecting and confirming base image, automatically generate design if everything is ready
+      await Future.delayed(const Duration(milliseconds: 300));
+      final refreshedStory = state.stories.cast<MarketingStory?>().firstWhere(
+        (s) => s?.id == storyId,
+        orElse: () => null,
+      );
+      if (refreshedStory != null) {
+        final missingFields = <String>[];
+        if (!_isBaseImageConfirmed(refreshedStory)) missingFields.add('imagen base confirmada');
+        if (_safeImageUrl(refreshedStory.generatedImageUrl).isEmpty) missingFields.add('diseño generado');
+        if (refreshedStory.title.trim().isEmpty) missingFields.add('headline');
+        if (refreshedStory.shortText.trim().isEmpty) missingFields.add('texto corto');
+        if (refreshedStory.usedCTA.trim().isEmpty) missingFields.add('cta');
+        
+        if (missingFields.isEmpty) {
+          // Everything is complete - generate design automatically
+          developer.log('[publicidad-estados] Auto-generating design for story $storyId (all fields ready)');
+          await Future.delayed(const Duration(milliseconds: 500));
+          await generateStoryDesign(storyId);
+        }
+      }
     });
   }
 
@@ -2053,7 +2075,7 @@ class _StoryCard extends StatelessWidget {
           ),
         if (hasBaseImage && !baseConfirmed)
           const _ErrorBanner(
-            message: '¿Deseas usar esta imagen o elegir otra de la Galería de contenido? Confirma primero para habilitar "Generar diseño".',
+            message: 'Imagen base seleccionada. Se confirmará automáticamente en un momento...',
           ),
         if (!isComplete)
           _ErrorBanner(
@@ -2208,43 +2230,38 @@ class _StoryCard extends StatelessWidget {
           spacing: 6,
           runSpacing: 6,
           children: [
-            OutlinedButton.icon(
-              onPressed: busy || imageBusy || hasBaseImage == false || baseConfirmed
-                  ? null
-                  : onConfirmBaseImage,
-              icon: const Icon(Icons.check_rounded, size: 18),
-              label: const Text('Usar esta imagen'),
-            ),
             OutlinedButton(
               onPressed: busy || imageBusy ? null : onChangeBaseImage,
-              child: const Text('Cambiar desde Galería de contenido'),
+              child: const Text('Cambiar imagen base'),
             ),
-            FilledButton.icon(
-              onPressed: canGenerateDesign ? onGenerateDesign : null,
-              style: FilledButton.styleFrom(
-                backgroundColor: canGenerateDesign
-                    ? const Color(0xFF0E7490)
-                    : null,
-                foregroundColor: canGenerateDesign ? Colors.white : null,
-                elevation: canGenerateDesign ? 2 : 0,
+            if (hasBaseImage && !hasGeneratedDesign)
+              FilledButton.icon(
+                onPressed: canGenerateDesign ? onGenerateDesign : null,
+                style: FilledButton.styleFrom(
+                  backgroundColor: canGenerateDesign
+                      ? const Color(0xFF0E7490)
+                      : null,
+                  foregroundColor: canGenerateDesign ? Colors.white : null,
+                  elevation: canGenerateDesign ? 2 : 0,
+                ),
+                icon: const Icon(Icons.auto_fix_high_rounded, size: 18),
+                label: const Text('Generar diseño'),
               ),
-              icon: const Icon(Icons.auto_fix_high_rounded, size: 18),
-              label: const Text('Generar diseño'),
-            ),
-            OutlinedButton.icon(
-              onPressed: finalImage.isEmpty
-                  ? null
-                  : () => _openFullscreenPreview(context, story, generatedImage, baseImage),
-              icon: const Icon(Icons.open_in_full_rounded, size: 18),
-              label: const Text('Ver diseño completo'),
-            ),
-            FilledButton.icon(
-              onPressed: busy || !isComplete ? null : onApprove,
-              icon: const Icon(Icons.check_circle_rounded, size: 18),
-              label: const Text('Aprobar'),
-            ),
+            if (hasGeneratedDesign)
+              OutlinedButton.icon(
+                onPressed: () => _openFullscreenPreview(context, story, generatedImage, baseImage),
+                icon: const Icon(Icons.open_in_full_rounded, size: 18),
+                label: const Text('Ver diseño'),
+              ),
+            if (isComplete)
+              FilledButton.icon(
+                onPressed: busy ? null : onApprove,
+                icon: const Icon(Icons.check_circle_rounded, size: 18),
+                label: const Text('Aprobar'),
+              ),
+            if (!isComplete)
+              OutlinedButton(onPressed: null, child: const Text('Aprobar (incompleto)')),
             OutlinedButton(onPressed: busy ? null : onReject, child: const Text('Rechazar')),
-            OutlinedButton(onPressed: () => _openStoryDetails(context), child: const Text('Detalles')),
           ],
         ),
       ],

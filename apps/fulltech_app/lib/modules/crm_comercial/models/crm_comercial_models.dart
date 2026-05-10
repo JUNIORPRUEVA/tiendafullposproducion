@@ -504,6 +504,98 @@ class CrmComercialAiReplySuggestion {
   }
 }
 
+class CrmComercialLibraryItem {
+  const CrmComercialLibraryItem({
+    required this.id,
+    required this.companyId,
+    required this.title,
+    required this.type,
+    required this.isActive,
+    required this.sortOrder,
+    required this.tags,
+    required this.useCount,
+    this.description,
+    this.contentText,
+    this.mediaUrl,
+    this.fileName,
+    this.mimeType,
+    this.latitude,
+    this.longitude,
+    this.externalUrl,
+    this.category,
+    this.lastUsedAt,
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  final String id;
+  final String companyId;
+  final String title;
+  final String type;
+  final bool isActive;
+  final int sortOrder;
+  final List<String> tags;
+  final int useCount;
+  final String? description;
+  final String? contentText;
+  final String? mediaUrl;
+  final String? fileName;
+  final String? mimeType;
+  final double? latitude;
+  final double? longitude;
+  final String? externalUrl;
+  final String? category;
+  final DateTime? lastUsedAt;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  bool get isMedia => const {'IMAGE', 'VIDEO', 'AUDIO', 'DOCUMENT'}.contains(type.toUpperCase());
+  bool get isTextual => !isMedia;
+
+  factory CrmComercialLibraryItem.fromJson(Map<String, dynamic> json) {
+    return CrmComercialLibraryItem(
+      id: (json['id'] ?? '').toString(),
+      companyId: (json['companyId'] ?? '').toString(),
+      title: (json['title'] ?? '').toString(),
+      type: (json['type'] ?? 'TEXT').toString(),
+      isActive: json['isActive'] == true,
+      sortOrder: (json['sortOrder'] as num?)?.toInt() ?? 0,
+      tags: ((json['tags'] as List<dynamic>?) ?? const [])
+          .map((entry) => entry.toString())
+          .where((entry) => entry.trim().isNotEmpty)
+          .toList(growable: false),
+      useCount: (json['useCount'] as num?)?.toInt() ?? 0,
+      description: json['description']?.toString(),
+      contentText: json['contentText']?.toString(),
+      mediaUrl: json['mediaUrl']?.toString(),
+      fileName: json['fileName']?.toString(),
+      mimeType: json['mimeType']?.toString(),
+      latitude: (json['latitude'] as num?)?.toDouble(),
+      longitude: (json['longitude'] as num?)?.toDouble(),
+      externalUrl: json['externalUrl']?.toString(),
+      category: json['category']?.toString(),
+      lastUsedAt: DateTime.tryParse((json['lastUsedAt'] ?? '').toString()),
+      createdAt: DateTime.tryParse((json['createdAt'] ?? '').toString()),
+      updatedAt: DateTime.tryParse((json['updatedAt'] ?? '').toString()),
+    );
+  }
+}
+
+class CrmCommercialLibraryListResponse {
+  const CrmCommercialLibraryListResponse({required this.items});
+
+  final List<CrmComercialLibraryItem> items;
+
+  factory CrmCommercialLibraryListResponse.fromJson(Map<String, dynamic> json) {
+    return CrmCommercialLibraryListResponse(
+      items: ((json['items'] as List<dynamic>?) ?? const [])
+          .whereType<Map>()
+          .map((entry) => CrmComercialLibraryItem.fromJson(entry.cast<String, dynamic>()))
+          .toList(growable: false),
+    );
+  }
+}
+
 class CrmComercialFollowupTask {
     const CrmComercialFollowupTask({
       required this.id,
