@@ -52,7 +52,7 @@ export class MarketingDebugController {
     const result = await this.marketing.listDailyStories(companyId, today);
     return {
       companyId,
-      date: today.toISOString(),
+      queryDate: today.toISOString(),
       timestamp: new Date().toISOString(),
       ...result,
     };
