@@ -1,5 +1,6 @@
 ﻿import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { PrismaService } from '../prisma/prisma.service';
 import sharp from 'sharp';
 
 type EditImageInput = {
@@ -18,11 +19,14 @@ type EditImageOutput = {
 export class MarketingImageEditProvider {
   private readonly logger = new Logger(MarketingImageEditProvider.name);
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   async ensureConfigured() {
     const provider = this.resolveProvider();
-    const apiKey = this.resolveOpenAiApiKey();
+    const apiKey = await this.resolveOpenAiApiKey();
 
     if (provider !== 'openai' || !apiKey) {
       throw new BadRequestException(
@@ -181,12 +185,24 @@ export class MarketingImageEditProvider {
       .toLowerCase();
   }
 
-  private resolveOpenAiApiKey() {
-    return (
+  private async resolveOpenAiApiKey(): Promise<string> {
+    const envKey = (
       this.config.get<string>('OPENAI_API_KEY') ??
       process.env.OPENAI_API_KEY ??
       ''
     ).trim();
+    if (envKey) return envKey;
+
+    try {
+      const appConfig = await this.prisma.appConfig.findUnique({
+        where: { id: 'global' },
+        select: { openAiApiKey: true },
+      });
+      return (appConfig?.openAiApiKey ?? '').trim();
+    } catch {
+      // app_config may not exist in every environment
+      return '';
+    }
   }
 
   private resolveImageContentType(raw: string | null) {

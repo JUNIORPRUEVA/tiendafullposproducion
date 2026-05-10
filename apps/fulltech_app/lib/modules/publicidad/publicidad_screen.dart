@@ -2077,7 +2077,6 @@ class _StoryCardState extends State<_StoryCard> {
             const SizedBox(width: 8),
             _StatusPill(status: story.status),
             const SizedBox(width: 8),
-            _MetaChip(label: 'Fase actual', value: validation.currentPhaseLabel),
           ],
         ),
         const SizedBox(height: 10),
@@ -2090,31 +2089,35 @@ class _StoryCardState extends State<_StoryCard> {
           ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
         ),
         const SizedBox(height: 8),
-        Center(
-          child: SizedBox(
-            width: 190,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(14),
-              child: AspectRatio(
-                aspectRatio: 9 / 16,
-                child: finalImage.isEmpty
-                    ? const _BrokenImagePlaceholder()
-                    : _StoryImageView(url: finalImage),
+          if (phaseIndex > 0 || finalImage.isNotEmpty) ...[
+            Center(
+              child: SizedBox(
+                width: 180,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: AspectRatio(
+                    aspectRatio: 9 / 16,
+                    child: finalImage.isEmpty
+                        ? _DesignNotReadyPlaceholder(
+                            isLoading: _isImageStatusLoading(story.imageStatus),
+                          )
+                        : _StoryImageView(url: finalImage),
+                  ),
+                ),
               ),
             ),
-          ),
-        ),
-        if (widget.imageBusy || _isImageStatusLoading(story.imageStatus))
-          const Padding(
-            padding: EdgeInsets.only(top: 8),
-            child: LinearProgressIndicator(minHeight: 3),
-          ),
-        if (story.imageStatus == MarketingImageStatus.failed)
-          _ErrorBanner(
-            message: imageError.isNotEmpty
-                ? 'Error real de diseño: $imageError'
-                : 'No se pudo generar el diseño. Intenta regenerar y revisa configuración del proveedor.',
-          ),
+            const SizedBox(height: 8),
+          ],
+          if (widget.imageBusy || _isImageStatusLoading(story.imageStatus))
+            const Padding(
+              padding: EdgeInsets.only(top: 6),
+              child: LinearProgressIndicator(minHeight: 2),
+            ),
+          if (story.imageStatus == MarketingImageStatus.failed && imageError.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: _ErrorBanner(message: imageError),
+            ),
         const SizedBox(height: 10),
         if (phaseIndex == 0)
           _buildDesignPhase(context, story, validation, baseImage, generatedImage)
@@ -2518,8 +2521,23 @@ class _StoryCardState extends State<_StoryCard> {
     String generatedImage,
     String baseImage,
   ) {
-    final image = generatedImage.isNotEmpty ? generatedImage : baseImage;
-    showDialog<void>(
+      if (generatedImage.isEmpty) {
+        showDialog<void>(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text('Diseño final'),
+            content: const Text('Aún no hay diseño final generado.'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Cerrar'),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
+      showDialog<void>(
       context: context,
       builder: (_) => Dialog(
         insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
@@ -2528,7 +2546,7 @@ class _StoryCardState extends State<_StoryCard> {
           height: 900,
           child: _StoryFullscreenPreview(
             story: story,
-            imageUrl: image,
+              imageUrl: generatedImage,
           ),
         ),
       ),
@@ -2913,6 +2931,45 @@ class _BrokenImagePlaceholder extends StatelessWidget {
           const Text(
             'Genera imagen para activar',
             style: TextStyle(color: Color(0xFF475569), fontSize: 11),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DesignNotReadyPlaceholder extends StatelessWidget {
+  const _DesignNotReadyPlaceholder({this.isLoading = false});
+
+  final bool isLoading;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF0D1B2A), Color(0xFF0f2232)],
+        ),
+      ),
+      alignment: Alignment.center,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            isLoading ? Icons.hourglass_top_rounded : Icons.image_not_supported_outlined,
+            color: const Color(0x8800B4D8),
+            size: 32,
+          ),
+          const SizedBox(height: 10),
+          Text(
+            isLoading ? 'Generando dise\u00f1o...' : 'A\u00fan no hay dise\u00f1o final',
+            style: const TextStyle(
+              color: Color(0xFF64748B),
+              fontWeight: FontWeight.w600,
+              fontSize: 12,
+            ),
           ),
         ],
       ),
@@ -5948,22 +6005,6 @@ String _resolveFinalImageUrl(MarketingStory story) {
   if (generated.isNotEmpty) {
     return _appendCacheVersion(generated, story.updatedAt ?? story.date);
   }
-
-  final storyImage = _safeImageUrl(story.imageUrl);
-  if (storyImage.isNotEmpty) {
-    return _appendCacheVersion(storyImage, story.updatedAt ?? story.date);
-  }
-
-  final assetFile = _safeImageUrl(story.mediaAsset?.fileUrl);
-  if (assetFile.isNotEmpty) {
-    return _appendCacheVersion(assetFile, story.updatedAt ?? story.date);
-  }
-
-  final assetThumb = _safeImageUrl(story.mediaAsset?.thumbnailUrl);
-  if (assetThumb.isNotEmpty) {
-    return _appendCacheVersion(assetThumb, story.updatedAt ?? story.date);
-  }
-
   return '';
 }
 
