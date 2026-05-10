@@ -26,11 +26,23 @@ export class MarketingImageEditProvider {
 
   async ensureConfigured() {
     const provider = this.resolveProvider();
-    const apiKey = await this.resolveOpenAiApiKey();
+    // Log de depuración para saber de dónde viene la API key
+    const { apiKey, source } = await this.resolveOpenAiApiKeyWithSource();
+
+    // Log temporal: muestra origen y parte de la key (solo primeros y últimos 3 chars)
+    let keyPreview = '';
+    if (apiKey && apiKey.length > 8) {
+      keyPreview = apiKey.slice(0, 3) + '...' + apiKey.slice(-3);
+    } else if (apiKey) {
+      keyPreview = apiKey;
+    } else {
+      keyPreview = '(vacía)';
+    }
+    this.logger.log(`[marketing-image] API key source: ${source} value: ${keyPreview}`);
 
     if (provider !== 'openai' || !apiKey) {
       throw new BadRequestException(
-        'No hay proveedor de ediciÃ³n de imagen configurado. Configura OPENAI_API_KEY o un proveedor compatible con image-to-image.',
+        'No hay proveedor de edición de imagen configurado. Configura OPENAI_API_KEY o un proveedor compatible con image-to-image.',
       );
     }
 
@@ -185,23 +197,26 @@ export class MarketingImageEditProvider {
       .toLowerCase();
   }
 
-  private async resolveOpenAiApiKey(): Promise<string> {
+  // Devuelve tanto la key como el origen (env o app_config)
+  private async resolveOpenAiApiKeyWithSource(): Promise<{ apiKey: string; source: string }> {
     const envKey = (
       this.config.get<string>('OPENAI_API_KEY') ??
       process.env.OPENAI_API_KEY ??
       ''
     ).trim();
-    if (envKey) return envKey;
+    if (envKey) return { apiKey: envKey, source: 'env' };
 
     try {
       const appConfig = await this.prisma.appConfig.findUnique({
         where: { id: 'global' },
         select: { openAiApiKey: true },
       });
-      return (appConfig?.openAiApiKey ?? '').trim();
+      const dbKey = (appConfig?.openAiApiKey ?? '').trim();
+      if (dbKey) return { apiKey: dbKey, source: 'app_config' };
+      return { apiKey: '', source: 'none' };
     } catch {
       // app_config may not exist in every environment
-      return '';
+      return { apiKey: '', source: 'error' };
     }
   }
 
