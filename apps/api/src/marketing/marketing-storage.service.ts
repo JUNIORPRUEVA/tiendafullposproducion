@@ -63,6 +63,7 @@ export class MarketingStorageService {
 
   getDebugStorageConfig() {
     const uploadDir = this.resolveUploadDir();
+    const storageMode = this.resolveStorageMode();
     const r2Endpoint = (
       this.config.get<string>('R2_ENDPOINT') ??
       process.env.R2_ENDPOINT ??
@@ -94,6 +95,7 @@ export class MarketingStorageService {
 
     return {
       storageConfigured: hasR2,
+      storageMode,
       uploadDir,
       publicBaseUrl,
       r2EndpointConfigured: !!r2Endpoint,
@@ -134,8 +136,13 @@ export class MarketingStorageService {
   }
 
   private async persistToStorage(input: SaveImageInput, kind: 'base' | 'generated') {
+    const storageMode = this.resolveStorageMode();
+    const strictR2 = storageMode === 'r2';
     const normalizedSource = this.normalizeUrl(input.sourceUrl);
     if (!normalizedSource) {
+      if (kind === 'generated') {
+        throw new Error('No se pudo guardar la imagen generada en storage.');
+      }
       return {
         url: '',
         provider: 'reference/url',
@@ -156,8 +163,11 @@ export class MarketingStorageService {
       }
 
       const objectKey = this.buildObjectKey(input, kind, parsed.extension);
-      const uploaded = await this.persistBytes(objectKey, parsed.bytes, parsed.contentType);
+      const uploaded = await this.persistBytes(objectKey, parsed.bytes, parsed.contentType, strictR2);
       if (!uploaded) {
+        if (strictR2 || kind === 'generated') {
+          throw new Error('No se pudo guardar la imagen generada en storage.');
+        }
         return {
           url: normalizedSource,
           provider: 'reference/url',
@@ -185,6 +195,9 @@ export class MarketingStorageService {
 
     const downloaded = await this.tryDownload(normalizedSource);
     if (!downloaded) {
+      if (strictR2 || kind === 'generated') {
+        throw new Error('No se pudo guardar la imagen generada en storage.');
+      }
       return {
         url: normalizedSource,
         provider: 'reference/url',
@@ -194,8 +207,11 @@ export class MarketingStorageService {
     }
 
     const objectKey = this.buildObjectKey(input, kind, downloaded.extension);
-    const uploaded = await this.persistBytes(objectKey, downloaded.bytes, downloaded.contentType);
+    const uploaded = await this.persistBytes(objectKey, downloaded.bytes, downloaded.contentType, strictR2);
     if (!uploaded) {
+      if (strictR2 || kind === 'generated') {
+        throw new Error('No se pudo guardar la imagen generada en storage.');
+      }
       return {
         url: normalizedSource,
         provider: 'reference/url',
@@ -241,7 +257,7 @@ export class MarketingStorageService {
     }
   }
 
-  private async persistBytes(objectKey: string, body: Buffer, contentType: string) {
+  private async persistBytes(objectKey: string, body: Buffer, contentType: string, strictR2: boolean) {
     try {
       const absolutePath = this.resolveAbsoluteUploadPath(objectKey);
       await mkdir(join(absolutePath, '..'), { recursive: true }).catch(async () => {
@@ -252,23 +268,45 @@ export class MarketingStorageService {
       });
       await writeFile(absolutePath, body);
 
+      const r2Key = objectKey.replace(/^uploads\//, '');
       await this.r2.putObject({
-        objectKey: objectKey.replace(/^uploads\//, ''),
+        objectKey: r2Key,
         body,
         contentType,
       });
+
+      const directUrl = this.r2.buildPublicUrl(r2Key);
+      const finalUrl = this.isAbsoluteHttpUrl(directUrl)
+        ? directUrl
+        : await this.r2.createPresignedGetUrl({
+            objectKey: r2Key,
+            expiresInSeconds: 60 * 60 * 24,
+          });
 
       this.logger.log(
         `[marketing-image] uploaded objectKey=${objectKey} bytes=${body.length} contentType=${contentType}`,
       );
 
       return {
-        url: this.buildPublicUploadsUrl(objectKey),
+        url: finalUrl,
       };
     } catch (error) {
-      this.logger.warn(`Error subiendo imagen marketing a storage: ${error instanceof Error ? error.message : String(error)}`);
+      const reason = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`Error subiendo imagen marketing a storage: ${reason}`);
+      if (strictR2) {
+        throw new Error('No se pudo guardar la imagen generada en storage.');
+      }
       return null;
     }
+  }
+  private resolveStorageMode() {
+    return (
+      this.config.get<string>('STORAGE_MODE') ??
+      process.env.STORAGE_MODE ??
+      'r2'
+    )
+      .trim()
+      .toLowerCase();
   }
 
   private buildObjectKey(input: SaveImageInput, kind: 'base' | 'generated', extension: string) {

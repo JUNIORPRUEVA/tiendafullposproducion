@@ -9,6 +9,7 @@ import { MarketingGenerationService } from './marketing-generation.service';
 import { MarketingImageAnalyzerService } from './marketing-image-analyzer.service';
 import { MarketingImageGenerationService } from './marketing-image-generation.service';
 import { MarketingImageJobService } from './marketing-image-job.service';
+import { MarketingImageEditProvider } from './marketing-image-edit.provider';
 import { MarketingLearningService } from './marketing-learning.service';
 import { MarketingMediaAssetService } from './marketing-media-asset.service';
 import { MarketingMediaSelectorService } from './marketing-media-selector.service';
@@ -31,6 +32,7 @@ import { ProductsModule } from '../products/products.module';
     MarketingImageAnalyzerService,
     MarketingImageGenerationService,
     MarketingImageJobService,
+    MarketingImageEditProvider,
     MarketingApprovalService,
     MarketingConfigService,
     MarketingAutomationScheduler,

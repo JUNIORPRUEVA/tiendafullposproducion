@@ -1853,6 +1853,100 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
     return const {'IMAGE', 'VIDEO', 'AUDIO', 'DOCUMENT'}.contains(item.type.toUpperCase());
   }
 
+  bool _libraryTypeUsesMediaPicker(String type) {
+    return const {'IMAGE', 'VIDEO', 'AUDIO', 'DOCUMENT'}
+        .contains(type.toUpperCase());
+  }
+
+  bool _libraryTypeUsesTextContent(String type) {
+    return const {
+      'TEXT',
+      'BANK_ACCOUNT',
+      'BUSINESS_HOURS',
+      'QUOTE_TEMPLATE',
+      'PROMOTION',
+      'WARRANTY',
+      'FAQ',
+      'FOLLOW_UP',
+      'CATALOG',
+      'LOCATION',
+      'IMAGE',
+      'VIDEO',
+      'AUDIO',
+      'DOCUMENT',
+    }.contains(type.toUpperCase());
+  }
+
+  bool _libraryTypeUsesExternalUrl(String type) {
+    return const {'LINK', 'LOCATION', 'CATALOG'}.contains(type.toUpperCase());
+  }
+
+  bool _libraryTypeUsesCoordinates(String type) {
+    return type.toUpperCase() == 'LOCATION';
+  }
+
+  String _guessMimeTypeFromFileName(String fileName, String type) {
+    final ext = fileName.split('.').last.toLowerCase();
+    switch (ext) {
+      case 'jpg':
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'png':
+        return 'image/png';
+      case 'gif':
+        return 'image/gif';
+      case 'webp':
+        return 'image/webp';
+      case 'mp4':
+        return 'video/mp4';
+      case 'mov':
+        return 'video/quicktime';
+      case 'avi':
+        return 'video/x-msvideo';
+      case 'mkv':
+        return 'video/x-matroska';
+      case 'mp3':
+        return 'audio/mpeg';
+      case 'wav':
+        return 'audio/wav';
+      case 'm4a':
+        return 'audio/mp4';
+      case 'ogg':
+        return 'audio/ogg';
+      case 'pdf':
+        return 'application/pdf';
+      case 'doc':
+        return 'application/msword';
+      case 'docx':
+        return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      case 'xls':
+        return 'application/vnd.ms-excel';
+      case 'xlsx':
+        return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      case 'txt':
+        return 'text/plain';
+      default:
+        switch (type.toUpperCase()) {
+          case 'IMAGE':
+            return 'image/jpeg';
+          case 'VIDEO':
+            return 'video/mp4';
+          case 'AUDIO':
+            return 'audio/mpeg';
+          default:
+            return 'application/octet-stream';
+        }
+    }
+  }
+
+  bool _looksLikeLocalFilePath(String raw) {
+    final value = raw.trim();
+    if (value.isEmpty) return false;
+    if (value.startsWith('file://')) return true;
+    if (RegExp(r'^[a-zA-Z]:\\').hasMatch(value)) return true;
+    return value.startsWith('\\\\');
+  }
+
   String _libraryInsertText(CrmComercialLibraryItem item) {
     final text = (item.contentText ?? '').trim();
     if (text.isNotEmpty) return text;
@@ -1919,7 +2013,27 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
     if (confirmed != true) return;
 
     if (_isLibraryItemMedia(item) && (item.mediaUrl ?? '').trim().isNotEmpty) {
-      final bytes = await ref.read(crmComercialRepositoryProvider).downloadMediaBytes(item.mediaUrl!.trim());
+      final rawMedia = item.mediaUrl!.trim();
+      Uint8List bytes = Uint8List(0);
+      if (rawMedia.startsWith('data:')) {
+        final comma = rawMedia.indexOf(',');
+        if (comma > 0) {
+          final encoded = rawMedia.substring(comma + 1);
+          bytes = base64Decode(encoded);
+        }
+      } else if (!kIsWeb && _looksLikeLocalFilePath(rawMedia)) {
+        final normalizedPath = rawMedia.startsWith('file://')
+            ? Uri.parse(rawMedia).toFilePath()
+            : rawMedia;
+        final localFile = File(normalizedPath);
+        if (await localFile.exists()) {
+          bytes = await localFile.readAsBytes();
+        }
+      } else {
+        bytes = await ref
+            .read(crmComercialRepositoryProvider)
+            .downloadMediaBytes(rawMedia);
+      }
       if (bytes.isEmpty) {
         if (mounted) {
           _showCrmToast(
@@ -1975,6 +2089,47 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
     String selectedType = initial?.type ?? 'TEXT';
     String error = '';
 
+    Future<void> pickFile(StateSetter setDialogState) async {
+      FileType pickerType = FileType.custom;
+      List<String> allowedExtensions = const [];
+      switch (selectedType.toUpperCase()) {
+        case 'IMAGE':
+          allowedExtensions = const ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+          break;
+        case 'VIDEO':
+          allowedExtensions = const ['mp4', 'mov', 'avi', 'mkv'];
+          break;
+        case 'AUDIO':
+          allowedExtensions = const ['mp3', 'wav', 'm4a', 'ogg'];
+          break;
+        default:
+          allowedExtensions = const ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'txt'];
+          break;
+      }
+
+      final picked = await FilePicker.platform.pickFiles(
+        type: pickerType,
+        allowedExtensions: allowedExtensions,
+        allowMultiple: false,
+        withData: true,
+      );
+      if (picked == null || picked.files.isEmpty) return;
+      final file = picked.files.first;
+      final fileName = file.name.trim();
+      final mime = _guessMimeTypeFromFileName(fileName, selectedType);
+
+      setDialogState(() {
+        fileNameCtrl.text = fileName;
+        mimeTypeCtrl.text = mime;
+        if (!kIsWeb && (file.path ?? '').trim().isNotEmpty) {
+          mediaUrlCtrl.text = file.path!.trim();
+        } else if (file.bytes != null && file.bytes!.isNotEmpty) {
+          final encoded = base64Encode(file.bytes!);
+          mediaUrlCtrl.text = 'data:$mime;base64,$encoded';
+        }
+      });
+    }
+
     final result = await showDialog<CrmComercialLibraryItem>(
       context: context,
       builder: (dialogContext) {
@@ -2015,7 +2170,24 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                         ],
                         onChanged: (value) {
                           if (value == null) return;
-                          setDialogState(() => selectedType = value);
+                          setDialogState(() {
+                            selectedType = value;
+                            if (!_libraryTypeUsesMediaPicker(value)) {
+                              mediaUrlCtrl.clear();
+                              fileNameCtrl.clear();
+                              mimeTypeCtrl.clear();
+                            }
+                            if (!_libraryTypeUsesExternalUrl(value)) {
+                              externalUrlCtrl.clear();
+                            }
+                            if (!_libraryTypeUsesCoordinates(value)) {
+                              latitudeCtrl.clear();
+                              longitudeCtrl.clear();
+                            }
+                            if (!_libraryTypeUsesTextContent(value)) {
+                              contentCtrl.clear();
+                            }
+                          });
                         },
                       ),
                       const SizedBox(height: 8),
@@ -2025,33 +2197,57 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                         maxLines: 4,
                         decoration: const InputDecoration(labelText: 'Descripción'),
                       ),
-                      const SizedBox(height: 8),
-                      TextField(
-                        controller: contentCtrl,
-                        minLines: 3,
-                        maxLines: 6,
-                        decoration: const InputDecoration(labelText: 'Contenido de texto'),
-                      ),
-                      const SizedBox(height: 8),
-                      TextField(
-                        controller: mediaUrlCtrl,
-                        decoration: const InputDecoration(labelText: 'Media URL'),
-                      ),
-                      const SizedBox(height: 8),
-                      TextField(
-                        controller: fileNameCtrl,
-                        decoration: const InputDecoration(labelText: 'Nombre del archivo'),
-                      ),
-                      const SizedBox(height: 8),
-                      TextField(
-                        controller: mimeTypeCtrl,
-                        decoration: const InputDecoration(labelText: 'MIME type'),
-                      ),
-                      const SizedBox(height: 8),
-                      TextField(
-                        controller: externalUrlCtrl,
-                        decoration: const InputDecoration(labelText: 'Enlace externo'),
-                      ),
+                      if (_libraryTypeUsesTextContent(selectedType)) ...[
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: contentCtrl,
+                          minLines: 3,
+                          maxLines: 6,
+                          decoration: InputDecoration(
+                            labelText: _libraryTypeUsesMediaPicker(selectedType)
+                                ? 'Caption / texto (opcional)'
+                                : 'Contenido de texto',
+                          ),
+                        ),
+                      ],
+                      if (_libraryTypeUsesMediaPicker(selectedType)) ...[
+                        const SizedBox(height: 8),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: OutlinedButton.icon(
+                            onPressed: () => pickFile(setDialogState),
+                            icon: const Icon(Icons.upload_file_rounded, size: 16),
+                            label: const Text('Seleccionar archivo desde PC'),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: mediaUrlCtrl,
+                          readOnly: true,
+                          minLines: 1,
+                          maxLines: 2,
+                          decoration: const InputDecoration(labelText: 'Ruta/URL del archivo'),
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: fileNameCtrl,
+                          readOnly: true,
+                          decoration: const InputDecoration(labelText: 'Nombre del archivo'),
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: mimeTypeCtrl,
+                          readOnly: true,
+                          decoration: const InputDecoration(labelText: 'MIME type'),
+                        ),
+                      ],
+                      if (_libraryTypeUsesExternalUrl(selectedType)) ...[
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: externalUrlCtrl,
+                          decoration: const InputDecoration(labelText: 'Enlace externo'),
+                        ),
+                      ],
                       const SizedBox(height: 8),
                       TextField(
                         controller: categoryCtrl,
@@ -2062,26 +2258,28 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                         controller: tagsCtrl,
                         decoration: const InputDecoration(labelText: 'Etiquetas separadas por coma'),
                       ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: latitudeCtrl,
-                              keyboardType: TextInputType.number,
-                              decoration: const InputDecoration(labelText: 'Latitud'),
+                      if (_libraryTypeUsesCoordinates(selectedType)) ...[
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: latitudeCtrl,
+                                keyboardType: TextInputType.number,
+                                decoration: const InputDecoration(labelText: 'Latitud'),
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: TextField(
-                              controller: longitudeCtrl,
-                              keyboardType: TextInputType.number,
-                              decoration: const InputDecoration(labelText: 'Longitud'),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: TextField(
+                                controller: longitudeCtrl,
+                                keyboardType: TextInputType.number,
+                                decoration: const InputDecoration(labelText: 'Longitud'),
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
+                          ],
+                        ),
+                      ],
                       const SizedBox(height: 8),
                       Row(
                         children: [
@@ -2124,6 +2322,17 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                     final title = titleCtrl.text.trim();
                     if (title.isEmpty) {
                       setDialogState(() => error = 'El título es obligatorio.');
+                      return;
+                    }
+                    if (_libraryTypeUsesMediaPicker(selectedType) &&
+                        mediaUrlCtrl.text.trim().isEmpty) {
+                      setDialogState(() => error = 'Selecciona un archivo para este tipo de recurso.');
+                      return;
+                    }
+                    if (_libraryTypeUsesExternalUrl(selectedType) &&
+                        externalUrlCtrl.text.trim().isEmpty &&
+                        !_libraryTypeUsesMediaPicker(selectedType)) {
+                      setDialogState(() => error = 'El enlace externo es obligatorio para este tipo.');
                       return;
                     }
                     final tags = tagsCtrl.text

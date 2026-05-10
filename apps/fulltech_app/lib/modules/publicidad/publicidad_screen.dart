@@ -2090,13 +2090,18 @@ class _StoryCardState extends State<_StoryCard> {
           ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
         ),
         const SizedBox(height: 8),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(14),
-          child: AspectRatio(
-            aspectRatio: 9 / 16,
-            child: finalImage.isEmpty
-                ? const _BrokenImagePlaceholder()
-                : _StoryImageView(url: finalImage),
+        Center(
+          child: SizedBox(
+            width: 190,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: AspectRatio(
+                aspectRatio: 9 / 16,
+                child: finalImage.isEmpty
+                    ? const _BrokenImagePlaceholder()
+                    : _StoryImageView(url: finalImage),
+              ),
+            ),
           ),
         ),
         if (widget.imageBusy || _isImageStatusLoading(story.imageStatus))

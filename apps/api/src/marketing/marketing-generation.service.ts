@@ -1,7 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { MarketingStoryType, ServiceEvidenceType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { MarketingCreativeComposerService } from './marketing-creative-composer.service';
 import { MarketingImageGenerationService } from './marketing-image-generation.service';
 import { MarketingMediaAssetService } from './marketing-media-asset.service';
 import { MarketingMediaSelectorService, SelectedMedia } from './marketing-media-selector.service';
@@ -22,7 +21,6 @@ export class MarketingGenerationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly mediaSelector: MarketingMediaSelectorService,
-    private readonly creativeComposer: MarketingCreativeComposerService,
     private readonly imageGeneration: MarketingImageGenerationService,
     private readonly mediaAssets: MarketingMediaAssetService,
     private readonly marketingStorage: MarketingStorageService,
@@ -588,22 +586,15 @@ export class MarketingGenerationService {
       };
     }
 
-    const composedCreative = await this.creativeComposer.compose({
-      storyType: enrichedStory.type as 'SALES' | 'TRUST' | 'EDUCATIONAL',
-      title: enrichedStory.title,
-      shortText: enrichedStory.shortText,
-      cta: usedCTA,
-      offer: usedOffer,
-      serviceOrProduct,
-      brandColors,
-      backgroundImageUrl: generated.generatedImageUrl || baseImageSourceUrl,
-      baseImageUrl: `${baseImage?.url ?? baseImageSourceUrl}`.trim(),
-    });
+    const generatedImageSourceUrl = `${generated.generatedImageUrl ?? ''}`.trim();
+    if (!generatedImageSourceUrl) {
+      throw new BadRequestException('No se pudo generar una imagen final válida.');
+    }
 
     const savedGenerated = await this.marketingStorage.saveGeneratedImage({
       companyId,
       storyType: this.storyTypeSlug(enrichedStory.type),
-      sourceUrl: composedCreative.dataUrl,
+      sourceUrl: generatedImageSourceUrl,
     });
     const finalGeneratedUrl = `${savedGenerated?.url ?? ''}`.trim();
     if (!finalGeneratedUrl) {
@@ -611,7 +602,7 @@ export class MarketingGenerationService {
     }
 
     // Validate generated image quality and format
-    const validation = await this.imageGeneration.validateGeneratedImage(finalGeneratedUrl);
+    const validation = await this.imageGeneration.validateGeneratedImage(finalGeneratedUrl, '9:16', `${baseImage?.url ?? baseImageSourceUrl}`.trim());
     if (!validation.valid) {
       this.logger.warn(`[marketing-image] validation failed: ${validation.reason}`);
       await this.markStoryImageFailed(companyId, storyId, `Validacion de imagen fallida: ${validation.reason || 'Imagen invalida'}`, 1);
@@ -639,8 +630,7 @@ export class MarketingGenerationService {
         imageGenerationMetadata: {
           ...generated.metadata,
           processedAt: new Date().toISOString(),
-          compositionLayout: composedCreative.layout,
-          compositionMode: 'server-side-premium-layout',
+          compositionMode: 'provider-image-edit',
           providerError,
           baseImageSavedUrl: `${baseImage?.url ?? enrichedStory.imageUrl ?? ''}`.trim() || null,
           generatedImageSavedUrl: finalGeneratedUrl,

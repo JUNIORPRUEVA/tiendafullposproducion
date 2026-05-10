@@ -1,7 +1,9 @@
-﻿import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+﻿import { createHash } from 'crypto';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import sharp from 'sharp';
 import { PrismaService } from '../prisma/prisma.service';
-import { R2Service } from '../storage/r2.service';
+import { MarketingImageEditProvider } from './marketing-image-edit.provider';
 
 type ImageGenerationInput = {
   companyName: string;
@@ -39,74 +41,50 @@ export class MarketingImageGenerationService {
   constructor(
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
-    private readonly r2: R2Service,
+    private readonly imageEditProvider: MarketingImageEditProvider,
   ) {}
 
   async generateOrPrepare(input: ImageGenerationInput): Promise<ImageGenerationResult> {
-    const failures: string[] = [];
     const storyType = this.inferStoryType(input);
+    const baseImageUrl = (input.baseImageUrl || '').trim();
 
-    // â”€â”€ Provider 1: Stability AI (PRIMARY â€” no billing issues) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    const stabilityKey = await this.resolveStabilityApiKey();
-    if (stabilityKey) {
-      this.logger.log(
-        `[marketing-image] trying provider=STABILITY_AI type=${storyType} category=${input.imageCategory} service=${input.serviceOrProduct}`,
-      );
-      try {
-        const result = await this.generateWithStabilityAi(input, stabilityKey, storyType);
-        if (result) return result;
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
-        this.logger.warn(`Stability AI failed, trying OpenAI: ${reason}`);
-        failures.push(`stability-ai: ${reason}`);
-      }
+    if (!baseImageUrl || (!baseImageUrl.startsWith('http://') && !baseImageUrl.startsWith('https://'))) {
+      throw new BadRequestException('Selecciona una imagen base válida desde Galería de contenido para generar el diseño final.');
     }
 
-    // â”€â”€ Provider 2: OpenAI (FALLBACK) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    const apiKey = await this.resolveOpenAiApiKey();
-    this.logger.log(
-      `[marketing-image] provider=OPENAI configured=${apiKey ? 'true' : 'false'} category=${input.imageCategory}`,
-    );
+    const mandatoryPrompt =
+      'Mantén exactamente el mismo producto de la imagen base. Solo mejora composición publicitaria, iluminación, fondo, profundidad y contexto comercial premium. No reemplazar producto. No agregar texto, logos, marcas de agua ni placeholders. Entrega imagen final lista para publicar en formato vertical 9:16.';
 
-    if (!apiKey && !stabilityKey) {
-      throw new BadRequestException(
-        'No hay proveedor de imÃ¡genes configurado. Configura STABILITY_API_KEY o OPENAI_API_KEY.',
-      );
-    }
+    const prompt = [mandatoryPrompt, this.buildGptImagePrompt(input, storyType)].join(' ');
+    this.logger.log(`[marketing-image] provider=image-edit mode=OPENAI storyType=${storyType}`);
 
-    if (apiKey) {
-      try {
-        this.logger.log(
-          `[marketing-image] generating mode=gpt-image-edit base=${(input.baseImageUrl || '').trim().length > 0}`,
-        );
-        const edited = await this.generateWithGptImageEdit(input, this.buildGptImagePrompt(input, storyType), apiKey);
-        if (edited) return edited;
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
-        this.logger.warn(`GPT Image edit failed, trying DALL-E 3: ${reason}`);
-        failures.push(`gpt-image-1-edit: ${reason}`);
-      }
+    const edited = await this.imageEditProvider.editImage({
+      baseImageUrl,
+      prompt,
+    });
 
-      try {
-        this.logger.log('[marketing-image] generating mode=dall-e-3');
-        const result = await this.generateWithDallE3(input, this.buildPrompt(input), apiKey, storyType);
-        if (result) return result;
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
-        this.logger.error(`[marketing-image] dall-e-3 failed: ${reason}`);
-        failures.push(`dall-e-3: ${reason}`);
-      }
-    }
-
-    const detail = failures.length > 0 ? failures.join(' | ') : 'sin detalle del proveedor';
-    throw new BadRequestException(`No se pudo generar la imagen publicitaria con el proveedor configurado. ${detail}`);
+    return {
+      imageStatus: 'GENERATED',
+      generatedImageUrl: edited.imageDataUrl,
+      generatedImageProvider: edited.provider,
+      prompt,
+      visualConcept: input.visualConcept,
+      designNotes: input.designNotes,
+      metadata: {
+        ...edited.metadata,
+        mode: 'image-edit',
+        promptType: 'strict-base-image-edit',
+      },
+    };
   }
 
   async isProviderConfigured(): Promise<boolean> {
-    const stabilityKey = await this.resolveStabilityApiKey();
-    if (stabilityKey) return true;
-    const apiKey = await this.resolveOpenAiApiKey();
-    return !!apiKey;
+    try {
+      await this.imageEditProvider.ensureConfigured();
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /** Infer story type from explicit field or visual concept/design notes */
@@ -603,41 +581,65 @@ export class MarketingImageGenerationService {
     return `${clean.slice(0, Math.max(0, max - 3)).trim()}...`;
   }
 
-  /** Validate generated image: accessibility, format, aspect ratio, basic quality checks */
-  async validateGeneratedImage(imageUrl: string, expectedFormat: string = '9:16'): Promise<{ valid: boolean; reason?: string }> {
+  /** Validate generated image: accessibility, image format, dimensions and anti-placeholder checks */
+  async validateGeneratedImage(
+    imageUrl: string,
+    expectedFormat: string = '9:16',
+    baseImageUrl?: string,
+  ): Promise<{ valid: boolean; reason?: string }> {
     if (!imageUrl?.trim()) {
       return { valid: false, reason: 'Image URL is empty' };
     }
 
     try {
-      // For data URLs, basic validation only
-      if (imageUrl.startsWith('data:')) {
-        const parts = imageUrl.split(',');
-        if (parts.length < 2 || parts[1].length < 100) {
-          return { valid: false, reason: 'Data URL image appears too small or corrupted' };
+      const generatedBuffer = await this.loadImageBuffer(imageUrl);
+      if (generatedBuffer.length < 12_000) {
+        return { valid: false, reason: 'Generated image is too small (likely placeholder or error)' };
+      }
+
+      const generatedMeta = await sharp(generatedBuffer).metadata();
+      const width = generatedMeta.width ?? 0;
+      const height = generatedMeta.height ?? 0;
+      if (width < 720 || height < 1200) {
+        return { valid: false, reason: `Generated image resolution too low (${width}x${height})` };
+      }
+
+      if (expectedFormat === '9:16') {
+        const ratio = width / Math.max(1, height);
+        const expectedRatio = 9 / 16;
+        if (Math.abs(ratio - expectedRatio) > 0.08) {
+          return { valid: false, reason: `Generated image has invalid aspect ratio (${width}x${height})` };
         }
-        // Basic check: size should be reasonable
-        const buffer = Buffer.from(parts[1], 'base64');
-        if (buffer.length < 5000) {
-          return { valid: false, reason: 'Generated image is too small (likely placeholder or error)' };
+      }
+
+      const tinyPreview = await sharp(generatedBuffer)
+        .resize(64, 64, { fit: 'cover' })
+        .grayscale()
+        .raw()
+        .toBuffer();
+      const generatedHash = createHash('sha256').update(tinyPreview).digest('hex');
+
+      if (baseImageUrl?.trim()) {
+        try {
+          const baseBuffer = await this.loadImageBuffer(baseImageUrl);
+          const basePreview = await sharp(baseBuffer)
+            .resize(64, 64, { fit: 'cover' })
+            .grayscale()
+            .raw()
+            .toBuffer();
+          const baseHash = createHash('sha256').update(basePreview).digest('hex');
+          if (generatedHash === baseHash) {
+            return { valid: false, reason: 'Generated image is identical to base image' };
+          }
+        } catch {
+          // If base image cannot be loaded, keep validation based on generated image only.
         }
-        return { valid: true };
       }
 
-      // For HTTP(S) URLs, try to fetch and validate
-      const response = await this.fetchWithTimeout(imageUrl, undefined, 15000);
-      if (!response.ok) {
-        return { valid: false, reason: `Image URL returned HTTP ${response.status}` };
-      }
-
-      const contentLength = response.headers.get('content-length');
-      if (contentLength && parseInt(contentLength, 10) < 5000) {
-        return { valid: false, reason: 'Image file is too small (likely placeholder)' };
-      }
-
-      const contentType = response.headers.get('content-type');
-      if (!contentType?.includes('image')) {
-        return { valid: false, reason: 'Response is not an image file' };
+      const lower = generatedBuffer.subarray(0, Math.min(generatedBuffer.length, 200_000)).toString('latin1').toLowerCase();
+      const forbiddenTokens = ['placeholder', 'lorem ipsum', 'dummy image', 'sample image'];
+      if (forbiddenTokens.some((token) => lower.includes(token))) {
+        return { valid: false, reason: 'Generated image appears to contain placeholder artifacts' };
       }
 
       return { valid: true };
@@ -645,6 +647,28 @@ export class MarketingImageGenerationService {
       const reason = error instanceof Error ? error.message : 'Unknown validation error';
       return { valid: false, reason: `Image validation failed: ${reason}` };
     }
+  }
+
+  private async loadImageBuffer(urlOrData: string): Promise<Buffer> {
+    if (urlOrData.startsWith('data:')) {
+      const parts = urlOrData.split(',');
+      if (parts.length < 2 || !parts[1]) {
+        throw new Error('Malformed data URL image');
+      }
+      return Buffer.from(parts[1], 'base64');
+    }
+
+    const response = await this.fetchWithTimeout(urlOrData, undefined, 20000);
+    if (!response.ok) {
+      throw new Error(`Image URL returned HTTP ${response.status}`);
+    }
+
+    const contentType = (response.headers.get('content-type') || '').toLowerCase();
+    if (!contentType.includes('image')) {
+      throw new Error('Response is not an image file');
+    }
+
+    return Buffer.from(await response.arrayBuffer());
   }
 
   buildPrompt(input: ImageGenerationInput) {
