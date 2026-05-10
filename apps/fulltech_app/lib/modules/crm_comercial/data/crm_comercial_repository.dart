@@ -400,11 +400,15 @@ class CrmComercialRepository {
         options: Options(extra: const {'skipLoader': true, 'silent': true}),
       );
       final data = res.data ?? const <String, dynamic>{};
-      final suggestedReply = (data['suggestedReply'] ?? '').toString().trim();
-      if (suggestedReply.isEmpty) return null;
-      return CrmComercialAiReplySuggestion.fromJson(data);
-    } on DioException {
-      return null;
+      final suggestion = CrmComercialAiReplySuggestion.fromJson(data);
+      final hasPayload = suggestion.intent.trim().isNotEmpty ||
+          suggestion.suggestedReply.trim().isNotEmpty ||
+          suggestion.message?.trim().isNotEmpty == true ||
+          suggestion.aiConfigured == false;
+      if (!hasPayload) return null;
+      return suggestion;
+    } on DioException catch (error) {
+      throw _mapError(error, 'No se pudo generar sugerencia de IA.');
     }
   }
 

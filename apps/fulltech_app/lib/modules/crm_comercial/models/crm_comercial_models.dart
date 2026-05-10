@@ -477,6 +477,8 @@ class CrmComercialAiReplySuggestion {
     required this.missingData,
     required this.confidence,
     required this.dataUsed,
+    this.aiConfigured,
+    this.message,
   });
 
   final String intent;
@@ -485,6 +487,8 @@ class CrmComercialAiReplySuggestion {
   final List<String> missingData;
   final double confidence;
   final List<String> dataUsed;
+  final bool? aiConfigured;
+  final String? message;
 
   factory CrmComercialAiReplySuggestion.fromJson(Map<String, dynamic> json) {
     return CrmComercialAiReplySuggestion(
@@ -500,6 +504,8 @@ class CrmComercialAiReplySuggestion {
           .map((entry) => entry.toString())
           .where((entry) => entry.trim().isNotEmpty)
           .toList(growable: false),
+      aiConfigured: json['aiConfigured'] is bool ? json['aiConfigured'] as bool : null,
+      message: json['message']?.toString(),
     );
   }
 }

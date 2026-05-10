@@ -482,6 +482,11 @@ export class AiAssistantService {
     };
   }
 
+  async isCommercialAiConfigured(): Promise<boolean> {
+    const runtime = await this.getOpenAiRuntimeConfig();
+    return !!runtime.apiKey;
+  }
+
   private normalizeCrmCommercialText(value: string) {
     return value
       .toLowerCase()

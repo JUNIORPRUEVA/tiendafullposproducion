@@ -379,6 +379,8 @@ export class CrmCommercialService {
           .slice(0, 6)
           .join(', ');
 
+    const aiConfigured = await this.aiAssistantService.isCommercialAiConfigured();
+
     const suggestion = await this.aiAssistantService.suggestCrmCommercialReply({
       lastCustomerMessage,
       recentMessages: normalizedRecent,
@@ -413,6 +415,8 @@ export class CrmCommercialService {
       missingData: suggestion.missingData,
       confidence: suggestion.confidence,
       dataUsed: suggestion.dataUsed,
+      aiConfigured,
+      message: !aiConfigured ? 'La IA no está configurada todavía.' : null,
       autoSend: false,
     };
   }

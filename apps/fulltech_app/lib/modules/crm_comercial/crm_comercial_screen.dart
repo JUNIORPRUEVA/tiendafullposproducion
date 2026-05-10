@@ -7,7 +7,6 @@ import 'package:emoji_picker_flutter/emoji_picker_flutter.dart' as ep;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:media_kit/media_kit.dart' as media_kit;
 import 'package:media_kit_video/media_kit_video.dart' as media_kit_video;
@@ -191,6 +190,8 @@ const List<String> _taskPriorities = <String>[
 
 enum _CrmRightPanelTab { detail, ia }
 
+enum _CrmToastKind { info, success, error }
+
 class CrmComercialScreen extends ConsumerStatefulWidget {
   const CrmComercialScreen({super.key});
 
@@ -268,6 +269,11 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
   bool _loadingCommercialSuggestion = false;
   String _lastIgnoredCommercialSuggestion = '';
   String _lastAutoSuggestedIncomingMessageId = '';
+  String _commercialAiStatusText = '';
+  String? _commercialAiErrorDetail;
+
+  OverlayEntry? _toastEntry;
+  Timer? _toastTimer;
 
   // Emoji picker state
   bool _showEmojiPicker = false;
@@ -316,6 +322,9 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
     _mediaCaptionCtrl.dispose();
     _composerSpellTimer?.cancel();
     _commercialAiTimer?.cancel();
+    _toastTimer?.cancel();
+    _toastEntry?.remove();
+    _toastEntry = null;
     _conversationListScrollCtrl.dispose();
     _chatScrollCtrl.dispose();
     _sidebarSearchFocusNode.dispose();
@@ -1217,14 +1226,31 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
     final selectedConversation = _selectedConversation;
     if (selectedConversation == null) return;
     final incoming = _latestIncomingMessage();
-    if (incoming == null) return;
+    final incomingText = incoming == null ? '' : (incoming.body ?? incoming.caption ?? '').trim();
+    final composerText = _chatComposerCtrl.text.trim();
+    final sourceText = incomingText.isNotEmpty ? incomingText : composerText;
 
-    final incomingText = (incoming.body ?? incoming.caption ?? '').trim();
-    if (incomingText.isEmpty) return;
-    if (!manual && _lastAutoSuggestedIncomingMessageId == incoming.id) return;
+    if (!manual && incoming == null) return;
+    if (sourceText.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _commercialAiStatusText = 'No pude generar sugerencia';
+          _commercialAiErrorDetail =
+              'No hay texto del cliente ni texto en el input para analizar.';
+        });
+      }
+      return;
+    }
+    if (!manual && incoming != null && _lastAutoSuggestedIncomingMessageId == incoming.id) {
+      return;
+    }
 
     if (mounted) {
-      setState(() => _loadingCommercialSuggestion = true);
+      setState(() {
+        _loadingCommercialSuggestion = true;
+        _commercialAiStatusText = 'Analizando conversación...';
+        _commercialAiErrorDetail = null;
+      });
     }
     try {
       final settings = await _resolveCompanySettings();
@@ -1242,7 +1268,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
 
       final suggestion = await ref.read(crmComercialRepositoryProvider).suggestReply(
             conversationId: selectedConversation.id,
-            lastCustomerMessage: incomingText,
+        lastCustomerMessage: sourceText,
             recentMessages: _messages,
             crmStatus: selectedConversation.crmCustomerStatus,
             customerInfo: {
@@ -1266,14 +1292,73 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
           );
 
       if (!mounted) return;
-      if (suggestion == null) return;
-      if (suggestion.suggestedReply.trim().isEmpty) return;
-      if (suggestion.suggestedReply.trim() == _lastIgnoredCommercialSuggestion) return;
+      if (suggestion == null) {
+        setState(() {
+          _commercialAiSuggestion = null;
+          _commercialAiStatusText = 'No pude generar sugerencia';
+        });
+        return;
+      }
+      if (suggestion.aiConfigured == false) {
+        setState(() {
+          _commercialAiSuggestion = null;
+          _commercialAiStatusText = 'La IA no está configurada todavía.';
+          _commercialAiErrorDetail = suggestion.message;
+        });
+        return;
+      }
+      if (suggestion.suggestedReply.trim().isEmpty) {
+        setState(() {
+          _commercialAiSuggestion = null;
+          _commercialAiStatusText = 'No pude generar sugerencia';
+          _commercialAiErrorDetail = suggestion.message;
+        });
+        return;
+      }
+      if (suggestion.suggestedReply.trim() == _lastIgnoredCommercialSuggestion) {
+        setState(() {
+          _commercialAiStatusText = 'No pude generar sugerencia';
+        });
+        return;
+      }
 
       setState(() {
         _commercialAiSuggestion = suggestion;
-        _lastAutoSuggestedIncomingMessageId = incoming.id;
+        if (incoming != null) {
+          _lastAutoSuggestedIncomingMessageId = incoming.id;
+        }
+        _commercialAiStatusText = 'Sugerencia lista';
+        _commercialAiErrorDetail = null;
       });
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      final low = error.message.toLowerCase();
+      final isConfig = low.contains('openai') ||
+          low.contains('api key') ||
+          low.contains('configurada');
+      setState(() {
+        _commercialAiSuggestion = null;
+        _commercialAiStatusText =
+            isConfig ? 'La IA no está configurada todavía.' : 'No pude generar sugerencia';
+        _commercialAiErrorDetail = error.responseBody ?? error.technicalDetails ?? error.message;
+      });
+      _showCrmToast(
+        _commercialAiStatusText,
+        kind: _CrmToastKind.error,
+        detail: _commercialAiErrorDetail,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _commercialAiSuggestion = null;
+        _commercialAiStatusText = 'No pude generar sugerencia';
+        _commercialAiErrorDetail = error.toString();
+      });
+      _showCrmToast(
+        'No pude generar sugerencia',
+        kind: _CrmToastKind.error,
+        detail: error.toString(),
+      );
     } finally {
       if (mounted) {
         setState(() => _loadingCommercialSuggestion = false);
@@ -1314,12 +1399,113 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
     });
   }
 
+  void _showCrmToast(
+    String message, {
+    _CrmToastKind kind = _CrmToastKind.info,
+    String? detail,
+  }) {
+    if (!mounted) return;
+    final overlay = Overlay.maybeOf(context);
+    if (overlay == null) return;
+
+    _toastTimer?.cancel();
+    _toastEntry?.remove();
+
+    final backgroundColor = switch (kind) {
+      _CrmToastKind.success => const Color(0xFF1F8F4B),
+      _CrmToastKind.error => const Color(0xFFB42318),
+      _CrmToastKind.info => const Color(0xFF334155),
+    };
+    final duration = kind == _CrmToastKind.error
+        ? const Duration(seconds: 2)
+        : const Duration(seconds: 1);
+
+    _toastEntry = OverlayEntry(
+      builder: (overlayContext) {
+        return Positioned(
+          top: 12,
+          right: 12,
+          child: SafeArea(
+            child: Material(
+              color: Colors.transparent,
+              child: Container(
+                constraints: const BoxConstraints(maxWidth: 320),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: backgroundColor,
+                  borderRadius: BorderRadius.circular(8),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x33000000),
+                      blurRadius: 8,
+                      offset: Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        message,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                    if (kind == _CrmToastKind.error && (detail ?? '').trim().isNotEmpty)
+                      TextButton(
+                        onPressed: () {
+                          showDialog<void>(
+                            context: overlayContext,
+                            builder: (dialogContext) => AlertDialog(
+                              title: const Text('Detalle del error'),
+                              content: SingleChildScrollView(
+                                child: SelectableText(detail!.trim()),
+                              ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.of(dialogContext).pop(),
+                                  child: const Text('Cerrar'),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                        style: TextButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                        ),
+                        child: const Text('Ver detalle'),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    overlay.insert(_toastEntry!);
+    _toastTimer = Timer(duration, () {
+      _toastEntry?.remove();
+      _toastEntry = null;
+    });
+  }
+
   Future<void> _openInternalNoteDialog() async {
     final hasSelection = _selected != null;
     if (!hasSelection) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Selecciona un cliente para guardar nota interna.')),
+        _showCrmToast(
+          'Selecciona un cliente para guardar nota interna.',
+          kind: _CrmToastKind.info,
         );
       }
       return;
@@ -1395,8 +1581,9 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
     final hasSelection = _selected != null;
     if (!hasSelection) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Selecciona un cliente para crear actividad.')),
+        _showCrmToast(
+          'Selecciona un cliente para crear actividad.',
+          kind: _CrmToastKind.info,
         );
       }
       return;
@@ -1659,9 +1846,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
     if (text.trim().isEmpty) return;
     await Clipboard.setData(ClipboardData(text: text));
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Recurso copiado al portapapeles.')),
-    );
+    _showCrmToast('Recurso copiado al portapapeles.', kind: _CrmToastKind.success);
   }
 
   Future<void> _insertLibraryItemIntoComposer(CrmComercialLibraryItem item) async {
@@ -1674,8 +1859,9 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
   Future<void> _sendLibraryItemDirect(CrmComercialLibraryItem item) async {
     if (_selectedConversation == null) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Selecciona una conversación antes de enviar directamente.')),
+        _showCrmToast(
+          'Selecciona una conversación antes de enviar directamente.',
+          kind: _CrmToastKind.info,
         );
       }
       return;
@@ -1707,8 +1893,9 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
       final bytes = await ref.read(crmComercialRepositoryProvider).downloadMediaBytes(item.mediaUrl!.trim());
       if (bytes.isEmpty) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('No se pudo cargar el archivo del recurso.')),
+          _showCrmToast(
+            'No se pudo cargar el archivo del recurso.',
+            kind: _CrmToastKind.error,
           );
         }
         return;
@@ -1984,65 +2171,101 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
     var selectedCategory = '';
     var onlyActive = true;
     var loading = true;
+    var dialogError = '';
     var items = <CrmComercialLibraryItem>[];
 
     Future<void> reload(StateSetter setDialogState) async {
-      setDialogState(() => loading = true);
-      final response = await ref.read(crmComercialRepositoryProvider).listLibrary(
-            type: selectedType,
-            category: selectedCategory.trim().isEmpty ? null : selectedCategory.trim(),
-            search: query.trim().isEmpty ? null : query.trim(),
-            isActive: onlyActive ? true : null,
-          );
-      if (!mounted) return;
       setDialogState(() {
-        items = response.items;
-        loading = false;
+        loading = true;
+        dialogError = '';
       });
+      try {
+        final response = await ref.read(crmComercialRepositoryProvider).listLibrary(
+              type: selectedType,
+              category: selectedCategory.trim().isEmpty ? null : selectedCategory.trim(),
+              search: query.trim().isEmpty ? null : query.trim(),
+              isActive: onlyActive ? true : null,
+            );
+        if (!mounted) return;
+        setDialogState(() {
+          items = response.items;
+        });
+      } on ApiException catch (error) {
+        if (!mounted) return;
+        setDialogState(() {
+          dialogError = error.message;
+        });
+      } catch (error) {
+        if (!mounted) return;
+        setDialogState(() {
+          dialogError = 'No se pudo cargar la Biblioteca Comercial.';
+        });
+      } finally {
+        if (!mounted) return;
+        setDialogState(() => loading = false);
+      }
     }
 
     Future<void> createItem(StateSetter setDialogState) async {
       final created = await _openCommercialLibraryItemEditorDialog();
       if (created == null) return;
-      await ref.read(crmComercialRepositoryProvider).createLibraryItem({
-        'title': created.title,
-        'type': created.type,
-        if ((created.description ?? '').trim().isNotEmpty) 'description': created.description,
-        if ((created.contentText ?? '').trim().isNotEmpty) 'contentText': created.contentText,
-        if ((created.mediaUrl ?? '').trim().isNotEmpty) 'mediaUrl': created.mediaUrl,
-        if ((created.fileName ?? '').trim().isNotEmpty) 'fileName': created.fileName,
-        if ((created.mimeType ?? '').trim().isNotEmpty) 'mimeType': created.mimeType,
-        if (created.latitude != null) 'latitude': created.latitude,
-        if (created.longitude != null) 'longitude': created.longitude,
-        if ((created.externalUrl ?? '').trim().isNotEmpty) 'externalUrl': created.externalUrl,
-        if ((created.category ?? '').trim().isNotEmpty) 'category': created.category,
-        'tags': created.tags,
-        'isActive': created.isActive,
-        'sortOrder': created.sortOrder,
-      });
-      await reload(setDialogState);
+      try {
+        await ref.read(crmComercialRepositoryProvider).createLibraryItem({
+          'title': created.title,
+          'type': created.type,
+          if ((created.description ?? '').trim().isNotEmpty) 'description': created.description,
+          if ((created.contentText ?? '').trim().isNotEmpty) 'contentText': created.contentText,
+          if ((created.mediaUrl ?? '').trim().isNotEmpty) 'mediaUrl': created.mediaUrl,
+          if ((created.fileName ?? '').trim().isNotEmpty) 'fileName': created.fileName,
+          if ((created.mimeType ?? '').trim().isNotEmpty) 'mimeType': created.mimeType,
+          if (created.latitude != null) 'latitude': created.latitude,
+          if (created.longitude != null) 'longitude': created.longitude,
+          if ((created.externalUrl ?? '').trim().isNotEmpty) 'externalUrl': created.externalUrl,
+          if ((created.category ?? '').trim().isNotEmpty) 'category': created.category,
+          'tags': created.tags,
+          'isActive': created.isActive,
+          'sortOrder': created.sortOrder,
+        });
+        await reload(setDialogState);
+        _showCrmToast('Recurso creado.', kind: _CrmToastKind.success);
+      } on ApiException catch (error) {
+        _showCrmToast(
+          error.message,
+          kind: _CrmToastKind.error,
+          detail: error.responseBody ?? error.technicalDetails,
+        );
+      }
     }
 
     Future<void> editItem(CrmComercialLibraryItem item, StateSetter setDialogState) async {
       final edited = await _openCommercialLibraryItemEditorDialog(initial: item);
       if (edited == null) return;
-      await ref.read(crmComercialRepositoryProvider).updateLibraryItem(item.id, {
-        'title': edited.title,
-        'type': edited.type,
-        if ((edited.description ?? '').trim().isNotEmpty) 'description': edited.description,
-        if ((edited.contentText ?? '').trim().isNotEmpty) 'contentText': edited.contentText,
-        if ((edited.mediaUrl ?? '').trim().isNotEmpty) 'mediaUrl': edited.mediaUrl,
-        if ((edited.fileName ?? '').trim().isNotEmpty) 'fileName': edited.fileName,
-        if ((edited.mimeType ?? '').trim().isNotEmpty) 'mimeType': edited.mimeType,
-        if (edited.latitude != null) 'latitude': edited.latitude,
-        if (edited.longitude != null) 'longitude': edited.longitude,
-        if ((edited.externalUrl ?? '').trim().isNotEmpty) 'externalUrl': edited.externalUrl,
-        if ((edited.category ?? '').trim().isNotEmpty) 'category': edited.category,
-        'tags': edited.tags,
-        'isActive': edited.isActive,
-        'sortOrder': edited.sortOrder,
-      });
-      await reload(setDialogState);
+      try {
+        await ref.read(crmComercialRepositoryProvider).updateLibraryItem(item.id, {
+          'title': edited.title,
+          'type': edited.type,
+          if ((edited.description ?? '').trim().isNotEmpty) 'description': edited.description,
+          if ((edited.contentText ?? '').trim().isNotEmpty) 'contentText': edited.contentText,
+          if ((edited.mediaUrl ?? '').trim().isNotEmpty) 'mediaUrl': edited.mediaUrl,
+          if ((edited.fileName ?? '').trim().isNotEmpty) 'fileName': edited.fileName,
+          if ((edited.mimeType ?? '').trim().isNotEmpty) 'mimeType': edited.mimeType,
+          if (edited.latitude != null) 'latitude': edited.latitude,
+          if (edited.longitude != null) 'longitude': edited.longitude,
+          if ((edited.externalUrl ?? '').trim().isNotEmpty) 'externalUrl': edited.externalUrl,
+          if ((edited.category ?? '').trim().isNotEmpty) 'category': edited.category,
+          'tags': edited.tags,
+          'isActive': edited.isActive,
+          'sortOrder': edited.sortOrder,
+        });
+        await reload(setDialogState);
+        _showCrmToast('Recurso actualizado.', kind: _CrmToastKind.success);
+      } on ApiException catch (error) {
+        _showCrmToast(
+          error.message,
+          kind: _CrmToastKind.error,
+          detail: error.responseBody ?? error.technicalDetails,
+        );
+      }
     }
 
     Future<void> deleteItem(CrmComercialLibraryItem item, StateSetter setDialogState) async {
@@ -2064,8 +2287,17 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
         ),
       );
       if (confirmed != true) return;
-      await ref.read(crmComercialRepositoryProvider).deleteLibraryItem(item.id);
-      await reload(setDialogState);
+      try {
+        await ref.read(crmComercialRepositoryProvider).deleteLibraryItem(item.id);
+        await reload(setDialogState);
+        _showCrmToast('Recurso eliminado.', kind: _CrmToastKind.success);
+      } on ApiException catch (error) {
+        _showCrmToast(
+          error.message,
+          kind: _CrmToastKind.error,
+          detail: error.responseBody ?? error.technicalDetails,
+        );
+      }
     }
 
     await showDialog<void>(
@@ -2150,8 +2382,32 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                       constraints: const BoxConstraints(maxHeight: 440),
                       child: loading
                           ? const Center(child: CircularProgressIndicator())
+                          : dialogError.trim().isNotEmpty
+                              ? Center(
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        dialogError,
+                                        textAlign: TextAlign.center,
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          color: AppColors.error,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      OutlinedButton.icon(
+                                        onPressed: () => reload(setDialogState),
+                                        icon: const Icon(Icons.refresh_rounded, size: 16),
+                                        label: const Text('Reintentar'),
+                                      ),
+                                    ],
+                                  ),
+                                )
                           : filtered.isEmpty
-                              ? const Center(child: Text('No hay recursos configurados.'))
+                              ? const Center(
+                                  child: Text('No hay recursos en la Biblioteca Comercial.'),
+                                )
                               : ListView.separated(
                                   shrinkWrap: true,
                                   itemCount: filtered.length,
@@ -2241,7 +2497,6 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
         );
       },
     );
-    }
   }
 
   Future<void> _openAttachmentMenu() async {
@@ -2807,12 +3062,9 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
   }
 
   void _showConvertPlaceholder() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Proximamente: convertir contacto WhatsApp a cliente CRM comercial.',
-        ),
-      ),
+    _showCrmToast(
+      'Próximamente: convertir contacto WhatsApp a cliente CRM comercial.',
+      kind: _CrmToastKind.info,
     );
   }
 
@@ -3272,98 +3524,6 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
     });
   }
 
-  String _createQuickReplyId() {
-    final now = DateTime.now().microsecondsSinceEpoch;
-    return 'qr_$now';
-  }
-
-  Future<_CrmQuickReplyTemplate?> _openQuickReplyEditorDialog({
-    _CrmQuickReplyTemplate? initial,
-  }) async {
-    final labelCtrl = TextEditingController(text: initial?.label ?? '');
-    final textCtrl = TextEditingController(text: initial?.text ?? '');
-    String error = '';
-
-    final result = await showDialog<_CrmQuickReplyTemplate>(
-      context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: Text(initial == null ? 'Agregar mensaje rápido' : 'Editar mensaje rápido'),
-              content: SizedBox(
-                width: 480,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: labelCtrl,
-                      maxLength: 40,
-                      decoration: const InputDecoration(
-                        labelText: 'Título',
-                        hintText: 'Ej. Ubicación GPS',
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: textCtrl,
-                      minLines: 3,
-                      maxLines: 6,
-                      decoration: const InputDecoration(
-                        labelText: 'Contenido',
-                        hintText: 'Texto que se enviará al cliente.',
-                      ),
-                    ),
-                    if (error.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          error,
-                          style: const TextStyle(fontSize: 12, color: AppColors.error),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('Cancelar'),
-                ),
-                FilledButton(
-                  onPressed: () {
-                    final label = labelCtrl.text.trim();
-                    final text = textCtrl.text.trim();
-                    if (label.isEmpty || text.isEmpty) {
-                      setDialogState(() {
-                        error = 'Completa título y contenido.';
-                      });
-                      return;
-                    }
-                    Navigator.of(dialogContext).pop(
-                      _CrmQuickReplyTemplate(
-                        id: initial?.id ?? _createQuickReplyId(),
-                        label: label,
-                        text: text,
-                      ),
-                    );
-                  },
-                  child: const Text('Guardar'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-
-    labelCtrl.dispose();
-    textCtrl.dispose();
-    return result;
-  }
-
   Future<void> _openQuickRepliesManagerDialog() async {
     await _openCommercialLibraryDialog();
   }
@@ -3403,9 +3563,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
         return;
       default:
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Atajo no reconocido.')),
-          );
+          _showCrmToast('Atajo no reconocido.', kind: _CrmToastKind.info);
         }
     }
   }
@@ -4701,6 +4859,58 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                if (_commercialAiStatusText.trim().isNotEmpty)
+                  Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 6),
+                    padding: const EdgeInsets.fromLTRB(10, 7, 10, 7),
+                    decoration: BoxDecoration(
+                      color: _loadingCommercialSuggestion
+                          ? const Color(0xFFF0F7FF)
+                          : (_commercialAiStatusText == 'Sugerencia lista'
+                              ? const Color(0xFFEAF7EE)
+                              : const Color(0xFFFFF2F0)),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: _loadingCommercialSuggestion
+                            ? const Color(0xFFBFDBFE)
+                            : (_commercialAiStatusText == 'Sugerencia lista'
+                                ? const Color(0xFFA7E0B4)
+                                : const Color(0xFFF7B4AE)),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        if (_loadingCommercialSuggestion)
+                          const SizedBox(
+                            width: 12,
+                            height: 12,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        else
+                          Icon(
+                            _commercialAiStatusText == 'Sugerencia lista'
+                                ? Icons.check_circle_outline_rounded
+                                : Icons.info_outline_rounded,
+                            size: 14,
+                            color: _commercialAiStatusText == 'Sugerencia lista'
+                                ? const Color(0xFF1F8F4B)
+                                : const Color(0xFFB42318),
+                          ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _commercialAiStatusText,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: _waText,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 if ((_commercialAiSuggestion?.suggestedReply ?? '').isNotEmpty)
                   Container(
                     width: double.infinity,
@@ -4961,10 +5171,9 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                       tooltip: 'Nota de voz',
                       visualDensity: VisualDensity.compact,
                       onPressed: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Grabación de audio disponible próximamente.'),
-                          ),
+                        _showCrmToast(
+                          'Grabación de audio disponible próximamente.',
+                          kind: _CrmToastKind.info,
                         );
                       },
                       icon: const Icon(Icons.mic_none_rounded, size: 20),
@@ -5079,6 +5288,8 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                 child: _CrmAiCommercialPanel(
                   suggestion: _commercialAiSuggestion,
                   loading: _loadingCommercialSuggestion,
+                  statusText: _commercialAiStatusText,
+                  errorDetail: _commercialAiErrorDetail,
                   onSuggest: () => _requestCommercialReplySuggestion(manual: true),
                   onInsert: _insertCommercialSuggestionInComposer,
                   onSend: _sendCommercialSuggestion,
@@ -5087,10 +5298,9 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                       ? null
                       : () => _openCreateTaskDialog(context),
                   onCreateQuote: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Creación de cotización desde IA disponible próximamente.'),
-                      ),
+                    _showCrmToast(
+                      'Creación de cotización desde IA disponible próximamente.',
+                      kind: _CrmToastKind.info,
                     );
                   },
                   onUseLocation: () async {
@@ -5480,6 +5690,8 @@ class _CrmAiCommercialPanel extends StatelessWidget {
   const _CrmAiCommercialPanel({
     required this.suggestion,
     required this.loading,
+    required this.statusText,
+    required this.errorDetail,
     required this.onSuggest,
     required this.onInsert,
     required this.onSend,
@@ -5495,6 +5707,8 @@ class _CrmAiCommercialPanel extends StatelessWidget {
 
   final CrmComercialAiReplySuggestion? suggestion;
   final bool loading;
+  final String statusText;
+  final String? errorDetail;
   final VoidCallback onSuggest;
   final VoidCallback onInsert;
   final VoidCallback onSend;
@@ -5516,6 +5730,53 @@ class _CrmAiCommercialPanel extends StatelessWidget {
     );
     return ListView(
       children: [
+        if (statusText.trim().isNotEmpty) ...[
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: card,
+            child: Row(
+              children: [
+                if (loading)
+                  const SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                else
+                  Icon(
+                    statusText == 'Sugerencia lista'
+                        ? Icons.check_circle_outline_rounded
+                        : Icons.info_outline_rounded,
+                    size: 14,
+                    color: statusText == 'Sugerencia lista'
+                        ? const Color(0xFF1F8F4B)
+                        : const Color(0xFFB42318),
+                  ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    statusText,
+                    style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if ((errorDetail ?? '').trim().isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: card,
+              child: Text(
+                errorDetail!.trim(),
+                maxLines: 4,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 11, color: _waTextMuted),
+              ),
+            ),
+          ],
+          const SizedBox(height: 8),
+        ],
         Container(
           padding: const EdgeInsets.all(10),
           decoration: card,
