@@ -17,6 +17,16 @@ export class MarketingDebugController {
     return this.marketing.debugTestImage(companyId, `${body?.prompt ?? ''}`.trim());
   }
 
+  @Post('test-image-edit')
+  async testImageEdit(@Body() body: { imageUrl?: string; prompt?: string }) {
+    const companyId = this.marketing.resolveCompanyId();
+    return this.marketing.debugTestImageEdit(
+      companyId,
+      `${body?.imageUrl ?? ''}`.trim(),
+      `${body?.prompt ?? ''}`.trim(),
+    );
+  }
+
   @Post('story/:id/regenerate-image')
   async debugRegenerateStoryImage(
     @Param('id') storyId: string,

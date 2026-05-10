@@ -389,6 +389,10 @@ export class MarketingGenerationService {
       throw new NotFoundException('Contenido no encontrado');
     }
 
+      if (story.imageStatus === 'PROCESSING') {
+        throw new ConflictException('Ya se está generando el diseño. Espera a que termine antes de volver a intentar.');
+      }
+
     if (!this.isImageSelectionConfirmed(story)) {
       throw new ConflictException('Debes confirmar la imagen base antes de generar el diseño.');
     }
@@ -572,23 +576,13 @@ export class MarketingGenerationService {
       });
     } catch (error) {
       providerError = error instanceof Error ? error.message : String(error);
-      generated = {
-        imageStatus: 'PENDING' as const,
-        generatedImageUrl: null,
-        generatedImageProvider: 'LAYOUT_ONLY',
-        prompt: customPrompt?.trim() || enrichedStory.imagePrompt || '',
-        visualConcept,
-        designNotes,
-        metadata: {
-          providerError,
-          fallbackMode: 'layout-only',
-        },
-      };
+        this.logger.error(`[marketing-image] provider failed storyId=${storyId}: ${providerError}`);
+        throw new BadRequestException(providerError || 'Error desconocido al generar imagen con IA.');
     }
 
     const generatedImageSourceUrl = `${generated.generatedImageUrl ?? ''}`.trim();
     if (!generatedImageSourceUrl) {
-      throw new BadRequestException('No se pudo generar una imagen final válida.');
+        throw new BadRequestException('No se pudo generar una imagen final válida. El proveedor de IA no devolvió imagen.');
     }
 
     const savedGenerated = await this.marketingStorage.saveGeneratedImage({
@@ -602,14 +596,23 @@ export class MarketingGenerationService {
     }
 
     // Validate generated image quality and format
-    const validation = await this.imageGeneration.validateGeneratedImage(finalGeneratedUrl, '9:16', `${baseImage?.url ?? baseImageSourceUrl}`.trim());
-    if (!validation.valid) {
-      this.logger.warn(`[marketing-image] validation failed: ${validation.reason}`);
-      await this.markStoryImageFailed(companyId, storyId, `Validacion de imagen fallida: ${validation.reason || 'Imagen invalida'}`, 1);
-      throw new BadRequestException(`La imagen generada no cumple los estándares de calidad: ${validation.reason || 'Imagen inválida o dañada'}`);
-    }
+      // Skip heavy validation for data-URLs (already normalized by sharp in provider);
+      // only validate when we have a real HTTP URL (after upload to R2).
+      if (finalGeneratedUrl.startsWith('http://') || finalGeneratedUrl.startsWith('https://')) {
+        const validation = await this.imageGeneration.validateGeneratedImage(
+          finalGeneratedUrl,
+          '9:16',
+          `${baseImage?.url ?? baseImageSourceUrl}`.trim(),
+        );
+        if (!validation.valid) {
+          this.logger.warn(`[marketing-image] validation failed storyId=${storyId}: ${validation.reason}`);
+          await this.markStoryImageFailed(companyId, storyId, `Validacion de imagen fallida: ${validation.reason || 'Imagen invalida'}`, 1);
+          throw new BadRequestException(`La imagen generada no cumple los estándares de calidad: ${validation.reason || 'Imagen inválida o dañada'}`);
+        }
+      }
 
     this.logger.log(`[marketing-image] saved and validated generatedImageUrl storyId=${storyId} url=${finalGeneratedUrl}`);
+      this.logger.log(`[marketing-image] uploaded final url=${finalGeneratedUrl}`);
 
     return this.prisma.marketingDailyStory.update({
       where: { id: storyId },

@@ -169,6 +169,148 @@ bool _isSafePublicNetworkUrl(String? raw) {
   return true;
 }
 
+String _avatarInitials(String raw) {
+  final parts = raw.trim().split(' ').where((e) => e.isNotEmpty).toList();
+  if (parts.isEmpty) return '?';
+  if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
+  return (parts[0].substring(0, 1) + parts[1].substring(0, 1)).toUpperCase();
+}
+
+String _avatarFallbackText(String title, String? phone) {
+  final normalizedTitle = title.trim();
+  final normalizedPhone = (phone ?? '').trim();
+  if (normalizedTitle.isNotEmpty &&
+      normalizedTitle.toLowerCase() != 'nuevo contacto') {
+    return _avatarInitials(normalizedTitle);
+  }
+
+  if (normalizedPhone.isNotEmpty) {
+    final digits = normalizedPhone.replaceAll(RegExp(r'\D+'), '');
+    if (digits.isNotEmpty) {
+      return digits.length <= 3 ? digits : digits.substring(digits.length - 3);
+    }
+    return normalizedPhone.length <= 3
+        ? normalizedPhone
+        : normalizedPhone.substring(normalizedPhone.length - 3);
+  }
+
+  return normalizedTitle.isNotEmpty ? _avatarInitials(normalizedTitle) : '?';
+}
+
+class _AvatarTextFallback extends StatelessWidget {
+  const _AvatarTextFallback({
+    required this.text,
+    required this.accent,
+    required this.radius,
+  });
+
+  final String text;
+  final Color accent;
+  final double radius;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      maxLines: 1,
+      textAlign: TextAlign.center,
+      overflow: TextOverflow.clip,
+      style: TextStyle(
+        color: accent,
+        fontWeight: FontWeight.w700,
+        fontSize: radius < 16 ? 9 : (radius < 30 ? 11 : radius * 0.52),
+      ),
+    );
+  }
+}
+
+class _CrmContactAvatar extends StatelessWidget {
+  const _CrmContactAvatar({
+    required this.title,
+    required this.phone,
+    required this.imageUrl,
+    required this.accent,
+    required this.radius,
+    this.onTap,
+  });
+
+  final String title;
+  final String? phone;
+  final String? imageUrl;
+  final Color accent;
+  final double radius;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final normalizedUrl = (imageUrl ?? '').trim();
+    final safeUrl = _isSafePublicNetworkUrl(normalizedUrl) ? normalizedUrl : null;
+    final fallback = _avatarFallbackText(title, phone);
+    final cachePx = (((radius * 2) * MediaQuery.devicePixelRatioOf(context)).round())
+        .clamp(48, 640)
+        .toInt();
+
+    Widget child;
+    if (safeUrl == null) {
+      child = _AvatarTextFallback(
+        text: fallback,
+        accent: accent,
+        radius: radius,
+      );
+    } else {
+      child = ClipOval(
+        child: Image.network(
+          safeUrl,
+          width: radius * 2,
+          height: radius * 2,
+          fit: BoxFit.cover,
+          cacheWidth: cachePx,
+          cacheHeight: cachePx,
+          gaplessPlayback: true,
+          filterQuality: FilterQuality.low,
+          loadingBuilder: (context, imageChild, progress) {
+            if (progress == null) return imageChild;
+            return Center(
+              child: SizedBox(
+                width: radius * 0.85,
+                height: radius * 0.85,
+                child: CircularProgressIndicator(
+                  strokeWidth: 1.8,
+                  valueColor: AlwaysStoppedAnimation<Color>(accent.withAlpha(180)),
+                ),
+              ),
+            );
+          },
+          errorBuilder: (_, __, ___) {
+            return _AvatarTextFallback(
+              text: fallback,
+              accent: accent,
+              radius: radius,
+            );
+          },
+        ),
+      );
+    }
+
+    final avatar = Container(
+      width: radius * 2,
+      height: radius * 2,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: accent.withAlpha(24),
+      ),
+      alignment: Alignment.center,
+      child: child,
+    );
+
+    if (onTap == null) {
+      return avatar;
+    }
+
+    return GestureDetector(onTap: onTap, child: avatar);
+  }
+}
+
 // CRM Comercial: 7 estados principales del flujo comercial
 // Los estados operacionales (instalación/servicio) se manejan en módulo Operations
 const List<String> _crmStatuses = <String>[
@@ -3309,104 +3451,139 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
 
   Future<void> _openAvatarPreview(
     String title, {
+    String? subtitle,
     String? imageUrl,
   }) async {
-    final hasImage = _isSafeNetworkImageUrl(imageUrl);
+    final normalizedTitle = title.trim().isEmpty ? 'Contacto' : title.trim();
+    final normalizedSubtitle = (subtitle ?? '').trim();
+    final safeImageUrl = _isSafeNetworkImageUrl(imageUrl) ? imageUrl!.trim() : null;
     await showDialog<void>(
       context: context,
-      barrierColor: Colors.black.withAlpha(200),
+      barrierColor: Colors.black.withAlpha(220),
       builder: (context) {
+        final size = MediaQuery.sizeOf(context);
         return Dialog(
           backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 260,
-                height: 260,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF0F171A),
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: Colors.white.withAlpha(160), width: 2),
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: hasImage
-                        ? Image.network(
-                          imageUrl!,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) {
-                            return Center(
-                              child: Text(
-                                _initials(title),
-                                style: const TextStyle(
-                                  fontSize: 72,
-                                  fontWeight: FontWeight.w700,
-                                  color: _waGreen,
-                                ),
-                              ),
-                            );
-                          },
-                        )
-                      : Center(
-                          child: Text(
-                            _initials(title),
-                            style: const TextStyle(
-                              fontSize: 72,
-                              fontWeight: FontWeight.w700,
-                              color: _waGreen,
-                            ),
+          insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 20),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: size.width * 0.94,
+              maxHeight: size.height * 0.9,
+            ),
+            child: Stack(
+              children: [
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.black,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: Colors.white.withAlpha(95)),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(18),
+                    child: Column(
+                      children: [
+                        Expanded(
+                          child: Center(
+                            child: safeImageUrl != null
+                                ? InteractiveViewer(
+                                    minScale: 1,
+                                    maxScale: 4,
+                                    child: Image.network(
+                                      safeImageUrl,
+                                      fit: BoxFit.contain,
+                                      gaplessPlayback: true,
+                                      loadingBuilder: (context, imageChild, progress) {
+                                        if (progress == null) return imageChild;
+                                        return const Center(
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            valueColor:
+                                                AlwaysStoppedAnimation<Color>(_waGreen),
+                                          ),
+                                        );
+                                      },
+                                      errorBuilder: (_, __, ___) {
+                                        return _CrmContactAvatar(
+                                          title: normalizedTitle,
+                                          phone: normalizedSubtitle,
+                                          imageUrl: null,
+                                          accent: _waGreen,
+                                          radius: 72,
+                                        );
+                                      },
+                                    ),
+                                  )
+                                : _CrmContactAvatar(
+                                    title: normalizedTitle,
+                                    phone: normalizedSubtitle,
+                                    imageUrl: null,
+                                    accent: _waGreen,
+                                    radius: 72,
+                                  ),
                           ),
                         ),
-                ),
-              ),
-              const SizedBox(height: 14),
-              Text(
-                title,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              if (hasImage) ...[
-                const SizedBox(height: 4),
-                Text(
-                  'Foto de perfil',
-                  style: TextStyle(
-                    color: Colors.white.withAlpha(190),
-                    fontSize: 12,
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withAlpha(155),
+                            border: Border(
+                              top: BorderSide(color: Colors.white.withAlpha(40)),
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Text(
+                                normalizedTitle,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 16,
+                                ),
+                              ),
+                              if (normalizedSubtitle.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 3),
+                                  child: Text(
+                                    normalizedSubtitle,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: Colors.white.withAlpha(190),
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ] else ...[
-                const SizedBox(height: 4),
-                Text(
-                  'Sin foto disponible',
-                  style: TextStyle(
-                    color: Colors.white.withAlpha(190),
-                    fontSize: 12,
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: Material(
+                    color: Colors.black.withAlpha(120),
+                    shape: const CircleBorder(),
+                    child: InkWell(
+                      customBorder: const CircleBorder(),
+                      onTap: () => Navigator.of(context).pop(),
+                      child: const Padding(
+                        padding: EdgeInsets.all(8),
+                        child: Icon(Icons.close, color: Colors.white),
+                      ),
+                    ),
                   ),
                 ),
               ],
-              const SizedBox(height: 4),
-              TextButton.icon(
-                onPressed: () => Navigator.of(context).pop(),
-                icon: const Icon(
-                  Icons.close_rounded,
-                  size: 16,
-                  color: Colors.white,
-                ),
-                label: const Text(
-                  'Cerrar',
-                  style: TextStyle(color: Colors.white),
-                ),
-                style: TextButton.styleFrom(
-                  foregroundColor: Colors.white,
-                ),
-              ),
-            ],
+            ),
           ),
         );
       },
@@ -3417,23 +3594,15 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
     required String title,
     required Color accent,
     required double radius,
+    String? phone,
     String? imageUrl,
   }) {
-    final hasImage = _isSafeNetworkImageUrl(imageUrl);
-    return CircleAvatar(
+    return _CrmContactAvatar(
+      title: title,
+      phone: phone,
+      imageUrl: imageUrl,
+      accent: accent,
       radius: radius,
-      backgroundColor: accent.withAlpha(24),
-      backgroundImage: hasImage ? NetworkImage(imageUrl!) : null,
-      child: hasImage
-          ? null
-          : Text(
-              _initials(title),
-              style: TextStyle(
-                fontWeight: FontWeight.w700,
-                color: accent,
-                fontSize: radius < 18 ? 10 : 12,
-              ),
-            ),
     );
   }
 
@@ -4689,6 +4858,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                             statusColor: _statusAccentColor(effectiveStatus),
                             onAvatarTap: () => _openAvatarPreview(
                               _conversationVisibleName(item),
+                              subtitle: item.remotePhone,
                               imageUrl: item.remoteAvatarUrl,
                             ),
                             onTap: _saving
@@ -4792,12 +4962,14 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                 GestureDetector(
                   onTap: () => _openAvatarPreview(
                     selectedConversation?.contactName ?? 'Contacto',
+                    subtitle: selectedConversation?.remotePhone,
                     imageUrl: selectedConversation?.remoteAvatarUrl,
                   ),
                   child: _buildConversationAvatar(
                     title: selectedConversation?.contactName ?? 'CRM',
                     accent: _waGreenDark,
                     radius: 18,
+                    phone: selectedConversation?.remotePhone,
                     imageUrl: selectedConversation?.remoteAvatarUrl,
                   ),
                 ),
@@ -5837,14 +6009,6 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
     }
   }
 
-  String _initials(String raw) {
-    final parts = raw.trim().split(' ').where((e) => e.isNotEmpty).toList();
-    if (parts.isEmpty) return '?';
-    if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
-    return '${parts[0].substring(0, 1)}${parts[1].substring(0, 1)}'
-        .toUpperCase();
-  }
-
   String _formatDateTime(DateTime? value) {
     if (value == null) return 'Sin fecha';
     return DateFormat('dd/MM HH:mm').format(value);
@@ -6265,18 +6429,9 @@ class _CrmConversationListItem extends StatelessWidget {
   final VoidCallback? onAvatarTap;
   final VoidCallback? onTap;
 
-  String _initials(String raw) {
-    final parts = raw.trim().split(' ').where((e) => e.isNotEmpty).toList();
-    if (parts.isEmpty) return '?';
-    if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
-    return (parts[0].substring(0, 1) + parts[1].substring(0, 1)).toUpperCase();
-  }
-
   @override
   Widget build(BuildContext context) {
     final tileColor = isActive ? _waSelected : Colors.transparent;
-    final avatarUrl = (item.remoteAvatarUrl ?? '').trim();
-    final hasAvatar = _isSafePublicNetworkUrl(avatarUrl);
     // Estado visual: NUEVO si no está vinculado, estado real si está vinculado
     final showStatus = statusLabel.isNotEmpty && statusLabel != 'SIN CRM';
     return Material(
@@ -6303,23 +6458,13 @@ class _CrmConversationListItem extends StatelessWidget {
                   borderRadius: BorderRadius.circular(999),
                 ),
               ),
-              GestureDetector(
+              _CrmContactAvatar(
+                title: visibleName,
+                phone: item.remotePhone,
+                imageUrl: item.remoteAvatarUrl,
+                accent: statusColor,
+                radius: 18,
                 onTap: onAvatarTap,
-                child: CircleAvatar(
-                  radius: 18,
-                  backgroundColor: statusColor.withAlpha(18),
-                  backgroundImage: hasAvatar ? NetworkImage(avatarUrl) : null,
-                  child: hasAvatar
-                      ? null
-                      : Text(
-                          _initials(visibleName),
-                          style: TextStyle(
-                            color: statusColor,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 11,
-                          ),
-                        ),
-                ),
               ),
               const SizedBox(width: 9),
               Expanded(

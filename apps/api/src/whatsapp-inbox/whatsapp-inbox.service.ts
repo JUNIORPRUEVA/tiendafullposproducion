@@ -894,8 +894,103 @@ export class WhatsappInboxService {
     return `whatsapp-inbox:conversations:${instanceId}:limit:${limit}`;
   }
 
+  private avatarsCacheKey(instanceId: string) {
+    return `whatsapp-inbox:avatars:${instanceId}`;
+  }
+
+  private avatarsRefreshLockKey(instanceId: string) {
+    return `whatsapp-inbox:avatars-refresh:${instanceId}`;
+  }
+
   private messagesCacheKey(conversationId: string, limit: number) {
     return `whatsapp-inbox:messages:${conversationId}:limit:${limit}`;
+  }
+
+  private mapToAvatarCachePayload(
+    avatarByConversationKey: Map<string, string>,
+  ): Record<string, string> {
+    const payload: Record<string, string> = {};
+    for (const [key, value] of avatarByConversationKey.entries()) {
+      const normalizedKey = key.trim();
+      const normalizedValue = value.trim();
+      if (!normalizedKey || !normalizedValue) continue;
+      payload[normalizedKey] = normalizedValue;
+    }
+    return payload;
+  }
+
+  private avatarCachePayloadToMap(
+    payload: unknown,
+  ): Map<string, string> {
+    if (!payload || typeof payload !== 'object') {
+      return new Map<string, string>();
+    }
+    const record = payload as Record<string, unknown>;
+    const map = new Map<string, string>();
+    for (const [key, value] of Object.entries(record)) {
+      const normalizedKey = key.trim();
+      const normalizedValue =
+        typeof value === 'string' ? value.trim() : String(value ?? '').trim();
+      if (!normalizedKey || !normalizedValue) continue;
+      map.set(normalizedKey, normalizedValue);
+    }
+    return map;
+  }
+
+  private async loadAvatarCache(
+    instanceId: string,
+  ): Promise<Map<string, string>> {
+    const payload = await this.redis.get<unknown>(this.avatarsCacheKey(instanceId));
+    return this.avatarCachePayloadToMap(payload);
+  }
+
+  private async saveAvatarCache(
+    instanceId: string,
+    avatarByConversationKey: Map<string, string>,
+  ) {
+    const payload = this.mapToAvatarCachePayload(avatarByConversationKey);
+    if (Object.keys(payload).length === 0) return;
+    await this.redis.set(this.avatarsCacheKey(instanceId), payload, 1800);
+  }
+
+  private mergeAvatarCache(
+    base: Map<string, string>,
+    incoming: Map<string, string>,
+  ): Map<string, string> {
+    const merged = new Map<string, string>(base);
+    for (const [key, value] of incoming.entries()) {
+      const normalizedKey = key.trim();
+      const normalizedValue = value.trim();
+      if (!normalizedKey || !normalizedValue) continue;
+      merged.set(normalizedKey, normalizedValue);
+    }
+    return merged;
+  }
+
+  private async refreshAvatarCacheFromEvolution(
+    instanceId: string,
+    current: Map<string, string>,
+  ): Promise<Map<string, string>> {
+    const lockAcquired = await this.redis.tryLock(
+      this.avatarsRefreshLockKey(instanceId),
+      30,
+    );
+    if (!lockAcquired) {
+      return current;
+    }
+    try {
+      const sync = await this.syncRecentChatsFromEvolution(instanceId);
+      const merged = this.mergeAvatarCache(current, sync.avatarByConversationKey);
+      await this.saveAvatarCache(instanceId, merged);
+      return merged;
+    } catch (error) {
+      console.warn(
+        `[WhatsappInbox] No se pudo refrescar avatar cache para instancia ${instanceId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return current;
+    }
   }
 
   private async invalidateWhatsappInboxCache(
@@ -2636,18 +2731,16 @@ export class WhatsappInboxService {
       const cached = await this.redis.get<unknown[]>(cacheKey);
       if (cached) return cached;
     }
-    let avatarByConversationKey = new Map<string, string>();
-    void this.syncRecentChatsFromEvolution(instanceId)
-      .then((sync) => {
-        avatarByConversationKey = sync.avatarByConversationKey;
-      })
-      .catch((error) => {
-      console.warn(
-        `[WhatsappInbox] No se pudieron sincronizar chats recientes para instancia ${instanceId}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
+
+    let avatarByConversationKey = await this.loadAvatarCache(instanceId);
+    if (avatarByConversationKey.size === 0) {
+      avatarByConversationKey = await this.refreshAvatarCacheFromEvolution(
+        instanceId,
+        avatarByConversationKey,
       );
-      });
+    } else {
+      void this.refreshAvatarCacheFromEvolution(instanceId, avatarByConversationKey);
+    }
 
     try {
       const conversations = await this.prisma.whatsappConversation.findMany({

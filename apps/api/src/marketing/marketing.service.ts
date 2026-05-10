@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { MarketingApprovalService } from './marketing-approval.service';
 import { MarketingConfigService } from './marketing-config.service';
 import { MarketingGenerationService } from './marketing-generation.service';
+import { MarketingImageEditProvider } from './marketing-image-edit.provider';
 import { MarketingImageGenerationService } from './marketing-image-generation.service';
 import { MarketingImageJobService } from './marketing-image-job.service';
 import { MarketingMediaAssetService } from './marketing-media-asset.service';
@@ -23,6 +24,7 @@ export class MarketingService {
     private readonly config: ConfigService,
     private readonly generation: MarketingGenerationService,
     private readonly imageGeneration: MarketingImageGenerationService,
+    private readonly imageEditProvider: MarketingImageEditProvider,
     private readonly imageJobs: MarketingImageJobService,
     private readonly approvals: MarketingApprovalService,
     private readonly configService: MarketingConfigService,
@@ -367,6 +369,46 @@ export class MarketingService {
   async changeStoryBaseImage(companyId: string, storyId: string, mediaAssetId: string, userId: string) {
     return this.generation.changeBaseImage(companyId, storyId, mediaAssetId, userId);
   }
+
+    async debugTestImageEdit(companyId: string, imageUrl: string, prompt: string) {
+      const safeImageUrl = imageUrl.trim();
+      if (!safeImageUrl) {
+        throw new ConflictException('Provee imageUrl en el cuerpo de la petición para probar la edición real de imagen.');
+      }
+
+      await this.imageEditProvider.ensureConfigured();
+      const storage = this.marketingStorage.getDebugStorageConfig();
+
+      const safePrompt = prompt.trim() ||
+        'Mejora composición publicitaria premium. Mantén producto original. Sin texto ni watermarks. Formato vertical 9:16 listo para publicar.';
+
+      const result = await this.imageEditProvider.editImage({
+        baseImageUrl: safeImageUrl,
+        prompt: safePrompt,
+      });
+
+      const saved = await this.marketingStorage.saveGeneratedImage({
+        companyId,
+        storyType: 'debug',
+        sourceUrl: result.imageDataUrl,
+      });
+
+      const finalImageUrl = `${saved.url ?? ''}`.trim();
+      if (!finalImageUrl) {
+        throw new ConflictException('Error de storage: no se pudo obtener URL pública de imagen editada.');
+      }
+
+      return {
+        ok: true,
+        success: true,
+        finalImageUrl,
+        provider: result.provider,
+        model: result.model,
+        responseShape: result.metadata['responseShape'] ?? null,
+        bytes: result.metadata,
+        publicBaseUrl: storage.publicBaseUrl,
+      };
+    }
 
   async editStory(companyId: string, storyId: string, dto: UpdateMarketingStoryDto, userId: string) {
     return this.approvals.edit(companyId, storyId, dto, userId);
