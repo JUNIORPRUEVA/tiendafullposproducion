@@ -224,6 +224,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
   final ScrollController _chatScrollCtrl = ScrollController();
   final FocusNode _sidebarSearchFocusNode = FocusNode();
   late final StateController<DesktopShellRouteActions?> _desktopShellActions;
+  ProviderContainer? _providerContainer;
 
   bool _loading = true;
   bool _saving = false;
@@ -259,6 +260,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
   String? _composerOrthographySuggestion;
   String? _lastIgnoredComposerSuggestion;
   String _lastOrthographyInputKey = '';
+  String _lastIgnoredOrthographyInputKey = '';
   String _lastOrthographyRequestedText = '';
   int _orthographyRequestSeq = 0;
   DateTime? _lastOrthographyRequestAt;
@@ -303,10 +305,14 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _providerContainer ??= ProviderScope.containerOf(context, listen: false);
+  }
+
+  @override
   void dispose() {
-    if (_desktopShellActions.state?.route == Routes.crmComercial) {
-      _desktopShellActions.state = null;
-    }
+    final container = _providerContainer;
     _searchCtrl.dispose();
     _noteCtrl.dispose();
     _nextActionCtrl.dispose();
@@ -329,6 +335,17 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
     _chatScrollCtrl.dispose();
     _sidebarSearchFocusNode.dispose();
     _composerFocusNode.dispose();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) return;
+      final notifier = container?.read(
+        desktopShellRouteActionsProvider.notifier,
+      );
+      if (notifier?.state?.route == Routes.crmComercial) {
+        notifier?.state = null;
+      }
+    });
+
     super.dispose();
   }
 
@@ -976,7 +993,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
   void _onComposerTextChanged() {
     _composerSpellTimer?.cancel();
     final current = _chatComposerCtrl.text;
-    // Update AI-suggested emojis in real-time
+    // Update AI-suggested emojis in real-time and request orthography suggestion
     final newSuggested = _computeAiSuggestedEmojis(current);
     if (newSuggested.join() != _aiSuggestedEmojis.join()) {
       setState(() => _aiSuggestedEmojis = newSuggested);
@@ -988,7 +1005,7 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
       return;
     }
 
-    _composerSpellTimer = Timer(const Duration(milliseconds: 680), () async {
+    _composerSpellTimer = Timer(const Duration(milliseconds: 900), () async {
       await _requestOrthographySuggestion(current);
     });
   }
@@ -1090,15 +1107,23 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
 
   bool _shouldSkipOrthographyAi(String raw) {
     final trimmed = raw.trim();
-    if (trimmed.length < 6) return true;
+    if (trimmed.length < 8) return true;
     if (trimmed.length > 2500) return true;
     final words = trimmed
         .split(RegExp(r'\s+'))
         .where((w) => w.trim().isNotEmpty)
         .length;
     if (words <= 1) {
-      final low = trimmed.toLowerCase();
-      if (const {'ok', 'dale', 'si', 'sí', 'gracias', 'hola'}.contains(low)) {
+      final normalizedWord = trimmed
+          .toLowerCase()
+          .replaceAll(RegExp(r'[áàäâ]'), 'a')
+          .replaceAll(RegExp(r'[éèëê]'), 'e')
+          .replaceAll(RegExp(r'[íìïî]'), 'i')
+          .replaceAll(RegExp(r'[óòöô]'), 'o')
+          .replaceAll(RegExp(r'[úùüû]'), 'u')
+          .replaceAll(RegExp(r'[^a-z0-9\s]'), '')
+          .trim();
+      if (const {'ok', 'si', 'dale', 'gracias'}.contains(normalizedWord)) {
         return true;
       }
     }
@@ -1150,7 +1175,8 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
 
     if (suggestion == null ||
         suggestion == snapshotText ||
-        suggestion == _lastIgnoredComposerSuggestion) {
+        (suggestion == _lastIgnoredComposerSuggestion &&
+            key == _lastIgnoredOrthographyInputKey)) {
       _lastOrthographyInputKey = key;
       if (_composerOrthographySuggestion != null) {
         setState(() => _composerOrthographySuggestion = null);
@@ -1172,12 +1198,15 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
       );
       _composerOrthographySuggestion = null;
       _lastIgnoredComposerSuggestion = null;
+      _lastIgnoredOrthographyInputKey = '';
     });
   }
 
   void _ignoreOrthographySuggestion() {
+    final key = _orthographyInputKey(_chatComposerCtrl.text);
     setState(() {
       _lastIgnoredComposerSuggestion = _composerOrthographySuggestion;
+      _lastIgnoredOrthographyInputKey = key;
       _composerOrthographySuggestion = null;
     });
   }
@@ -2201,8 +2230,9 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
           dialogError = 'No se pudo cargar la Biblioteca Comercial.';
         });
       } finally {
-        if (!mounted) return;
-        setDialogState(() => loading = false);
+        if (mounted) {
+          setDialogState(() => loading = false);
+        }
       }
     }
 
@@ -4999,30 +5029,44 @@ class _CrmComercialScreenState extends ConsumerState<CrmComercialScreen> {
                       borderRadius: BorderRadius.circular(10),
                       border: Border.all(color: _waBorder.withAlpha(130)),
                     ),
-                    child: Row(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(Icons.auto_fix_high_rounded, size: 16, color: _waGreenDark),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            _composerOrthographySuggestion!,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 11.5, color: _waTextMuted),
+                        const Text(
+                          'Sugerencia de escritura',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: _waText,
                           ),
                         ),
-                        TextButton(
-                          onPressed: _ignoreOrthographySuggestion,
-                          style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
-                          child: const Text('Ignorar'),
-                        ),
-                        FilledButton(
-                          onPressed: _applyOrthographySuggestion,
-                          style: FilledButton.styleFrom(
-                            visualDensity: VisualDensity.compact,
-                            backgroundColor: _waGreenDark,
-                          ),
-                          child: const Text('Aceptar corrección'),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            const Icon(Icons.auto_fix_high_rounded, size: 16, color: _waGreenDark),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                _composerOrthographySuggestion!,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 11.5, color: _waTextMuted),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: _ignoreOrthographySuggestion,
+                              style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+                              child: const Text('Ignorar'),
+                            ),
+                            FilledButton(
+                              onPressed: _applyOrthographySuggestion,
+                              style: FilledButton.styleFrom(
+                                visualDensity: VisualDensity.compact,
+                                backgroundColor: _waGreenDark,
+                              ),
+                              child: const Text('Aceptar'),
+                            ),
+                          ],
                         ),
                       ],
                     ),

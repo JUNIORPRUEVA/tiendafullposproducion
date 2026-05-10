@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:developer' as developer;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/auth/app_permissions.dart';
@@ -23,6 +24,12 @@ enum _PublicidadTab {
   estados,
   historial,
   configuracion,
+}
+
+enum _EstadosPhase {
+  crearDiseno,
+  copys,
+  aprobarPublicar,
 }
 
 class MarketingMediaAssetDraft {
@@ -1839,7 +1846,7 @@ class _DashboardTab extends StatelessWidget {
   }
 }
 
-class _DailyStoriesTab extends StatelessWidget {
+class _DailyStoriesTab extends StatefulWidget {
   const _DailyStoriesTab({
     required this.stories,
     required this.mediaAssets,
@@ -1877,7 +1884,15 @@ class _DailyStoriesTab extends StatelessWidget {
   final bool compactActions;
 
   @override
+  State<_DailyStoriesTab> createState() => _DailyStoriesTabState();
+}
+
+class _DailyStoriesTabState extends State<_DailyStoriesTab> {
+  _EstadosPhase _phase = _EstadosPhase.crearDiseno;
+
+  @override
   Widget build(BuildContext context) {
+    final stories = widget.stories;
     if (stories.isEmpty) {
       return const _EmptyState(
         text:
@@ -1888,6 +1903,32 @@ class _DailyStoriesTab extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        SegmentedButton<_EstadosPhase>(
+          showSelectedIcon: false,
+          segments: const [
+            ButtonSegment<_EstadosPhase>(
+              value: _EstadosPhase.crearDiseno,
+              icon: Icon(Icons.design_services_rounded),
+              label: Text('1 Crear diseño'),
+            ),
+            ButtonSegment<_EstadosPhase>(
+              value: _EstadosPhase.copys,
+              icon: Icon(Icons.text_fields_rounded),
+              label: Text('2 Copys y anuncio'),
+            ),
+            ButtonSegment<_EstadosPhase>(
+              value: _EstadosPhase.aprobarPublicar,
+              icon: Icon(Icons.publish_rounded),
+              label: Text('3 Aprobar / Publicar'),
+            ),
+          ],
+          selected: {_phase},
+          onSelectionChanged: (next) {
+            if (next.isEmpty) return;
+            setState(() => _phase = next.first);
+          },
+        ),
+        const SizedBox(height: 10),
         LayoutBuilder(
           builder: (context, constraints) {
             const spacing = 12.0;
@@ -1918,26 +1959,27 @@ class _DailyStoriesTab extends StatelessWidget {
                       ),
                       child: _StoryCard(
                         story: story,
+                        phase: _phase,
                         usedResearch: _findResearch(story.researchId),
-                        busy: busy,
-                        imageBusy: imageBusyStoryIds.contains(story.id),
-                        compactActions: compactActions,
-                        onApprove: () => onApprove(story.id),
-                        onReject: () => onReject(story.id),
-                        onRegenerate: () => onRegenerate(story.id),
-                        onRegenerateImage: () => onRegenerateImage(story.id),
-                        onConfirmBaseImage: () => onConfirmBaseImage(story.id),
-                        onGenerateDesign: () => onGenerateDesign(story.id),
+                        busy: widget.busy,
+                        imageBusy: widget.imageBusyStoryIds.contains(story.id),
+                        compactActions: widget.compactActions,
+                        onApprove: () => widget.onApprove(story.id),
+                        onReject: () => widget.onReject(story.id),
+                        onRegenerate: () => widget.onRegenerate(story.id),
+                        onRegenerateImage: () => widget.onRegenerateImage(story.id),
+                        onConfirmBaseImage: () => widget.onConfirmBaseImage(story.id),
+                        onGenerateDesign: () => widget.onGenerateDesign(story.id),
                         onChangeBaseImage: () async {
                           final chosen = await showDialog<String>(
                             context: context,
                             builder: (_) => _PickMediaAssetDialog(
-                              assets: mediaAssets,
+                              assets: widget.mediaAssets,
                               selectedId: story.mediaAssetId,
                             ),
                           );
                           if (chosen != null && chosen.isNotEmpty) {
-                            await onChangeBaseImage(story.id, chosen);
+                            await widget.onChangeBaseImage(story.id, chosen);
                             if (!context.mounted) return;
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
@@ -1954,7 +1996,7 @@ class _DailyStoriesTab extends StatelessWidget {
                             builder: (_) => _EditStoryDialog(story: story),
                           );
                           if (payload != null) {
-                            await onEdit(story, payload);
+                            await widget.onEdit(story, payload);
                           }
                         },
                       ),
@@ -1971,7 +2013,7 @@ class _DailyStoriesTab extends StatelessWidget {
   MarketingResearchDetail? _findResearch(String? id) {
     final target = (id ?? '').trim();
     if (target.isEmpty) return null;
-    for (final item in researches) {
+    for (final item in widget.researches) {
       if (item.id == target) return item;
     }
     return null;
@@ -1981,6 +2023,7 @@ class _DailyStoriesTab extends StatelessWidget {
 class _StoryCard extends StatefulWidget {
   const _StoryCard({
     required this.story,
+    required this.phase,
     required this.usedResearch,
     required this.busy,
     required this.imageBusy,
@@ -1996,6 +2039,7 @@ class _StoryCard extends StatefulWidget {
   });
 
   final MarketingStory story;
+  final _EstadosPhase phase;
   final MarketingResearchDetail? usedResearch;
   final bool busy;
   final bool imageBusy;
@@ -2014,51 +2058,6 @@ class _StoryCard extends StatefulWidget {
 }
 
 class _StoryCardState extends State<_StoryCard> {
-  bool _expanded = false;
-  int _selectedPhase = 0;
-
-  @override
-  void didUpdateWidget(covariant _StoryCard oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.story.id != widget.story.id) {
-      _selectedPhase = _resolvePhaseIndex(validateStoryProgress(widget.story));
-      _expanded = false;
-    }
-  }
-
-  int _resolvePhaseIndex(StoryProgressValidation validation) {
-    if (validation.canApprove) return 2;
-    if (!validation.missingDesign) return 1;
-    return 0;
-  }
-
-  void _goToPhase(int index, StoryProgressValidation validation) {
-    if (index == 1 && validation.missingDesign) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Primero debes generar el diseño en la Fase 1.'),
-        ),
-      );
-      return;
-    }
-    if (index == 2 &&
-        (validation.missingDesign ||
-            validation.missingCopy ||
-            validation.missingCTA ||
-            validation.missingImageConfirmation ||
-            validation.missingBaseImage)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'No puedes aprobar todavía. Falta: ${validation.missingForApproval.join(', ')}.',
-          ),
-        ),
-      );
-      return;
-    }
-    setState(() => _selectedPhase = index);
-  }
-
   @override
   Widget build(BuildContext context) {
     final story = widget.story;
@@ -2067,10 +2066,7 @@ class _StoryCardState extends State<_StoryCard> {
     final generatedImage = _safeImageUrl(story.generatedImageUrl);
     final finalImage = _resolveFinalImage(story);
     final imageError = _storyImageError(story);
-    final approved = story.status == MarketingStoryStatus.approved;
-    final compact = widget.compactActions;
-    final currentPhase = _resolvePhaseIndex(validation);
-    final phaseIndex = _expanded ? _selectedPhase : currentPhase;
+    final phaseIndex = widget.phase.index;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2085,83 +2081,23 @@ class _StoryCardState extends State<_StoryCard> {
           ],
         ),
         const SizedBox(height: 10),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SizedBox(
-              width: compact ? 96 : 120,
-              child: InkWell(
-                borderRadius: BorderRadius.circular(14),
-                onTap: () => _openFullscreenPreview(
-                  context,
-                  story,
-                  generatedImage,
-                  baseImage,
-                ),
-                child: _StoryPreviewFrame(
-                  label: 'Preview',
-                  imageUrl: finalImage,
-                  story: story,
-                  fallbackLabel: _imageFallbackLabel(story, widget.imageBusy),
-                  showLabel: false,
-                  showApprovedBadge: approved,
-                ),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    validation.canApprove
-                        ? 'Estado limpio y listo para aprobar/publicar.'
-                        : 'Próximo paso: ${validation.nextStepLabel}',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    story.title.trim().isEmpty ? 'Sin headline todavía' : story.title.trim(),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      FilledButton.icon(
-                        onPressed: () {
-                          setState(() {
-                            _expanded = !_expanded;
-                            _selectedPhase = currentPhase;
-                          });
-                        },
-                        icon: Icon(
-                          _expanded
-                              ? Icons.expand_less_rounded
-                              : Icons.play_arrow_rounded,
-                        ),
-                        label: Text(_expanded ? 'Ocultar fases' : 'Continuar'),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: () => _openStoryDetails(
-                          context,
-                          story,
-                          widget.usedResearch,
-                        ),
-                        icon: const Icon(Icons.settings_suggest_rounded, size: 18),
-                        label: const Text('Detalles técnicos'),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
+        Text(
+          story.title.trim().isEmpty ? 'Sin titular' : story.title.trim(),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(
+            context,
+          ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 8),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: AspectRatio(
+            aspectRatio: 9 / 16,
+            child: finalImage.isEmpty
+                ? const _BrokenImagePlaceholder()
+                : _StoryImageView(url: finalImage),
+          ),
         ),
         if (widget.imageBusy || _isImageStatusLoading(story.imageStatus))
           const Padding(
@@ -2174,37 +2110,13 @@ class _StoryCardState extends State<_StoryCard> {
                 ? 'Error real de diseño: $imageError'
                 : 'No se pudo generar el diseño. Intenta regenerar y revisa configuración del proveedor.',
           ),
-        if (_expanded) ...[
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              ChoiceChip(
-                label: const Text('1 Crear diseño'),
-                selected: phaseIndex == 0,
-                onSelected: (_) => _goToPhase(0, validation),
-              ),
-              ChoiceChip(
-                label: const Text('2 Copys y anuncio'),
-                selected: phaseIndex == 1,
-                onSelected: (_) => _goToPhase(1, validation),
-              ),
-              ChoiceChip(
-                label: const Text('3 Aprobar/Publicar'),
-                selected: phaseIndex == 2,
-                onSelected: (_) => _goToPhase(2, validation),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          if (phaseIndex == 0)
-            _buildDesignPhase(context, story, validation, baseImage, generatedImage)
-          else if (phaseIndex == 1)
-            _buildCopyPhase(context, story, validation, finalImage)
-          else
-            _buildApprovalPhase(context, story, validation),
-        ],
+        const SizedBox(height: 10),
+        if (phaseIndex == 0)
+          _buildDesignPhase(context, story, validation, baseImage, generatedImage)
+        else if (phaseIndex == 1)
+          _buildCopyPhase(context, story, validation, finalImage)
+        else
+          _buildApprovalPhase(context, story, validation),
       ],
     );
   }
@@ -2310,34 +2222,62 @@ class _StoryCardState extends State<_StoryCard> {
             ),
           ),
           const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
+          Row(
             children: [
-              OutlinedButton(
-                onPressed: widget.busy || widget.imageBusy ? null : widget.onChangeBaseImage,
-                child: const Text('Cambiar imagen'),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: widget.busy || widget.imageBusy
+                      ? null
+                      : (generatedImage.isEmpty
+                          ? (canGenerateDesign ? widget.onGenerateDesign : null)
+                          : widget.onRegenerateImage),
+                  icon: const Icon(Icons.auto_fix_high_rounded, size: 18),
+                  label: Text(
+                    generatedImage.isEmpty ? 'Generar diseño' : 'Regenerar diseño',
+                  ),
+                ),
               ),
-              OutlinedButton(
-                onPressed: widget.busy ||
-                        widget.imageBusy ||
-                        validation.missingBaseImage ||
-                        !validation.missingImageConfirmation
-                    ? null
-                    : widget.onConfirmBaseImage,
-                child: const Text('Confirmar imagen'),
-              ),
-              FilledButton.icon(
-                onPressed: canGenerateDesign ? widget.onGenerateDesign : null,
-                icon: const Icon(Icons.auto_fix_high_rounded, size: 18),
-                label: const Text('Generar diseño'),
-              ),
-              OutlinedButton.icon(
-                onPressed: generatedImage.isEmpty
-                    ? null
-                    : () => _openFullscreenPreview(context, story, generatedImage, baseImage),
-                icon: const Icon(Icons.open_in_full_rounded, size: 18),
-                label: const Text('Ver diseño final'),
+              const SizedBox(width: 8),
+              PopupMenuButton<String>(
+                tooltip: 'Más opciones',
+                onSelected: (value) async {
+                  switch (value) {
+                    case 'changeImage':
+                      await widget.onChangeBaseImage();
+                      break;
+                    case 'chooseAgain':
+                      await widget.onChangeBaseImage();
+                      break;
+                    case 'confirmImage':
+                      if (!validation.missingBaseImage && validation.missingImageConfirmation) {
+                        await widget.onConfirmBaseImage();
+                      }
+                      break;
+                    case 'viewFinal':
+                      if (generatedImage.isNotEmpty) {
+                        _openFullscreenPreview(context, story, generatedImage, baseImage);
+                      }
+                      break;
+                    case 'details':
+                      _openStoryDetails(context, story, widget.usedResearch);
+                      break;
+                    case 'resetDesign':
+                      await widget.onRegenerateImage();
+                      break;
+                  }
+                },
+                itemBuilder: (context) => const [
+                  PopupMenuItem(value: 'changeImage', child: Text('Cambiar imagen')),
+                  PopupMenuItem(value: 'chooseAgain', child: Text('Elegir de nuevo desde Galería de contenido')),
+                  PopupMenuItem(value: 'confirmImage', child: Text('Confirmar imagen')),
+                  PopupMenuItem(value: 'viewFinal', child: Text('Ver diseño final')),
+                  PopupMenuItem(value: 'details', child: Text('Ver detalles técnicos')),
+                  PopupMenuItem(value: 'resetDesign', child: Text('Resetear diseño')),
+                ],
+                child: const Padding(
+                  padding: EdgeInsets.all(6),
+                  child: Icon(Icons.more_vert_rounded),
+                ),
               ),
             ],
           ),
@@ -2415,31 +2355,59 @@ class _StoryCardState extends State<_StoryCard> {
             ],
           ),
           const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
+          Row(
             children: [
-              FilledButton.icon(
-                onPressed: widget.busy || !validation.canGenerateCopy
-                    ? null
-                    : widget.onRegenerate,
-                icon: const Icon(Icons.text_fields_rounded, size: 18),
-                label: const Text('Generar copys'),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: widget.busy ? null : widget.onRegenerate,
+                  icon: const Icon(Icons.text_fields_rounded, size: 18),
+                  label: Text(validation.canGenerateCopy ? 'Generar copys' : 'Regenerar copys'),
+                ),
               ),
-              OutlinedButton.icon(
-                onPressed: widget.busy ? null : widget.onRegenerate,
-                icon: const Icon(Icons.refresh_rounded, size: 18),
-                label: const Text('Regenerar copys'),
-              ),
-              OutlinedButton.icon(
-                onPressed: widget.busy ? null : widget.onEdit,
-                icon: const Icon(Icons.edit_rounded, size: 18),
-                label: const Text('Editar texto'),
-              ),
-              OutlinedButton.icon(
-                onPressed: () => _openFullAdPreview(context, story, finalImage),
-                icon: const Icon(Icons.preview_rounded, size: 18),
-                label: const Text('Ver anuncio completo'),
+              const SizedBox(width: 8),
+              PopupMenuButton<String>(
+                tooltip: 'Más opciones',
+                onSelected: (value) async {
+                  switch (value) {
+                    case 'viewComplete':
+                      _openFullAdPreview(context, story, finalImage);
+                      break;
+                    case 'editCopy':
+                      await widget.onEdit();
+                      break;
+                    case 'copyText':
+                      final text = [
+                        story.title.trim(),
+                        story.shortText.trim(),
+                        story.usedCTA.trim(),
+                        story.hashtags.join(' '),
+                      ].where((e) => e.isNotEmpty).join('\n\n');
+                      await Clipboard.setData(ClipboardData(text: text));
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Texto copiado.')),
+                        );
+                      }
+                      break;
+                    case 'details':
+                      _openStoryDetails(context, story, widget.usedResearch);
+                      break;
+                    case 'resetCopy':
+                      await widget.onRegenerate();
+                      break;
+                  }
+                },
+                itemBuilder: (context) => const [
+                  PopupMenuItem(value: 'viewComplete', child: Text('Ver anuncio completo')),
+                  PopupMenuItem(value: 'editCopy', child: Text('Editar copy')),
+                  PopupMenuItem(value: 'copyText', child: Text('Copiar texto')),
+                  PopupMenuItem(value: 'details', child: Text('Ver detalles técnicos')),
+                  PopupMenuItem(value: 'resetCopy', child: Text('Resetear copy')),
+                ],
+                child: const Padding(
+                  padding: EdgeInsets.all(6),
+                  child: Icon(Icons.more_vert_rounded),
+                ),
               ),
             ],
           ),
@@ -2809,19 +2777,6 @@ StoryProgressValidation validateStoryProgress(MarketingStory story) {
   );
 }
 
-String _imageFallbackLabel(MarketingStory story, bool imageBusy) {
-  if (imageBusy || story.imageStatus == MarketingImageStatus.processing) {
-    return 'Generando...';
-  }
-  if (story.imageStatus == MarketingImageStatus.queued) {
-    return 'En cola';
-  }
-  if (story.imageStatus == MarketingImageStatus.failed) {
-    return 'Imagen falló';
-  }
-  return 'Sin imagen AI';
-}
-
 String _storyImageError(MarketingStory story) {
   final metadata = story.imageGenerationMetadata;
   if (metadata.isEmpty) return '';
@@ -2851,67 +2806,6 @@ String _compactImageError(String raw) {
     return '${raw.substring(0, 220).trim()}...';
   }
   return raw;
-}
-
-class _StoryPreviewFrame extends StatelessWidget {
-  const _StoryPreviewFrame({
-    required this.label,
-    required this.imageUrl,
-    required this.story,
-    required this.fallbackLabel,
-    this.showLabel = true,
-    this.showApprovedBadge = false,
-  });
-
-  final String label;
-  final String imageUrl;
-  final MarketingStory story;
-  final String fallbackLabel;
-  final bool showLabel;
-  final bool showApprovedBadge;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (showLabel)
-          Text(
-            label,
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              color: scheme.onSurfaceVariant,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        if (showLabel) const SizedBox(height: 6),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(18),
-          child: AspectRatio(
-            aspectRatio: 9 / 16,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                if (imageUrl.isNotEmpty)
-                  _StoryImageView(url: imageUrl)
-                else
-                  const _BrokenImagePlaceholder(),
-                _StoryVisualOverlay(
-                  type: story.type,
-                  headline: story.title,
-                  subtitle: story.shortText,
-                  cta: story.usedCTA,
-                  fallbackLabel: imageUrl.isEmpty ? fallbackLabel : null,
-                  compact: false,
-                  approved: showApprovedBadge,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
 }
 
 class _StoryImageView extends StatelessWidget {
@@ -2967,148 +2861,6 @@ class _StoryImageCanvas extends StatelessWidget {
       ),
       child: Center(
         child: Padding(padding: const EdgeInsets.all(10), child: child),
-      ),
-    );
-  }
-}
-
-class _StoryVisualOverlay extends StatelessWidget {
-  const _StoryVisualOverlay({
-    required this.type,
-    required this.headline,
-    required this.subtitle,
-    required this.cta,
-    required this.fallbackLabel,
-    required this.compact,
-    required this.approved,
-  });
-
-  final MarketingStoryType type;
-  final String headline;
-  final String subtitle;
-  final String cta;
-  final String? fallbackLabel;
-  final bool compact;
-  final bool approved;
-
-  @override
-  Widget build(BuildContext context) {
-    final accent = switch (type) {
-      MarketingStoryType.sales => const Color(0xFFF97316),
-      MarketingStoryType.trust => const Color(0xFF10B981),
-      MarketingStoryType.educational => const Color(0xFF38BDF8),
-    };
-
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            const Color(0x08000000),
-            Color.alphaBlend(
-              accent.withValues(alpha: 0.16),
-              const Color(0x66000000),
-            ),
-          ],
-        ),
-      ),
-      padding: EdgeInsets.all(compact ? 8 : 14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: const Color(0xB3000000),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  'FULLTECH',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: compact ? 9 : 11,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.6,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 6),
-              if (fallbackLabel != null)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: const Color(0xCC7C2D12),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Text(
-                    fallbackLabel!,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              const Spacer(),
-              if (approved)
-                const Icon(
-                  Icons.check_circle_rounded,
-                  color: Color(0xFF22C55E),
-                  size: 24,
-                ),
-            ],
-          ),
-          const Spacer(),
-          Text(
-            headline,
-            maxLines: 3,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: compact ? 14 : 24,
-              fontWeight: FontWeight.w800,
-              height: 1.1,
-            ),
-          ),
-          SizedBox(height: compact ? 4 : 8),
-          Text(
-            subtitle,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: const Color(0xFFF1F5F9),
-              fontSize: compact ? 10 : 13,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          SizedBox(height: compact ? 6 : 10),
-          Container(
-            padding: EdgeInsets.symmetric(
-              horizontal: compact ? 8 : 12,
-              vertical: compact ? 5 : 7,
-            ),
-            decoration: BoxDecoration(
-              color: const Color(0xFFD7F9E9),
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: Text(
-              cta.trim().isEmpty ? 'Escribenos por WhatsApp' : cta.trim(),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: const Color(0xFF054A2A),
-                fontWeight: FontWeight.w700,
-                fontSize: compact ? 10 : 12,
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }

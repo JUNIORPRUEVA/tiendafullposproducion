@@ -158,6 +158,10 @@ export class AiAssistantService {
 
     const runtime = await this.getOpenAiRuntimeConfig();
     if (!runtime.apiKey) {
+      const fallback = this.fallbackCommercialOrthography(trimmed);
+      if (fallback !== trimmed) {
+        return { suggestion: fallback, changed: true, skipped: false, reason: 'local_fallback' };
+      }
       return { suggestion: null, changed: false, skipped: true, reason: 'openai_unavailable' };
     }
 
@@ -208,8 +212,56 @@ export class AiAssistantService {
       this.logDebug('orthography.openai_fallback', {
         message: error instanceof Error ? error.message : `${error}`,
       });
+      const fallback = this.fallbackCommercialOrthography(trimmed);
+      if (fallback !== trimmed) {
+        return { suggestion: fallback, changed: true, skipped: false, reason: 'local_fallback' };
+      }
       return { suggestion: null, changed: false, skipped: true, reason: 'openai_error' };
     }
+  }
+
+  private fallbackCommercialOrthography(value: string): string {
+    let text = value
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const replacements: Array<[RegExp, string]> = [
+      [/\bq\b/gi, 'que'],
+      [/\bk\b/gi, 'que'],
+      [/\bxq\b/gi, 'porque'],
+      [/\bgrasias\b/gi, 'gracias'],
+      [/\bgrasia\b/gi, 'gracias'],
+      [/\btmb\b/gi, 'también'],
+      [/\bbn\b/gi, 'bien'],
+      [/\bestoi\b/gi, 'estoy'],
+      [/\baver\b/gi, 'a ver'],
+      [/\bporfavor\b/gi, 'por favor'],
+    ];
+
+    for (const [pattern, replacement] of replacements) {
+      text = text.replace(pattern, replacement);
+    }
+
+    text = text.replace(
+      /(^|[.!?]\s+)([a-záéíóúñ])/g,
+      (_, prefix: string, letter: string) => `${prefix}${letter.toUpperCase()}`,
+    );
+
+    text = text.replace(
+      /^(hola|buenas|buenos dias|buenas tardes|buenas noches)\s+/i,
+      (match: string) => `${match.trim()}, `,
+    );
+
+    const looksLikeQuestion = /\b(que|como|cuando|donde|cual|cuanto|puedes|podrias|me ayudas)\b/i.test(
+      text.toLowerCase(),
+    );
+    if (looksLikeQuestion && !text.includes('?') && !text.includes('¿')) {
+      text = `¿${text}?`;
+    } else if (!/[.!?]$/.test(text)) {
+      text = `${text}.`;
+    }
+
+    return text;
   }
 
   async suggestCrmCommercialReply(
