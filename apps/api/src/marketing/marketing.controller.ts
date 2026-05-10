@@ -93,6 +93,13 @@ export class MarketingController {
     return this.marketing.regenerateStory(companyId, storyId, user.id ?? '');
   }
 
+  @Post('stories/:id/regenerate-copy-from-design')
+  async regenerateCopyFromDesign(@Req() req: Request, @Param('id') storyId: string) {
+    const user = req.user as RequestUser;
+    const companyId = this.marketing.resolveCompanyId();
+    return this.marketing.regenerateCopyFromDesignImage(companyId, storyId, user.id ?? '');
+  }
+
   @Post('stories/:id/regenerate-image')
   async regenerateImage(
     @Req() req: Request,

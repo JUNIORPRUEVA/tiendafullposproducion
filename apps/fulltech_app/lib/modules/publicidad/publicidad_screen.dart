@@ -2,6 +2,7 @@
 import 'dart:convert';
 import 'dart:developer' as developer;
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,6 +15,7 @@ import '../../core/api/env.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
 import '../../features/catalogo/data/catalog_repository.dart';
+import '../service_orders/data/upload_repository.dart';
 import 'marketing_api.dart';
 import 'marketing_models.dart';
 
@@ -219,6 +221,13 @@ class PublicidadController extends StateNotifier<PublicidadState> {
   Future<void> regenerate(String storyId) async {
     await _runBusy(() async {
       await _api.regenerate(storyId);
+      await _refresh(keepLoading: false);
+    });
+  }
+
+  Future<void> regenerateCopyFromDesign(String storyId) async {
+    await _runBusy(() async {
+      await _api.regenerateCopyFromDesignImage(storyId);
       await _refresh(keepLoading: false);
     });
   }
@@ -435,6 +444,16 @@ class PublicidadController extends StateNotifier<PublicidadState> {
       );
       await _refresh(keepLoading: false);
     });
+  }
+
+  Future<String?> uploadDesignImage(String fileName) async {
+    try {
+      developer.log('[publicidad-controller] Simulando upload de $fileName');
+      return 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEA...';
+    } catch (error) {
+      developer.log('[publicidad-controller] Error en upload: $error');
+      return null;
+    }
   }
 
   Future<void> createMediaAssetsBulk(
@@ -1094,6 +1113,88 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
     _tab = widget._initialTab;
   }
 
+  /// Opens the file explorer to pick an image, uploads it to the server,
+  /// creates a gallery entry with category 'Diseños publicados', and returns
+  /// the uploaded image URL. Returns null if the user cancels.
+  Future<String?> _pickAndUploadDesignImage(
+    BuildContext context,
+    WidgetRef ref,
+    PublicidadController controller,
+  ) async {
+    FilePickerResult? result;
+    try {
+      result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        withData: true,
+        allowMultiple: false,
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('No se pudo abrir el explorador: $e')),
+        );
+      }
+      return null;
+    }
+
+    if (result == null || result.files.isEmpty) return null;
+
+    final file = result.files.first;
+    final bytes = file.bytes;
+    final fileName = file.name;
+
+    if (bytes == null || bytes.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No se pudo leer el archivo seleccionado.')),
+        );
+      }
+      return null;
+    }
+
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Subiendo imagen...')),
+      );
+    }
+
+    try {
+      final uploadRepo = ref.read(uploadRepositoryProvider);
+      final uploaded = await uploadRepo.uploadImage(
+        fileName: fileName,
+        bytes: bytes,
+      );
+
+      await controller.createMediaAsset(
+        fileUrl: uploaded.url,
+        fileName: fileName,
+        category: 'Diseños publicados',
+        tags: ['diseño-final', 'publicidad', 'subido'],
+      );
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Imagen subida y guardada en galería.')),
+        );
+      }
+      return uploaded.url;
+    } on ApiException catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message.isNotEmpty ? e.message : 'Error al subir la imagen.')),
+        );
+      }
+      return null;
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error al subir la imagen: $e')),
+        );
+      }
+      return null;
+    }
+  }
+
   Future<void> _handleRepairIncomplete(
     BuildContext context,
     PublicidadController controller,
@@ -1324,6 +1425,8 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
                                 onConfirmBaseImage: controller.confirmBaseImage,
                                 onGenerateDesign: controller.generateDesign,
                                 onChangeBaseImage: controller.changeBaseImage,
+                                onRegenerateCopyFromDesign:
+                                    controller.regenerateCopyFromDesign,
                                 onEdit: (story, payload) {
                                   return controller.editStory(
                                     story.id,
@@ -1333,6 +1436,13 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
                                     hashtags: payload.hashtags,
                                     imagePrompt: payload.imagePrompt,
                                     imageUrl: payload.imageUrl,
+                                  );
+                                },
+                                onUploadDesignImage: (context) async {
+                                  return _pickAndUploadDesignImage(
+                                    context,
+                                    ref,
+                                    controller,
                                   );
                                 },
                               ),
@@ -1834,6 +1944,10 @@ class _DashboardTab extends StatelessWidget {
           onGenerateDesign: onGenerateDesign,
           onChangeBaseImage: onChangeBaseImage,
           onEdit: (_, __) async {},
+          onRegenerateCopyFromDesign: (_) async {},
+          onUploadDesignImage: (context) async {
+            return null;
+          },
           compactActions: true,
           imageBusyStoryIds: imageBusyStoryIds,
         ),
@@ -1860,7 +1974,9 @@ class _DailyStoriesTab extends StatefulWidget {
     required this.onGenerateDesign,
     required this.onChangeBaseImage,
     required this.onEdit,
+    required this.onRegenerateCopyFromDesign,
     required this.imageBusyStoryIds,
+    this.onUploadDesignImage,
     this.compactActions = false,
   });
 
@@ -1880,7 +1996,9 @@ class _DailyStoriesTab extends StatefulWidget {
   onChangeBaseImage;
   final Future<void> Function(MarketingStory story, _EditStoryPayload payload)
   onEdit;
+  final Future<void> Function(String storyId) onRegenerateCopyFromDesign;
   final Set<String> imageBusyStoryIds;
+  final Future<String?> Function(BuildContext context)? onUploadDesignImage;
   final bool compactActions;
 
   @override
@@ -1914,12 +2032,12 @@ class _DailyStoriesTabState extends State<_DailyStoriesTab> {
             ButtonSegment<_EstadosPhase>(
               value: _EstadosPhase.copys,
               icon: Icon(Icons.text_fields_rounded),
-              label: Text('2 Copys y anuncio'),
+              label: Text('2 Copy final'),
             ),
             ButtonSegment<_EstadosPhase>(
               value: _EstadosPhase.aprobarPublicar,
               icon: Icon(Icons.publish_rounded),
-              label: Text('3 Aprobar / Publicar'),
+              label: Text('3 Publicar'),
             ),
           ],
           selected: {_phase},
@@ -1964,12 +2082,14 @@ class _DailyStoriesTabState extends State<_DailyStoriesTab> {
                         busy: widget.busy,
                         imageBusy: widget.imageBusyStoryIds.contains(story.id),
                         compactActions: widget.compactActions,
+                        mediaAssets: widget.mediaAssets,
                         onApprove: () => widget.onApprove(story.id),
                         onReject: () => widget.onReject(story.id),
                         onRegenerate: () => widget.onRegenerate(story.id),
                         onRegenerateImage: () => widget.onRegenerateImage(story.id),
                         onConfirmBaseImage: () => widget.onConfirmBaseImage(story.id),
                         onGenerateDesign: () => widget.onGenerateDesign(story.id),
+                        onRegenerateCopyFromDesign: () => widget.onRegenerateCopyFromDesign(story.id),
                         onChangeBaseImage: () async {
                           final chosen = await showDialog<String>(
                             context: context,
@@ -1993,12 +2113,47 @@ class _DailyStoriesTabState extends State<_DailyStoriesTab> {
                         onEdit: () async {
                           final payload = await showDialog<_EditStoryPayload>(
                             context: context,
-                            builder: (_) => _EditStoryDialog(story: story),
+                            builder: (_) => _EditStoryDialog(
+                              story: story,
+                              mediaAssets: widget.mediaAssets,
+                              onUploadImage: widget.onUploadDesignImage,
+                            ),
                           );
                           if (payload != null) {
                             await widget.onEdit(story, payload);
                           }
                         },
+                        onUploadFinalDesign: widget.onUploadDesignImage == null
+                            ? null
+                            : (ctx) async {
+                                final uploadedUrl = await widget.onUploadDesignImage!(ctx);
+                                if (uploadedUrl == null || uploadedUrl.isEmpty) return;
+                                // Save imageUrl to story
+                                await widget.onEdit(
+                                  story,
+                                  _EditStoryPayload(
+                                    title: story.title,
+                                    shortText: story.shortText,
+                                    longText: story.longText,
+                                    hashtags: List<String>.from(story.hashtags),
+                                    imagePrompt: story.imagePrompt,
+                                    imageUrl: uploadedUrl,
+                                  ),
+                                );
+                                // Trigger AI copy regeneration using the uploaded design image
+                                await widget.onRegenerateCopyFromDesign(story.id);
+                                if (ctx.mounted) {
+                                  ScaffoldMessenger.of(ctx).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'Diseño guardado. Analizando imagen para generar copy alineado...',
+                                      ),
+                                      behavior: SnackBarBehavior.floating,
+                                      duration: Duration(seconds: 5),
+                                    ),
+                                  );
+                                }
+                              },
                       ),
                     ),
                   ),
@@ -2035,6 +2190,9 @@ class _StoryCard extends StatefulWidget {
     required this.onGenerateDesign,
     required this.onChangeBaseImage,
     required this.onEdit,
+    required this.onRegenerateCopyFromDesign,
+    required this.mediaAssets,
+    this.onUploadFinalDesign,
     this.compactActions = false,
   });
 
@@ -2051,6 +2209,9 @@ class _StoryCard extends StatefulWidget {
   final Future<void> Function() onGenerateDesign;
   final Future<void> Function() onChangeBaseImage;
   final Future<void> Function() onEdit;
+  final Future<void> Function() onRegenerateCopyFromDesign;
+  final Future<void> Function(BuildContext context)? onUploadFinalDesign;
+  final List<MarketingMediaAsset> mediaAssets;
   final bool compactActions;
 
   @override
@@ -2074,7 +2235,6 @@ class _StoryCardState extends State<_StoryCard> {
             _MetaChip(label: 'Tipo', value: _storyTypeShort(story.type)),
             const SizedBox(width: 8),
             _StatusPill(status: story.status),
-            const SizedBox(width: 8),
           ],
         ),
         const SizedBox(height: 10),
@@ -2086,27 +2246,13 @@ class _StoryCardState extends State<_StoryCard> {
             context,
           ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
         ),
-        const SizedBox(height: 8),
-        if (designUploadedImageUrl.isNotEmpty)
-          Center(
-            child: SizedBox(
-              width: 140,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: AspectRatio(
-                  aspectRatio: 9 / 16,
-                  child: _StoryImageView(url: designUploadedImageUrl),
-                ),
-              ),
-            ),
-          ),
-        if (designUploadedImageUrl.isNotEmpty) const SizedBox(height: 8),
+        const SizedBox(height: 10),
         if (phaseIndex == 0)
           _buildPhase1(context, story, validation, baseImage)
         else if (phaseIndex == 1)
           _buildPhase2(context, story, validation, designUploadedImageUrl)
         else
-          _buildPhase3(context, story, validation),
+          _buildPhase3(context, story, validation, designUploadedImageUrl),
       ],
     );
   }
@@ -2119,79 +2265,104 @@ class _StoryCardState extends State<_StoryCard> {
   ) {
     final prompt = story.imagePrompt.trim();
     final hasImage = baseImage.isNotEmpty;
+    final scheme = Theme.of(context).colorScheme;
 
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.45),
+          color: scheme.outlineVariant.withValues(alpha: 0.45),
         ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Fase 1: Crear diseño en ChatGPT',
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w800,
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (hasImage)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: SizedBox(
+                    width: 56,
+                    child: AspectRatio(
+                      aspectRatio: 9 / 16,
+                      child: Image.network(
+                        baseImage,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => const _BrokenImagePlaceholder(),
+                      ),
+                    ),
+                  ),
+                )
+              else
+                Container(
+                  width: 56,
+                  height: 100,
+                  decoration: BoxDecoration(
+                    color: scheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(Icons.image_outlined, color: scheme.outline, size: 22),
+                ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Fase 1: Crear diseño',
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: scheme.primary,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      hasImage ? 'Imagen recomendada por IA' : 'Seleccionando imagen...',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                        fontStyle: hasImage ? FontStyle.normal : FontStyle.italic,
+                      ),
+                    ),
+                    if (story.usedResearchAngle.trim().isNotEmpty) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        story.usedResearchAngle.trim(),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(
+                          prompt.isEmpty
+                              ? Icons.hourglass_empty_rounded
+                              : Icons.check_circle_rounded,
+                          size: 12,
+                          color: prompt.isEmpty ? scheme.outline : const Color(0xFF15803D),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          prompt.isEmpty ? 'Generando prompt...' : 'Prompt listo',
+                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: prompt.isEmpty ? scheme.outline : const Color(0xFF15803D),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 12),
-          if (hasImage) ...[
-            Text(
-              'Imagen recomendada por IA',
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 6),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: AspectRatio(
-                aspectRatio: 1,
-                child: Image.network(
-                  baseImage,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => const _BrokenImagePlaceholder(),
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-          ] else
-            Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: Text(
-                'Seleccionando imagen automáticamente...',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  fontStyle: FontStyle.italic,
-                ),
-              ),
-            ),
-          Text(
-            'Prompt para ChatGPT',
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: SelectableText(
-              prompt.isEmpty
-                  ? 'Generando prompt automático...'
-                  : prompt,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                fontFamily: 'Courier',
-              ),
-            ),
-          ),
-          const SizedBox(height: 10),
           Wrap(
             spacing: 8,
             runSpacing: 8,
@@ -2300,57 +2471,110 @@ $objective''';
     final copy = story.shortText.trim();
     final cta = story.usedCTA.trim();
     final hashtags = story.hashtags;
+    final hasDesign = designUploadedUrl.isNotEmpty;
+    final scheme = Theme.of(context).colorScheme;
 
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.45),
+          color: scheme.outlineVariant.withValues(alpha: 0.45),
         ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Fase 2: Subir diseño + copys',
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w800,
+            'Fase 2: Diseño final + copy',
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: scheme.primary,
             ),
           ),
           const SizedBox(height: 12),
-          if (designUploadedUrl.isEmpty)
-            OutlinedButton.icon(
-              onPressed: widget.busy ? null : () => _uploadDesignImage(context),
-              icon: const Icon(Icons.upload_rounded, size: 18),
-              label: const Text('Subir diseño final'),
-            )
-          else ...[
-            Text(
-              'Texto del anuncio',
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                fontWeight: FontWeight.w600,
+          if (!hasDesign) ...[
+            Center(
+              child: Column(
+                children: [
+                  Icon(Icons.upload_file_rounded, size: 36, color: scheme.outline),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Sube el diseño generado en ChatGPT',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton.icon(
+                    onPressed: widget.busy ? null : () => _uploadDesignImage(context),
+                    icon: const Icon(Icons.upload_rounded, size: 18),
+                    label: const Text('Subir diseño final'),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 6),
-            if (headline.isNotEmpty) _InfoLine(label: 'Headline', value: headline),
-            if (copy.isNotEmpty) _InfoLine(label: 'Copy', value: copy),
-            if (cta.isNotEmpty) _InfoLine(label: 'CTA', value: cta),
-            if (hashtags.isNotEmpty) _InfoLine(label: 'Hashtags', value: hashtags.join(' ')),
-            const SizedBox(height: 10),
+          ] else ...[
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: SizedBox(
+                    width: 90,
+                    child: AspectRatio(
+                      aspectRatio: 9 / 16,
+                      child: _StoryImageView(url: designUploadedUrl),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (headline.isNotEmpty) _InfoLine(label: 'Headline', value: headline),
+                      if (copy.isNotEmpty) _InfoLine(label: 'Copy', value: copy),
+                      if (cta.isNotEmpty) _InfoLine(label: 'CTA', value: cta),
+                      if (hashtags.isNotEmpty) _InfoLine(label: 'Tags', value: hashtags.join(' ')),
+                      if (headline.isEmpty && copy.isEmpty && cta.isEmpty)
+                        Text(
+                          'Generando copy...',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            fontStyle: FontStyle.italic,
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
             Wrap(
               spacing: 8,
               runSpacing: 8,
               children: [
                 FilledButton.icon(
-                  onPressed: widget.busy ? null : widget.onRegenerate,
+                  onPressed: widget.busy ? null : widget.onRegenerateCopyFromDesign,
                   icon: const Icon(Icons.refresh_rounded, size: 16),
-                  label: const Text('Regenerar copys'),
+                  label: const Text('Regenerar copy'),
                 ),
                 OutlinedButton.icon(
                   onPressed: widget.busy ? null : () => _uploadDesignImage(context),
-                  icon: const Icon(Icons.image_rounded, size: 16),
+                  icon: const Icon(Icons.swap_horiz_rounded, size: 16),
                   label: const Text('Cambiar diseño'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: widget.busy ? null : widget.onEdit,
+                  icon: const Icon(Icons.edit_rounded, size: 16),
+                  label: const Text('Editar'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () => _openFullscreenPreview(context, story, designUploadedUrl, ''),
+                  icon: const Icon(Icons.open_in_full_rounded, size: 16),
+                  label: const Text('Ver completo'),
                 ),
               ],
             ),
@@ -2364,13 +2588,16 @@ $objective''';
     BuildContext context,
     MarketingStory story,
     StoryProgressValidation validation,
+    String designUploadedUrl,
   ) {
+    final scheme = Theme.of(context).colorScheme;
+
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.45),
+          color: scheme.outlineVariant.withValues(alpha: 0.45),
         ),
       ),
       child: Column(
@@ -2378,25 +2605,43 @@ $objective''';
         children: [
           Text(
             'Fase 3: Aprobar / Publicar',
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: scheme.primary,
+            ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
           for (final item in validation.checklist.entries)
             Padding(
-              padding: const EdgeInsets.only(bottom: 6),
+              padding: const EdgeInsets.only(bottom: 5),
               child: Row(
                 children: [
                   Icon(
                     item.value ? Icons.check_circle_rounded : Icons.radio_button_unchecked,
                     color: item.value ? const Color(0xFF15803D) : const Color(0xFFB45309),
-                    size: 18,
+                    size: 16,
                   ),
-                  const SizedBox(width: 8),
-                  Text(item.key),
+                  const SizedBox(width: 6),
+                  Text(item.key, style: Theme.of(context).textTheme.bodySmall),
                 ],
               ),
             ),
-          const SizedBox(height: 8),
+          if (designUploadedUrl.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Center(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: SizedBox(
+                  width: 70,
+                  child: AspectRatio(
+                    aspectRatio: 9 / 16,
+                    child: _StoryImageView(url: designUploadedUrl),
+                  ),
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(height: 10),
           Wrap(
             spacing: 8,
             runSpacing: 8,
@@ -2418,19 +2663,38 @@ $objective''';
   }
 
   void _openImagePicker(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Abre la Galería de contenido para seleccionar imagen'),
-      ),
-    );
+    widget.onChangeBaseImage();
+  }
+
+  Future<String?> _openFilePickerAndUpload(BuildContext context) async {
+    try {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('📤 Seleccionando archivo...'),
+          duration: Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return null;
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Error al subir: $error'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return null;
+    }
   }
 
   void _uploadDesignImage(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Sube la imagen que creaste en ChatGPT'),
-      ),
-    );
+    if (widget.onUploadFinalDesign != null) {
+      widget.onUploadFinalDesign!(context);
+    } else {
+      widget.onEdit();
+    }
   }
 
   void _openFullscreenPreview(
@@ -5682,9 +5946,15 @@ class _EditStoryPayload {
 }
 
 class _EditStoryDialog extends StatefulWidget {
-  const _EditStoryDialog({required this.story});
+  const _EditStoryDialog({
+    required this.story,
+    this.mediaAssets = const [],
+    this.onUploadImage,
+  });
 
   final MarketingStory story;
+  final List<MarketingMediaAsset> mediaAssets;
+  final Future<String?> Function(BuildContext context)? onUploadImage;
 
   @override
   State<_EditStoryDialog> createState() => _EditStoryDialogState();
@@ -5768,11 +6038,63 @@ class _EditStoryDialogState extends State<_EditStoryDialog> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                TextFormField(
-                  controller: _imageUrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Imagen URL o image_placeholder',
-                  ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        controller: _imageUrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Imagen URL o image_placeholder',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    if (widget.mediaAssets.isNotEmpty)
+                      OutlinedButton.icon(
+                        onPressed: () async {
+                          final chosen = await showDialog<String>(
+                            context: context,
+                            builder: (_) => _PickMediaAssetDialog(
+                              assets: widget.mediaAssets,
+                              selectedId: _imageUrl.text,
+                            ),
+                          );
+                          if (chosen != null && chosen.isNotEmpty) {
+                            MarketingMediaAsset? asset;
+                            for (final a in widget.mediaAssets) {
+                              if (a.id == chosen ||
+                                  a.mediaAssetId == chosen ||
+                                  a.contentGalleryItemId == chosen) {
+                                asset = a;
+                                break;
+                              }
+                            }
+                            if (asset != null) {
+                              final url = asset.fileUrl.trim();
+                              if (url.isNotEmpty) {
+                                _imageUrl.text = url;
+                                setState(() {});
+                              }
+                            }
+                          }
+                        },
+                        icon: const Icon(Icons.image_rounded, size: 16),
+                        label: const Text('Galería'),
+                      ),
+                    const SizedBox(width: 8),
+                    if (widget.onUploadImage != null)
+                      OutlinedButton.icon(
+                        onPressed: () async {
+                          final uploadedUrl = await widget.onUploadImage!(context);
+                          if (uploadedUrl != null && uploadedUrl.isNotEmpty) {
+                            _imageUrl.text = uploadedUrl;
+                            setState(() {});
+                          }
+                        },
+                        icon: const Icon(Icons.cloud_upload_rounded, size: 16),
+                        label: const Text('Subir'),
+                      ),
+                  ],
                 ),
               ],
             ),
@@ -5852,6 +6174,11 @@ String _resolveFinalImageUrl(MarketingStory story) {
   final generated = _safeImageUrl(story.generatedImageUrl);
   if (generated.isNotEmpty) {
     return _appendCacheVersion(generated, story.updatedAt ?? story.date);
+  }
+  // Fallback: manual upload saved via edit dialog goes to imageUrl field
+  final manual = _safeImageUrl(story.imageUrl);
+  if (manual.isNotEmpty) {
+    return _appendCacheVersion(manual, story.updatedAt ?? story.date);
   }
   return '';
 }

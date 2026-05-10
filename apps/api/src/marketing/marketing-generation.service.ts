@@ -1501,6 +1501,178 @@ export class MarketingGenerationService {
     });
   }
 
+  /**
+   * Analyzes the manually uploaded design image (story.imageUrl) using OpenAI Vision
+   * and regenerates ONLY the copy fields (title, shortText, hashtags, usedCTA).
+   * Does NOT touch imageUrl, generatedImageUrl, imageStatus or the design flow.
+   */
+  async regenerateCopyFromDesignImage(companyId: string, storyId: string, userId: string) {
+    const story = await this.prisma.marketingDailyStory.findFirst({
+      where: { id: storyId, companyId },
+    });
+    if (!story) throw new NotFoundException('Contenido no encontrado');
+
+    const imageUrl = (`${(story as any).imageUrl ?? ''}`.trim());
+    if (!imageUrl) {
+      throw new BadRequestException(
+        'Este contenido no tiene diseño final subido. Sube el diseño primero.',
+      );
+    }
+
+    // Retrieve OpenAI config (env takes precedence, then appConfig)
+    const envKey = (process.env.OPENAI_API_KEY ?? '').trim();
+    let apiKey = envKey;
+    let model = (process.env.OPENAI_MODEL ?? '').trim() || 'gpt-4o';
+    let companyName = 'FULLTECH';
+
+    if (!apiKey) {
+      try {
+        const appConfig = await this.prisma.appConfig.findUnique({
+          where: { id: 'global' },
+          select: { openAiApiKey: true, openAiModel: true, companyName: true },
+        });
+        apiKey = (appConfig?.openAiApiKey ?? '').trim();
+        if (appConfig?.openAiModel) model = appConfig.openAiModel.trim() || model;
+        if (appConfig?.companyName) companyName = appConfig.companyName.trim() || companyName;
+      } catch {
+        // ignore config lookup error
+      }
+    }
+
+    let generatedCopy: { title: string; shortText: string; hashtags: string[]; cta: string } | null = null;
+
+    if (apiKey) {
+      const systemPrompt = `Eres un experto en marketing digital para la empresa ${companyName} en Higüey, República Dominicana. 
+Tu especialidad es seguridad electrónica, automatización del hogar y tecnología.
+Analizarás una imagen de diseño publicitario y generarás copy de marketing alineado al producto o servicio que SE VE VISUALMENTE en la imagen.
+Debes describir QUÉ PRODUCTO o SERVICIO aparece en la imagen y generar copy exclusivamente para ESE producto.
+NUNCA generes copy para un producto distinto al que aparece en la imagen.
+Responde ÚNICAMENTE con JSON válido.`;
+
+      const userPrompt = `Analiza visualmente esta imagen de diseño publicitario: ${imageUrl}
+
+La imagen muestra un diseño final de publicidad de ${companyName}.
+
+Tareas:
+1. Identifica el producto o servicio específico que aparece en la imagen (ej: motor de portón automático, cámara de seguridad, panel de alarma, control de acceso, etc.)
+2. Genera copy de marketing en español dominicano para ESE producto específico
+
+Devuelve exactamente este JSON:
+{
+  "detectedProduct": "nombre del producto/servicio detectado en la imagen",
+  "title": "titular impactante de máx 8 palabras para el producto detectado",
+  "shortText": "copy descriptivo de 15-25 palabras que destaque el beneficio del producto detectado",
+  "hashtags": ["#hashtag1", "#hashtag2", "#hashtag3"],
+  "cta": "llamado a la acción de 5-8 palabras"
+}`;
+
+      const modelCandidates = [model, 'gpt-4o', 'gpt-4o-mini'].filter((v, i, arr) => arr.indexOf(v) === i);
+
+      for (const candidate of modelCandidates) {
+        try {
+          const response = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: candidate,
+              temperature: 0.4,
+              messages: [
+                { role: 'system', content: systemPrompt },
+                {
+                  role: 'user',
+                  content: [
+                    {
+                      type: 'image_url',
+                      image_url: { url: imageUrl, detail: 'high' },
+                    },
+                    { type: 'text', text: userPrompt },
+                  ],
+                },
+              ],
+            }),
+          });
+
+          if (!response.ok) {
+            this.logger.warn(`[marketing-copy-from-design] OpenAI HTTP ${response.status} with model ${candidate}`);
+            continue;
+          }
+
+          const payload = (await response.json()) as {
+            choices?: Array<{ message?: { content?: string } }>;
+          };
+          const raw = payload.choices?.[0]?.message?.content?.trim() ?? '';
+          // Extract JSON from potential markdown code blocks
+          const jsonMatch = raw.match(/\{[\s\S]*\}/);
+          if (!jsonMatch) {
+            this.logger.warn(`[marketing-copy-from-design] No JSON in response with model ${candidate}`);
+            continue;
+          }
+          const parsed = JSON.parse(jsonMatch[0]) as {
+            detectedProduct?: unknown;
+            title?: unknown;
+            shortText?: unknown;
+            hashtags?: unknown;
+            cta?: unknown;
+          };
+
+          generatedCopy = {
+            title: typeof parsed.title === 'string' ? parsed.title.trim() : '',
+            shortText: typeof parsed.shortText === 'string' ? parsed.shortText.trim() : '',
+            hashtags: Array.isArray(parsed.hashtags)
+              ? (parsed.hashtags as unknown[]).filter((h) => typeof h === 'string').map((h) => `${h}`.trim())
+              : [],
+            cta: typeof parsed.cta === 'string' ? parsed.cta.trim() : '',
+          };
+
+          this.logger.log(
+            `[marketing-copy-from-design] Generated copy for story ${storyId} — detected: ${parsed.detectedProduct ?? 'unknown'} — model: ${candidate}`,
+          );
+          break;
+        } catch (err) {
+          this.logger.warn(
+            `[marketing-copy-from-design] Error with model ${candidate}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+    } else {
+      this.logger.warn('[marketing-copy-from-design] No OpenAI API key configured, skipping vision analysis.');
+    }
+
+    // Update ONLY copy fields — never touch imageUrl or generatedImageUrl
+    const updated = await this.prisma.marketingDailyStory.update({
+      where: { id: story.id },
+      data: {
+        ...(generatedCopy?.title ? { title: generatedCopy.title } : {}),
+        ...(generatedCopy?.shortText ? { shortText: generatedCopy.shortText } : {}),
+        ...(generatedCopy?.hashtags?.length ? { hashtags: generatedCopy.hashtags } : {}),
+        ...(generatedCopy?.cta ? { usedCTA: generatedCopy.cta } : {}),
+      },
+      include: {
+        approvedByUser: { select: { id: true, nombreCompleto: true } },
+        mediaAsset: true,
+      },
+    });
+
+    try {
+      await this.prisma.marketingActivityLog.create({
+        data: {
+          companyId,
+          action: 'MARKETING_COPY_REGENERATED_FROM_DESIGN',
+          description: `Copy regenerado desde imagen de diseño para contenido ${storyId}`,
+          userId,
+          metadata: { storyId, aiUsed: !!generatedCopy },
+        },
+      });
+    } catch {
+      // activity log is non-critical
+    }
+
+    return updated;
+  }
+
   private toDateOnly(value: Date) {
     const year = value.getUTCFullYear();
     const month = `${value.getUTCMonth() + 1}`.padStart(2, '0');

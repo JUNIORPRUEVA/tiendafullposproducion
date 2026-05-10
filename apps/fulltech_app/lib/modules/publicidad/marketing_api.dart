@@ -166,6 +166,16 @@ class MarketingApi {
     }
   }
 
+  Future<void> regenerateCopyFromDesignImage(String storyId) async {
+    try {
+      await _dio.post(
+        '${ApiRoutes.marketingStories}/$storyId/regenerate-copy-from-design',
+      );
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo regenerar el copy desde la imagen de diseño');
+    }
+  }
+
   Future<void> regenerateImage(String storyId, {String? customPrompt}) async {
     try {
       await _dio.post(

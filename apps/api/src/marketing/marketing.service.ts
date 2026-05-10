@@ -263,6 +263,14 @@ export class MarketingService {
     };
   }
 
+  async regenerateCopyFromDesignImage(companyId: string, storyId: string, userId: string) {
+    const updated = await this.generation.regenerateCopyFromDesignImage(companyId, storyId, userId);
+    return {
+      message: 'Copy regenerado a partir del diseño final subido.',
+      item: await this.normalizeStoryUrlsAsync(updated),
+    };
+  }
+
   async regenerateStoryImage(companyId: string, storyId: string, userId: string, customPrompt?: string, sync = false) {
     if (sync) {
       const updated = await this.generation.regenerateStoryImageDirect(companyId, storyId, userId, customPrompt);
