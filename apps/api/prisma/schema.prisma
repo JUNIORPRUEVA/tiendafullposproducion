@@ -605,6 +605,8 @@ model User {
   crmCommercialFollowupTasksCreated   CrmCommercialFollowupTask[] @relation("CrmFollowupTaskCreatedByUser")
   crmCommercialFollowupTasksCompleted CrmCommercialFollowupTask[] @relation("CrmFollowupTaskCompletedByUser")
   crmCommercialSettingsUpdated CrmCommercialSetting[] @relation("CrmCommercialSettingsUpdatedByUser")
+  crmCommercialLibraryItemsCreated CrmCommercialLibraryItem[] @relation("CrmCommercialLibraryCreatedByUser")
+  crmCommercialLibraryItemsUpdated CrmCommercialLibraryItem[] @relation("CrmCommercialLibraryUpdatedByUser")
 
   workEmployeeConfig WorkEmployeeConfig?
   warrantyProductConfigs WarrantyProductConfig[]

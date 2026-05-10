@@ -296,7 +296,7 @@ class PublicidadController extends StateNotifier<PublicidadState> {
       
       // After selecting and confirming base image, automatically generate design if everything is ready
       await Future.delayed(const Duration(milliseconds: 300));
-      final refreshedStory = state.stories.cast<MarketingStory?>().firstWhere(
+      final refreshedStory = state.dailyStories.cast<MarketingStory?>().firstWhere(
         (s) => s?.id == storyId,
         orElse: () => null,
       );
@@ -312,7 +312,7 @@ class PublicidadController extends StateNotifier<PublicidadState> {
           // Everything is complete - generate design automatically
           developer.log('[publicidad-estados] Auto-generating design for story $storyId (all fields ready)');
           await Future.delayed(const Duration(milliseconds: 500));
-          await generateStoryDesign(storyId);
+          await generateDesign(storyId);
         }
       }
     });
