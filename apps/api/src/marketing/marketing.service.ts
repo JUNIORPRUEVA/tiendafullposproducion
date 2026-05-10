@@ -529,7 +529,7 @@ export class MarketingService {
     //   2. publicidadImage records (bottom "Imágenes subidas directamente" section)
 
     // ── Source 1: serviceEvidence forPublicidad=true ──────────────────────────
-    const [evidenceResult, ownImagesResult] = await Promise.allSettled([
+    const [evidenceResult, ownImagesResult, designAssetsResult] = await Promise.allSettled([
       this.prisma.serviceEvidence.findMany({
         where: {
           forPublicidad: true,
@@ -558,12 +558,22 @@ export class MarketingService {
         orderBy: { createdAt: 'desc' },
         take: 300,
       }),
+      this.prisma.marketingMediaAsset.findMany({
+        where: {
+          companyId: _companyId,
+          isActive: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 300,
+      }),
     ]);
 
     const evidenceRows =
       evidenceResult.status === 'fulfilled' ? evidenceResult.value : [];
     const ownImages =
       ownImagesResult.status === 'fulfilled' ? ownImagesResult.value : [];
+    const designAssets =
+      designAssetsResult.status === 'fulfilled' ? designAssetsResult.value : [];
 
     const sourceUrls = [
       ...evidenceRows
@@ -681,7 +691,55 @@ export class MarketingService {
       })
       .filter((item): item is NonNullable<typeof item> => item !== null);
 
-    return { items: [...evidenceItems, ...ownItems] };
+    const designItems = designAssets
+      .map((asset) => {
+        const rawUrl = `${asset.fileUrl ?? ''}`.trim();
+        if (!rawUrl) return null;
+
+        const tags = Array.isArray(asset.tags)
+          ? asset.tags.map((item) => `${item}`.trim()).filter((item) => item.length > 0)
+          : [];
+        const lowerTags = tags.map((item) => item.toLowerCase());
+        const isPublishedFinalDesign =
+          lowerTags.includes('estado-publicado') ||
+          lowerTags.includes('origen:estado_diario') ||
+          lowerTags.includes('usado-en:estados');
+        if (!isPublishedFinalDesign) return null;
+
+        const publicUrl = this.marketingStorage.getPublicUrl(rawUrl);
+        const thumb = `${asset.thumbnailUrl ?? ''}`.trim();
+        const thumbUrl = thumb ? this.marketingStorage.getPublicUrl(thumb) : null;
+        const fileName = `${asset.fileName ?? ''}`.trim() || this.extractFileNameFromUrl(rawUrl, asset.id);
+        const sourceType = `${this.inferAssetSourceType(publicUrl, fileName, tags) || 'GALLERY_IMAGE'}`;
+
+        return {
+          id: `media:${asset.id}`,
+          contentGalleryItemId: null,
+          mediaAssetId: asset.id,
+          fileUrl: publicUrl,
+          imageUrl: publicUrl,
+          thumbnailUrl: thumbUrl,
+          fileName,
+          mimeType: `${asset.mimeType || 'image/jpeg'}`,
+          category: `${asset.category || 'Estado publicado'}`,
+          relatedService: `${asset.relatedService ?? ''}`.trim() || 'Estado diario',
+          tags,
+          description: asset.description ?? 'Diseño final subido para estado diario',
+          isActive: asset.isActive !== false,
+          isFeatured: asset.isFeatured === true,
+          useCount: asset.useCount ?? 0,
+          lastUsedAt: asset.lastUsedAt ?? null,
+          latestStory: null,
+          sourceType,
+          isAuthorizedForPublicidad: true,
+          approvedForPublicidad: true,
+          origin: 'estado_diario',
+          recommendedUse: `${asset.relatedService ?? ''}`.trim() || `${asset.category ?? 'Estado publicado'}`,
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null);
+
+    return { items: [...evidenceItems, ...ownItems, ...designItems] };
   }
 
   private async syncContentGalleryFromMediaEvidence(companyId: string) {

@@ -1119,7 +1119,6 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
   Future<String?> _pickAndUploadDesignImage(
     BuildContext context,
     WidgetRef ref,
-    PublicidadController controller,
   ) async {
     FilePickerResult? result;
     try {
@@ -1163,13 +1162,6 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
       final uploaded = await uploadRepo.uploadImage(
         fileName: fileName,
         bytes: bytes,
-      );
-
-      await controller.createMediaAsset(
-        fileUrl: uploaded.url,
-        fileName: fileName,
-        category: 'Diseños publicados',
-        tags: ['diseño-final', 'publicidad', 'subido'],
       );
 
       if (context.mounted) {
@@ -1442,7 +1434,6 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
                                   return _pickAndUploadDesignImage(
                                     context,
                                     ref,
-                                    controller,
                                   );
                                 },
                               ),
@@ -5021,6 +5012,7 @@ class _PickMediaAssetDialogState extends State<_PickMediaAssetDialog> {
   String _search = '';
   String? _category;
   String _originFilter = 'ALL';
+  String _stateFilter = 'ALL';
 
   @override
   void initState() {
@@ -5043,6 +5035,9 @@ class _PickMediaAssetDialogState extends State<_PickMediaAssetDialog> {
     final visible = galleryAssets.where((item) {
       if (_category != null && item.category != _category) return false;
       if (_originFilter != 'ALL' && _originKey(item) != _originFilter) {
+        return false;
+      }
+      if (_stateFilter == 'PUBLISHED' && !_isPublishedState(item)) {
         return false;
       }
       if (search.isEmpty) return true;
@@ -5124,6 +5119,26 @@ class _PickMediaAssetDialogState extends State<_PickMediaAssetDialog> {
                       ),
                       const SizedBox(width: 8),
                     ],
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 36,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  children: [
+                    ChoiceChip(
+                      label: const Text('Todo estado'),
+                      selected: _stateFilter == 'ALL',
+                      onSelected: (_) => setState(() => _stateFilter = 'ALL'),
+                    ),
+                    const SizedBox(width: 8),
+                    ChoiceChip(
+                      label: const Text('Publicado'),
+                      selected: _stateFilter == 'PUBLISHED',
+                      onSelected: (_) => setState(() => _stateFilter = 'PUBLISHED'),
+                    ),
                   ],
                 ),
               ),
@@ -5353,6 +5368,14 @@ class _PickMediaAssetDialogState extends State<_PickMediaAssetDialog> {
       return 'FILE_EXPLORER';
     }
     return 'GALLERY_IMAGE';
+  }
+
+  bool _isPublishedState(MarketingMediaAsset item) {
+    final tags = item.tags.map((tag) => tag.toLowerCase()).toList(growable: false);
+    if (tags.contains('estado-publicado')) return true;
+    if (tags.contains('origen:estado_diario')) return true;
+    if (tags.contains('usado-en:estados')) return true;
+    return item.category.toLowerCase().contains('estado publicado');
   }
 }
 

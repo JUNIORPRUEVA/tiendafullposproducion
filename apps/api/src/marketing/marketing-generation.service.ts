@@ -1540,6 +1540,7 @@ export class MarketingGenerationService {
     }
 
     let generatedCopy: { title: string; shortText: string; hashtags: string[]; cta: string } | null = null;
+    let detectedProduct = '';
 
     if (apiKey) {
       const systemPrompt = `Eres un experto en marketing digital para la empresa ${companyName} en Higüey, República Dominicana. 
@@ -1626,6 +1627,9 @@ Devuelve exactamente este JSON:
               : [],
             cta: typeof parsed.cta === 'string' ? parsed.cta.trim() : '',
           };
+          detectedProduct = typeof parsed.detectedProduct === 'string'
+            ? parsed.detectedProduct.trim()
+            : '';
 
           this.logger.log(
             `[marketing-copy-from-design] Generated copy for story ${storyId} — detected: ${parsed.detectedProduct ?? 'unknown'} — model: ${candidate}`,
@@ -1641,7 +1645,8 @@ Devuelve exactamente este JSON:
       this.logger.warn('[marketing-copy-from-design] No OpenAI API key configured, skipping vision analysis.');
     }
 
-    // Update ONLY copy fields — never touch imageUrl or generatedImageUrl
+    const metadata = this.asObject((story as any).imageGenerationMetadata) ?? {};
+    // Update copy fields and mark that final design upload was completed.
     const updated = await this.prisma.marketingDailyStory.update({
       where: { id: story.id },
       data: {
@@ -1649,11 +1654,29 @@ Devuelve exactamente este JSON:
         ...(generatedCopy?.shortText ? { shortText: generatedCopy.shortText } : {}),
         ...(generatedCopy?.hashtags?.length ? { hashtags: generatedCopy.hashtags } : {}),
         ...(generatedCopy?.cta ? { usedCTA: generatedCopy.cta } : {}),
+        imageGenerationMetadata: {
+          ...metadata,
+          finalDesignUploaded: true,
+          finalDesignImageUrl: imageUrl,
+          finalDesignSyncedAt: new Date().toISOString(),
+        } as any,
       },
       include: {
         approvedByUser: { select: { id: true, nombreCompleto: true } },
         mediaAsset: true,
       },
+    });
+
+    await this.upsertPublishedFinalDesignAsset({
+      companyId,
+      storyId,
+      userId,
+      imageUrl,
+      storyType: story.type,
+      title: generatedCopy?.title || story.title,
+      shortText: generatedCopy?.shortText || story.shortText,
+      hashtags: generatedCopy?.hashtags?.length ? generatedCopy.hashtags : this.safeStringArray((story as any).hashtags),
+      detectedProduct,
     });
 
     try {
@@ -1671,6 +1694,121 @@ Devuelve exactamente este JSON:
     }
 
     return updated;
+  }
+
+  private async upsertPublishedFinalDesignAsset(params: {
+    companyId: string;
+    storyId: string;
+    userId: string;
+    imageUrl: string;
+    storyType: MarketingStoryType;
+    title: string;
+    shortText: string;
+    hashtags: string[];
+    detectedProduct: string;
+  }) {
+    const {
+      companyId,
+      storyId,
+      userId,
+      imageUrl,
+      storyType,
+      title,
+      shortText,
+      hashtags,
+      detectedProduct,
+    } = params;
+
+    const relatedStoryTag = `related-story:${storyId}`;
+    const baseTags: string[] = [
+      'diseno-final',
+      'estado-publicado',
+      'origen:estado_diario',
+      'usado-en:estados',
+      relatedStoryTag,
+      ...hashtags,
+    ];
+    if (detectedProduct.trim().length > 0) {
+      baseTags.push(`producto:${detectedProduct.trim().toLowerCase().replace(/\s+/g, '-')}`);
+    }
+    const normalizedTags: string[] = [
+      ...new Set(baseTags.map((item: string) => item.trim()).filter((item: string) => item.length > 0)),
+    ];
+
+    const relatedService = detectedProduct.trim().length > 0
+      ? detectedProduct.trim()
+      : this.storyTypeLabel(storyType);
+    const category = this.storyTypeCategory(storyType);
+    const fileName = `estado-${storyId}-final.jpg`;
+    const description =
+      `diseno final subido para estado diario | relatedStoryId=${storyId} | usadoEn=estados | estado=publicado` +
+      (shortText.trim().length > 0 ? ` | copy=${shortText.trim()}` : '');
+
+    const candidates = await this.prisma.marketingMediaAsset.findMany({
+      where: {
+        companyId,
+        fileUrl: imageUrl,
+      },
+      orderBy: [{ updatedAt: 'desc' }],
+      take: 10,
+    });
+
+    const existing = candidates.find((item) => {
+      const tags = Array.isArray(item.tags)
+        ? item.tags.map((tag) => `${tag}`.trim().toLowerCase())
+        : [];
+      return tags.includes(relatedStoryTag.toLowerCase());
+    });
+
+    if (existing) {
+      await this.prisma.marketingMediaAsset.update({
+        where: { id: existing.id },
+        data: {
+          thumbnailUrl: imageUrl,
+          category,
+          relatedService,
+          tags: normalizedTags as any,
+          description,
+          isActive: true,
+        },
+      });
+      return;
+    }
+
+    const created = await this.prisma.marketingMediaAsset.create({
+      data: {
+        companyId,
+        fileUrl: imageUrl,
+        thumbnailUrl: imageUrl,
+        fileName,
+        mimeType: 'image/jpeg',
+        category,
+        relatedService,
+        tags: normalizedTags as any,
+        description,
+        isActive: true,
+        isFeatured: false,
+      },
+    });
+
+    await this.logAssetUsage(companyId, created.id, userId, {
+      storyId,
+      source: 'final-design-upload',
+      finalDesignUploaded: true,
+      title: title.trim(),
+    });
+  }
+
+  private storyTypeCategory(type: MarketingStoryType) {
+    if (type === MarketingStoryType.SALES) return 'Estado publicado - Ventas';
+    if (type === MarketingStoryType.TRUST) return 'Estado publicado - Confianza';
+    return 'Estado publicado - Educativo';
+  }
+
+  private storyTypeLabel(type: MarketingStoryType) {
+    if (type === MarketingStoryType.SALES) return 'Ventas';
+    if (type === MarketingStoryType.TRUST) return 'Confianza';
+    return 'Educativo';
   }
 
   private toDateOnly(value: Date) {
