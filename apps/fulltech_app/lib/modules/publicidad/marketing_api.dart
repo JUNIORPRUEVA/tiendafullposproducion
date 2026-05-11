@@ -139,9 +139,12 @@ class MarketingApi {
     }
   }
 
-  Future<void> approve(String storyId) async {
+  Future<void> approve(String storyId, {String contentType = 'post'}) async {
     try {
-      await _dio.post(ApiRoutes.marketingStoryApprove(storyId));
+      await _dio.post(
+        ApiRoutes.marketingStoryApprove(storyId),
+        data: {'contentType': contentType},
+      );
     } on DioException catch (error) {
       _rethrow(error, 'No se pudo aprobar el contenido');
     }

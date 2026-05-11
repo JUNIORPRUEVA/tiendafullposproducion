@@ -68,7 +68,7 @@ export class MarketingMetaPublisherService {
     private readonly marketingStorage: MarketingStorageService,
   ) {}
 
-  async publishStory(companyId: string, storyId: string, userId: string, retryOnlyMissing = false): Promise<MetaPublishResult> {
+  async publishStory(companyId: string, storyId: string, userId: string, contentType: string = 'post', retryOnlyMissing = false): Promise<MetaPublishResult> {
     const story = await this.prisma.marketingDailyStory.findFirst({
       where: { id: storyId, companyId },
       include: { mediaAsset: true, approvedByUser: true },
@@ -86,7 +86,7 @@ export class MarketingMetaPublisherService {
     }
 
     const rawConfig = this.resolveMetaConfigRaw();
-    this.logger.log(`[meta-publish] start storyId=${story.id}`);
+    this.logger.log(`[meta-publish] start storyId=${story.id} contentType=${contentType}`);
     this.logger.log(`[meta-publish] imageUrl=${imageUrl}`);
     this.logger.log(`[meta-publish] captionLength=${caption.trim().length}`);
     this.logger.log(`[meta-publish] pageId=${rawConfig.pageId || 'missing'}`);
@@ -138,7 +138,11 @@ export class MarketingMetaPublisherService {
       const publishInstagramNow = retryOnlyMissing ? !instagramPostId : shouldPublishInstagram;
 
       if (publishFacebookNow) {
-        const facebookResult = await this.publishFacebookPhoto(config, normalizedImageUrl, caption);
+        const isFacebookStory = contentType === 'story';
+        this.logger.log(`[meta-publish-facebook] contentType=${contentType} storyMode=${isFacebookStory}`);
+        const facebookResult = isFacebookStory
+          ? await this.publishFacebookStory(config, normalizedImageUrl, caption)
+          : await this.publishFacebookPhoto(config, normalizedImageUrl, caption);
         facebookPostId = facebookResult;
       }
 
@@ -238,7 +242,7 @@ export class MarketingMetaPublisherService {
   }
 
   async retryMissingPublication(companyId: string, storyId: string, userId: string): Promise<MetaPublishResult> {
-    return this.publishStory(companyId, storyId, userId, true);
+    return this.publishStory(companyId, storyId, userId, 'post', true);
   }
 
   getDebugMetaConfig() {
@@ -300,6 +304,8 @@ export class MarketingMetaPublisherService {
     const instagramBusinessId = (
       this.config.get<string>('META_INSTAGRAM_BUSINESS_ID') ??
       process.env.META_INSTAGRAM_BUSINESS_ID ??
+      this.config.get<string>('INSTAGRAM_BUSINESS_ACCOUNT_ID') ??
+      process.env.INSTAGRAM_BUSINESS_ACCOUNT_ID ??
       this.config.get<string>('INSTAGRAM_BUSINESS_ID') ??
       process.env.INSTAGRAM_BUSINESS_ID ??
       ''
@@ -309,6 +315,8 @@ export class MarketingMetaPublisherService {
       process.env.META_ACCESS_TOKEN ??
       this.config.get<string>('META_PAGE_ACCESS_TOKEN') ??
       process.env.META_PAGE_ACCESS_TOKEN ??
+      this.config.get<string>('FACEBOOK_PAGE_ACCESS_TOKEN') ??
+      process.env.FACEBOOK_PAGE_ACCESS_TOKEN ??
       ''
     ).trim();
 
@@ -429,6 +437,52 @@ export class MarketingMetaPublisherService {
     }
     this.logger.log(`[meta-publish-facebook] postId=${postId}`);
     return postId;
+  }
+
+  private async publishFacebookStory(config: MetaConfig, imageUrl: string, caption: string) {
+    const url = `https://graph.facebook.com/${config.graphVersion}/${config.pageId}/stories`;
+    this.logger.log(`[meta-publish-facebook] request /${config.pageId}/stories (story mode)`);
+    const body = new URLSearchParams({
+      image_url: imageUrl,
+      caption,
+      access_token: config.accessToken,
+    });
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+    });
+    const payload = await response.json().catch(() => ({} as any));
+    this.logger.log(`[meta-publish-facebook] story_response=${this.safeJson(payload)}`);
+    if (!response.ok) {
+      const parsed = this.parseMetaErrorPayload(payload, {
+        channel: 'facebook',
+        stage: 'facebook-story-publish',
+        endpoint: `/${config.pageId}/stories`,
+        httpStatus: response.status,
+      });
+      this.logger.error(`[meta-publish-facebook] error=${parsed.message}`);
+      throw new MetaApiError(parsed);
+    }
+    const storyId = `${payload.story_id ?? payload.id ?? ''}`.trim();
+    if (!storyId) {
+      const parsed: MetaPublishErrorDetails = {
+        channel: 'facebook',
+        stage: 'facebook-story-publish',
+        message: 'Facebook no devolvió ID de Story.',
+        type: 'MALFORMED_RESPONSE',
+        code: null,
+        subcode: null,
+        fbtraceId: null,
+        httpStatus: response.status,
+        endpoint: `/${config.pageId}/stories`,
+        details: { payload },
+      };
+      this.logger.error(`[meta-publish-facebook] error=${parsed.message}`);
+      throw new MetaApiError(parsed);
+    }
+    this.logger.log(`[meta-publish-facebook] storyId=${storyId}`);
+    return storyId;
   }
 
   private async publishInstagramFeedPost(config: MetaConfig, imageUrl: string, caption: string) {
