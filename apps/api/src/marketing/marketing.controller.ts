@@ -71,12 +71,17 @@ export class MarketingController {
   }
 
   @Post('stories/:id/approve')
-  async approve(@Req() req: Request, @Param('id') storyId: string) {
+  async approve(
+    @Req() req: Request,
+    @Param('id') storyId: string,
+    @Body() dto?: { contentType?: string },
+  ) {
     const user = req.user as RequestUser;
     const companyId = this.marketing.resolveCompanyId();
-    this.logger.log(`[marketing-approve] storyId=${storyId}`);
+    const contentType = dto?.contentType ?? 'post';
+    this.logger.log(`[marketing-approve] storyId=${storyId} contentType=${contentType}`);
     this.logger.log('[marketing-approve] publishOptions={"retryOnlyMissing":false}');
-    const result = await this.marketing.approveStory(companyId, storyId, user.id ?? '');
+    const result = await this.marketing.approveStory(companyId, storyId, user.id ?? '', contentType);
     const publication = (result as any)?.publication ?? {};
     this.logger.log(`[marketing-approve] shouldPublishFacebook=${publication.shouldPublishFacebook === true}`);
     this.logger.log(`[marketing-approve] shouldPublishInstagram=${publication.shouldPublishInstagram === true}`);

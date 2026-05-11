@@ -249,9 +249,9 @@ export class MarketingService {
     };
   }
 
-  async approveStory(companyId: string, storyId: string, userId: string) {
+  async approveStory(companyId: string, storyId: string, userId: string, contentType: string = 'post') {
     const approved = await this.approvals.approve(companyId, storyId, userId);
-    const publication = await this.metaPublisher.publishStory(companyId, storyId, userId);
+    const publication = await this.metaPublisher.publishStory(companyId, storyId, userId, contentType);
     return {
       message: publication.message,
       item: await this.normalizeStoryUrlsAsync(publication.item ?? approved),

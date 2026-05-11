@@ -204,9 +204,9 @@ class PublicidadController extends StateNotifier<PublicidadState> {
     });
   }
 
-  Future<void> approve(String storyId) async {
+  Future<void> approve(String storyId, String contentType) async {
     await _runBusy(() async {
-      await _api.approve(storyId);
+      await _api.approve(storyId, contentType: contentType);
       await _refresh(keepLoading: false);
     });
   }
@@ -1784,7 +1784,7 @@ class _DashboardTab extends StatelessWidget {
   onGenerateNow;
   final Future<void> Function() onRepairIncomplete;
   final Future<void> Function() onResetClean;
-  final Future<void> Function(String storyId) onApprove;
+  final Future<void> Function(String storyId, String contentType) onApprove;
   final Future<void> Function(String storyId) onRegenerate;
   final Future<void> Function(String storyId, {String? customPrompt})
   onRegenerateImage;
@@ -1984,7 +1984,7 @@ class _DailyStoriesTab extends StatefulWidget {
   final List<MarketingMediaAsset> mediaAssets;
   final List<MarketingResearchDetail> researches;
   final bool busy;
-  final Future<void> Function(String storyId) onApprove;
+  final Future<void> Function(String storyId, String contentType) onApprove;
   final Future<void> Function(String storyId, {String reason}) onReject;
   final Future<void> Function(String storyId) onRegenerate;
   final Future<void> Function(String storyId, {String? customPrompt})
@@ -2084,7 +2084,7 @@ class _DailyStoriesTabState extends State<_DailyStoriesTab> {
                         imageBusy: widget.imageBusyStoryIds.contains(story.id),
                         compactActions: widget.compactActions,
                         mediaAssets: widget.mediaAssets,
-                        onApprove: () => widget.onApprove(story.id),
+                        onApprove: (storyId, contentType) => widget.onApprove(storyId, contentType),
                         onReject: () => widget.onReject(story.id),
                         onRegenerate: () => widget.onRegenerate(story.id),
                         onRegenerateImage: () => widget.onRegenerateImage(story.id),
@@ -2204,7 +2204,7 @@ class _StoryCard extends StatefulWidget {
   final MarketingResearchDetail? usedResearch;
   final bool busy;
   final bool imageBusy;
-  final Future<void> Function() onApprove;
+  final Future<void> Function(String storyId, String contentType) onApprove;
   final Future<void> Function() onReject;
   final Future<void> Function() onRegenerate;
   final Future<void> Function() onRegenerateImage;
@@ -2223,6 +2223,8 @@ class _StoryCard extends StatefulWidget {
 }
 
 class _StoryCardState extends State<_StoryCard> {
+  String _contentType = 'post'; // 'post' | 'story'
+
   @override
   Widget build(BuildContext context) {
     final story = widget.story;
@@ -2708,10 +2710,36 @@ $objective''';
           const SizedBox(height: 10),
           Wrap(
             spacing: 8,
+            children: [
+              Expanded(
+                child: SegmentedButton<String>(
+                  segments: const <ButtonSegment<String>>[
+                    ButtonSegment<String>(
+                      value: 'story',
+                      label: Text('Story'),
+                      icon: Icon(Icons.history_edu_rounded),
+                    ),
+                    ButtonSegment<String>(
+                      value: 'post',
+                      label: Text('Post'),
+                      icon: Icon(Icons.image_rounded),
+                    ),
+                  ],
+                  selected: <String>{_contentType},
+                  onSelectionChanged: (Set<String> newSelection) {
+                    setState(() => _contentType = newSelection.first);
+                  },
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
             runSpacing: 8,
             children: [
               FilledButton.icon(
-                onPressed: widget.busy || !validation.canApprove ? null : widget.onApprove,
+                onPressed: widget.busy || !validation.canApprove ? null : () => widget.onApprove(widget.story.id, _contentType),
                 icon: const Icon(Icons.check_circle_rounded, size: 18),
                 label: const Text('Aprobar'),
               ),
@@ -2748,7 +2776,7 @@ $objective''';
 
     await showDialog<void>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Detalle de publicación Meta'),
         content: SizedBox(
           width: 560,
@@ -2772,15 +2800,25 @@ $objective''';
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () {
+              if (Navigator.of(dialogContext).canPop()) {
+                Navigator.of(dialogContext).pop();
+              }
+            },
             child: const Text('Cerrar'),
           ),
           FilledButton.icon(
             onPressed: widget.busy
                 ? null
                 : () async {
-                    Navigator.of(context).pop();
-                    await widget.onRetryPublish();
+                    if (Navigator.of(dialogContext).canPop()) {
+                      Navigator.of(dialogContext).pop();
+                    }
+                    if (!mounted) return;
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (!mounted) return;
+                      unawaited(widget.onRetryPublish());
+                    });
                   },
             icon: const Icon(Icons.restart_alt_rounded, size: 18),
             label: const Text('Reintentar'),
