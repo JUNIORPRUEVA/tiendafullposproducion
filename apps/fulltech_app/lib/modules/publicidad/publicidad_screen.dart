@@ -2597,6 +2597,16 @@ $objective''';
     String designUploadedUrl,
   ) {
     final scheme = Theme.of(context).colorScheme;
+    final publishDetails = story.publishErrorDetails;
+    final failedChannel = '${publishDetails['channel'] ?? ''}'.trim().toLowerCase();
+    final hasPublishError =
+        story.publishStatus == MarketingPublishStatus.error ||
+        story.publishStatus == MarketingPublishStatus.partial;
+    final retryLabel = failedChannel == 'instagram'
+        ? 'Reintentar Instagram'
+        : failedChannel == 'facebook'
+            ? 'Reintentar Facebook'
+            : 'Reintentar publicación';
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -2647,6 +2657,54 @@ $objective''';
               ),
             ),
           ],
+          if (hasPublishError) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: story.publishStatus == MarketingPublishStatus.partial
+                    ? const Color(0xFFFFF7E6)
+                    : const Color(0xFFFFEAEA),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: story.publishStatus == MarketingPublishStatus.partial
+                      ? const Color(0xFFE2A63A)
+                      : const Color(0xFFE57373),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    story.publishStatus == MarketingPublishStatus.partial
+                        ? 'Publicado parcialmente'
+                        : 'Error al publicar',
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: story.publishStatus == MarketingPublishStatus.partial
+                          ? const Color(0xFF8A5A00)
+                          : const Color(0xFF8E1C1C),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    (story.publishError ?? 'No se recibió detalle de error.').trim(),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: OutlinedButton.icon(
+                      onPressed: () => _openPublishErrorDetail(context, story),
+                      icon: const Icon(Icons.info_outline_rounded, size: 16),
+                      label: const Text('Ver detalle'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 10),
           Wrap(
             spacing: 8,
@@ -2662,13 +2720,70 @@ $objective''';
                 FilledButton.tonalIcon(
                   onPressed: widget.busy ? null : widget.onRetryPublish,
                   icon: const Icon(Icons.restart_alt_rounded, size: 18),
-                  label: const Text('Reintentar publicación'),
+                  label: Text(retryLabel),
                 ),
               OutlinedButton(
                 onPressed: widget.busy ? null : widget.onReject,
                 child: const Text('Rechazar'),
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openPublishErrorDetail(
+    BuildContext context,
+    MarketingStory story,
+  ) async {
+    final details = story.publishErrorDetails;
+    final channel = '${details['channel'] ?? ''}'.trim();
+    final stage = '${details['stage'] ?? ''}'.trim();
+    final message = '${details['message'] ?? story.publishError ?? ''}'.trim();
+    final code = story.publishErrorCode ?? '${details['code'] ?? ''}'.trim();
+    final subcode = '${details['subcode'] ?? ''}'.trim();
+    final fbtraceId = '${details['fbtraceId'] ?? details['fbtrace_id'] ?? ''}'.trim();
+    final happenedAt = '${details['happenedAt'] ?? ''}'.trim();
+
+    await showDialog<void>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Detalle de publicación Meta'),
+        content: SizedBox(
+          width: 560,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _InfoLine(label: 'Canal fallido', value: channel.isEmpty ? '-' : channel),
+                _InfoLine(label: 'Etapa', value: stage.isEmpty ? '-' : stage),
+                _InfoLine(label: 'Mensaje', value: message.isEmpty ? '-' : message, maxLines: 5),
+                _InfoLine(label: 'Código Meta', value: code.isEmpty ? '-' : code),
+                _InfoLine(label: 'Subcódigo', value: subcode.isEmpty ? '-' : subcode),
+                _InfoLine(label: 'fbtrace_id', value: fbtraceId.isEmpty ? '-' : fbtraceId),
+                _InfoLine(
+                  label: 'Fecha/hora',
+                  value: happenedAt.isEmpty ? _formatDateTime(story.updatedAt) : happenedAt,
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cerrar'),
+          ),
+          FilledButton.icon(
+            onPressed: widget.busy
+                ? null
+                : () async {
+                    Navigator.of(context).pop();
+                    await widget.onRetryPublish();
+                  },
+            icon: const Icon(Icons.restart_alt_rounded, size: 18),
+            label: const Text('Reintentar'),
           ),
         ],
       ),

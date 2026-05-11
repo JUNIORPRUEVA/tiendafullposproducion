@@ -27,6 +27,22 @@ export class MarketingDebugController {
     );
   }
 
+  @Get('meta-config')
+  async metaConfig() {
+    return this.marketing.debugMetaConfig();
+  }
+
+  @Post('test-meta-publish')
+  async testMetaPublish(
+    @Body() body: { imageUrl?: string; caption?: string; dryRun?: boolean },
+  ) {
+    return this.marketing.debugTestMetaPublish({
+      imageUrl: `${body?.imageUrl ?? ''}`.trim(),
+      caption: `${body?.caption ?? ''}`.trim(),
+      dryRun: body?.dryRun === true,
+    });
+  }
+
   @Post('story/:id/regenerate-image')
   async debugRegenerateStoryImage(
     @Param('id') storyId: string,

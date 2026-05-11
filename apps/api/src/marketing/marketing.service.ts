@@ -181,7 +181,7 @@ export class MarketingService {
 
     return {
       date: this.toDateOnly(date),
-      message: 'Estados generados con imagen sugerida. Confirma o cambia la imagen antes de generar diseño.',
+      message: 'Estados generados con imagen sugerida. Puedes cambiar la imagen y generar diseño directamente.',
       queuedCount: 0,
       items: await Promise.all(stories.map((story) => this.normalizeStoryUrlsAsync(story))),
     };
@@ -275,7 +275,7 @@ export class MarketingService {
   async regenerateStory(companyId: string, storyId: string, userId: string) {
     const updated = await this.generation.regenerateStory(companyId, storyId, userId);
     return {
-      message: 'Contenido regenerado con nueva imagen sugerida. Debes confirmar imagen para generar diseño.',
+      message: 'Contenido regenerado con nueva imagen sugerida. Puedes generar diseño directamente.',
       item: await this.normalizeStoryUrlsAsync(updated),
     };
   }
@@ -308,7 +308,7 @@ export class MarketingService {
   async confirmStoryBaseImage(companyId: string, storyId: string, userId: string) {
     const updated = await this.generation.confirmBaseImageSelection(companyId, storyId, userId);
     return {
-      message: 'Imagen base confirmada. Ya puedes generar el diseño.',
+      message: 'Imagen base marcada como lista.',
       item: await this.normalizeStoryUrlsAsync(updated),
     };
   }
@@ -389,6 +389,26 @@ export class MarketingService {
       publicBaseUrl: storage.publicBaseUrl,
       metadata: generated.metadata,
     };
+  }
+
+  async debugMetaConfig() {
+    return this.metaPublisher.getDebugMetaConfig();
+  }
+
+  async debugTestMetaPublish(input: { imageUrl?: string; caption?: string; dryRun?: boolean }) {
+    const imageUrl = `${input.imageUrl ?? ''}`.trim();
+    const caption = `${input.caption ?? ''}`.trim();
+    if (!imageUrl) {
+      throw new ConflictException('Falta imageUrl para prueba de publicación Meta.');
+    }
+    if (!caption) {
+      throw new ConflictException('Falta caption para prueba de publicación Meta.');
+    }
+    return this.metaPublisher.debugTestPublish({
+      imageUrl,
+      caption,
+      dryRun: input.dryRun === true,
+    });
   }
 
   async changeStoryBaseImage(companyId: string, storyId: string, mediaAssetId: string, userId: string) {

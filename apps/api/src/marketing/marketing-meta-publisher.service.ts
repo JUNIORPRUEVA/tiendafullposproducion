@@ -5,6 +5,7 @@ import {
   Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { MarketingStorageService } from './marketing-storage.service';
@@ -15,7 +16,11 @@ type MetaPublishResult = {
   publishedAt: Date | null;
   publishStatus: string;
   publishError: string | null;
+  publishErrorCode: string | null;
+  publishErrorDetails: Prisma.InputJsonValue | null;
   retryCount: number;
+  shouldPublishFacebook: boolean;
+  shouldPublishInstagram: boolean;
   message: string;
   item: any;
 };
@@ -26,6 +31,32 @@ type MetaConfig = {
   instagramBusinessId: string;
   accessToken: string;
 };
+
+type MetaRawConfig = {
+  graphVersion: string;
+  pageId: string;
+  instagramBusinessId: string;
+  accessToken: string;
+};
+
+type MetaPublishErrorDetails = {
+  channel: 'facebook' | 'instagram' | 'meta' | 'validation' | 'unknown';
+  stage: string;
+  message: string;
+  type: string | null;
+  code: number | null;
+  subcode: number | null;
+  fbtraceId: string | null;
+  httpStatus: number | null;
+  endpoint: string | null;
+  details: Record<string, unknown> | null;
+};
+
+class MetaApiError extends Error {
+  constructor(public readonly details: MetaPublishErrorDetails) {
+    super(details.message);
+  }
+}
 
 @Injectable()
 export class MarketingMetaPublisherService {
@@ -54,6 +85,14 @@ export class MarketingMetaPublisherService {
       throw new BadRequestException('El copy del anuncio está vacío.');
     }
 
+    const rawConfig = this.resolveMetaConfigRaw();
+    this.logger.log(`[meta-publish] start storyId=${story.id}`);
+    this.logger.log(`[meta-publish] imageUrl=${imageUrl}`);
+    this.logger.log(`[meta-publish] captionLength=${caption.trim().length}`);
+    this.logger.log(`[meta-publish] pageId=${rawConfig.pageId || 'missing'}`);
+    this.logger.log(`[meta-publish] instagramBusinessId=${rawConfig.instagramBusinessId || 'missing'}`);
+    this.logger.log(`[meta-publish] hasToken=${rawConfig.accessToken.length > 0}`);
+
     const currentPublishStatus = `${(story as any).publishStatus ?? 'PENDING'}`.toUpperCase();
     if (!retryOnlyMissing && currentPublishStatus === 'PUBLISHING') {
       throw new ConflictException('Ya existe una publicación en curso.');
@@ -69,35 +108,41 @@ export class MarketingMetaPublisherService {
     let facebookPostId = currentFacebookPostId || null;
     let instagramPostId = currentInstagramPostId || null;
     let publishError: string | null = null;
+    let publishErrorCode: string | null = null;
+    let publishErrorDetails: Prisma.InputJsonValue | typeof Prisma.JsonNull = Prisma.JsonNull;
     let publishStatus = 'PUBLISHING';
     let publishedAt: Date | null = null;
     let retryCount = ((story as any).retryCount ?? 0) as number;
-    let attemptRecorded = false;
+    const shouldPublishFacebook = !facebookPostId;
+    const shouldPublishInstagram = !instagramPostId;
+
+    await this.prisma.marketingDailyStory.updateMany({
+      where: { id: story.id, companyId },
+      data: {
+        publishStatus: 'PUBLISHING',
+        publishError: null,
+        publishErrorCode: null,
+        publishErrorDetails: Prisma.JsonNull,
+        retryCount: { increment: 1 },
+      },
+    });
+    retryCount += 1;
 
     try {
-      const config = await this.resolveMetaConfig();
+      const config = this.resolveMetaConfig(rawConfig);
+      this.assertPrePublishInputs(normalizedImageUrl, caption);
+      await this.assertImageUrlReachable(normalizedImageUrl);
       await this.validateMetaConnectivity(config);
 
-      await this.prisma.marketingDailyStory.updateMany({
-        where: { id: story.id, companyId },
-        data: {
-          publishStatus: 'PUBLISHING',
-          publishError: null,
-          retryCount: { increment: 1 },
-        },
-      });
-      attemptRecorded = true;
-      retryCount += 1;
+      const publishFacebookNow = retryOnlyMissing ? !facebookPostId : shouldPublishFacebook;
+      const publishInstagramNow = retryOnlyMissing ? !instagramPostId : shouldPublishInstagram;
 
-      const shouldPublishFacebook = !retryOnlyMissing ? !facebookPostId : !facebookPostId;
-      const shouldPublishInstagram = !retryOnlyMissing ? !instagramPostId : !instagramPostId;
-
-      if (shouldPublishFacebook) {
+      if (publishFacebookNow) {
         const facebookResult = await this.publishFacebookPhoto(config, normalizedImageUrl, caption);
         facebookPostId = facebookResult;
       }
 
-      if (shouldPublishInstagram) {
+      if (publishInstagramNow) {
         const instagramResult = await this.publishInstagramFeedPost(config, normalizedImageUrl, caption);
         instagramPostId = instagramResult;
       }
@@ -106,11 +151,27 @@ export class MarketingMetaPublisherService {
       publishStatus = fullSuccess ? 'PUBLISHED' : 'PARTIAL';
       publishedAt = fullSuccess ? new Date() : null;
       publishError = fullSuccess ? null : 'Publicación parcial: uno de los destinos sigue pendiente.';
+      publishErrorCode = null;
+      publishErrorDetails = fullSuccess
+        ? Prisma.JsonNull
+        : {
+            channel: !facebookPostId ? 'facebook' : 'instagram',
+            stage: 'post-publish-check',
+            message: 'Publicación parcial: uno de los destinos sigue pendiente.',
+          } as Prisma.InputJsonValue;
     } catch (error) {
-      publishError = this.normalizeError(error);
-      publishStatus = facebookPostId || instagramPostId ? 'PARTIAL' : 'ERROR';
-      if (!attemptRecorded) {
-        retryCount += 1;
+      const parsed = this.parsePublishError(error);
+      publishErrorCode = parsed.code != null ? `${parsed.code}` : null;
+      publishErrorDetails = this.toErrorDetailsJson(parsed);
+      if (facebookPostId && !instagramPostId) {
+        publishStatus = 'PARTIAL';
+        publishError = `Facebook publicado, Instagram falló: ${parsed.message}`;
+      } else if (!facebookPostId && instagramPostId) {
+        publishStatus = 'PARTIAL';
+        publishError = `Instagram publicado, Facebook falló: ${parsed.message}`;
+      } else {
+        publishStatus = 'ERROR';
+        publishError = parsed.message;
       }
       this.logger.error(`[meta-publish] story=${story.id} error=${publishError}`);
     }
@@ -123,6 +184,8 @@ export class MarketingMetaPublisherService {
         instagramPostId,
         publishStatus,
         publishError,
+        publishErrorCode,
+        publishErrorDetails,
         retryCount,
       },
       include: {
@@ -144,6 +207,8 @@ export class MarketingMetaPublisherService {
             instagramPostId,
             publishStatus,
             publishError,
+            publishErrorCode,
+            publishErrorDetails: this.jsonValueOrNull(publishErrorDetails),
           },
         },
       });
@@ -157,13 +222,17 @@ export class MarketingMetaPublisherService {
       publishedAt,
       publishStatus,
       publishError,
+      publishErrorCode,
+      publishErrorDetails: this.jsonValueOrNull(publishErrorDetails),
       retryCount,
+      shouldPublishFacebook,
+      shouldPublishInstagram,
       message:
         publishStatus === 'PUBLISHED'
           ? 'Publicado correctamente en Facebook e Instagram.'
-          : facebookPostId || instagramPostId
-            ? 'Publicación parcial: uno de los destinos falló. Usa reintento para completar.'
-            : 'No se pudo publicar en Meta.',
+          : publishStatus === 'PARTIAL'
+            ? publishError || 'Publicación parcial: uno de los destinos falló. Usa reintento para completar.'
+            : `No se pudo publicar en Meta: ${publishError || 'error desconocido'}`,
       item: updated,
     };
   }
@@ -172,36 +241,152 @@ export class MarketingMetaPublisherService {
     return this.publishStory(companyId, storyId, userId, true);
   }
 
-  private async resolveMetaConfig(): Promise<MetaConfig> {
-    const graphVersion = (this.config.get<string>('META_GRAPH_VERSION') ?? process.env.META_GRAPH_VERSION ?? 'v23.0').trim() || 'v23.0';
-    const pageId = (this.config.get<string>('FACEBOOK_PAGE_ID') ?? process.env.FACEBOOK_PAGE_ID ?? '').trim();
-    const instagramBusinessId = (this.config.get<string>('INSTAGRAM_BUSINESS_ID') ?? process.env.INSTAGRAM_BUSINESS_ID ?? '').trim();
-    const accessToken = (this.config.get<string>('META_PAGE_ACCESS_TOKEN') ?? process.env.META_PAGE_ACCESS_TOKEN ?? '').trim();
+  getDebugMetaConfig() {
+    const raw = this.resolveMetaConfigRaw();
+    const storage = this.marketingStorage.getDebugStorageConfig();
+    return {
+      hasToken: raw.accessToken.length > 0,
+      pageIdConfigured: raw.pageId.length > 0,
+      instagramIdConfigured: raw.instagramBusinessId.length > 0,
+      graphVersion: raw.graphVersion,
+      tokenPreview: this.maskToken(raw.accessToken),
+      publicBaseUrl: storage.publicBaseUrl,
+      storageMode: storage.storageMode,
+    };
+  }
 
-    if (!pageId) {
-      throw new BadRequestException('Falta FACEBOOK_PAGE_ID en la configuración.');
+  async debugTestPublish(input: { imageUrl: string; caption: string; dryRun?: boolean }) {
+    const raw = this.resolveMetaConfigRaw();
+    const config = this.resolveMetaConfig(raw);
+    const imageUrl = this.marketingStorage.getPublicUrl(`${input.imageUrl ?? ''}`.trim());
+    const caption = `${input.caption ?? ''}`.trim();
+    const dryRun = input.dryRun === true;
+
+    this.assertPrePublishInputs(imageUrl, caption);
+    await this.assertImageUrlReachable(imageUrl);
+    await this.validateMetaConnectivity(config);
+
+    if (dryRun) {
+      return {
+        ok: true,
+        dryRun: true,
+        imageUrl,
+        captionLength: caption.length,
+        config: this.getDebugMetaConfig(),
+      };
     }
-    if (!instagramBusinessId) {
-      throw new BadRequestException('Falta INSTAGRAM_BUSINESS_ID en la configuración.');
-    }
-    if (!accessToken) {
-      throw new BadRequestException('Falta META_PAGE_ACCESS_TOKEN en la configuración.');
-    }
+
+    const facebookPostId = await this.publishFacebookPhoto(config, imageUrl, caption);
+    const instagramPostId = await this.publishInstagramFeedPost(config, imageUrl, caption);
+    return {
+      ok: true,
+      dryRun: false,
+      imageUrl,
+      captionLength: caption.length,
+      facebookPostId,
+      instagramPostId,
+    };
+  }
+
+  private resolveMetaConfigRaw(): MetaRawConfig {
+    const graphVersion = (this.config.get<string>('META_GRAPH_VERSION') ?? process.env.META_GRAPH_VERSION ?? 'v23.0').trim() || 'v23.0';
+    const pageId = (
+      this.config.get<string>('META_FACEBOOK_PAGE_ID') ??
+      process.env.META_FACEBOOK_PAGE_ID ??
+      this.config.get<string>('FACEBOOK_PAGE_ID') ??
+      process.env.FACEBOOK_PAGE_ID ??
+      ''
+    ).trim();
+    const instagramBusinessId = (
+      this.config.get<string>('META_INSTAGRAM_BUSINESS_ID') ??
+      process.env.META_INSTAGRAM_BUSINESS_ID ??
+      this.config.get<string>('INSTAGRAM_BUSINESS_ID') ??
+      process.env.INSTAGRAM_BUSINESS_ID ??
+      ''
+    ).trim();
+    const accessToken = (
+      this.config.get<string>('META_ACCESS_TOKEN') ??
+      process.env.META_ACCESS_TOKEN ??
+      this.config.get<string>('META_PAGE_ACCESS_TOKEN') ??
+      process.env.META_PAGE_ACCESS_TOKEN ??
+      ''
+    ).trim();
 
     return { graphVersion, pageId, instagramBusinessId, accessToken };
+  }
+
+  private resolveMetaConfig(raw: MetaRawConfig): MetaConfig {
+    if (!raw.pageId) {
+      throw new MetaApiError({
+        channel: 'validation',
+        stage: 'config',
+        message: 'Falta META_FACEBOOK_PAGE_ID',
+        type: 'CONFIG_ERROR',
+        code: null,
+        subcode: null,
+        fbtraceId: null,
+        httpStatus: null,
+        endpoint: null,
+        details: { key: 'META_FACEBOOK_PAGE_ID' },
+      });
+    }
+    if (!raw.instagramBusinessId) {
+      throw new MetaApiError({
+        channel: 'validation',
+        stage: 'config',
+        message: 'Falta META_INSTAGRAM_BUSINESS_ID',
+        type: 'CONFIG_ERROR',
+        code: null,
+        subcode: null,
+        fbtraceId: null,
+        httpStatus: null,
+        endpoint: null,
+        details: { key: 'META_INSTAGRAM_BUSINESS_ID' },
+      });
+    }
+    if (!raw.accessToken) {
+      throw new MetaApiError({
+        channel: 'validation',
+        stage: 'config',
+        message: 'Falta META_ACCESS_TOKEN',
+        type: 'CONFIG_ERROR',
+        code: null,
+        subcode: null,
+        fbtraceId: null,
+        httpStatus: null,
+        endpoint: null,
+        details: { key: 'META_ACCESS_TOKEN' },
+      });
+    }
+    return {
+      graphVersion: raw.graphVersion,
+      pageId: raw.pageId,
+      instagramBusinessId: raw.instagramBusinessId,
+      accessToken: raw.accessToken,
+    };
   }
 
   private async validateMetaConnectivity(config: MetaConfig) {
     const url = `https://graph.facebook.com/${config.graphVersion}/${config.pageId}?fields=id,name&access_token=${encodeURIComponent(config.accessToken)}`;
     const response = await fetch(url, { method: 'GET' });
     if (!response.ok) {
-      const body = await response.text().catch(() => '');
-      throw new ServiceUnavailableException(`No se pudo validar la conexión con Meta: ${body || response.statusText}`);
+      const payload = await response.json().catch(() => ({} as any));
+      const parsed = this.parseMetaErrorPayload(payload, {
+        channel: 'meta',
+        stage: 'validate-connectivity',
+        endpoint: `/${config.pageId}`,
+        httpStatus: response.status,
+      });
+      if (parsed.code === 190) {
+        parsed.message = 'Meta token inválido o expirado';
+      }
+      throw new MetaApiError(parsed);
     }
   }
 
   private async publishFacebookPhoto(config: MetaConfig, imageUrl: string, caption: string) {
     const url = `https://graph.facebook.com/${config.graphVersion}/${config.pageId}/photos`;
+    this.logger.log(`[meta-publish-facebook] request /${config.pageId}/photos`);
     const body = new URLSearchParams({
       url: imageUrl,
       caption,
@@ -214,19 +399,41 @@ export class MarketingMetaPublisherService {
       body,
     });
     const payload = await response.json().catch(() => ({} as any));
+    this.logger.log(`[meta-publish-facebook] response=${this.safeJson(payload)}`);
     if (!response.ok) {
-      throw new ServiceUnavailableException(`Facebook falló: ${this.extractMetaError(payload)}`);
+      const parsed = this.parseMetaErrorPayload(payload, {
+        channel: 'facebook',
+        stage: 'facebook-photo-publish',
+        endpoint: `/${config.pageId}/photos`,
+        httpStatus: response.status,
+      });
+      this.logger.error(`[meta-publish-facebook] error=${parsed.message}`);
+      throw new MetaApiError(parsed);
     }
     const postId = `${payload.post_id ?? payload.id ?? ''}`.trim();
     if (!postId) {
-      throw new ServiceUnavailableException('Facebook no devolvió ID de publicación.');
+      const parsed: MetaPublishErrorDetails = {
+        channel: 'facebook',
+        stage: 'facebook-photo-publish',
+        message: 'Facebook no devolvió ID de publicación.',
+        type: 'MALFORMED_RESPONSE',
+        code: null,
+        subcode: null,
+        fbtraceId: null,
+        httpStatus: response.status,
+        endpoint: `/${config.pageId}/photos`,
+        details: { payload },
+      };
+      this.logger.error(`[meta-publish-facebook] error=${parsed.message}`);
+      throw new MetaApiError(parsed);
     }
-    this.logger.log(`[meta-publish] Facebook OK postId=${postId}`);
+    this.logger.log(`[meta-publish-facebook] postId=${postId}`);
     return postId;
   }
 
   private async publishInstagramFeedPost(config: MetaConfig, imageUrl: string, caption: string) {
     const createUrl = `https://graph.facebook.com/${config.graphVersion}/${config.instagramBusinessId}/media`;
+    this.logger.log('[meta-publish-instagram] create media container');
     const createBody = new URLSearchParams({
       image_url: imageUrl,
       caption,
@@ -239,16 +446,38 @@ export class MarketingMetaPublisherService {
       body: createBody,
     });
     const createPayload = await createResponse.json().catch(() => ({} as any));
+    this.logger.log(`[meta-publish-instagram] container response=${this.safeJson(createPayload)}`);
     if (!createResponse.ok) {
-      throw new ServiceUnavailableException(`Instagram media container falló: ${this.extractMetaError(createPayload)}`);
+      const parsed = this.parseMetaErrorPayload(createPayload, {
+        channel: 'instagram',
+        stage: 'instagram-container-create',
+        endpoint: `/${config.instagramBusinessId}/media`,
+        httpStatus: createResponse.status,
+      });
+      this.logger.error(`[meta-publish-instagram] error=${parsed.message}`);
+      throw new MetaApiError(parsed);
     }
 
     const creationId = `${createPayload.id ?? ''}`.trim();
     if (!creationId) {
-      throw new ServiceUnavailableException('Instagram no devolvió creation_id.');
+      const parsed: MetaPublishErrorDetails = {
+        channel: 'instagram',
+        stage: 'instagram-container-create',
+        message: 'Instagram no devolvió creation_id.',
+        type: 'MALFORMED_RESPONSE',
+        code: null,
+        subcode: null,
+        fbtraceId: null,
+        httpStatus: createResponse.status,
+        endpoint: `/${config.instagramBusinessId}/media`,
+        details: { payload: createPayload },
+      };
+      this.logger.error(`[meta-publish-instagram] error=${parsed.message}`);
+      throw new MetaApiError(parsed);
     }
 
     const publishUrl = `https://graph.facebook.com/${config.graphVersion}/${config.instagramBusinessId}/media_publish`;
+    this.logger.log('[meta-publish-instagram] publish media');
     const publishBody = new URLSearchParams({
       creation_id: creationId,
       access_token: config.accessToken,
@@ -259,11 +488,19 @@ export class MarketingMetaPublisherService {
       body: publishBody,
     });
     const publishPayload = await publishResponse.json().catch(() => ({} as any));
+    this.logger.log(`[meta-publish-instagram] publish response=${this.safeJson(publishPayload)}`);
     if (!publishResponse.ok) {
-      throw new ServiceUnavailableException(`Instagram falló: ${this.extractMetaError(publishPayload)}`);
+      const parsed = this.parseMetaErrorPayload(publishPayload, {
+        channel: 'instagram',
+        stage: 'instagram-media-publish',
+        endpoint: `/${config.instagramBusinessId}/media_publish`,
+        httpStatus: publishResponse.status,
+      });
+      this.logger.error(`[meta-publish-instagram] error=${parsed.message}`);
+      throw new MetaApiError(parsed);
     }
     const postId = `${publishPayload.id ?? creationId}`.trim();
-    this.logger.log(`[meta-publish] Instagram OK postId=${postId}`);
+    this.logger.log(`[meta-publish-instagram] postId=${postId}`);
     return postId;
   }
 
@@ -287,11 +524,243 @@ export class MarketingMetaPublisherService {
     return assetUrl;
   }
 
-  private extractMetaError(payload: any) {
-    const message = `${payload?.error?.message ?? payload?.message ?? ''}`.trim();
-    const type = `${payload?.error?.type ?? ''}`.trim();
-    const code = `${payload?.error?.code ?? ''}`.trim();
-    return [type, code, message].filter((item) => item.length > 0).join(' · ') || 'Error desconocido de Meta';
+  private assertPrePublishInputs(imageUrl: string, caption: string) {
+    if (!caption.trim()) {
+      throw new MetaApiError({
+        channel: 'validation',
+        stage: 'pre-validate-caption',
+        message: 'El caption/copy está vacío.',
+        type: 'VALIDATION_ERROR',
+        code: null,
+        subcode: null,
+        fbtraceId: null,
+        httpStatus: null,
+        endpoint: null,
+        details: null,
+      });
+    }
+
+    if (!imageUrl.trim()) {
+      throw new MetaApiError({
+        channel: 'validation',
+        stage: 'pre-validate-image-url',
+        message: 'No hay imagen para publicar.',
+        type: 'VALIDATION_ERROR',
+        code: null,
+        subcode: null,
+        fbtraceId: null,
+        httpStatus: null,
+        endpoint: null,
+        details: null,
+      });
+    }
+
+    const parsed = this.validatePublicHttpsImageUrl(imageUrl);
+    if (!parsed.ok) {
+      throw new MetaApiError({
+        channel: 'validation',
+        stage: 'pre-validate-image-url',
+        message: parsed.message,
+        type: 'VALIDATION_ERROR',
+        code: null,
+        subcode: null,
+        fbtraceId: null,
+        httpStatus: null,
+        endpoint: null,
+        details: { imageUrl },
+      });
+    }
+  }
+
+  private validatePublicHttpsImageUrl(imageUrl: string): { ok: boolean; message: string } {
+    const raw = `${imageUrl ?? ''}`.trim();
+    let parsed: URL;
+    try {
+      parsed = new URL(raw);
+    } catch {
+      return { ok: false, message: 'URL inválida para imagen final.' };
+    }
+
+    if (parsed.protocol !== 'https:') {
+      return { ok: false, message: 'La URL de imagen debe ser HTTPS pública.' };
+    }
+
+    const hostname = `${parsed.hostname ?? ''}`.trim().toLowerCase();
+    if (!hostname || hostname === 'localhost' || hostname.endsWith('.local')) {
+      return { ok: false, message: 'La URL de imagen no es pública (localhost/local).' };
+    }
+    if (this.isPrivateHost(hostname)) {
+      return { ok: false, message: 'La URL de imagen apunta a una red privada.' };
+    }
+
+    return { ok: true, message: '' };
+  }
+
+  private isPrivateHost(hostname: string) {
+    if (hostname === '127.0.0.1' || hostname === '0.0.0.0') return true;
+    if (hostname.startsWith('10.')) return true;
+    if (hostname.startsWith('192.168.')) return true;
+    if (/^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname)) return true;
+    if (hostname === '::1') return true;
+    return false;
+  }
+
+  private async assertImageUrlReachable(imageUrl: string) {
+    const tryFetch = async (method: 'HEAD' | 'GET') => {
+      const response = await fetch(imageUrl, {
+        method,
+        redirect: 'follow',
+      });
+      if (!response.ok) {
+        return {
+          ok: false,
+          status: response.status,
+          contentType: `${response.headers.get('content-type') ?? ''}`.toLowerCase(),
+        };
+      }
+      const contentType = `${response.headers.get('content-type') ?? ''}`.toLowerCase();
+      return { ok: true, status: response.status, contentType };
+    };
+
+    let check = await tryFetch('HEAD');
+    if (!check.ok || !check.contentType.startsWith('image/')) {
+      check = await tryFetch('GET');
+    }
+
+    if (!check.ok) {
+      throw new MetaApiError({
+        channel: 'validation',
+        stage: 'pre-validate-image-reachability',
+        message: `La URL de imagen no es alcanzable (${check.status}).`,
+        type: 'VALIDATION_ERROR',
+        code: check.status,
+        subcode: null,
+        fbtraceId: null,
+        httpStatus: check.status,
+        endpoint: imageUrl,
+        details: { status: check.status },
+      });
+    }
+
+    if (!check.contentType.startsWith('image/')) {
+      throw new MetaApiError({
+        channel: 'validation',
+        stage: 'pre-validate-image-content-type',
+        message: `La URL no responde como imagen (content-type: ${check.contentType || 'desconocido'}).`,
+        type: 'VALIDATION_ERROR',
+        code: null,
+        subcode: null,
+        fbtraceId: null,
+        httpStatus: null,
+        endpoint: imageUrl,
+        details: { contentType: check.contentType || null },
+      });
+    }
+  }
+
+  private parseMetaErrorPayload(
+    payload: any,
+    input: { channel: MetaPublishErrorDetails['channel']; stage: string; endpoint: string | null; httpStatus: number | null },
+  ): MetaPublishErrorDetails {
+    const errorNode = payload?.error ?? payload ?? {};
+    const message = `${errorNode?.message ?? payload?.message ?? 'Error de Graph API'}`.trim() || 'Error de Graph API';
+    const type = `${errorNode?.type ?? ''}`.trim() || null;
+    const code = Number.isFinite(Number(errorNode?.code)) ? Number(errorNode.code) : null;
+    const subcode = Number.isFinite(Number(errorNode?.error_subcode)) ? Number(errorNode.error_subcode) : null;
+    const fbtraceId = `${errorNode?.fbtrace_id ?? ''}`.trim() || null;
+
+    return {
+      channel: input.channel,
+      stage: input.stage,
+      message,
+      type,
+      code,
+      subcode,
+      fbtraceId,
+      httpStatus: input.httpStatus,
+      endpoint: input.endpoint,
+      details: {
+        response: payload,
+      },
+    };
+  }
+
+  private parsePublishError(error: unknown): MetaPublishErrorDetails {
+    if (error instanceof MetaApiError) {
+      return error.details;
+    }
+    if (error instanceof BadRequestException || error instanceof ConflictException || error instanceof ServiceUnavailableException) {
+      const message = `${error.message ?? 'Error de publicación'}`.trim();
+      return {
+        channel: 'validation',
+        stage: 'exception',
+        message,
+        type: error.name,
+        code: null,
+        subcode: null,
+        fbtraceId: null,
+        httpStatus: null,
+        endpoint: null,
+        details: null,
+      };
+    }
+
+    const message = this.normalizeError(error);
+    return {
+      channel: 'unknown',
+      stage: 'unknown',
+      message: message || 'Error desconocido de publicación en Meta',
+      type: null,
+      code: null,
+      subcode: null,
+      fbtraceId: null,
+      httpStatus: null,
+      endpoint: null,
+      details: null,
+    };
+  }
+
+  private toErrorDetailsJson(details: MetaPublishErrorDetails): Prisma.InputJsonValue {
+    return {
+      channel: details.channel,
+      stage: details.stage,
+      message: details.message,
+      type: details.type,
+      code: details.code,
+      subcode: details.subcode,
+      fbtraceId: details.fbtraceId,
+      httpStatus: details.httpStatus,
+      endpoint: details.endpoint,
+      details: details.details,
+      happenedAt: new Date().toISOString(),
+    } as Prisma.InputJsonValue;
+  }
+
+  private jsonValueOrNull(value: Prisma.InputJsonValue | typeof Prisma.JsonNull): Prisma.InputJsonValue | null {
+    if ((value as unknown) === Prisma.JsonNull) {
+      return null;
+    }
+    return value as Prisma.InputJsonValue;
+  }
+
+  private safeJson(value: unknown) {
+    try {
+      const raw = JSON.stringify(value);
+      if (!raw) return '{}';
+      if (raw.length > 1200) {
+        return `${raw.slice(0, 1200)}...`;
+      }
+      return raw;
+    } catch {
+      return '{}';
+    }
+  }
+
+  private maskToken(token: string) {
+    const raw = `${token ?? ''}`.trim();
+    if (!raw) return '';
+    if (raw.length <= 8) return `${raw.slice(0, 2)}...${raw.slice(-2)}`;
+    return `${raw.slice(0, 4)}...${raw.slice(-4)}`;
   }
 
   private normalizeError(error: unknown) {

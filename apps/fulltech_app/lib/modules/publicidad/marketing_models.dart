@@ -434,6 +434,8 @@ class MarketingStory {
     required this.instagramPostId,
     required this.publishStatus,
     required this.publishError,
+    required this.publishErrorCode,
+    required this.publishErrorDetails,
     required this.retryCount,
     required this.mediaAsset,
   });
@@ -469,6 +471,8 @@ class MarketingStory {
   final String? instagramPostId;
   final MarketingPublishStatus publishStatus;
   final String? publishError;
+  final String? publishErrorCode;
+  final Map<String, dynamic> publishErrorDetails;
   final int retryCount;
   final MarketingMediaAsset? mediaAsset;
 
@@ -531,6 +535,12 @@ class MarketingStory {
         publishError: '${json['publishError'] ?? ''}'.trim().isEmpty
           ? null
           : '${json['publishError']}',
+        publishErrorCode: '${json['publishErrorCode'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${json['publishErrorCode']}',
+        publishErrorDetails: (json['publishErrorDetails'] is Map)
+          ? (json['publishErrorDetails'] as Map).cast<String, dynamic>()
+          : const <String, dynamic>{},
         retryCount: (json['retryCount'] as num?)?.toInt() ?? 0,
       mediaAsset: rawAsset is Map
           ? MarketingMediaAsset.fromJson(rawAsset.cast<String, dynamic>())

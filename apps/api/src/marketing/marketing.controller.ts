@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Logger, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request } from 'express';
 import { Role } from '@prisma/client';
@@ -26,6 +26,8 @@ type RequestUser = {
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 @Roles(Role.ADMIN)
 export class MarketingController {
+  private readonly logger = new Logger(MarketingController.name);
+
   constructor(
     private readonly marketing: MarketingService,
     private readonly research: MarketingResearchService,
@@ -72,7 +74,14 @@ export class MarketingController {
   async approve(@Req() req: Request, @Param('id') storyId: string) {
     const user = req.user as RequestUser;
     const companyId = this.marketing.resolveCompanyId();
-    return this.marketing.approveStory(companyId, storyId, user.id ?? '');
+    this.logger.log(`[marketing-approve] storyId=${storyId}`);
+    this.logger.log('[marketing-approve] publishOptions={"retryOnlyMissing":false}');
+    const result = await this.marketing.approveStory(companyId, storyId, user.id ?? '');
+    const publication = (result as any)?.publication ?? {};
+    this.logger.log(`[marketing-approve] shouldPublishFacebook=${publication.shouldPublishFacebook === true}`);
+    this.logger.log(`[marketing-approve] shouldPublishInstagram=${publication.shouldPublishInstagram === true}`);
+    this.logger.log(`[marketing-approve] resultStatus=${`${publication.publishStatus ?? 'UNKNOWN'}`}`);
+    return result;
   }
 
   @Post('stories/:id/retry-publish')
