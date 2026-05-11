@@ -16,7 +16,9 @@ export class MarketingApprovalService {
     const missing: string[] = [];
     const metadata = ((story as any).imageGenerationMetadata ?? {}) as Record<string, unknown>;
     const imageConfirmed = metadata.imageSelectionConfirmed === true;
-    const hasGeneratedDesign = `${(story as any).generatedImageUrl ?? ''}`.trim().length > 0;
+    const hasGeneratedDesign =
+      `${(story as any).generatedImageUrl ?? ''}`.trim().length > 0 ||
+      `${(story as any).imageUrl ?? ''}`.trim().length > 0;
     if (!imageConfirmed) missing.push('imagen base confirmada');
     if (!hasGeneratedDesign) missing.push('diseño generado');
     const hasCopy =

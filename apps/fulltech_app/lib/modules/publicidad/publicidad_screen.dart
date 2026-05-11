@@ -2888,18 +2888,21 @@ class StoryProgressValidation {
 }
 
 StoryProgressValidation validateStoryProgress(MarketingStory story) {
+  final metadata = story.imageGenerationMetadata;
+  final imageConfirmed = metadata['imageSelectionConfirmed'] == true;
+
   // Fase 1: Imagen base + prompt
   final hasBaseImage = _resolveBaseImageUrl(story).isNotEmpty;
   final hasPrompt = story.imagePrompt.trim().isNotEmpty;
-  final phase1Complete = hasBaseImage && hasPrompt;
+  final phase1Complete = hasBaseImage && hasPrompt && imageConfirmed;
 
-  // Fase 2: Diseño subido + copies
-  final hasDesignUploaded = _resolveFinalImageUrl(story).isNotEmpty;
+  // Fase 2: Diseño generado o subido + copies
+  final hasGeneratedOrUploadedDesign = _resolveFinalImageUrl(story).isNotEmpty;
   final headline = story.title.trim();
   final copy = story.shortText.trim();
   final cta = story.usedCTA.trim();
   final hasCopies = headline.isNotEmpty || copy.isNotEmpty || cta.isNotEmpty;
-  final phase2Complete = hasDesignUploaded && hasCopies;
+  final phase2Complete = hasGeneratedOrUploadedDesign && hasCopies;
 
   // Fase 3: Aprobado
   final isApproved = story.status == MarketingStoryStatus.approved;
@@ -2908,8 +2911,8 @@ StoryProgressValidation validateStoryProgress(MarketingStory story) {
 
   return StoryProgressValidation(
     missingBaseImage: !hasBaseImage,
-    missingImageConfirmation: false,
-    missingDesign: !hasDesignUploaded,
+    missingImageConfirmation: !imageConfirmed,
+    missingDesign: !hasGeneratedOrUploadedDesign,
     missingCopy: !hasCopies,
     missingCTA: cta.isEmpty,
     canGenerateDesign: phase1Complete,
@@ -2917,9 +2920,10 @@ StoryProgressValidation validateStoryProgress(MarketingStory story) {
     canApprove: canApprove,
     missingResearch: false,
     checklist: {
-      'Imagen recomendada': hasBaseImage,
+      'Imagen base seleccionada': hasBaseImage,
+      'Imagen base confirmada': imageConfirmed,
       'Prompt generado': hasPrompt,
-      'Diseño subido': hasDesignUploaded,
+      'Diseño generado/subido': hasGeneratedOrUploadedDesign,
       'Copys generados': hasCopies,
       'Aprobado': isApproved,
     },
