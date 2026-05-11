@@ -1025,7 +1025,6 @@ class PublicidadController extends StateNotifier<PublicidadState> {
             '[publicidad-estados] auto-select story=${story.id} suggested=$suggestedId final=$finalId',
           );
           await _api.changeBaseImage(story.id, finalId);
-          await _api.confirmBaseImage(story.id);
           changedAny = true;
         } catch (error) {
           developer.log(
@@ -1805,8 +1804,8 @@ class _DashboardTab extends StatelessWidget {
     final suggestedImages = stories
       .where((s) => _resolveBaseImageUrl(s).isNotEmpty)
       .length;
-    final confirmedImages = stories
-      .where((s) => _isBaseImageConfirmed(s))
+    final readyBaseImages = stories
+      .where((s) => _resolveBaseImageUrl(s).isNotEmpty && s.imagePrompt.trim().isNotEmpty)
       .length;
     final generatedImages = stories
         .where(
@@ -1836,7 +1835,7 @@ class _DashboardTab extends StatelessWidget {
       ('Listos', '$completeStories'),
       ('Incompletos', '$incompleteStories'),
       ('Imágenes sugeridas', '$suggestedImages'),
-      ('Imágenes confirmadas', '$confirmedImages'),
+      ('Imágenes listas', '$readyBaseImages'),
       ('Imágenes generadas', '$generatedImages'),
       ('Imágenes sin cargar', '$imagesWithoutLoad'),
       ('Pendientes aprobación', '$pendingApproval'),
@@ -2863,7 +2862,6 @@ class StoryProgressValidation {
   List<String> get missingForApproval {
     final missing = <String>[];
     if (missingBaseImage) missing.add('imagen base');
-    if (missingImageConfirmation) missing.add('confirmar imagen base');
     if (missingDesign) missing.add('diseño generado');
     if (missingCopy) missing.add('copy generado');
     if (missingCTA) missing.add('CTA');
@@ -2879,7 +2877,6 @@ class StoryProgressValidation {
 
   String get nextStepLabel {
     if (missingBaseImage) return 'Seleccionar imagen de Galería de contenido';
-    if (missingImageConfirmation) return 'Confirmar imagen base';
     if (missingDesign) return 'Generar diseño 9:16';
     if (missingCopy || missingCTA) return 'Generar copys del anuncio';
     if (missingResearch) return 'Vincular investigación aprobada';
@@ -2888,13 +2885,10 @@ class StoryProgressValidation {
 }
 
 StoryProgressValidation validateStoryProgress(MarketingStory story) {
-  final metadata = story.imageGenerationMetadata;
-  final imageConfirmed = metadata['imageSelectionConfirmed'] == true;
-
   // Fase 1: Imagen base + prompt
   final hasBaseImage = _resolveBaseImageUrl(story).isNotEmpty;
   final hasPrompt = story.imagePrompt.trim().isNotEmpty;
-  final phase1Complete = hasBaseImage && hasPrompt && imageConfirmed;
+  final phase1Complete = hasBaseImage && hasPrompt;
 
   // Fase 2: Diseño generado o subido + copies
   final hasGeneratedOrUploadedDesign = _resolveFinalImageUrl(story).isNotEmpty;
@@ -2911,7 +2905,7 @@ StoryProgressValidation validateStoryProgress(MarketingStory story) {
 
   return StoryProgressValidation(
     missingBaseImage: !hasBaseImage,
-    missingImageConfirmation: !imageConfirmed,
+    missingImageConfirmation: false,
     missingDesign: !hasGeneratedOrUploadedDesign,
     missingCopy: !hasCopies,
     missingCTA: cta.isEmpty,
@@ -2921,7 +2915,6 @@ StoryProgressValidation validateStoryProgress(MarketingStory story) {
     missingResearch: false,
     checklist: {
       'Imagen base seleccionada': hasBaseImage,
-      'Imagen base confirmada': imageConfirmed,
       'Prompt generado': hasPrompt,
       'Diseño generado/subido': hasGeneratedOrUploadedDesign,
       'Copys generados': hasCopies,

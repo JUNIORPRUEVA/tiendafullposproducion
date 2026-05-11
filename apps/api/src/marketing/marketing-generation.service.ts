@@ -393,10 +393,6 @@ export class MarketingGenerationService {
         throw new ConflictException('Ya se está generando el diseño. Espera a que termine antes de volver a intentar.');
       }
 
-    if (!this.isImageSelectionConfirmed(story)) {
-      throw new ConflictException('Debes confirmar la imagen base antes de generar el diseño.');
-    }
-
     await this.assertStoryUsesContentGallery(companyId, story);
 
     const updated = await this.markStoryImageQueued(companyId, storyId, userId, customPrompt, {
@@ -441,10 +437,6 @@ export class MarketingGenerationService {
     });
     if (!story) {
       throw new NotFoundException('Contenido no encontrado');
-    }
-
-    if (!this.isImageSelectionConfirmed(story)) {
-      throw new ConflictException('Debes confirmar la imagen base antes de generar el diseño.');
     }
 
     await this.assertStoryUsesContentGallery(companyId, story);
@@ -842,10 +834,6 @@ export class MarketingGenerationService {
       throw new NotFoundException('Contenido no encontrado');
     }
 
-    if (!this.isImageSelectionConfirmed(story)) {
-      throw new ConflictException('Debes confirmar la imagen base antes de generar el diseño.');
-    }
-
     await this.assertStoryUsesContentGallery(companyId, story);
 
     await this.markStoryImageProcessing(companyId, storyId, 1);
@@ -873,24 +861,30 @@ export class MarketingGenerationService {
       sourceUrl: asset.fileUrl,
     });
 
+    const nowIso = new Date().toISOString();
+    const autoPrompt = this.buildAutoPromptFromSelectedBaseImage(story, asset);
+
     const updated = await this.prisma.marketingDailyStory.update({
       where: { id: storyId },
       data: {
         mediaAssetId: asset.id,
         imageUrl: normalized.url,
+        imagePrompt: autoPrompt,
         generatedImageUrl: null,
         imageStatus: 'PENDING',
         imageGenerationMetadata: {
           ...(this.asObject(story.imageGenerationMetadata) ?? {}),
-          workflowStage: 'SELECTED_PENDING_CONFIRMATION',
-          imageSelectionConfirmed: false,
-          confirmedAt: null,
-          confirmedByUserId: null,
-          selectedAt: new Date().toISOString(),
+          workflowStage: 'BASE_IMAGE_AUTO_READY',
+          imageSelectionConfirmed: true,
+          confirmedAt: nowIso,
+          confirmedByUserId: userId,
+          selectedAt: nowIso,
           selectedByUserId: userId,
           contentGalleryItemId: asset.id,
           imageUrl: normalized.url,
           baseImageSourceUrl: asset.fileUrl,
+          autoPromptAt: nowIso,
+          autoPromptSource: 'selected-base-image-and-research',
           selectedMediaAssetId: asset.id,
           thumbnailUrl: asset.thumbnailUrl ?? null,
           categoria: asset.category,
@@ -1298,6 +1292,73 @@ export class MarketingGenerationService {
     };
   }
 
+  private buildAutoPromptFromSelectedBaseImage(
+    story: {
+      type: MarketingStoryType;
+      shortText?: string | null;
+      usedResearchAngle?: string | null;
+      usedOffer?: string | null;
+      usedCTA?: string | null;
+      imagePrompt?: string | null;
+    },
+    asset: {
+      category?: string | null;
+      relatedService?: string | null;
+      description?: string | null;
+      tags?: unknown;
+    },
+  ) {
+    const category = this.compact(`${asset.category ?? ''}`);
+    const relatedService = this.compact(`${asset.relatedService ?? ''}`);
+    const description = this.compact(`${asset.description ?? ''}`);
+    const tags = Array.isArray(asset.tags)
+      ? asset.tags
+          .map((item) => this.compact(`${item ?? ''}`))
+          .filter((item) => item.length > 0)
+          .slice(0, 6)
+          .join(', ')
+      : '';
+
+    const angle =
+      this.compact(`${story.usedResearchAngle ?? ''}`) ||
+      this.compact(`${story.shortText ?? ''}`) ||
+      'beneficio real y confianza de cliente';
+    const offer =
+      this.compact(`${story.usedOffer ?? ''}`) ||
+      this.compact(`${story.shortText ?? ''}`) ||
+      'servicio profesional de FULLTECH';
+    const cta = this.compact(`${story.usedCTA ?? ''}`) || 'Escribenos por WhatsApp hoy';
+
+    const serviceHint = relatedService || category || 'servicio técnico';
+    const visualConcept = this.buildVisualConcept(story.type, angle, serviceHint);
+    const designNotes = this.buildDesignNotes(story.type, cta);
+
+    const contextParts = [
+      relatedService,
+      category,
+      description,
+      tags,
+    ].filter((item) => item.length > 0);
+
+    const fallbackPrompt = this.compact(`${story.imagePrompt ?? ''}`);
+    const autoPrompt = this.compact(
+      [
+        `Usa la imagen base seleccionada como referencia principal.`,
+        `Producto/servicio visible: ${serviceHint}.`,
+        `Ángulo de investigación: ${angle}.`,
+        `Oferta clave: ${offer}.`,
+        contextParts.length > 0
+          ? `Contexto visual detectado: ${contextParts.join(' | ')}.`
+          : '',
+        `Regla crítica: conservar el producto real, sin cambiar su identidad ni proporciones.`,
+        visualConcept,
+        designNotes,
+      ].join(' '),
+    );
+
+    return autoPrompt || fallbackPrompt || 'Diseño publicitario vertical 9:16 con enfoque comercial premium.';
+  }
+
   private async prepareQueuedVisualData(input: {
     companyId: string;
     type: MarketingStoryType;
@@ -1359,10 +1420,11 @@ export class MarketingGenerationService {
       visualConcept,
       designNotes,
       imageGenerationMetadata: {
-        workflowStage: 'SELECTED_PENDING_CONFIRMATION',
-        imageSelectionConfirmed: false,
+        workflowStage: 'BASE_IMAGE_AUTO_READY',
+        imageSelectionConfirmed: true,
         selectedAt: new Date().toISOString(),
-        queueReason: 'awaiting-base-image-confirmation',
+        confirmedAt: new Date().toISOString(),
+        queueReason: 'auto-ready-base-image',
         baseImageSourceUrl: baseImageUrl || null,
         category: selected?.category ?? this.galleryCategoryForType(input.type),
         serviceOrProduct:
