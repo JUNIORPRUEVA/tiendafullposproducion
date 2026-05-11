@@ -49,6 +49,8 @@ enum MarketingStoryType { sales, trust, educational }
 
 enum MarketingStoryStatus { pending, approved, rejected, regenerated }
 
+enum MarketingPublishStatus { pending, publishing, published, partial, error }
+
 enum MarketingImageStatus {
   pending,
   queued,
@@ -82,6 +84,23 @@ MarketingStoryStatus parseStoryStatus(String? value) {
     case 'PENDING':
     default:
       return MarketingStoryStatus.pending;
+  }
+}
+
+MarketingPublishStatus parsePublishStatus(String? value) {
+  final normalized = (value ?? '').trim().toUpperCase();
+  switch (normalized) {
+    case 'PUBLISHING':
+      return MarketingPublishStatus.publishing;
+    case 'PUBLISHED':
+      return MarketingPublishStatus.published;
+    case 'PARTIAL':
+      return MarketingPublishStatus.partial;
+    case 'ERROR':
+      return MarketingPublishStatus.error;
+    case 'PENDING':
+    default:
+      return MarketingPublishStatus.pending;
   }
 }
 
@@ -410,6 +429,12 @@ class MarketingStory {
     required this.usedResearchAngle,
     required this.usedOffer,
     required this.usedCTA,
+    required this.publishedAt,
+    required this.facebookPostId,
+    required this.instagramPostId,
+    required this.publishStatus,
+    required this.publishError,
+    required this.retryCount,
     required this.mediaAsset,
   });
 
@@ -439,6 +464,12 @@ class MarketingStory {
   final String usedResearchAngle;
   final String usedOffer;
   final String usedCTA;
+  final DateTime? publishedAt;
+  final String? facebookPostId;
+  final String? instagramPostId;
+  final MarketingPublishStatus publishStatus;
+  final String? publishError;
+  final int retryCount;
   final MarketingMediaAsset? mediaAsset;
 
   int get regeneratedCount =>
@@ -489,6 +520,18 @@ class MarketingStory {
       usedResearchAngle: '${json['usedResearchAngle'] ?? ''}',
       usedOffer: '${json['usedOffer'] ?? ''}',
       usedCTA: '${json['usedCTA'] ?? ''}',
+        publishedAt: DateTime.tryParse('${json['publishedAt'] ?? ''}'),
+        facebookPostId: '${json['facebookPostId'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${json['facebookPostId']}',
+        instagramPostId: '${json['instagramPostId'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${json['instagramPostId']}',
+        publishStatus: parsePublishStatus('${json['publishStatus'] ?? ''}'),
+        publishError: '${json['publishError'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${json['publishError']}',
+        retryCount: (json['retryCount'] as num?)?.toInt() ?? 0,
       mediaAsset: rawAsset is Map
           ? MarketingMediaAsset.fromJson(rawAsset.cast<String, dynamic>())
           : null,

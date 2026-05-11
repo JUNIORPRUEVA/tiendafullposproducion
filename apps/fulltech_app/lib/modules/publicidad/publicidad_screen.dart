@@ -211,6 +211,13 @@ class PublicidadController extends StateNotifier<PublicidadState> {
     });
   }
 
+  Future<void> retryPublish(String storyId) async {
+    await _runBusy(() async {
+      await _api.retryPublish(storyId);
+      await _refresh(keepLoading: false);
+    });
+  }
+
   Future<void> reject(String storyId, {String reason = ''}) async {
     await _runBusy(() async {
       await _api.reject(storyId, reason: reason);
@@ -1419,6 +1426,7 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
                                 onChangeBaseImage: controller.changeBaseImage,
                                 onRegenerateCopyFromDesign:
                                     controller.regenerateCopyFromDesign,
+                                onRetryPublish: controller.retryPublish,
                                 onEdit: (story, payload) {
                                   return controller.editStory(
                                     story.id,
@@ -1936,6 +1944,7 @@ class _DashboardTab extends StatelessWidget {
           onChangeBaseImage: onChangeBaseImage,
           onEdit: (_, __) async {},
           onRegenerateCopyFromDesign: (_) async {},
+          onRetryPublish: (_) async {},
           onUploadDesignImage: (context) async {
             return null;
           },
@@ -1966,6 +1975,7 @@ class _DailyStoriesTab extends StatefulWidget {
     required this.onChangeBaseImage,
     required this.onEdit,
     required this.onRegenerateCopyFromDesign,
+    required this.onRetryPublish,
     required this.imageBusyStoryIds,
     this.onUploadDesignImage,
     this.compactActions = false,
@@ -1988,6 +1998,7 @@ class _DailyStoriesTab extends StatefulWidget {
   final Future<void> Function(MarketingStory story, _EditStoryPayload payload)
   onEdit;
   final Future<void> Function(String storyId) onRegenerateCopyFromDesign;
+  final Future<void> Function(String storyId) onRetryPublish;
   final Set<String> imageBusyStoryIds;
   final Future<String?> Function(BuildContext context)? onUploadDesignImage;
   final bool compactActions;
@@ -2081,6 +2092,7 @@ class _DailyStoriesTabState extends State<_DailyStoriesTab> {
                         onConfirmBaseImage: () => widget.onConfirmBaseImage(story.id),
                         onGenerateDesign: () => widget.onGenerateDesign(story.id),
                         onRegenerateCopyFromDesign: () => widget.onRegenerateCopyFromDesign(story.id),
+                        onRetryPublish: () => widget.onRetryPublish(story.id),
                         onChangeBaseImage: () async {
                           final chosen = await showDialog<String>(
                             context: context,
@@ -2182,6 +2194,7 @@ class _StoryCard extends StatefulWidget {
     required this.onChangeBaseImage,
     required this.onEdit,
     required this.onRegenerateCopyFromDesign,
+    required this.onRetryPublish,
     required this.mediaAssets,
     this.onUploadFinalDesign,
     this.compactActions = false,
@@ -2201,6 +2214,7 @@ class _StoryCard extends StatefulWidget {
   final Future<void> Function() onChangeBaseImage;
   final Future<void> Function() onEdit;
   final Future<void> Function() onRegenerateCopyFromDesign;
+  final Future<void> Function() onRetryPublish;
   final Future<void> Function(BuildContext context)? onUploadFinalDesign;
   final List<MarketingMediaAsset> mediaAssets;
   final bool compactActions;
@@ -2226,6 +2240,8 @@ class _StoryCardState extends State<_StoryCard> {
             _MetaChip(label: 'Tipo', value: _storyTypeShort(story.type)),
             const SizedBox(width: 8),
             _StatusPill(status: story.status),
+            const SizedBox(width: 8),
+            _PublishStatusPill(status: story.publishStatus),
           ],
         ),
         const SizedBox(height: 10),
@@ -2642,6 +2658,13 @@ $objective''';
                 icon: const Icon(Icons.check_circle_rounded, size: 18),
                 label: const Text('Aprobar'),
               ),
+              if (story.publishStatus == MarketingPublishStatus.partial ||
+                  story.publishStatus == MarketingPublishStatus.error)
+                FilledButton.tonalIcon(
+                  onPressed: widget.busy ? null : widget.onRetryPublish,
+                  icon: const Icon(Icons.restart_alt_rounded, size: 18),
+                  label: const Text('Reintentar publicación'),
+                ),
               OutlinedButton(
                 onPressed: widget.busy ? null : widget.onReject,
                 child: const Text('Rechazar'),
@@ -5864,6 +5887,55 @@ class _StatusPill extends StatelessWidget {
         const Color(0xFFE8EAF0),
         const Color(0xFF334155),
         'Regenerado',
+      ),
+    };
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(color: fg, fontWeight: FontWeight.w700, fontSize: 12),
+      ),
+    );
+  }
+}
+
+class _PublishStatusPill extends StatelessWidget {
+  const _PublishStatusPill({required this.status});
+
+  final MarketingPublishStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final (bg, fg, text) = switch (status) {
+      MarketingPublishStatus.pending => (
+        const Color(0xFFE2E8F0),
+        const Color(0xFF334155),
+        'Pendiente',
+      ),
+      MarketingPublishStatus.publishing => (
+        const Color(0xFFDBEAFE),
+        const Color(0xFF1D4ED8),
+        'Publicando',
+      ),
+      MarketingPublishStatus.published => (
+        const Color(0xFFD9FBE5),
+        const Color(0xFF0E5F33),
+        'Publicado',
+      ),
+      MarketingPublishStatus.partial => (
+        const Color(0xFFFFF3CD),
+        const Color(0xFF7A5A00),
+        'Parcial',
+      ),
+      MarketingPublishStatus.error => (
+        const Color(0xFFFFE1E1),
+        const Color(0xFF7B1A1A),
+        'Error',
       ),
     };
 

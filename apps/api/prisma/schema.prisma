@@ -766,6 +766,12 @@ model MarketingDailyStory {
   usedResearchAngle String?             @db.Text @map("used_research_angle")
   usedOffer        String?              @db.Text @map("used_offer")
   usedCTA          String?              @db.Text @map("used_cta")
+  publishedAt      DateTime?            @map("published_at")
+  facebookPostId   String?              @map("facebook_post_id")
+  instagramPostId  String?              @map("instagram_post_id")
+  publishStatus    String               @default("PENDING") @map("publish_status")
+  publishError     String?              @db.Text @map("publish_error")
+  retryCount       Int                  @default(0) @map("retry_count")
 
   approvedByUser User? @relation("MarketingStoryApprovedByUser", fields: [approvedByUserId], references: [id], onDelete: SetNull)
   research         MarketingResearch?   @relation(fields: [researchId], references: [id], onDelete: SetNull)

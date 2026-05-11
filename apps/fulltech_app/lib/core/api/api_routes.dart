@@ -247,6 +247,8 @@ class ApiRoutes {
       '/marketing/stories/repair-incomplete';
   static String marketingStoryApprove(String id) =>
       '/marketing/stories/$id/approve';
+  static String marketingStoryRetryPublish(String id) =>
+      '/marketing/stories/$id/retry-publish';
   static String marketingStoryReject(String id) =>
       '/marketing/stories/$id/reject';
   static String marketingStoryRegenerate(String id) =>

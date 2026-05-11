@@ -75,6 +75,13 @@ export class MarketingController {
     return this.marketing.approveStory(companyId, storyId, user.id ?? '');
   }
 
+  @Post('stories/:id/retry-publish')
+  async retryPublish(@Req() req: Request, @Param('id') storyId: string) {
+    const user = req.user as RequestUser;
+    const companyId = this.marketing.resolveCompanyId();
+    return this.marketing.retryPublishStory(companyId, storyId, user.id ?? '');
+  }
+
   @Post('stories/:id/reject')
   async reject(
     @Req() req: Request,

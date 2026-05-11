@@ -8,6 +8,7 @@ import { MarketingGenerationService } from './marketing-generation.service';
 import { MarketingImageEditProvider } from './marketing-image-edit.provider';
 import { MarketingImageGenerationService } from './marketing-image-generation.service';
 import { MarketingImageJobService } from './marketing-image-job.service';
+import { MarketingMetaPublisherService } from './marketing-meta-publisher.service';
 import { MarketingMediaAssetService } from './marketing-media-asset.service';
 import { MarketingResearchService } from './marketing-research.service';
 import { MarketingStorageService } from './marketing-storage.service';
@@ -27,6 +28,7 @@ export class MarketingService {
     private readonly imageEditProvider: MarketingImageEditProvider,
     private readonly imageJobs: MarketingImageJobService,
     private readonly approvals: MarketingApprovalService,
+    private readonly metaPublisher: MarketingMetaPublisherService,
     private readonly configService: MarketingConfigService,
     private readonly researchService: MarketingResearchService,
     private readonly mediaAssets: MarketingMediaAssetService,
@@ -248,7 +250,22 @@ export class MarketingService {
   }
 
   async approveStory(companyId: string, storyId: string, userId: string) {
-    return this.approvals.approve(companyId, storyId, userId);
+    const approved = await this.approvals.approve(companyId, storyId, userId);
+    const publication = await this.metaPublisher.publishStory(companyId, storyId, userId);
+    return {
+      message: publication.message,
+      item: await this.normalizeStoryUrlsAsync(publication.item ?? approved),
+      publication,
+    };
+  }
+
+  async retryPublishStory(companyId: string, storyId: string, userId: string) {
+    const publication = await this.metaPublisher.retryMissingPublication(companyId, storyId, userId);
+    return {
+      message: publication.message,
+      item: await this.normalizeStoryUrlsAsync(publication.item),
+      publication,
+    };
   }
 
   async rejectStory(companyId: string, storyId: string, userId: string, reason?: string) {

@@ -147,6 +147,14 @@ class MarketingApi {
     }
   }
 
+  Future<void> retryPublish(String storyId) async {
+    try {
+      await _dio.post(ApiRoutes.marketingStoryRetryPublish(storyId));
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo reintentar la publicación');
+    }
+  }
+
   Future<void> reject(String storyId, {String reason = ''}) async {
     try {
       await _dio.post(

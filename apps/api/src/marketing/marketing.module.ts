@@ -11,6 +11,7 @@ import { MarketingImageGenerationService } from './marketing-image-generation.se
 import { MarketingImageJobService } from './marketing-image-job.service';
 import { MarketingImageEditProvider } from './marketing-image-edit.provider';
 import { MarketingLearningService } from './marketing-learning.service';
+import { MarketingMetaPublisherService } from './marketing-meta-publisher.service';
 import { MarketingMediaAssetService } from './marketing-media-asset.service';
 import { MarketingMediaSelectorService } from './marketing-media-selector.service';
 import { MarketingResearchService } from './marketing-research.service';
@@ -34,6 +35,7 @@ import { ProductsModule } from '../products/products.module';
     MarketingImageJobService,
     MarketingImageEditProvider,
     MarketingApprovalService,
+    MarketingMetaPublisherService,
     MarketingConfigService,
     MarketingAutomationScheduler,
     MarketingResearchService,
