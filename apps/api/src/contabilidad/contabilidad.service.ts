@@ -110,6 +110,11 @@ export class ContabilidadService {
     'OTRO',
   ]);
 
+  private readonly allowedDailyCloseTypes = new Set<CloseType>([
+    CloseType.TIENDA,
+    CloseType.PHYTOEMAGRY,
+  ]);
+
   private readonly allowedDepositBanks = [
     {
       label: 'Banco Popular',
@@ -604,6 +609,13 @@ export class ContabilidadService {
     }
   }
 
+  private ensureAllowedDailyCloseType(type: CloseType) {
+    if (this.allowedDailyCloseTypes.has(type)) return;
+    throw new BadRequestException(
+      'Solo se permiten cierres diarios de Tecnologia y PhytoEmagry.',
+    );
+  }
+
   private decimal(value: unknown) {
     const n =
       typeof value === 'number'
@@ -772,6 +784,7 @@ export class ContabilidadService {
 
   async createClose(dto: CreateCloseDto, actor: Actor) {
     this.normalizeRoleGuard(actor);
+    this.ensureAllowedDailyCloseType(dto.type);
 
     const creator = await this.prisma.user.findUnique({
       where: { id: actor.id! },

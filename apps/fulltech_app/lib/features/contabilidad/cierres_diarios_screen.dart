@@ -484,6 +484,13 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
         children: [
           if (assistantMode) ...[
             const _AssistantCloseNotice(),
+            const SizedBox(height: 8),
+            _AssistantDailyPairBanner(
+              date: _date,
+              closes: state.closes,
+              editingId: _editingId,
+              isCorrection: _isCorrection,
+            ),
             const SizedBox(height: 12),
           ],
           SectionTitle(
@@ -1456,6 +1463,113 @@ class _AssistantCloseNotice extends StatelessWidget {
   }
 }
 
+class _AssistantDailyPairBanner extends StatelessWidget {
+  const _AssistantDailyPairBanner({
+    required this.date,
+    required this.closes,
+    required this.editingId,
+    required this.isCorrection,
+  });
+
+  final DateTime date;
+  final List<CloseModel> closes;
+  final String? editingId;
+  final bool isCorrection;
+
+  static bool _sameDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  CloseModel? _latestForType(CloseType type) {
+    final matches = closes.where((close) {
+      if (editingId != null && close.id == editingId) return false;
+      if (close.type != type) return false;
+      return _sameDay(close.date, date);
+    }).toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return matches.isEmpty ? null : matches.first;
+  }
+
+  String _statusLabel(CloseModel? close) {
+    if (close == null) return 'Sin registrar';
+    if (close.isApproved) return 'Aprobado';
+    if (close.isRejected) return 'Rechazado';
+    return 'Pendiente';
+  }
+
+  Color _statusColor(BuildContext context, CloseModel? close) {
+    if (close == null) return Theme.of(context).colorScheme.outline;
+    if (close.isApproved) return const Color(0xFF15803D);
+    if (close.isRejected) return Theme.of(context).colorScheme.error;
+    return const Color(0xFFB45309);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final tecnologia = _latestForType(CloseType.tienda);
+    final phyto = _latestForType(CloseType.phytoemagry);
+
+    final missing = <String>[
+      if (tecnologia == null) 'Tecnología',
+      if (phyto == null) 'PhytoEmagry',
+    ];
+    final statusText = missing.isEmpty
+        ? 'Par diario completo para ${DateFormat('dd/MM/yyyy').format(date)}'
+        : 'Falta registrar: ${missing.join(' y ')}';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.2),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.9),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              _MiniCloseTag(
+                label: 'Tecnología: ${_statusLabel(tecnologia)}',
+                color: _statusColor(context, tecnologia),
+              ),
+              _MiniCloseTag(
+                label: 'PhytoEmagry: ${_statusLabel(phyto)}',
+                color: _statusColor(context, phyto),
+              ),
+            ],
+          ),
+          if (!isCorrection) ...[
+            const SizedBox(height: 6),
+            Text(
+              statusText,
+              style: theme.textTheme.labelMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _AssistantDailyHistoryGroup {
+  const _AssistantDailyHistoryGroup({required this.day, required this.closes});
+
+  final DateTime day;
+  final List<CloseModel> closes;
+
+  bool get hasTecnologia => closes.any((item) => item.type == CloseType.tienda);
+  bool get hasPhyto => closes.any((item) => item.type == CloseType.phytoemagry);
+}
+
 enum _AssistantCloseListFilter {
   todos,
   pendientes,
@@ -1544,6 +1658,40 @@ class _AssistantRawHistoryListState extends State<_AssistantRawHistoryList> {
     return close.updatedAt.difference(close.createdAt).abs().inSeconds > 30;
   }
 
+  bool _sameDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  int _typeOrder(CloseType type) {
+    if (type == CloseType.tienda) return 0;
+    if (type == CloseType.phytoemagry) return 1;
+    return 2;
+  }
+
+  List<_AssistantDailyHistoryGroup> _buildGroups(List<CloseModel> rows) {
+    final sorted = [...rows]
+      ..sort((a, b) {
+        final aDay = DateTime(a.date.year, a.date.month, a.date.day);
+        final bDay = DateTime(b.date.year, b.date.month, b.date.day);
+        final byDate = bDay.compareTo(aDay);
+        if (byDate != 0) return byDate;
+        final byType = _typeOrder(a.type).compareTo(_typeOrder(b.type));
+        if (byType != 0) return byType;
+        return b.createdAt.compareTo(a.createdAt);
+      });
+
+    final groups = <_AssistantDailyHistoryGroup>[];
+    for (final close in sorted) {
+      final day = DateTime(close.date.year, close.date.month, close.date.day);
+      if (groups.isEmpty || !_sameDay(groups.last.day, day)) {
+        groups.add(_AssistantDailyHistoryGroup(day: day, closes: [close]));
+        continue;
+      }
+      groups.last.closes.add(close);
+    }
+    return groups;
+  }
+
   void _openDetail(BuildContext context, CloseModel close) {
     showDialog<void>(
       context: context,
@@ -1561,8 +1709,8 @@ class _AssistantRawHistoryListState extends State<_AssistantRawHistoryList> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final rows = [...widget.closes].where(_matchesFilter).toList()
-      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final rows = [...widget.closes].where(_matchesFilter).toList();
+    final groups = _buildGroups(rows);
 
     return Center(
       child: ConstrainedBox(
@@ -1574,24 +1722,39 @@ class _AssistantRawHistoryListState extends State<_AssistantRawHistoryList> {
               final boundedHeight =
                   constraints.hasBoundedHeight &&
                   constraints.maxHeight.isFinite;
-              final columns = constraints.maxWidth >= 620 ? 2 : 1;
-              final tileWidth = columns == 2
-                  ? (constraints.maxWidth - 10) / 2
-                  : constraints.maxWidth;
               final list = SingleChildScrollView(
                 controller: boundedHeight ? _listScrollCtrl : null,
                 primary: false,
                 physics: boundedHeight
                     ? const BouncingScrollPhysics()
                     : const NeverScrollableScrollPhysics(),
-                child: Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    for (final close in rows)
-                      SizedBox(
-                        width: tileWidth,
-                        child: _AssistantCloseTile(
+                    for (final group in groups) ...[
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              DateFormat('dd/MM/yyyy').format(group.day),
+                              style: theme.textTheme.labelLarge?.copyWith(
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                          _MiniCloseTag(
+                            label: group.hasTecnologia && group.hasPhyto
+                                ? 'Par completo'
+                                : 'Par incompleto',
+                            color: group.hasTecnologia && group.hasPhyto
+                                ? const Color(0xFF15803D)
+                                : const Color(0xFFB45309),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      for (final close in group.closes) ...[
+                        _AssistantCloseTile(
                           close: close,
                           money: _money,
                           statusLabel: _statusLabel(close),
@@ -1600,7 +1763,9 @@ class _AssistantRawHistoryListState extends State<_AssistantRawHistoryList> {
                           wasEdited: _wasEdited(close),
                           onTap: () => _openDetail(context, close),
                         ),
-                      ),
+                        const SizedBox(height: 8),
+                      ],
+                    ],
                   ],
                 ),
               );
