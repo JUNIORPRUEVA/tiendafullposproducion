@@ -2735,6 +2735,32 @@ $objective''';
           const SizedBox(height: 10),
           Wrap(
             spacing: 8,
+            children: [
+              Expanded(
+                child: SegmentedButton<String>(
+                  segments: const <ButtonSegment<String>>[
+                    ButtonSegment<String>(
+                      value: 'story',
+                      label: Text('Story'),
+                      icon: Icon(Icons.history_edu_rounded),
+                    ),
+                    ButtonSegment<String>(
+                      value: 'post',
+                      label: Text('Post'),
+                      icon: Icon(Icons.image_rounded),
+                    ),
+                  ],
+                  selected: <String>{_contentType},
+                  onSelectionChanged: (Set<String> newSelection) {
+                    setState(() => _contentType = newSelection.first);
+                  },
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
             runSpacing: 8,
             children: [
               FilledButton.icon(
@@ -2775,7 +2801,7 @@ $objective''';
 
     await showDialog<void>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Detalle de publicación Meta'),
         content: SizedBox(
           width: 560,
@@ -2799,15 +2825,25 @@ $objective''';
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () {
+              if (Navigator.of(dialogContext).canPop()) {
+                Navigator.of(dialogContext).pop();
+              }
+            },
             child: const Text('Cerrar'),
           ),
           FilledButton.icon(
             onPressed: widget.busy
                 ? null
                 : () async {
-                    Navigator.of(context).pop();
-                    await widget.onRetryPublish();
+                    if (Navigator.of(dialogContext).canPop()) {
+                      Navigator.of(dialogContext).pop();
+                    }
+                    if (!mounted) return;
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (!mounted) return;
+                      unawaited(widget.onRetryPublish());
+                    });
                   },
             icon: const Icon(Icons.restart_alt_rounded, size: 18),
             label: const Text('Reintentar'),
