@@ -101,7 +101,7 @@ export class MarketingMetaPublisherService {
     }
 
     const rawConfig = this.resolveMetaConfigRaw();
-    const instagramRequested = rawConfig.instagramBusinessId.trim().length > 0;
+    const instagramConfigured = rawConfig.instagramBusinessId.trim().length > 0;
     this.logger.log(`[meta-publish] start storyId=${story.id} contentType=${contentType}`);
     this.logger.log(`[meta-publish] imageUrl=${imageUrl}`);
     this.logger.log(`[meta-publish] captionLength=${caption.trim().length}`);
@@ -152,7 +152,7 @@ export class MarketingMetaPublisherService {
       await this.validatePageTokenPermissions(config);
 
       const publishFacebookNow = retryOnlyMissing ? !facebookPostId : shouldPublishFacebook;
-      const publishInstagramNow = instagramRequested && (retryOnlyMissing ? !instagramPostId : shouldPublishInstagram);
+      const publishInstagramNow = retryOnlyMissing ? !instagramPostId : shouldPublishInstagram;
 
       if (publishFacebookNow) {
         this.logger.log(`[meta-facebook] publishing to pageId=${config.pageId}`);
@@ -164,12 +164,27 @@ export class MarketingMetaPublisherService {
       }
 
       if (publishInstagramNow) {
+        if (!instagramConfigured) {
+          throw new MetaApiError({
+            channel: 'validation',
+            stage: 'instagram-config',
+            message:
+              'Falta META_INSTAGRAM_BUSINESS_ID. Configura Instagram para publicar en ambos canales.',
+            type: 'CONFIG_ERROR',
+            code: null,
+            subcode: null,
+            fbtraceId: null,
+            httpStatus: null,
+            endpoint: '/instagram-config',
+            details: { key: 'META_INSTAGRAM_BUSINESS_ID' },
+          });
+        }
         const instagramResult = await this.publishInstagramFeedPost(config, normalizedImageUrl, caption);
         instagramPostId = instagramResult;
       }
 
       const facebookOk = !!facebookPostId;
-      const instagramOk = !instagramRequested || !!instagramPostId;
+      const instagramOk = !publishInstagramNow || !!instagramPostId;
       const fullSuccess = facebookOk && instagramOk;
       publishStatus = fullSuccess ? 'PUBLISHED' : facebookOk ? 'PARTIAL' : 'ERROR';
       publishedAt = facebookOk ? new Date() : null;
