@@ -252,18 +252,34 @@ export class MarketingService {
   async approveStory(companyId: string, storyId: string, userId: string, contentType: string = 'post') {
     const approved = await this.approvals.approve(companyId, storyId, userId);
     const publication = await this.metaPublisher.publishStory(companyId, storyId, userId, contentType);
+    await this.savePublishedDesignToContentGallery(companyId, storyId, publication);
+    const refreshed = await this.prisma.marketingDailyStory.findFirst({
+      where: { id: storyId, companyId },
+      include: {
+        approvedByUser: { select: { id: true, nombreCompleto: true } },
+        mediaAsset: true,
+      },
+    });
     return {
       message: publication.message,
-      item: await this.normalizeStoryUrlsAsync(publication.item ?? approved),
+      item: await this.normalizeStoryUrlsAsync(refreshed ?? publication.item ?? approved),
       publication,
     };
   }
 
   async retryPublishStory(companyId: string, storyId: string, userId: string) {
     const publication = await this.metaPublisher.retryMissingPublication(companyId, storyId, userId);
+    await this.savePublishedDesignToContentGallery(companyId, storyId, publication);
+    const refreshed = await this.prisma.marketingDailyStory.findFirst({
+      where: { id: storyId, companyId },
+      include: {
+        approvedByUser: { select: { id: true, nombreCompleto: true } },
+        mediaAsset: true,
+      },
+    });
     return {
       message: publication.message,
-      item: await this.normalizeStoryUrlsAsync(publication.item),
+      item: await this.normalizeStoryUrlsAsync(refreshed ?? publication.item),
       publication,
     };
   }
@@ -744,7 +760,8 @@ export class MarketingService {
         const isPublishedFinalDesign =
           lowerTags.includes('estado-publicado') ||
           lowerTags.includes('origen:estado_diario') ||
-          lowerTags.includes('usado-en:estados');
+          lowerTags.includes('usado-en:estados') ||
+          lowerTags.includes('source:marketing_published_design');
         if (!isPublishedFinalDesign) return null;
 
         const publicUrl = this.marketingStorage.getPublicUrl(rawUrl);
@@ -1369,5 +1386,165 @@ export class MarketingService {
     } catch {
       return null;
     }
+  }
+
+  private async savePublishedDesignToContentGallery(
+    companyId: string,
+    storyId: string,
+    publishResult: {
+      publishStatus?: string | null;
+      facebookPostId?: string | null;
+      instagramPostId?: string | null;
+      publishedAt?: Date | null;
+    },
+  ) {
+    const story = await this.prisma.marketingDailyStory.findFirst({
+      where: { id: storyId, companyId },
+      include: { mediaAsset: true },
+    });
+    if (!story) return null;
+
+    const status = `${publishResult.publishStatus ?? story.publishStatus ?? ''}`.trim().toUpperCase();
+    const isApprovedVisual = story.status === MarketingStoryStatus.APPROVED;
+    const hasAnyPublishedChannel =
+      `${publishResult.facebookPostId ?? story.facebookPostId ?? ''}`.trim().length > 0 ||
+      `${publishResult.instagramPostId ?? story.instagramPostId ?? ''}`.trim().length > 0;
+    const shouldSave =
+      isApprovedVisual ||
+      status === 'PUBLISHED' ||
+      status === 'PARTIAL' ||
+      hasAnyPublishedChannel;
+
+    if (!shouldSave) return null;
+
+    const finalImageUrl = this.resolveFinalDesignUrl(story as any);
+    if (!finalImageUrl) return null;
+
+    const normalizedUrl = this.marketingStorage.getPublicUrl(finalImageUrl);
+    const facebookPostId = `${publishResult.facebookPostId ?? story.facebookPostId ?? ''}`.trim();
+    const instagramPostId = `${publishResult.instagramPostId ?? story.instagramPostId ?? ''}`.trim();
+    const publishedAt = publishResult.publishedAt ?? story.publishedAt ?? new Date();
+    const title = `${story.title ?? ''}`.trim() || `Estado ${story.type}`;
+    const shortCopy = `${story.shortText ?? ''}`.trim();
+    const description =
+      [
+        title,
+        shortCopy,
+        `[source:marketing_published_design]`,
+        `[originStoryId:${story.id}]`,
+        `[status:published]`,
+        `[publishedAt:${publishedAt.toISOString()}]`,
+        facebookPostId ? `[facebookPostId:${facebookPostId}]` : '',
+        instagramPostId ? `[instagramPostId:${instagramPostId}]` : '',
+      ]
+        .filter((item) => item.trim().length > 0)
+        .join(' | ');
+
+    const tags = [
+      'estado-publicado',
+      'publicado',
+      'origen:estado_diario',
+      'usado-en:estados',
+      'galeria-publicidad',
+      'source:marketing_published_design',
+      'status:published',
+      'isForPublicidad:true',
+      `originStoryId:${story.id}`,
+      `storyType:${`${story.type ?? ''}`.toLowerCase()}`,
+      `publishedAt:${publishedAt.toISOString()}`,
+      ...(facebookPostId ? [`facebookPostId:${facebookPostId}`] : []),
+      ...(instagramPostId ? [`instagramPostId:${instagramPostId}`] : []),
+    ];
+
+    const category = this.derivePublishedCategory(story as any);
+    const sourceMarker = 'source:marketing_published_design';
+    const originMarker = `originStoryId:${story.id}`;
+    const markerFileName = `marketing-published-design-${story.id}.jpg`;
+
+    const candidates = await this.prisma.marketingMediaAsset.findMany({
+      where: {
+        companyId,
+        OR: [
+          { fileName: markerFileName },
+          { description: { contains: `[originStoryId:${story.id}]`, mode: 'insensitive' } },
+        ],
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 20,
+    });
+
+    const existing = candidates.find((asset) => {
+      const list = Array.isArray(asset.tags)
+        ? asset.tags.map((item: unknown) => `${item}`.trim())
+        : [];
+      return list.includes(sourceMarker) && list.includes(originMarker);
+    });
+
+    const payload = {
+      fileUrl: normalizedUrl,
+      thumbnailUrl: normalizedUrl,
+      fileName: markerFileName,
+      mimeType: this.inferMimeTypeFromUrl(normalizedUrl, 'image'),
+      category,
+      relatedService: `${story.usedOffer ?? ''}`.trim() || null,
+      tags,
+      description,
+      isActive: true,
+      isFeatured: true,
+      lastUsedAt: publishedAt,
+    };
+
+    const saved = existing
+      ? await this.prisma.marketingMediaAsset.update({
+          where: { id: existing.id },
+          data: payload,
+        })
+      : await this.prisma.marketingMediaAsset.create({
+          data: {
+            companyId,
+            ...payload,
+          },
+        });
+
+    await this.prisma.marketingDailyStory.updateMany({
+      where: { id: story.id, companyId },
+      data: {
+        mediaAssetId: saved.id,
+      },
+    });
+
+    return saved;
+  }
+
+  private resolveFinalDesignUrl(story: {
+    imageUrl?: string | null;
+    generatedImageUrl?: string | null;
+    mediaAsset?: { fileUrl?: string | null } | null;
+  }) {
+    const storyImage = `${story.imageUrl ?? ''}`.trim();
+    if (storyImage) return storyImage;
+    const generated = `${story.generatedImageUrl ?? ''}`.trim();
+    if (generated) return generated;
+    const fromAsset = `${story.mediaAsset?.fileUrl ?? ''}`.trim();
+    if (fromAsset) return fromAsset;
+    return '';
+  }
+
+  private derivePublishedCategory(story: {
+    title?: string | null;
+    shortText?: string | null;
+    usedOffer?: string | null;
+    type?: unknown;
+  }) {
+    const blob = `${story.title ?? ''} ${story.shortText ?? ''} ${story.usedOffer ?? ''}`.toLowerCase();
+    if (blob.includes('motor') || blob.includes('porton')) return 'Motores de portones';
+    if (blob.includes('camara') || blob.includes('cctv') || blob.includes('seguridad')) return 'Cámaras de seguridad';
+    if (blob.includes('cerco')) return 'Cercos eléctricos';
+    if (blob.includes('intercom')) return 'Intercoms';
+    if (blob.includes('alarma')) return 'Alarmas';
+    if (blob.includes('pos')) return 'POS';
+    if (blob.includes('tecnico') || blob.includes('instalacion')) return 'Instalaciones reales';
+    if (`${story.type ?? ''}`.toUpperCase() === 'TRUST') return 'Clientes / trabajos realizados';
+    return 'Tecnología general';
   }
 }
