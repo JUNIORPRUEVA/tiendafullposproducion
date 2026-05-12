@@ -1058,6 +1058,142 @@ export class MarketingMetaPublisherService {
     }
   }
 
+  /**
+   * Recorta un buffer de imagen al ratio 9:16 desde el centro.
+   * Si ya está en 9:16, devuelve el buffer original.
+   */
+  private async cropImageBufferToAspectRatio(buffer: Buffer): Promise<Buffer> {
+    const metadata = await sharp(buffer).metadata();
+    const width = metadata.width ?? 0;
+    const height = metadata.height ?? 0;
+    const currentRatio = width / height;
+    const targetRatio = 9 / 16;
+
+    // Si ya está cercano a 9:16 (±3%), no recortes
+    if (Math.abs(currentRatio - targetRatio) <= 0.03) {
+      this.logger.log(`[facebook-story-crop] image already 9:16 ratio, no crop needed`);
+      return buffer;
+    }
+
+    // Calcula las nuevas dimensiones
+    let newWidth: number, newHeight: number;
+    if (currentRatio > targetRatio) {
+      // Muy ancho, recorta horizontalmente
+      newHeight = height;
+      newWidth = Math.floor(height * targetRatio);
+    } else {
+      // Muy alto, recorta verticalmente
+      newWidth = width;
+      newHeight = Math.floor(width / targetRatio);
+    }
+
+    // Calcula el offset para centrar el crop
+    const leftOffset = Math.floor((width - newWidth) / 2);
+    const topOffset = Math.floor((height - newHeight) / 2);
+
+    this.logger.log(
+      `[facebook-story-crop] original=${width}x${height} (ratio=${(currentRatio).toFixed(4)}), cropped=${newWidth}x${newHeight} (ratio=${(newWidth / newHeight).toFixed(4)})`,
+    );
+
+    const croppedBuffer = await sharp(buffer)
+      .extract({
+        left: leftOffset,
+        top: topOffset,
+        width: newWidth,
+        height: newHeight,
+      })
+      .toBuffer();
+
+    return croppedBuffer;
+  }
+
+  /**
+   * Intenta publicar Facebook Story con imagen recortada como fallback.
+   * Cuando la URL falla, descarga, recorta y reintenta con multipart/form-data.
+   */
+  private async publishFacebookStoryWithCroppedFallback(
+    config: MetaConfig,
+    imageUrl: string,
+    originalResult: FacebookStoryPublishResponse,
+  ): Promise<FacebookStoryPublishResponse> {
+    // Solo intenta fallback si fue UNSUPPORTED por dimensiones/formato
+    if (originalResult.supported !== false) return originalResult;
+
+    const unsupportedByDimensions =
+      /ratio|dimension|aspect|resolution|format|unsupported|photo_stories/i.test(
+        originalResult.error || '',
+      );
+
+    if (!unsupportedByDimensions) {
+      this.logger.log(`[facebook-story-crop] not a dimension issue, skipping crop fallback`);
+      return originalResult;
+    }
+
+    try {
+      this.logger.log(`[facebook-story-crop] attempting fallback with cropped image`);
+
+      // Descarga la imagen original
+      const imageResponse = await fetch(imageUrl);
+      if (!imageResponse.ok) {
+        this.logger.error(`[facebook-story-crop] failed to download image for cropping`);
+        return originalResult;
+      }
+
+      const originalBuffer = Buffer.from(await imageResponse.arrayBuffer());
+
+      // Recorta al ratio 9:16
+      const croppedBuffer = await this.cropImageBufferToAspectRatio(originalBuffer);
+
+      // Intenta publicar con la imagen recortada usando multipart/form-data
+      const endpoint = `/${config.pageId}/photo_stories`;
+      const url = `https://graph.facebook.com/${config.graphVersion}${endpoint}`;
+
+      const formData = new FormData();
+      formData.append('photo', new Blob([new Uint8Array(croppedBuffer)], { type: 'image/jpeg' }), 'story.jpg');
+      formData.append('access_token', config.accessToken);
+
+      const response = await fetch(url, {
+        method: 'POST',
+        body: formData,
+      });
+
+      const payload = await response.json().catch(() => ({} as any));
+      this.logger.log(`[facebook-story-crop-retry] response=${this.safeJson(payload)}`);
+
+      if (!response.ok) {
+        const parsed = this.parseMetaErrorPayload(payload, {
+          channel: 'facebook',
+          stage: 'facebook-story-publish-retry',
+          endpoint,
+          httpStatus: response.status,
+        });
+        this.logger.warn(`[facebook-story-crop-retry] still failed after crop: ${parsed.message}`);
+        // No devuelve el resultado del reintento fallido, devuelve el original
+        return originalResult;
+      }
+
+      const storyId = `${payload.story_id ?? payload.id ?? ''}`.trim() || null;
+      this.logger.log(
+        `[facebook-story-crop-retry] SUCCESS with cropped image, storyId=${storyId}`,
+      );
+
+      return {
+        supported: true,
+        storyId,
+        error: storyId ? null : 'Facebook Story no devolvió ID de historia tras crop.',
+        endpoint,
+        payload,
+        errorDetails: null,
+      };
+    } catch (error) {
+      this.logger.error(
+        `[facebook-story-crop] error during crop/retry: ${error instanceof Error ? error.message : 'unknown'}`,
+      );
+      // En caso de error, devuelve el resultado original (UNSUPPORTED)
+      return originalResult;
+    }
+  }
+
   private async publishFacebookStory(
     config: MetaConfig,
     imageUrl: string,
@@ -1091,7 +1227,7 @@ export class MarketingMetaPublisherService {
         parsed.code === 1 ||
         /unsupported|unknown path|photo_stories|an unknown error has occurred/i.test(parsed.message);
       if (unsupported) {
-        return {
+        const result: FacebookStoryPublishResponse = {
           supported: false,
           storyId: null,
           error: `Meta no permite publicar Facebook Page Stories por este endpoint/token. Instagram Story sí puede continuar. Detalle: ${this.formatMetaErrorSummary(parsed)}`,
@@ -1099,6 +1235,9 @@ export class MarketingMetaPublisherService {
           payload,
           errorDetails: parsed,
         };
+
+        // Intenta con imagen recortada como fallback
+        return await this.publishFacebookStoryWithCroppedFallback(config, imageUrl, result);
       }
       throw new MetaApiError(parsed);
     }
