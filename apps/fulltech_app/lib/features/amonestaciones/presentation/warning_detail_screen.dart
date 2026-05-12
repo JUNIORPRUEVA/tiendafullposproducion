@@ -148,7 +148,8 @@ class _WarningDetailScreenState extends ConsumerState<WarningDetailScreen> {
             const SizedBox(height: 10),
             _PdfPanel(
               warning: w,
-              onOpenInApp: (url) => _openPdfInApp(context, url),
+              warningId: w.id,
+              onOpenInApp: (url) => _openPdfInApp(context, url, w.id),
             ),
           ],
           if (w.signatures.isNotEmpty) ...[
@@ -271,39 +272,39 @@ class _WarningDetailScreenState extends ConsumerState<WarningDetailScreen> {
     }
   }
 
-  List<String> _buildPdfCandidates(String rawUrl) {
+  List<String> _buildPdfCandidates(String warningId, String rawUrl) {
     final value = rawUrl.trim();
-    if (value.isEmpty) return const [];
+    final candidates = <String>[];
 
-    final out = <String>[];
-    final seen = <String>{};
-    void addCandidate(String? v) {
-      final candidate = (v ?? '').trim();
-      if (candidate.isEmpty) return;
-      if (seen.add(candidate)) out.add(candidate);
+    // Primero: usar el endpoint API autenticado para descargar el PDF
+    final apiBase = Env.apiBaseUrl.trim().replaceAll(RegExp(r'/+$'), '');
+    if (apiBase.isNotEmpty) {
+      candidates.add('$apiBase/employee-warnings/me/$warningId/pdf');
     }
 
-    final uri = Uri.tryParse(value);
-    if (uri != null && uri.hasScheme) {
-      addCandidate(uri.toString());
-    } else {
-      final normalized = value.replaceAll('\\', '/');
-      final baseUrl = Env.apiBaseUrl.trim().replaceAll(RegExp(r'/+$'), '');
-      if (baseUrl.isNotEmpty) {
-        if (normalized.startsWith('/')) {
-          addCandidate('$baseUrl$normalized');
-        } else {
-          addCandidate('$baseUrl/$normalized');
+    // Segundo: si la URL es una URL completa con esquema, usarla directamente
+    if (value.isNotEmpty) {
+      final uri = Uri.tryParse(value);
+      if (uri != null && uri.hasScheme) {
+        candidates.add(uri.toString());
+      } else {
+        // Si es una ruta relativa, intentar construirla con el base URL
+        if (apiBase.isNotEmpty) {
+          final normalized = value.replaceAll('\\', '/');
+          if (normalized.startsWith('/')) {
+            candidates.add('$apiBase$normalized');
+          } else {
+            candidates.add('$apiBase/$normalized');
+          }
         }
       }
-      addCandidate(normalized);
     }
 
-    return out;
+    return candidates.toSet().toList(); // Eliminar duplicados
   }
 
-  Future<void> _openPdfInApp(BuildContext context, String rawUrl) async {
-    final candidates = _buildPdfCandidates(rawUrl);
+  Future<void> _openPdfInApp(BuildContext context, String rawUrl, String warningId) async {
+    final candidates = _buildPdfCandidates(warningId, rawUrl);
     if (candidates.isEmpty) return;
 
     await Navigator.of(context).push(
@@ -368,8 +369,9 @@ class _TextPanel extends StatelessWidget {
 
 class _PdfPanel extends StatelessWidget {
   final EmployeeWarning warning;
+  final String warningId;
   final ValueChanged<String> onOpenInApp;
-  const _PdfPanel({required this.warning, required this.onOpenInApp});
+  const _PdfPanel({required this.warning, required this.warningId, required this.onOpenInApp});
 
   @override
   Widget build(BuildContext context) => _Container(

@@ -586,7 +586,7 @@ ${input.issuerPosition}`;
   private async generatePdfBuffer(warning: any): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       const chunks: Buffer[] = [];
-      const doc = new PDFDocument({ margin: 54, size: 'LETTER' });
+      const doc = new PDFDocument({ margin: 48, size: 'LETTER' });
 
       doc.on('data', (chunk: Buffer) => chunks.push(chunk));
       doc.on('end', () => resolve(Buffer.concat(chunks)));
@@ -618,68 +618,158 @@ ${input.issuerPosition}`;
         }).format(new Date(d));
       };
 
+      // ── Header profesional ─────────────────────────────────────────
+      doc
+        .fillColor('#1a1a2e')
+        .fontSize(18)
+        .font('Helvetica-Bold')
+        .text(this.valueOrDefault(warning.companyNameSnapshot), { align: 'center' });
+      doc
+        .fillColor('#666666')
+        .fontSize(10)
+        .font('Helvetica')
+        .text(`RNC: ${this.valueOrDefault(warning.companyRncSnapshot)}`, { align: 'center' });
+      doc.text(this.valueOrDefault(warning.companyAddressSnapshot), { align: 'center' });
+
+      // Línea separadora
+      doc.moveTo(48, doc.y).lineTo(552, doc.y).strokeColor('#cccccc').lineWidth(1.5).stroke();
+      doc.moveDown(0.6);
+
+      // ── Título principal ──────────────────────────────────────────
+      doc
+        .fillColor('#000000')
+        .fontSize(14)
+        .font('Helvetica-Bold')
+        .text('AMONESTACIÓN LABORAL', { align: 'center' });
+      doc.moveDown(0.5);
+
+      // ── Información del documento ─────────────────────────────────
+      const infoX = 48;
+      const infoColWidth = 250;
+      doc.font('Helvetica-Bold').fontSize(9).fillColor('#333333');
+
+      doc.text('No. Amonestación:', infoX, doc.y, { width: 120 });
+      doc.font('Helvetica').text(warning.warningNumber, infoX + 130, doc.y - 13);
+
+      doc.font('Helvetica-Bold').text('Estado:', infoX, doc.y, { width: 120 });
+      doc.font('Helvetica').text(statusLabels[warning.status] ?? warning.status, infoX + 130, doc.y - 13);
+
+      doc.font('Helvetica-Bold').text('Tipo:', infoX, doc.y, { width: 120 });
+      doc
+        .font('Helvetica')
+        .text(typeLabels[warning.warningType] ?? warning.warningType ?? 'No registrado', infoX + 130, doc.y - 13);
+
+      doc.moveDown(1);
+      doc.moveTo(48, doc.y).lineTo(552, doc.y).strokeColor('#e0e0e0').lineWidth(1).stroke();
+      doc.moveDown(0.5);
+
+      // ── Datos del empleado ────────────────────────────────────────
+      doc.font('Helvetica-Bold').fontSize(11).fillColor('#1a1a2e').text('EMPLEADO');
+      doc.moveDown(0.3);
+
+      const employeeName = this.valueOrDefault(warning.employeeNameSnapshot ?? warning.employeeUser?.nombreCompleto);
+      const employeeCedula = this.valueOrDefault(warning.employeeCedulaSnapshot ?? warning.employeeUser?.cedula);
+      const employeePosition = this.valueOrDefault(warning.employeePositionSnapshot ?? warning.employeeUser?.workContractJobTitle);
+      const employeeDept = this.valueOrDefault(warning.employeeDepartmentSnapshot ?? warning.employeeUser?.workContractWorkLocation);
+      const employeePhone = this.valueOrDefault(warning.employeePhoneSnapshot ?? warning.employeeUser?.telefono);
+
+      doc.font('Helvetica').fontSize(10).fillColor('#333333');
+      doc.text(`Nombre: ${employeeName}`);
+      doc.text(`Cédula: ${employeeCedula}`);
+      doc.text(`Cargo: ${employeePosition}`);
+      doc.text(`Departamento/Área: ${employeeDept}`);
+      doc.text(`Teléfono: ${employeePhone}`);
+      doc.moveDown(0.4);
+
+      // ── Fechas e información del incidente ─────────────────────────
+      doc.font('Helvetica-Bold').fontSize(11).fillColor('#1a1a2e').text('INFORMACIÓN DEL HECHO');
+      doc.moveDown(0.3);
+      doc.font('Helvetica').fontSize(10).fillColor('#333333');
+      doc.text(`Fecha de la amonestación: ${fmt(warning.warningDate)}`);
+      doc.text(`Fecha del hecho: ${fmt(warning.incidentDate)}`);
+      doc.text(`Hora aproximada: ${this.valueOrDefault(warning.incidentTime)}`);
+      doc.text(`Lugar/Área: ${this.valueOrDefault(warning.incidentPlace)}`);
+      doc.moveDown(0.4);
+
+      // ── Motivo ────────────────────────────────────────────────────
+      doc.font('Helvetica-Bold').fontSize(11).fillColor('#1a1a2e').text('MOTIVO');
+      doc.moveDown(0.2);
+      doc.font('Helvetica').fontSize(10).fillColor('#333333');
+      const reason = (warning.reason ?? warning.title ?? '').toString().trim() || 'No registrado';
+      doc.text(reason);
+      doc.moveDown(0.4);
+
+      // ── Detalle completo ──────────────────────────────────────────
+      doc.font('Helvetica-Bold').fontSize(11).fillColor('#1a1a2e').text('DESCRIPCIÓN DETALLADA');
+      doc.moveDown(0.2);
       const safeGeneratedText = (warning.generatedText ?? '').toString().trim();
       const fallbackText = warning.description?.toString().trim() || 'Sin contenido';
-
-      doc.font('Helvetica-Bold').fontSize(16).text('AMONESTACION', { align: 'center' });
-      doc.moveDown(0.5);
-      doc.font('Helvetica').fontSize(10).text(`No.: ${warning.warningNumber}`);
-      doc.text(`Estado: ${statusLabels[warning.status] ?? warning.status}`);
-      doc.text(`Tipo: ${typeLabels[warning.warningType] ?? warning.warningType ?? 'No registrado'}`);
-      doc.text(`Fecha de amonestacion: ${fmt(warning.warningDate)}`);
-      doc.text(`Fecha del hecho: ${fmt(warning.incidentDate)}`);
-      doc.moveDown(0.8);
-
-      doc.font('Helvetica-Bold').fontSize(11).text('DATOS DEL EMPLEADO');
-      doc.moveDown(0.2);
-      doc.font('Helvetica').fontSize(10);
-      doc.text(`Nombre: ${this.valueOrDefault(warning.employeeNameSnapshot ?? warning.employeeUser?.nombreCompleto)}`);
-      doc.text(`Cedula: ${this.valueOrDefault(warning.employeeCedulaSnapshot ?? warning.employeeUser?.cedula)}`);
-      doc.text(`Cargo: ${this.valueOrDefault(warning.employeePositionSnapshot ?? warning.employeeUser?.workContractJobTitle)}`);
-      doc.text(`Departamento: ${this.valueOrDefault(warning.employeeDepartmentSnapshot ?? warning.employeeUser?.workContractWorkLocation)}`);
-      doc.text(`Telefono: ${this.valueOrDefault(warning.employeePhoneSnapshot ?? warning.employeeUser?.telefono)}`);
-      doc.moveDown(0.6);
-
-      doc.font('Helvetica-Bold').fontSize(11).text('DATOS DE LA EMPRESA');
-      doc.moveDown(0.2);
-      doc.font('Helvetica').fontSize(10);
-      doc.text(`Empresa: ${this.valueOrDefault(warning.companyNameSnapshot)}`);
-      doc.text(`RNC: ${this.valueOrDefault(warning.companyRncSnapshot)}`);
-      doc.text(`Direccion: ${this.valueOrDefault(warning.companyAddressSnapshot)}`);
-      doc.moveDown(0.6);
-
-      doc.font('Helvetica-Bold').fontSize(11).text('MOTIVO Y DETALLE');
-      doc.moveDown(0.2);
-      doc.font('Helvetica').fontSize(10);
-      doc.text(`Motivo: ${(warning.reason ?? warning.title ?? '').toString().trim() || 'No registrado'}`);
-      doc.text(`Hora aproximada: ${this.valueOrDefault(warning.incidentTime)}`);
-      doc.text(`Lugar/area: ${this.valueOrDefault(warning.incidentPlace)}`);
-      doc.moveDown(0.3);
-      doc.text(`Encargado emisor: ${this.valueOrDefault(warning.issuedByNameSnapshot ?? warning.createdByUser?.nombreCompleto)}`);
-      doc.text(`Cargo encargado: ${this.valueOrDefault(warning.issuedByPositionSnapshot ?? warning.createdByUser?.workContractJobTitle)}`);
-      doc.moveDown(0.6);
-
-      doc.font('Helvetica-Bold').fontSize(11).text('TEXTO GENERADO');
-      doc.moveDown(0.2);
-      doc.font('Helvetica').fontSize(10).text(safeGeneratedText || fallbackText, {
+      doc.font('Helvetica').fontSize(9).fillColor('#333333');
+      doc.text(safeGeneratedText || fallbackText, {
+        width: 504,
         align: 'justify',
+        lineGap: 2,
       });
+      doc.moveDown(0.6);
 
       if ((warning.internalNotes ?? '').toString().trim().isNotEmpty) {
-        doc.moveDown(0.8);
-        doc.font('Helvetica-Bold').fontSize(11).text('OBSERVACIONES INTERNAS');
+        doc.font('Helvetica-Bold').fontSize(10).fillColor('#1a1a2e').text('NOTAS INTERNAS');
         doc.moveDown(0.2);
-        doc.font('Helvetica').fontSize(10).text((warning.internalNotes ?? '').toString().trim(), {
+        doc.font('Helvetica').fontSize(9).fillColor('#555555').fillOpacity(0.8);
+        doc.text((warning.internalNotes ?? '').toString().trim(), {
+          width: 504,
           align: 'justify',
+          lineGap: 2,
         });
+        doc.moveDown(0.6);
       }
 
+      // ── Espacio de firma física ───────────────────────────────────
+      doc.moveTo(48, doc.y).lineTo(552, doc.y).strokeColor('#e0e0e0').lineWidth(1).stroke();
+      doc.moveDown(0.8);
+
+      doc.font('Helvetica-Bold').fontSize(11).fillColor('#1a1a2e').text('FIRMAS');
+      doc.moveDown(0.6);
+
+      // Firma del emisor
+      doc.font('Helvetica-Bold').fontSize(9).fillColor('#333333').text('Emitida por:');
+      doc.moveDown(2.5);
+      doc.moveTo(48, doc.y).lineTo(250, doc.y).strokeColor('#333333').lineWidth(1).stroke();
+      doc.moveDown(0.2);
+      doc.font('Helvetica').fontSize(9).fillColor('#333333');
+      const issuerName = this.valueOrDefault(warning.issuedByNameSnapshot ?? warning.createdByUser?.nombreCompleto);
+      doc.text(issuerName);
+
+      // Firma del empleado
+      doc.font('Helvetica-Bold').fontSize(9).fillColor('#333333').text('Firma del empleado / Acuse de recibo:', 300, doc.y - 3.2);
+      doc.moveDown(2.5);
+      doc.moveTo(300, doc.y).lineTo(552, doc.y).strokeColor('#333333').lineWidth(1).stroke();
+      doc.moveDown(0.2);
+      doc.font('Helvetica').fontSize(9).fillColor('#999999');
+      doc.text('(Firma manuscrita del colaborador)', 300);
+
+      // ── Pie de página ─────────────────────────────────────────────
+      doc.moveDown(0.8);
+      doc.moveTo(48, doc.y).lineTo(552, doc.y).strokeColor('#e0e0e0').lineWidth(1).stroke();
+      doc.moveDown(0.3);
+      doc.font('Helvetica').fontSize(8).fillColor('#999999').text(
+        `Documento generado: ${new Date().toLocaleString('es-DO')} | Sistema FullTech | Este documento debe ser impreso y firmado físicamente`,
+        { align: 'center' },
+      );
+
       if (warning.status === 'ANNULLED') {
-        doc.moveDown(0.8);
-        doc.font('Helvetica-Bold').fontSize(11).text('DOCUMENTO ANULADO');
-        doc.font('Helvetica').fontSize(10).text(
-          `Motivo de anulacion: ${(warning.annulmentReason ?? 'No registrado').toString()}`,
-        );
+        doc.moveDown(0.5);
+        doc
+          .fillColor('#cc0000')
+          .fontSize(9)
+          .font('Helvetica-Bold')
+          .text('⚠ DOCUMENTO ANULADO', { align: 'center' });
+        doc
+          .font('Helvetica')
+          .fontSize(8)
+          .text(`Anulado el ${fmt(warning.annulledAt)} - Motivo: ${warning.annulmentReason ?? 'No especificado'}`, {
+            align: 'center',
+          });
       }
 
       doc.end();

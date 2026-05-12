@@ -298,6 +298,10 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
       });
     }
 
+    if (isAdmin && canUseModule) {
+      return _HistoryFullScreenPage(initialType: selectedType);
+    }
+
     return Scaffold(
       appBar: const CustomAppBar(
         title: 'Cierres diarios',
@@ -322,8 +326,6 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
               onRefresh: controller.refresh,
               child: _buildAssistantBody(context, state, controller, user?.id),
             )
-          : isAdmin
-          ? _HistoryFullScreenPage(initialType: _type)
           : RefreshIndicator(
               onRefresh: controller.refresh,
               child: ListView(
@@ -3019,7 +3021,23 @@ class _HistoryFullScreenPageState
       return _isWithinRange(close);
     }).toList();
 
-    final visibleIds = filtered.map((e) => e.id).toSet();
+    final orderedFiltered = [...filtered]
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final dayTypeMap = <DateTime, Map<CloseType, CloseModel>>{};
+    for (final close in orderedFiltered) {
+      final day = DateTime(close.date.year, close.date.month, close.date.day);
+      final typeMap = dayTypeMap.putIfAbsent(
+        day,
+        () => <CloseType, CloseModel>{},
+      );
+      typeMap.putIfAbsent(close.type, () => close);
+    }
+    final pairedFiltered = <CloseModel>[];
+    for (final typeMap in dayTypeMap.values) {
+      pairedFiltered.addAll(typeMap.values);
+    }
+
+    final visibleIds = pairedFiltered.map((e) => e.id).toSet();
     if (_selectedCloseIds.any((id) => !visibleIds.contains(id))) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
@@ -3100,25 +3118,42 @@ class _HistoryFullScreenPageState
                       setState(() => _selectedType = CloseType.phytoemagry),
                 ),
                 const SizedBox(width: 8),
-                for (final filter in const [
-                  'TODOS',
-                  'pending',
-                  'approved',
-                  'rejected',
-                  'corrections',
-                ])
-                  ChoiceChip(
-                    label: Text(_adminFilterLabel(filter)),
-                    selected: _selectedStatus == filter,
-                    onSelected: (_) => setState(() => _selectedStatus = filter),
+                SizedBox(
+                  width: 190,
+                  child: DropdownButtonFormField<String>(
+                    initialValue: _selectedStatus,
+                    decoration: const InputDecoration(labelText: 'Estado'),
+                    items:
+                        const [
+                              'TODOS',
+                              'pending',
+                              'approved',
+                              'rejected',
+                              'corrections',
+                            ]
+                            .map(
+                              (value) => DropdownMenuItem<String>(
+                                value: value,
+                                child: Text(
+                                  _adminFilterLabel(value),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            )
+                            .toList(),
+                    onChanged: (value) {
+                      if (value == null) return;
+                      setState(() => _selectedStatus = value);
+                    },
                   ),
+                ),
               ],
             ),
             const SizedBox(height: 6),
             Align(
               alignment: Alignment.centerLeft,
               child: Text(
-                '${filtered.length} registros',
+                '${pairedFiltered.length} registros',
                 style: Theme.of(context).textTheme.labelLarge,
               ),
             ),
@@ -3128,14 +3163,14 @@ class _HistoryFullScreenPageState
     }
 
     Widget historyList() {
-      if (filtered.isEmpty) {
+      if (pairedFiltered.isEmpty) {
         return const Center(
           child: Text('No hay cierres para el filtro seleccionado.'),
         );
       }
 
       final byDay = <DateTime, List<CloseModel>>{};
-      for (final close in filtered) {
+      for (final close in pairedFiltered) {
         final day = DateTime(close.date.year, close.date.month, close.date.day);
         byDay.putIfAbsent(day, () => <CloseModel>[]).add(close);
       }
