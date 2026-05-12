@@ -1,10 +1,18 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { CompanyManualAudience, CompanyManualEntryKind, Prisma, Role } from '@prisma/client';
+import { createHash } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CompanyManualQueryDto } from './dto/company-manual-query.dto';
 import { UpsertCompanyManualDto } from './dto/upsert-company-manual.dto';
 
 type CurrentUser = { id: string; role: Role };
+
+type ManualDedupKeys = {
+  normalizedTitle: string;
+  moduleScopeKey: string;
+  targetRolesKey: string;
+  contentHash: string;
+};
 
 @Injectable()
 export class CompanyManualService {
@@ -84,6 +92,12 @@ export class CompanyManualService {
     const summary = dto.summary?.trim();
     const moduleKey = dto.moduleKey?.trim().toLowerCase();
     const targetRoles = this.normalizeTargetRoles(dto.audience, dto.targetRoles);
+    const dedupKeys = this.buildDedupKeys({
+      title,
+      content,
+      moduleKey,
+      targetRoles,
+    });
 
     if (!title) throw new BadRequestException('El título es obligatorio');
     if (!content) throw new BadRequestException('El contenido es obligatorio');
@@ -97,9 +111,23 @@ export class CompanyManualService {
       audience: dto.audience,
       targetRoles,
       moduleKey: moduleKey && moduleKey.length > 0 ? moduleKey : null,
+      normalizedTitle: dedupKeys.normalizedTitle,
+      moduleScopeKey: dedupKeys.moduleScopeKey,
+      targetRolesKey: dedupKeys.targetRolesKey,
+      contentHash: dedupKeys.contentHash,
       published: dto.published ?? true,
       sortOrder: dto.sortOrder ?? 0,
       updatedByUserId: user.id,
+    };
+
+    const duplicateWhere: Prisma.CompanyManualEntryWhereInput = {
+      ownerId,
+      normalizedTitle: dedupKeys.normalizedTitle,
+      kind: dto.kind,
+      audience: dto.audience,
+      moduleScopeKey: dedupKeys.moduleScopeKey,
+      targetRolesKey: dedupKeys.targetRolesKey,
+      contentHash: dedupKeys.contentHash,
     };
 
     if (dto.id) {
@@ -111,10 +139,29 @@ export class CompanyManualService {
         throw new NotFoundException('La entrada del manual no existe');
       }
 
+      const duplicated = await this.prisma.companyManualEntry.findFirst({
+        where: {
+          ...duplicateWhere,
+          id: { not: dto.id },
+        },
+        select: { id: true },
+      });
+      if (duplicated) {
+        throw new ConflictException('Ya existe una regla idéntica en el manual interno.');
+      }
+
       return this.prisma.companyManualEntry.update({
         where: { id: dto.id },
         data: { ...data, createdByUserId: existing.createdByUserId },
       });
+    }
+
+    const duplicated = await this.prisma.companyManualEntry.findFirst({
+      where: duplicateWhere,
+      select: { id: true },
+    });
+    if (duplicated) {
+      throw new ConflictException('Ya existe una regla idéntica en el manual interno.');
     }
 
     return this.prisma.companyManualEntry.create({
@@ -137,14 +184,15 @@ export class CompanyManualService {
   }
 
   private async ensureStarterEntries(ownerId: string, actorUserId: string) {
-    // Usar transaction con isolation level para evitar race conditions
-    const result = await this.prisma.$transaction(
+    await this.prisma.$transaction(
       async (tx) => {
-        const count = await tx.companyManualEntry.count({ where: { ownerId } });
-        if (count > 0) return null;
-
-        const entries: Array<Prisma.CompanyManualEntryCreateInput> = [
+        const entries: Array<
+          Omit<Prisma.CompanyManualEntryCreateInput, 'normalizedTitle' | 'moduleScopeKey' | 'targetRolesKey' | 'contentHash'> & {
+            starterKey: string;
+          }
+        > = [
           {
+            starterKey: 'starter-clientes-registro-correcto',
             ownerId,
             createdByUserId: actorUserId,
             updatedByUserId: actorUserId,
@@ -162,6 +210,7 @@ export class CompanyManualService {
             sortOrder: 1,
           },
           {
+            starterKey: 'starter-cotizaciones-politica-base-precios',
             ownerId,
             createdByUserId: actorUserId,
             updatedByUserId: actorUserId,
@@ -179,6 +228,7 @@ export class CompanyManualService {
             sortOrder: 2,
           },
           {
+            starterKey: 'starter-general-responsabilidad-actualizacion',
             ownerId,
             createdByUserId: actorUserId,
             updatedByUserId: actorUserId,
@@ -196,6 +246,7 @@ export class CompanyManualService {
             sortOrder: 3,
           },
           {
+            starterKey: 'starter-general-guia-rapida-modulos',
             ownerId,
             createdByUserId: actorUserId,
             updatedByUserId: actorUserId,
@@ -214,17 +265,87 @@ export class CompanyManualService {
           },
         ];
 
-        return Promise.all(
-          entries.map((entry) => tx.companyManualEntry.create({ data: entry })),
-        );
+        for (const entry of entries) {
+          const keys = this.buildDedupKeys({
+            title: entry.title,
+            content: entry.content,
+            moduleKey: entry.moduleKey,
+            targetRoles: entry.targetRoles,
+          });
+
+          await tx.companyManualEntry.upsert({
+            where: {
+              ownerId_starterKey: {
+                ownerId,
+                starterKey: entry.starterKey,
+              },
+            },
+            create: {
+              ...entry,
+              normalizedTitle: keys.normalizedTitle,
+              moduleScopeKey: keys.moduleScopeKey,
+              targetRolesKey: keys.targetRolesKey,
+              contentHash: keys.contentHash,
+            },
+            update: {
+              title: entry.title,
+              summary: entry.summary,
+              content: entry.content,
+              kind: entry.kind,
+              audience: entry.audience,
+              targetRoles: entry.targetRoles,
+              moduleKey: entry.moduleKey,
+              published: entry.published,
+              sortOrder: entry.sortOrder,
+              updatedByUserId: actorUserId,
+              normalizedTitle: keys.normalizedTitle,
+              moduleScopeKey: keys.moduleScopeKey,
+              targetRolesKey: keys.targetRolesKey,
+              contentHash: keys.contentHash,
+            },
+          });
+        }
       },
       {
-        // Usar serializable isolation para evitar race conditions
         isolationLevel: 'Serializable',
-        timeout: 30000, // 30 segundos
+        timeout: 30000,
       },
     );
-    return result;
+  }
+
+  private buildDedupKeys(params: {
+    title: string;
+    content: string;
+    moduleKey?: string | null;
+    targetRoles: Role[];
+  }): ManualDedupKeys {
+    const normalizedTitle = this.normalizeText(params.title);
+    const moduleScopeKey = this.normalizeText(params.moduleKey ?? '');
+    const targetRolesItems = [...new Set((params.targetRoles ?? []).map((r) => `${r}`.trim().toUpperCase()))]
+      .filter((item) => item.length > 0)
+      .sort();
+    const contentHash = this.hashContent(this.normalizeText(params.content));
+
+    return {
+      normalizedTitle,
+      moduleScopeKey,
+      targetRolesKey: targetRolesItems.join('|'),
+      contentHash,
+    };
+  }
+
+  private normalizeText(value: string) {
+    return value
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim()
+      .replace(/\s+/g, ' ');
+  }
+
+  private hashContent(value: string) {
+    return createHash('sha256').update(value).digest('hex');
   }
 
   private normalizeTargetRoles(audience: CompanyManualAudience, targetRoles?: Role[]) {

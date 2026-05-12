@@ -29,6 +29,12 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
   String? _selectedEntryId;
   Set<String> _selectedForBulkDelete = {};
 
+  bool _canManageCurrentUser() {
+    final user = ref.read(authStateProvider).user;
+    return user != null &&
+        hasPermission(user.appRole, AppPermission.manageCompanyManual);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -89,6 +95,9 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
         _entries = items;
         _loading = false;
         _selectedEntryId = selectedId;
+        if (!canManage) {
+          _selectedForBulkDelete.clear();
+        }
       });
     } catch (e) {
       if (!mounted) return;
@@ -140,6 +149,9 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
   }
 
   Future<bool> _openEditor({CompanyManualEntry? entry}) async {
+    if (!_canManageCurrentUser()) {
+      return false;
+    }
     final isMobile = MediaQuery.sizeOf(context).width < 720;
     final bool? saved;
     if (isMobile) {
@@ -165,6 +177,9 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
   }
 
   Future<bool> _deleteEntry(CompanyManualEntry entry) async {
+    if (!_canManageCurrentUser()) {
+      return false;
+    }
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -201,6 +216,7 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
   }
 
   Future<void> _deleteBulkSelected() async {
+    if (!_canManageCurrentUser()) return;
     if (_selectedForBulkDelete.isEmpty) return;
     final count = _selectedForBulkDelete.length;
     final confirmed = await showDialog<bool>(
@@ -246,6 +262,7 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
   }
 
   void _toggleBulkSelection(String entryId) {
+    if (!_canManageCurrentUser()) return;
     setState(() {
       if (_selectedForBulkDelete.contains(entryId)) {
         _selectedForBulkDelete.remove(entryId);
@@ -256,6 +273,7 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
   }
 
   void _toggleAllBulkSelection() {
+    if (!_canManageCurrentUser()) return;
     setState(() {
       if (_selectedForBulkDelete.length == _visibleEntries.length) {
         _selectedForBulkDelete.clear();
@@ -333,7 +351,7 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
         showLogo: false,
         darkerTone: true,
         actions: [
-          if (_selectedForBulkDelete.isNotEmpty) ...
+          if (canManage && _selectedForBulkDelete.isNotEmpty) ...
             [
               IconButton(
                 tooltip: 'Seleccionar todas',
@@ -1215,6 +1233,7 @@ class _CompanyManualEntryDialogState
 
   Future<void> _save() async {
     if (_saving) return;
+    final isEditing = widget.entry != null;
     final title = _titleCtrl.text.trim();
     final content = _contentCtrl.text.trim();
     final sortOrder = int.tryParse(_sortCtrl.text.trim()) ?? 0;
@@ -1228,6 +1247,16 @@ class _CompanyManualEntryDialogState
         () => _error = 'Selecciona al menos un rol para una entrada por rol',
       );
       return;
+    }
+    if (isEditing) {
+      final editId = widget.entry?.id.trim() ?? '';
+      final editOwnerId = widget.entry?.ownerId.trim() ?? '';
+      if (editId.isEmpty || editOwnerId.isEmpty) {
+        setState(() {
+          _error = 'No se puede actualizar esta norma por datos incompletos.';
+        });
+        return;
+      }
     }
 
     setState(() {
@@ -1260,7 +1289,7 @@ class _CompanyManualEntryDialogState
 
     try {
       final repo = ref.read(companyManualRepositoryProvider);
-      if (widget.entry == null) {
+      if (!isEditing) {
         await repo.createEntry(entry);
       } else {
         await repo.updateEntry(entry);

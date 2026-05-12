@@ -2051,13 +2051,18 @@ model PayrollServiceCommissionRequest {
 model CompanyManualEntry {
   id              String                @id @default(uuid()) @db.Uuid
   ownerId         String                @db.Uuid
+  starterKey      String?
   title           String
+  normalizedTitle String                @default("")
   summary         String?
   content         String
+  contentHash     String                @default("")
   kind            CompanyManualEntryKind
   audience        CompanyManualAudience @default(GENERAL)
   targetRoles     Role[]                @default([])
   moduleKey       String?
+  moduleScopeKey  String                @default("")
+  targetRolesKey  String                @default("")
   published       Boolean               @default(true)
   sortOrder       Int                   @default(0)
   createdByUserId String                @db.Uuid
@@ -2069,7 +2074,10 @@ model CompanyManualEntry {
   @@index([ownerId, published])
   @@index([ownerId, kind])
   @@index([ownerId, audience])
+  @@index([ownerId, normalizedTitle])
   @@index([updatedAt])
+  @@unique([ownerId, starterKey], map: "company_manual_owner_starter_key_unique")
+  @@unique([ownerId, normalizedTitle, kind, audience, moduleScopeKey, targetRolesKey, contentHash], map: "company_manual_dedup_unique")
 }
 
 model Service {

@@ -401,7 +401,23 @@ class CompanyManualRepository {
     required bool includeHidden,
   }) {
     final normalizedModuleKey = (moduleKey ?? '').trim().toLowerCase();
-    final filtered = items.where((item) {
+    final byId = <String, CompanyManualEntry>{};
+    for (final item in items) {
+      final existing = byId[item.id];
+      if (existing == null) {
+        byId[item.id] = item;
+        continue;
+      }
+
+      final currentUpdated = item.updatedAt ?? item.createdAt;
+      final existingUpdated = existing.updatedAt ?? existing.createdAt;
+      if (currentUpdated != null &&
+          (existingUpdated == null || currentUpdated.isAfter(existingUpdated))) {
+        byId[item.id] = item;
+      }
+    }
+
+    final filtered = byId.values.where((item) {
       if (!includeHidden && !item.published) {
         return false;
       }
@@ -418,12 +434,34 @@ class CompanyManualRepository {
       return true;
     }).toList();
 
-    filtered.sort((left, right) {
+    // Defensive fallback against duplicated records created by transient backend or sync issues.
+    final seenExactKeys = <String>{};
+    final deduped = <CompanyManualEntry>[];
+    for (final item in filtered) {
+      final roles = item.targetRoles.map((r) => r.name).toList()..sort();
+      final exactKey = [
+        item.ownerId,
+        item.title.trim().toLowerCase(),
+        item.kind.apiValue,
+        item.audience.apiValue,
+        (item.moduleKey ?? '').trim().toLowerCase(),
+        roles.join(','),
+        item.content.trim().toLowerCase(),
+      ].join('|');
+
+      if (seenExactKeys.contains(exactKey)) {
+        continue;
+      }
+      seenExactKeys.add(exactKey);
+      deduped.add(item);
+    }
+
+    deduped.sort((left, right) {
       final byOrder = left.sortOrder.compareTo(right.sortOrder);
       if (byOrder != 0) return byOrder;
       return left.title.toLowerCase().compareTo(right.title.toLowerCase());
     });
-    return filtered;
+    return deduped;
   }
 
   Future<CompanyManualEntry> _createEntryRemote(CompanyManualEntry entry) async {
