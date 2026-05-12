@@ -2762,6 +2762,10 @@ $objective''';
       _technicalChannelResult(story, MarketingPublishTarget.instagramStory);
     final instagramStoryPermalink =
       _technicalValue(instagramStoryDetails, 'permalink');
+    final facebookStoryDetails =
+      _technicalChannelResult(story, MarketingPublishTarget.facebookStory);
+    final facebookStoryPhotoId =
+      _technicalValue(facebookStoryDetails, 'photoId');
     final hasTechnicalDetails = story.publishErrorDetails.isNotEmpty;
     final alreadyPublishedMessages = <String>[
       if (_selectedPublishTargets.contains(MarketingPublishTarget.facebookStory) &&
@@ -2841,7 +2845,9 @@ $objective''';
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Publicado en Facebook correctamente',
+                    hasFacebookStoryPublished
+                        ? 'Facebook Story publicado correctamente'
+                        : 'Publicado en Facebook correctamente',
                     style: Theme.of(context).textTheme.labelMedium?.copyWith(
                       fontWeight: FontWeight.w800,
                       color: const Color(0xFF0E5F33),
@@ -2858,6 +2864,13 @@ $objective''';
                     const SizedBox(height: 4),
                     Text(
                       'ID Facebook Story: ${story.facebookStoryId}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                  if ((facebookStoryPhotoId ?? '').trim().isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'ID foto base: $facebookStoryPhotoId',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],
@@ -2967,7 +2980,7 @@ $objective''';
                     hasInstagramStoryPublished &&
                             requestedChannels.contains(MarketingPublishTarget.facebookStory) &&
                             !hasFacebookStoryPublished
-                        ? 'Historia publicada en Instagram. Facebook Story pendiente/error.'
+                        ? 'Instagram Story publicada correctamente. Facebook Story no se pudo completar.'
                         : hasFacebookPublished && requestedInstagram && !hasInstagramPublished
                             ? 'Publicado en Facebook, pendiente/error en Instagram'
                         : 'Publicado parcialmente',

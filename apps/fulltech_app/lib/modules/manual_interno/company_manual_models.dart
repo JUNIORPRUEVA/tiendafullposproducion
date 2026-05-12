@@ -236,7 +236,9 @@ class CompanyManualEntry {
   }
 
   Map<String, dynamic> toUpsertDto() {
+    final idTrimmed = id.trim();
     return {
+      if (idTrimmed.isNotEmpty) 'id': idTrimmed,
       'title': title,
       'summary': summary,
       'content': content,
