@@ -32,6 +32,11 @@ export class MarketingDebugController {
     return this.marketing.debugMetaConfig();
   }
 
+  @Get('meta-token')
+  async metaToken() {
+    return this.marketing.debugMetaToken();
+  }
+
   @Post('test-meta-publish')
   async testMetaPublish(
     @Body() body: { imageUrl?: string; caption?: string; dryRun?: boolean },

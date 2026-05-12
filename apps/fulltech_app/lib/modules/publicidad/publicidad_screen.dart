@@ -664,6 +664,31 @@ class PublicidadController extends StateNotifier<PublicidadState> {
         );
       }
 
+      // If today's list is empty, fallback to the latest available date in recent history
+      // so the Estados view doesn't look broken/blank to the user.
+      if (stories.isEmpty && historyItems.isNotEmpty) {
+        DateTime? latestDate;
+        for (final item in historyItems) {
+          final candidate = DateTime(item.date.year, item.date.month, item.date.day);
+          if (latestDate == null || candidate.isAfter(latestDate)) {
+            latestDate = candidate;
+          }
+        }
+
+        if (latestDate != null) {
+          final latest = latestDate;
+          final fallback = historyItems.where((item) {
+            final d = item.date;
+            return d.year == latest.year && d.month == latest.month && d.day == latest.day;
+          }).toList(growable: false);
+
+          final normalizedFallback = _normalizeDailyStories(fallback);
+          if (normalizedFallback.isNotEmpty) {
+            stories = normalizedFallback;
+          }
+        }
+      }
+
       try {
         latestResearch = await _api.loadLatestResearch();
       } catch (error) {
@@ -2242,7 +2267,11 @@ class _StoryCardState extends State<_StoryCard> {
             const SizedBox(width: 8),
             _StatusPill(status: story.status),
             const SizedBox(width: 8),
-            _PublishStatusPill(status: story.publishStatus),
+            _PublishStatusPill(
+              status: story.publishStatus,
+              facebookPostId: story.facebookPostId,
+              instagramPostId: story.instagramPostId,
+            ),
           ],
         ),
         const SizedBox(height: 10),
@@ -2601,9 +2630,17 @@ $objective''';
     final scheme = Theme.of(context).colorScheme;
     final publishDetails = story.publishErrorDetails;
     final failedChannel = '${publishDetails['channel'] ?? ''}'.trim().toLowerCase();
+    final hasFacebookPublished = (story.facebookPostId ?? '').trim().isNotEmpty;
+    final hasInstagramPublished = (story.instagramPostId ?? '').trim().isNotEmpty;
     final hasPublishError =
-        story.publishStatus == MarketingPublishStatus.error ||
-        story.publishStatus == MarketingPublishStatus.partial;
+      !hasFacebookPublished &&
+      (story.publishStatus == MarketingPublishStatus.error ||
+        (story.publishStatus == MarketingPublishStatus.partial &&
+          (failedChannel.isEmpty || failedChannel == 'facebook')));
+    final showPartialInfo =
+      !hasPublishError &&
+      (story.publishStatus == MarketingPublishStatus.partial ||
+        (hasFacebookPublished && !hasInstagramPublished));
     final retryLabel = failedChannel == 'instagram'
         ? 'Reintentar Instagram'
         : failedChannel == 'facebook'
@@ -2656,6 +2693,68 @@ $objective''';
                     child: _StoryImageView(url: designUploadedUrl),
                   ),
                 ),
+              ),
+            ),
+          ],
+          if (story.status == MarketingStoryStatus.approved && hasFacebookPublished) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFDFF7E8),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFF49A36D)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Publicado en Facebook correctamente',
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: const Color(0xFF0E5F33),
+                    ),
+                  ),
+                  if ((story.facebookPostId ?? '').trim().isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'ID Facebook: ${story.facebookPostId}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+          if (showPartialInfo) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF7E6),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFE2A63A)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Publicado parcialmente',
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: const Color(0xFF8A5A00),
+                    ),
+                  ),
+                  if ((story.instagramPostId ?? '').trim().isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'ID Instagram: ${story.instagramPostId}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ],
               ),
             ),
           ],
@@ -2735,32 +2834,6 @@ $objective''';
           const SizedBox(height: 10),
           Wrap(
             spacing: 8,
-            children: [
-              Expanded(
-                child: SegmentedButton<String>(
-                  segments: const <ButtonSegment<String>>[
-                    ButtonSegment<String>(
-                      value: 'story',
-                      label: Text('Story'),
-                      icon: Icon(Icons.history_edu_rounded),
-                    ),
-                    ButtonSegment<String>(
-                      value: 'post',
-                      label: Text('Post'),
-                      icon: Icon(Icons.image_rounded),
-                    ),
-                  ],
-                  selected: <String>{_contentType},
-                  onSelectionChanged: (Set<String> newSelection) {
-                    setState(() => _contentType = newSelection.first);
-                  },
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
             runSpacing: 8,
             children: [
               FilledButton.icon(
@@ -2768,8 +2841,9 @@ $objective''';
                 icon: const Icon(Icons.check_circle_rounded, size: 18),
                 label: const Text('Aprobar'),
               ),
-              if (story.publishStatus == MarketingPublishStatus.partial ||
-                  story.publishStatus == MarketingPublishStatus.error)
+              if ((story.publishStatus == MarketingPublishStatus.partial ||
+                      story.publishStatus == MarketingPublishStatus.error) &&
+                  story.publishStatus != MarketingPublishStatus.published)
                 FilledButton.tonalIcon(
                   onPressed: widget.busy ? null : widget.onRetryPublish,
                   icon: const Icon(Icons.restart_alt_rounded, size: 18),
@@ -6080,13 +6154,25 @@ class _StatusPill extends StatelessWidget {
 }
 
 class _PublishStatusPill extends StatelessWidget {
-  const _PublishStatusPill({required this.status});
+  const _PublishStatusPill({
+    required this.status,
+    required this.facebookPostId,
+    required this.instagramPostId,
+  });
 
   final MarketingPublishStatus status;
+  final String? facebookPostId;
+  final String? instagramPostId;
 
   @override
   Widget build(BuildContext context) {
-    final (bg, fg, text) = switch (status) {
+    final hasFacebook = (facebookPostId ?? '').trim().isNotEmpty;
+    final hasInstagram = (instagramPostId ?? '').trim().isNotEmpty;
+    final effectiveStatus = hasFacebook
+        ? (hasInstagram ? MarketingPublishStatus.published : MarketingPublishStatus.partial)
+        : status;
+
+    final (bg, fg, text) = switch (effectiveStatus) {
       MarketingPublishStatus.pending => (
         const Color(0xFFE2E8F0),
         const Color(0xFF334155),
@@ -6100,12 +6186,12 @@ class _PublishStatusPill extends StatelessWidget {
       MarketingPublishStatus.published => (
         const Color(0xFFD9FBE5),
         const Color(0xFF0E5F33),
-        'Publicado',
+        hasInstagram ? 'Publicado' : 'Publicado FB',
       ),
       MarketingPublishStatus.partial => (
         const Color(0xFFFFF3CD),
         const Color(0xFF7A5A00),
-        'Parcial',
+        hasFacebook ? 'Publicado FB' : 'Parcial',
       ),
       MarketingPublishStatus.error => (
         const Color(0xFFFFE1E1),

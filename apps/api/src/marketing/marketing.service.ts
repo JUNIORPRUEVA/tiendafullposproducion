@@ -395,6 +395,10 @@ export class MarketingService {
     return this.metaPublisher.getDebugMetaConfig();
   }
 
+  async debugMetaToken() {
+    return this.metaPublisher.getDebugMetaToken();
+  }
+
   async debugTestMetaPublish(input: { imageUrl?: string; caption?: string; dryRun?: boolean }) {
     const imageUrl = `${input.imageUrl ?? ''}`.trim();
     const caption = `${input.caption ?? ''}`.trim();

@@ -37,6 +37,21 @@ type MetaRawConfig = {
   pageId: string;
   instagramBusinessId: string;
   accessToken: string;
+  appId: string;
+  appSecret: string;
+};
+
+type MetaTokenInspection = {
+  tokenPreview: string;
+  isValid: boolean;
+  tokenType: string | null;
+  profileId: string | null;
+  pageIdConfigured: boolean;
+  pageId: string;
+  hasPagesManagePosts: boolean;
+  hasInstagramContentPublish: boolean;
+  expiresAt: string | null;
+  scopes: string[];
 };
 
 type MetaPublishErrorDetails = {
@@ -86,6 +101,7 @@ export class MarketingMetaPublisherService {
     }
 
     const rawConfig = this.resolveMetaConfigRaw();
+    const instagramRequested = rawConfig.instagramBusinessId.trim().length > 0;
     this.logger.log(`[meta-publish] start storyId=${story.id} contentType=${contentType}`);
     this.logger.log(`[meta-publish] imageUrl=${imageUrl}`);
     this.logger.log(`[meta-publish] captionLength=${caption.trim().length}`);
@@ -133,17 +149,18 @@ export class MarketingMetaPublisherService {
       this.assertPrePublishInputs(normalizedImageUrl, caption);
       await this.assertImageUrlReachable(normalizedImageUrl);
       await this.validateMetaConnectivity(config);
+      await this.validatePageTokenPermissions(config);
 
       const publishFacebookNow = retryOnlyMissing ? !facebookPostId : shouldPublishFacebook;
-      const publishInstagramNow = retryOnlyMissing ? !instagramPostId : shouldPublishInstagram;
+      const publishInstagramNow = instagramRequested && (retryOnlyMissing ? !instagramPostId : shouldPublishInstagram);
 
       if (publishFacebookNow) {
-        const isFacebookStory = contentType === 'story';
-        this.logger.log(`[meta-publish-facebook] contentType=${contentType} storyMode=${isFacebookStory}`);
-        const facebookResult = isFacebookStory
-          ? await this.publishFacebookStory(config, normalizedImageUrl, caption)
-          : await this.publishFacebookPhoto(config, normalizedImageUrl, caption);
+        this.logger.log(`[meta-facebook] publishing to pageId=${config.pageId}`);
+        this.logger.log('[meta-facebook] endpoint=/{pageId}/photos');
+        this.logger.log('[meta-facebook] never using publish_actions');
+        const facebookResult = await this.publishFacebookPhoto(config, normalizedImageUrl, caption);
         facebookPostId = facebookResult;
+        this.logger.log(`[meta-publish-facebook] success id=${facebookPostId}`);
       }
 
       if (publishInstagramNow) {
@@ -151,31 +168,39 @@ export class MarketingMetaPublisherService {
         instagramPostId = instagramResult;
       }
 
-      const fullSuccess = !!facebookPostId && !!instagramPostId;
-      publishStatus = fullSuccess ? 'PUBLISHED' : 'PARTIAL';
-      publishedAt = fullSuccess ? new Date() : null;
-      publishError = fullSuccess ? null : 'Publicación parcial: uno de los destinos sigue pendiente.';
-      publishErrorCode = null;
+      const facebookOk = !!facebookPostId;
+      const instagramOk = !instagramRequested || !!instagramPostId;
+      const fullSuccess = facebookOk && instagramOk;
+      publishStatus = fullSuccess ? 'PUBLISHED' : facebookOk ? 'PARTIAL' : 'ERROR';
+      publishedAt = facebookOk ? new Date() : null;
+      publishError = fullSuccess ? null : facebookOk ? null : 'No se pudo publicar en Facebook.';
+      publishErrorCode = fullSuccess ? null : publishErrorCode;
       publishErrorDetails = fullSuccess
         ? Prisma.JsonNull
-        : {
-            channel: !facebookPostId ? 'facebook' : 'instagram',
-            stage: 'post-publish-check',
-            message: 'Publicación parcial: uno de los destinos sigue pendiente.',
-          } as Prisma.InputJsonValue;
+        : facebookOk
+          ? Prisma.JsonNull
+          : {
+              channel: 'facebook',
+              stage: 'post-publish-check',
+              message: 'No se pudo publicar en Facebook.',
+            } as Prisma.InputJsonValue;
     } catch (error) {
       const parsed = this.parsePublishError(error);
+      const isLegacyPublishActionsError =
+        parsed.channel === 'facebook' && parsed.code === 200 && /publish_actions/i.test(parsed.message);
+      const publishActionsGuidance =
+        'Meta está rechazando el token como flujo antiguo/publish_actions. Genera un Page Access Token con pages_manage_posts y vuelve a conectar.';
       publishErrorCode = parsed.code != null ? `${parsed.code}` : null;
       publishErrorDetails = this.toErrorDetailsJson(parsed);
       if (facebookPostId && !instagramPostId) {
         publishStatus = 'PARTIAL';
-        publishError = `Facebook publicado, Instagram falló: ${parsed.message}`;
+        publishError = isLegacyPublishActionsError ? publishActionsGuidance : parsed.message;
       } else if (!facebookPostId && instagramPostId) {
         publishStatus = 'PARTIAL';
-        publishError = `Instagram publicado, Facebook falló: ${parsed.message}`;
+        publishError = isLegacyPublishActionsError ? publishActionsGuidance : parsed.message;
       } else {
         publishStatus = 'ERROR';
-        publishError = parsed.message;
+        publishError = isLegacyPublishActionsError ? publishActionsGuidance : parsed.message;
       }
       this.logger.error(`[meta-publish] story=${story.id} error=${publishError}`);
     }
@@ -197,6 +222,10 @@ export class MarketingMetaPublisherService {
         mediaAsset: true,
       },
     });
+    if (facebookPostId) {
+      this.logger.log(`[meta-publish-facebook] saved facebookPostId=${facebookPostId}`);
+    }
+    this.logger.log(`[meta-publish] final publishStatus=${publishStatus}`);
 
     try {
       await this.prisma.marketingActivityLog.create({
@@ -254,9 +283,32 @@ export class MarketingMetaPublisherService {
       instagramIdConfigured: raw.instagramBusinessId.length > 0,
       graphVersion: raw.graphVersion,
       tokenPreview: this.maskToken(raw.accessToken),
+      appIdConfigured: raw.appId.length > 0,
+      appSecretConfigured: raw.appSecret.length > 0,
       publicBaseUrl: storage.publicBaseUrl,
       storageMode: storage.storageMode,
     };
+  }
+
+  async getDebugMetaToken() {
+    const raw = this.resolveMetaConfigRaw();
+    const tokenPreview = this.maskToken(raw.accessToken);
+    if (!raw.accessToken || !raw.appId || !raw.appSecret) {
+      return {
+        tokenPreview,
+        isValid: false,
+        tokenType: null,
+        profileId: null,
+        pageIdConfigured: raw.pageId.length > 0,
+        pageId: raw.pageId,
+        hasPagesManagePosts: false,
+        hasInstagramContentPublish: false,
+        expiresAt: null,
+        scopes: [] as string[],
+      };
+    }
+    const config = this.resolveMetaConfig(raw);
+    return this.inspectMetaToken(config);
   }
 
   async debugTestPublish(input: { imageUrl: string; caption: string; dryRun?: boolean }) {
@@ -281,7 +333,9 @@ export class MarketingMetaPublisherService {
     }
 
     const facebookPostId = await this.publishFacebookPhoto(config, imageUrl, caption);
-    const instagramPostId = await this.publishInstagramFeedPost(config, imageUrl, caption);
+    const instagramPostId = config.instagramBusinessId.trim()
+      ? await this.publishInstagramFeedPost(config, imageUrl, caption)
+      : null;
     return {
       ok: true,
       dryRun: false,
@@ -320,7 +374,23 @@ export class MarketingMetaPublisherService {
       ''
     ).trim();
 
-    return { graphVersion, pageId, instagramBusinessId, accessToken };
+    const appId = (
+      this.config.get<string>('META_APP_ID') ??
+      process.env.META_APP_ID ??
+      this.config.get<string>('FACEBOOK_APP_ID') ??
+      process.env.FACEBOOK_APP_ID ??
+      ''
+    ).trim();
+
+    const appSecret = (
+      this.config.get<string>('META_APP_SECRET') ??
+      process.env.META_APP_SECRET ??
+      this.config.get<string>('FACEBOOK_APP_SECRET') ??
+      process.env.FACEBOOK_APP_SECRET ??
+      ''
+    ).trim();
+
+    return { graphVersion, pageId, instagramBusinessId, accessToken, appId, appSecret };
   }
 
   private resolveMetaConfig(raw: MetaRawConfig): MetaConfig {
@@ -336,20 +406,6 @@ export class MarketingMetaPublisherService {
         httpStatus: null,
         endpoint: null,
         details: { key: 'META_FACEBOOK_PAGE_ID' },
-      });
-    }
-    if (!raw.instagramBusinessId) {
-      throw new MetaApiError({
-        channel: 'validation',
-        stage: 'config',
-        message: 'Falta META_INSTAGRAM_BUSINESS_ID',
-        type: 'CONFIG_ERROR',
-        code: null,
-        subcode: null,
-        fbtraceId: null,
-        httpStatus: null,
-        endpoint: null,
-        details: { key: 'META_INSTAGRAM_BUSINESS_ID' },
       });
     }
     if (!raw.accessToken) {
@@ -392,8 +448,119 @@ export class MarketingMetaPublisherService {
     }
   }
 
+  private async validatePageTokenPermissions(config: MetaConfig) {
+    const raw = this.resolveMetaConfigRaw();
+    if (!raw.appId || !raw.appSecret) {
+      throw new MetaApiError({
+        channel: 'validation',
+        stage: 'debug-token-config',
+        message:
+          'Faltan META_APP_ID o META_APP_SECRET. No se puede validar token antes de publicar.',
+        type: 'CONFIG_ERROR',
+        code: null,
+        subcode: null,
+        fbtraceId: null,
+        httpStatus: null,
+        endpoint: '/debug_token',
+        details: {
+          required: ['META_APP_ID', 'META_APP_SECRET'],
+        },
+      });
+    }
+
+    const token = await this.inspectMetaToken(config);
+    if (!token.isValid) {
+      throw new MetaApiError({
+        channel: 'validation',
+        stage: 'debug-token-validate',
+        message:
+          'Token de página inválido. Genera primero un user token extendido y luego usa el page access token de /me/accounts para Fulltech, srl.',
+        type: 'TOKEN_INVALID',
+        code: null,
+        subcode: null,
+        fbtraceId: null,
+        httpStatus: null,
+        endpoint: '/debug_token',
+        details: token,
+      });
+    }
+
+    if ((token.tokenType ?? '').toUpperCase() !== 'PAGE' || token.profileId !== config.pageId) {
+      throw new MetaApiError({
+        channel: 'validation',
+        stage: 'debug-token-validate',
+        message:
+          'Meta está rechazando el token como flujo antiguo/publish_actions. Genera un Page Access Token con pages_manage_posts y vuelve a conectar.',
+        type: 'TOKEN_TYPE_MISMATCH',
+        code: null,
+        subcode: null,
+        fbtraceId: null,
+        httpStatus: null,
+        endpoint: '/debug_token',
+        details: token,
+      });
+    }
+
+    if (!token.hasPagesManagePosts) {
+      throw new MetaApiError({
+        channel: 'validation',
+        stage: 'debug-token-validate',
+        message:
+          'Token de página sin pages_manage_posts. Genera un Page Access Token con permisos correctos.',
+        type: 'MISSING_SCOPE',
+        code: null,
+        subcode: null,
+        fbtraceId: null,
+        httpStatus: null,
+        endpoint: '/debug_token',
+        details: token,
+      });
+    }
+  }
+
+  private async inspectMetaToken(config: MetaConfig): Promise<MetaTokenInspection> {
+    const raw = this.resolveMetaConfigRaw();
+    const appAccessToken = `${raw.appId}|${raw.appSecret}`;
+    const url = `https://graph.facebook.com/${config.graphVersion}/debug_token?input_token=${encodeURIComponent(config.accessToken)}&access_token=${encodeURIComponent(appAccessToken)}`;
+    const response = await fetch(url, { method: 'GET' });
+    const payload = await response.json().catch(() => ({} as any));
+    if (!response.ok) {
+      const parsed = this.parseMetaErrorPayload(payload, {
+        channel: 'meta',
+        stage: 'debug-token-request',
+        endpoint: '/debug_token',
+        httpStatus: response.status,
+      });
+      throw new MetaApiError(parsed);
+    }
+
+    const data = payload?.data ?? {};
+    const scopes = Array.isArray(data?.scopes)
+      ? data.scopes.map((item: unknown) => `${item}`.trim()).filter((item: string) => item.length > 0)
+      : [];
+    const expiresAt = Number.isFinite(Number(data?.expires_at))
+      ? new Date(Number(data.expires_at) * 1000).toISOString()
+      : null;
+
+    return {
+      tokenPreview: this.maskToken(config.accessToken),
+      isValid: data?.is_valid === true,
+      tokenType: `${data?.type ?? ''}`.trim() || null,
+      profileId: `${data?.profile_id ?? ''}`.trim() || null,
+      pageIdConfigured: config.pageId.length > 0,
+      pageId: config.pageId,
+      hasPagesManagePosts: scopes.includes('pages_manage_posts'),
+      hasInstagramContentPublish: scopes.includes('instagram_content_publish'),
+      expiresAt,
+      scopes,
+    };
+  }
+
   private async publishFacebookPhoto(config: MetaConfig, imageUrl: string, caption: string) {
     const url = `https://graph.facebook.com/${config.graphVersion}/${config.pageId}/photos`;
+    this.logger.log(`[meta-facebook] publishing to pageId=${config.pageId}`);
+    this.logger.log('[meta-facebook] endpoint=/{pageId}/photos');
+    this.logger.log('[meta-facebook] never using publish_actions');
     this.logger.log(`[meta-publish-facebook] request /${config.pageId}/photos`);
     const body = new URLSearchParams({
       url: imageUrl,
@@ -439,60 +606,27 @@ export class MarketingMetaPublisherService {
     return postId;
   }
 
-  private async publishFacebookStory(config: MetaConfig, imageUrl: string, caption: string) {
-    const url = `https://graph.facebook.com/${config.graphVersion}/${config.pageId}/stories`;
-    this.logger.log(`[meta-publish-facebook] request /${config.pageId}/stories (story mode)`);
-    const body = new URLSearchParams({
-      image_url: imageUrl,
-      caption,
-      access_token: config.accessToken,
-    });
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body,
-    });
-    const payload = await response.json().catch(() => ({} as any));
-    this.logger.log(`[meta-publish-facebook] story_response=${this.safeJson(payload)}`);
-    if (!response.ok) {
-      const parsed = this.parseMetaErrorPayload(payload, {
-        channel: 'facebook',
-        stage: 'facebook-story-publish',
-        endpoint: `/${config.pageId}/stories`,
-        httpStatus: response.status,
-      });
-      this.logger.error(`[meta-publish-facebook] error=${parsed.message}`);
-      throw new MetaApiError(parsed);
-    }
-    const storyId = `${payload.story_id ?? payload.id ?? ''}`.trim();
-    if (!storyId) {
-      const parsed: MetaPublishErrorDetails = {
-        channel: 'facebook',
-        stage: 'facebook-story-publish',
-        message: 'Facebook no devolvió ID de Story.',
-        type: 'MALFORMED_RESPONSE',
+  private async publishInstagramFeedPost(config: MetaConfig, imageUrl: string, caption: string) {
+    if (!config.instagramBusinessId.trim()) {
+      throw new MetaApiError({
+        channel: 'validation',
+        stage: 'instagram-config',
+        message: 'Falta META_INSTAGRAM_BUSINESS_ID',
+        type: 'CONFIG_ERROR',
         code: null,
         subcode: null,
         fbtraceId: null,
-        httpStatus: response.status,
-        endpoint: `/${config.pageId}/stories`,
-        details: { payload },
-      };
-      this.logger.error(`[meta-publish-facebook] error=${parsed.message}`);
-      throw new MetaApiError(parsed);
+        httpStatus: null,
+        endpoint: null,
+        details: { key: 'META_INSTAGRAM_BUSINESS_ID' },
+      });
     }
-    this.logger.log(`[meta-publish-facebook] storyId=${storyId}`);
-    return storyId;
-  }
-
-  private async publishInstagramFeedPost(config: MetaConfig, imageUrl: string, caption: string) {
     const createUrl = `https://graph.facebook.com/${config.graphVersion}/${config.instagramBusinessId}/media`;
     this.logger.log('[meta-publish-instagram] create media container');
     const createBody = new URLSearchParams({
       image_url: imageUrl,
       caption,
       access_token: config.accessToken,
-      share_to_feed: 'true',
     });
     const createResponse = await fetch(createUrl, {
       method: 'POST',
