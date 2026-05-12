@@ -12,6 +12,7 @@ import '../../core/auth/auth_provider.dart';
 import '../../core/errors/api_exception.dart';
 import '../../core/models/product_model.dart';
 import '../../core/api/env.dart';
+import '../../core/utils/safe_url_launcher.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
 import '../../features/catalogo/data/catalog_repository.dart';
@@ -2706,20 +2707,30 @@ $objective''';
     final failedChannel = '${publishDetails['channel'] ?? ''}'.trim().toLowerCase();
     final publishedChannels = story.publishedChannels.toSet();
     final requestedChannels = _selectedPublishTargets;
+    final facebookStoryStatusValue = (story.facebookStoryStatus ?? '').trim().toUpperCase();
+    final instagramStoryStatusValue = (story.instagramStoryStatus ?? '').trim().toUpperCase();
+    final facebookPostStatusValue = (story.facebookPostStatus ?? '').trim().toUpperCase();
+    final instagramPostStatusValue = (story.instagramPostStatus ?? '').trim().toUpperCase();
     final hasFacebookStoryPublished =
       publishedChannels.contains(MarketingPublishTarget.facebookStory) ||
-      (story.facebookStoryId ?? '').trim().isNotEmpty;
+      ((story.facebookStoryId ?? '').trim().isNotEmpty &&
+        facebookStoryStatusValue != 'ERROR' &&
+        facebookStoryStatusValue != 'UNSUPPORTED');
     final hasFacebookPostPublished =
       publishedChannels.contains(MarketingPublishTarget.facebookPost) ||
-      (story.facebookPostId ?? '').trim().isNotEmpty;
+      ((story.facebookPostId ?? '').trim().isNotEmpty &&
+        facebookPostStatusValue != 'ERROR');
     final hasFacebookPublished =
       hasFacebookStoryPublished || hasFacebookPostPublished;
     final hasInstagramPostPublished =
         publishedChannels.contains(MarketingPublishTarget.instagramPost) ||
-        (story.instagramPostId ?? '').trim().isNotEmpty;
+        ((story.instagramPostId ?? '').trim().isNotEmpty &&
+          instagramPostStatusValue != 'ERROR');
     final hasInstagramStoryPublished =
         publishedChannels.contains(MarketingPublishTarget.instagramStory) ||
-        (story.instagramStoryId ?? '').trim().isNotEmpty;
+        ((story.instagramStoryId ?? '').trim().isNotEmpty &&
+          instagramStoryStatusValue != 'ERROR' &&
+          instagramStoryStatusValue != 'UNKNOWN_VERIFY');
     final hasInstagramPublished =
         hasInstagramPostPublished || hasInstagramStoryPublished;
     final anyPublished = hasFacebookPublished || hasInstagramPublished;
@@ -2743,9 +2754,29 @@ $objective''';
             ? 'Reintentar Facebook'
             : 'Reintentar publicación';
     final selectedTargets = _selectedPublishTargets.toList(growable: false);
-    final facebookStoryStatus = (story.facebookStoryStatus ?? '').trim().toUpperCase();
     final showFacebookStoryChannelError =
-      facebookStoryStatus == 'ERROR' || facebookStoryStatus == 'UNSUPPORTED';
+      facebookStoryStatusValue == 'ERROR' || facebookStoryStatusValue == 'UNSUPPORTED';
+    final showInstagramStoryUnknownVerify =
+      instagramStoryStatusValue == 'UNKNOWN_VERIFY';
+    final instagramStoryDetails =
+      _technicalChannelResult(story, MarketingPublishTarget.instagramStory);
+    final instagramStoryPermalink =
+      _technicalValue(instagramStoryDetails, 'permalink');
+    final hasTechnicalDetails = story.publishErrorDetails.isNotEmpty;
+    final alreadyPublishedMessages = <String>[
+      if (_selectedPublishTargets.contains(MarketingPublishTarget.facebookStory) &&
+          (story.facebookStoryId ?? '').trim().isNotEmpty)
+        'Facebook Story ya fue publicada. No se volverá a enviar automáticamente.',
+      if (_selectedPublishTargets.contains(MarketingPublishTarget.instagramStory) &&
+          (story.instagramStoryId ?? '').trim().isNotEmpty)
+        'Instagram Story ya fue publicada. No se volverá a enviar automáticamente.',
+      if (_selectedPublishTargets.contains(MarketingPublishTarget.facebookPost) &&
+          (story.facebookPostId ?? '').trim().isNotEmpty)
+        'Facebook Post ya fue publicado. No se volverá a enviar automáticamente.',
+      if (_selectedPublishTargets.contains(MarketingPublishTarget.instagramPost) &&
+          (story.instagramPostId ?? '').trim().isNotEmpty)
+        'Instagram Post ya fue publicado. No se volverá a enviar automáticamente.',
+    ];
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -2867,7 +2898,54 @@ $objective''';
                       'ID Instagram Story: ${story.instagramStoryId}',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
+                    const SizedBox(height: 4),
+                    Text(
+                      instagramStoryPermalink != null
+                          ? 'Meta devolvió enlace para esta Story.'
+                          : 'Instagram Story enviada a Meta. Puede tardar unos segundos en aparecer.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
                   ],
+                  if (instagramStoryPermalink != null) ...[
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: OutlinedButton.icon(
+                        onPressed: () => _openExternalUrl(context, instagramStoryPermalink),
+                        icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                        label: const Text('Ver en Instagram'),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+          if (showInstagramStoryUnknownVerify) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF7E6),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFE2A63A)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Instagram Story con verificación incierta',
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: const Color(0xFF8A5A00),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Meta devolvió un resultado que no confirma una Story real. Revisa los detalles técnicos antes de asumir que quedó visible.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
                 ],
               ),
             ),
@@ -2922,12 +3000,12 @@ $objective''';
               width: double.infinity,
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: facebookStoryStatus == 'UNSUPPORTED'
+                color: facebookStoryStatusValue == 'UNSUPPORTED'
                     ? const Color(0xFFFFF7E6)
                     : const Color(0xFFFFEAEA),
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(
-                  color: facebookStoryStatus == 'UNSUPPORTED'
+                  color: facebookStoryStatusValue == 'UNSUPPORTED'
                       ? const Color(0xFFE2A63A)
                       : const Color(0xFFE57373),
                 ),
@@ -2936,12 +3014,12 @@ $objective''';
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    facebookStoryStatus == 'UNSUPPORTED'
+                    facebookStoryStatusValue == 'UNSUPPORTED'
                         ? 'Facebook Story no soportado'
                         : 'Error en Facebook Story',
                     style: Theme.of(context).textTheme.labelMedium?.copyWith(
                       fontWeight: FontWeight.w800,
-                      color: facebookStoryStatus == 'UNSUPPORTED'
+                      color: facebookStoryStatusValue == 'UNSUPPORTED'
                           ? const Color(0xFF8A5A00)
                           : const Color(0xFF8E1C1C),
                     ),
@@ -2996,7 +3074,7 @@ $objective''';
                     child: OutlinedButton.icon(
                       onPressed: () => _openPublishErrorDetail(context, story),
                       icon: const Icon(Icons.info_outline_rounded, size: 16),
-                      label: const Text('Ver detalle'),
+                      label: const Text('Ver detalles técnicos'),
                     ),
                   ),
                 ],
@@ -3045,9 +3123,34 @@ $objective''';
                   label: 'Instagram Post',
                   subtitle: 'Publica en el feed del Instagram Business',
                 ),
+                if (alreadyPublishedMessages.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  for (final message in alreadyPublishedMessages)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Text(
+                        message,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: const Color(0xFF8A5A00),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                ],
               ],
             ),
           ),
+          if (hasTechnicalDetails && !hasPublishError) ...[
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: () => _openPublishErrorDetail(context, story),
+                icon: const Icon(Icons.analytics_outlined, size: 16),
+                label: const Text('Ver detalles técnicos'),
+              ),
+            ),
+          ],
           const SizedBox(height: 10),
           Wrap(
             spacing: 8,
@@ -3122,11 +3225,12 @@ $objective''';
     final subcode = '${details['subcode'] ?? ''}'.trim();
     final fbtraceId = '${details['fbtraceId'] ?? details['fbtrace_id'] ?? ''}'.trim();
     final happenedAt = '${details['happenedAt'] ?? ''}'.trim();
+    final technicalJson = _prettyJson(details);
 
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Detalle de publicación Meta'),
+        title: const Text('Detalles técnicos Meta'),
         content: SizedBox(
           width: 560,
           child: SingleChildScrollView(
@@ -3142,6 +3246,31 @@ $objective''';
                 _InfoLine(
                   label: 'Fecha/hora',
                   value: happenedAt.isEmpty ? _formatDateTime(story.updatedAt) : happenedAt,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Rastro técnico',
+                  style: Theme.of(dialogContext).textTheme.labelMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Theme.of(dialogContext)
+                        .colorScheme
+                        .surfaceContainerHighest
+                        .withValues(alpha: 0.55),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: SelectableText(
+                    technicalJson,
+                    style: Theme.of(dialogContext).textTheme.bodySmall?.copyWith(
+                      fontFamily: 'monospace',
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -3179,6 +3308,40 @@ $objective''';
 
   void _openImagePicker(BuildContext context) {
     widget.onChangeBaseImage();
+  }
+
+  Map<String, dynamic> _technicalChannelResult(
+    MarketingStory story,
+    MarketingPublishTarget target,
+  ) {
+    final rawResults = story.publishErrorDetails['channelResults'];
+    if (rawResults is! Map) return const <String, dynamic>{};
+    final raw = rawResults[publishTargetApiValue(target)];
+    if (raw is! Map) return const <String, dynamic>{};
+    return raw.cast<String, dynamic>();
+  }
+
+  String? _technicalValue(Map<String, dynamic> raw, String key) {
+    final value = '${raw[key] ?? ''}'.trim();
+    return value.isEmpty ? null : value;
+  }
+
+  String _prettyJson(Map<String, dynamic> value) {
+    try {
+      return const JsonEncoder.withIndent('  ').convert(value);
+    } catch (_) {
+      return value.toString();
+    }
+  }
+
+  Future<void> _openExternalUrl(BuildContext context, String rawUrl) async {
+    final uri = Uri.tryParse(rawUrl.trim());
+    if (uri == null) return;
+    await safeOpenUrl(
+      context,
+      uri,
+      copiedMessage: 'No se pudo abrir el enlace. URL copiada.',
+    );
   }
 
   Future<String?> _openFilePickerAndUpload(BuildContext context) async {
