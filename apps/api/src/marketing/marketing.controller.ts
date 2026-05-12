@@ -22,6 +22,11 @@ type RequestUser = {
   role?: string;
 };
 
+type ApproveStoryBody = {
+  contentType?: string;
+  publishTargets?: string[];
+};
+
 @Controller('marketing')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 @Roles(Role.ADMIN)
@@ -74,17 +79,25 @@ export class MarketingController {
   async approve(
     @Req() req: Request,
     @Param('id') storyId: string,
-    @Body() dto?: { contentType?: string },
+    @Body() dto?: ApproveStoryBody,
   ) {
     const user = req.user as RequestUser;
     const companyId = this.marketing.resolveCompanyId();
     const contentType = dto?.contentType ?? 'post';
-    this.logger.log(`[marketing-approve] storyId=${storyId} contentType=${contentType}`);
+    const publishTargets = Array.isArray(dto?.publishTargets)
+      ? dto!.publishTargets!.map((item) => `${item}`.trim()).filter((item) => item.length > 0)
+      : [];
+    this.logger.log(
+      `[marketing-approve] storyId=${storyId} contentType=${contentType} publishTargets=${JSON.stringify(publishTargets)}`,
+    );
     this.logger.log('[marketing-approve] publishOptions={"retryOnlyMissing":false}');
-    const result = await this.marketing.approveStory(companyId, storyId, user.id ?? '', contentType);
+    const result = await this.marketing.approveStory(companyId, storyId, user.id ?? '', {
+      contentType,
+      publishTargets,
+    });
     const publication = (result as any)?.publication ?? {};
-    this.logger.log(`[marketing-approve] shouldPublishFacebook=${publication.shouldPublishFacebook === true}`);
-    this.logger.log(`[marketing-approve] shouldPublishInstagram=${publication.shouldPublishInstagram === true}`);
+    this.logger.log(`[marketing-approve] requestedChannels=${JSON.stringify(publication.requestedChannels ?? [])}`);
+    this.logger.log(`[marketing-approve] publishedChannels=${JSON.stringify(publication.publishedChannels ?? [])}`);
     this.logger.log(`[marketing-approve] resultStatus=${`${publication.publishStatus ?? 'UNKNOWN'}`}`);
     return result;
   }

@@ -51,6 +51,8 @@ enum MarketingStoryStatus { pending, approved, rejected, regenerated }
 
 enum MarketingPublishStatus { pending, publishing, published, partial, error }
 
+enum MarketingPublishTarget { facebookPost, instagramPost, instagramStory }
+
 enum MarketingImageStatus {
   pending,
   queued,
@@ -102,6 +104,43 @@ MarketingPublishStatus parsePublishStatus(String? value) {
     default:
       return MarketingPublishStatus.pending;
   }
+}
+
+MarketingPublishTarget? parsePublishTarget(String? value) {
+  final normalized = (value ?? '').trim().toLowerCase();
+  switch (normalized) {
+    case 'facebook_post':
+      return MarketingPublishTarget.facebookPost;
+    case 'instagram_post':
+      return MarketingPublishTarget.instagramPost;
+    case 'instagram_story':
+      return MarketingPublishTarget.instagramStory;
+    default:
+      return null;
+  }
+}
+
+String publishTargetApiValue(MarketingPublishTarget value) {
+  switch (value) {
+    case MarketingPublishTarget.facebookPost:
+      return 'facebook_post';
+    case MarketingPublishTarget.instagramPost:
+      return 'instagram_post';
+    case MarketingPublishTarget.instagramStory:
+      return 'instagram_story';
+  }
+}
+
+List<MarketingPublishTarget> parsePublishTargets(dynamic value) {
+  if (value is! List) return const [];
+  final items = <MarketingPublishTarget>[];
+  for (final item in value) {
+    final parsed = parsePublishTarget('$item');
+    if (parsed != null && !items.contains(parsed)) {
+      items.add(parsed);
+    }
+  }
+  return items;
 }
 
 MarketingImageStatus parseImageStatus(String? value) {
@@ -432,6 +471,11 @@ class MarketingStory {
     required this.publishedAt,
     required this.facebookPostId,
     required this.instagramPostId,
+    required this.instagramMediaId,
+    required this.instagramStoryId,
+    required this.instagramContainerId,
+    required this.publishedChannels,
+    required this.publishTargets,
     required this.publishStatus,
     required this.publishError,
     required this.publishErrorCode,
@@ -469,6 +513,11 @@ class MarketingStory {
   final DateTime? publishedAt;
   final String? facebookPostId;
   final String? instagramPostId;
+  final String? instagramMediaId;
+  final String? instagramStoryId;
+  final String? instagramContainerId;
+  final List<MarketingPublishTarget> publishedChannels;
+  final List<MarketingPublishTarget> publishTargets;
   final MarketingPublishStatus publishStatus;
   final String? publishError;
   final String? publishErrorCode;
@@ -528,9 +577,20 @@ class MarketingStory {
         facebookPostId: '${json['facebookPostId'] ?? ''}'.trim().isEmpty
           ? null
           : '${json['facebookPostId']}',
-        instagramPostId: '${json['instagramPostId'] ?? ''}'.trim().isEmpty
+        instagramPostId: '${json['instagramPostId'] ?? json['instagramMediaId'] ?? ''}'.trim().isEmpty
           ? null
-          : '${json['instagramPostId']}',
+          : '${json['instagramPostId'] ?? json['instagramMediaId']}',
+        instagramMediaId: '${json['instagramMediaId'] ?? json['instagramPostId'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${json['instagramMediaId'] ?? json['instagramPostId']}',
+        instagramStoryId: '${json['instagramStoryId'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${json['instagramStoryId']}',
+        instagramContainerId: '${json['instagramContainerId'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${json['instagramContainerId']}',
+        publishedChannels: parsePublishTargets(json['publishedChannels']),
+        publishTargets: parsePublishTargets(json['publishTargets']),
         publishStatus: parsePublishStatus('${json['publishStatus'] ?? ''}'),
         publishError: '${json['publishError'] ?? ''}'.trim().isEmpty
           ? null

@@ -204,9 +204,21 @@ class PublicidadController extends StateNotifier<PublicidadState> {
     });
   }
 
-  Future<void> approve(String storyId, String contentType) async {
+  Future<void> approve(
+    String storyId,
+    List<MarketingPublishTarget> publishTargets,
+  ) async {
     await _runBusy(() async {
-      await _api.approve(storyId, contentType: contentType);
+      final legacyContentType =
+          publishTargets.length == 1 &&
+              publishTargets.contains(MarketingPublishTarget.instagramStory)
+          ? 'story'
+          : 'post';
+      await _api.approve(
+        storyId,
+        contentType: legacyContentType,
+        publishTargets: publishTargets,
+      );
       await _refresh(keepLoading: false);
     });
   }
@@ -1809,7 +1821,10 @@ class _DashboardTab extends StatelessWidget {
   onGenerateNow;
   final Future<void> Function() onRepairIncomplete;
   final Future<void> Function() onResetClean;
-  final Future<void> Function(String storyId, String contentType) onApprove;
+  final Future<void> Function(
+    String storyId,
+    List<MarketingPublishTarget> publishTargets,
+  ) onApprove;
   final Future<void> Function(String storyId) onRegenerate;
   final Future<void> Function(String storyId, {String? customPrompt})
   onRegenerateImage;
@@ -1959,7 +1974,7 @@ class _DashboardTab extends StatelessWidget {
           mediaAssets: contentGalleryAssets,
           researches: researches,
           busy: busy,
-          onApprove: (storyId, contentType) => onApprove(storyId, contentType),
+          onApprove: (storyId, publishTargets) => onApprove(storyId, publishTargets),
           onReject: (_, {reason = ''}) async {},
           onRegenerate: onRegenerate,
           onRegenerateImage: onRegenerateImage,
@@ -2009,7 +2024,10 @@ class _DailyStoriesTab extends StatefulWidget {
   final List<MarketingMediaAsset> mediaAssets;
   final List<MarketingResearchDetail> researches;
   final bool busy;
-  final Future<void> Function(String storyId, String contentType) onApprove;
+  final Future<void> Function(
+    String storyId,
+    List<MarketingPublishTarget> publishTargets,
+  ) onApprove;
   final Future<void> Function(String storyId, {String reason}) onReject;
   final Future<void> Function(String storyId) onRegenerate;
   final Future<void> Function(String storyId, {String? customPrompt})
@@ -2109,7 +2127,7 @@ class _DailyStoriesTabState extends State<_DailyStoriesTab> {
                         imageBusy: widget.imageBusyStoryIds.contains(story.id),
                         compactActions: widget.compactActions,
                         mediaAssets: widget.mediaAssets,
-                        onApprove: (contentType) => widget.onApprove(story.id, contentType),
+                        onApprove: (publishTargets) => widget.onApprove(story.id, publishTargets),
                         onReject: () => widget.onReject(story.id),
                         onRegenerate: () => widget.onRegenerate(story.id),
                         onRegenerateImage: () => widget.onRegenerateImage(story.id),
@@ -2229,7 +2247,7 @@ class _StoryCard extends StatefulWidget {
   final MarketingResearchDetail? usedResearch;
   final bool busy;
   final bool imageBusy;
-  final Future<void> Function(String contentType)? onApprove;
+  final Future<void> Function(List<MarketingPublishTarget> publishTargets)? onApprove;
   final Future<void> Function()? onReject;
   final Future<void> Function() onRegenerate;
   final Future<void> Function() onRegenerateImage;
@@ -2248,7 +2266,23 @@ class _StoryCard extends StatefulWidget {
 }
 
 class _StoryCardState extends State<_StoryCard> {
-  String _contentType = 'post'; // 'post' | 'story'
+  late Set<MarketingPublishTarget> _selectedPublishTargets;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedPublishTargets = _defaultPublishTargets(widget.story);
+  }
+
+  Set<MarketingPublishTarget> _defaultPublishTargets(MarketingStory story) {
+    if (story.publishTargets.isNotEmpty) {
+      return story.publishTargets.toSet();
+    }
+    return {
+      MarketingPublishTarget.facebookPost,
+      MarketingPublishTarget.instagramPost,
+    };
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2271,6 +2305,9 @@ class _StoryCardState extends State<_StoryCard> {
               status: story.publishStatus,
               facebookPostId: story.facebookPostId,
               instagramPostId: story.instagramPostId,
+              instagramStoryId: story.instagramStoryId,
+              publishedChannels: story.publishedChannels,
+              publishTargets: story.publishTargets,
             ),
           ],
         ),
@@ -2630,22 +2667,37 @@ $objective''';
     final scheme = Theme.of(context).colorScheme;
     final publishDetails = story.publishErrorDetails;
     final failedChannel = '${publishDetails['channel'] ?? ''}'.trim().toLowerCase();
-    final hasFacebookPublished = (story.facebookPostId ?? '').trim().isNotEmpty;
-    final hasInstagramPublished = (story.instagramPostId ?? '').trim().isNotEmpty;
+    final publishedChannels = story.publishedChannels.toSet();
+    final requestedChannels = _selectedPublishTargets;
+    final hasFacebookPublished =
+        publishedChannels.contains(MarketingPublishTarget.facebookPost) ||
+        (story.facebookPostId ?? '').trim().isNotEmpty;
+    final hasInstagramPostPublished =
+        publishedChannels.contains(MarketingPublishTarget.instagramPost) ||
+        (story.instagramPostId ?? '').trim().isNotEmpty;
+    final hasInstagramStoryPublished =
+        publishedChannels.contains(MarketingPublishTarget.instagramStory) ||
+        (story.instagramStoryId ?? '').trim().isNotEmpty;
+    final hasInstagramPublished =
+        hasInstagramPostPublished || hasInstagramStoryPublished;
+    final anyPublished = hasFacebookPublished || hasInstagramPublished;
+    final requestedInstagram =
+        requestedChannels.contains(MarketingPublishTarget.instagramPost) ||
+        requestedChannels.contains(MarketingPublishTarget.instagramStory);
     final hasPublishError =
-      !hasFacebookPublished &&
+      !anyPublished &&
       (story.publishStatus == MarketingPublishStatus.error ||
-        (story.publishStatus == MarketingPublishStatus.partial &&
-          (failedChannel.isEmpty || failedChannel == 'facebook')));
+        story.publishStatus == MarketingPublishStatus.partial);
     final showPartialInfo =
       !hasPublishError &&
       (story.publishStatus == MarketingPublishStatus.partial ||
-        (hasFacebookPublished && !hasInstagramPublished));
+        (hasFacebookPublished && requestedInstagram && !hasInstagramPublished));
     final retryLabel = failedChannel == 'instagram'
         ? 'Reintentar Instagram'
         : failedChannel == 'facebook'
             ? 'Reintentar Facebook'
             : 'Reintentar publicación';
+    final selectedTargets = _selectedPublishTargets.toList(growable: false);
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -2727,6 +2779,44 @@ $objective''';
               ),
             ),
           ],
+          if (story.status == MarketingStoryStatus.approved && hasInstagramPublished) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE8F5FF),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFF4A90E2)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Publicado en Instagram correctamente',
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: const Color(0xFF0D47A1),
+                    ),
+                  ),
+                  if ((story.instagramPostId ?? '').trim().isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'ID Instagram Post: ${story.instagramPostId}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                  if ((story.instagramStoryId ?? '').trim().isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'ID Instagram Story: ${story.instagramStoryId}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
           if (showPartialInfo) ...[
             const SizedBox(height: 10),
             Container(
@@ -2741,7 +2831,9 @@ $objective''';
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Publicado parcialmente',
+                    hasFacebookPublished && requestedInstagram && !hasInstagramPublished
+                        ? 'Publicado en Facebook, pendiente/error en Instagram'
+                        : 'Publicado parcialmente',
                     style: Theme.of(context).textTheme.labelMedium?.copyWith(
                       fontWeight: FontWeight.w800,
                       color: const Color(0xFF8A5A00),
@@ -2750,7 +2842,14 @@ $objective''';
                   if ((story.instagramPostId ?? '').trim().isNotEmpty) ...[
                     const SizedBox(height: 4),
                     Text(
-                      'ID Instagram: ${story.instagramPostId}',
+                      'ID Instagram Post: ${story.instagramPostId}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                  if ((story.instagramStoryId ?? '').trim().isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'ID Instagram Story: ${story.instagramStoryId}',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],
@@ -2807,29 +2906,43 @@ $objective''';
             ),
           ],
           const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: SegmentedButton<String>(
-                  segments: const <ButtonSegment<String>>[
-                    ButtonSegment<String>(
-                      value: 'story',
-                      label: Text('Story'),
-                      icon: Icon(Icons.history_edu_rounded),
-                    ),
-                    ButtonSegment<String>(
-                      value: 'post',
-                      label: Text('Post'),
-                      icon: Icon(Icons.image_rounded),
-                    ),
-                  ],
-                  selected: <String>{_contentType},
-                  onSelectionChanged: (Set<String> newSelection) {
-                    setState(() => _contentType = newSelection.first);
-                  },
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              color: scheme.surfaceContainerHighest.withValues(alpha: 0.45),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Canales a publicar',
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
-              ),
-            ],
+                const SizedBox(height: 8),
+                _buildPublishTargetCheckbox(
+                  context,
+                  target: MarketingPublishTarget.facebookPost,
+                  label: 'Facebook Post',
+                  subtitle: 'Publica en la Facebook Page',
+                ),
+                _buildPublishTargetCheckbox(
+                  context,
+                  target: MarketingPublishTarget.instagramPost,
+                  label: 'Instagram Post',
+                  subtitle: 'Publica en el feed del Instagram Business',
+                ),
+                _buildPublishTargetCheckbox(
+                  context,
+                  target: MarketingPublishTarget.instagramStory,
+                  label: 'Instagram Story',
+                  subtitle: 'Publica como story en Instagram Business',
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 10),
           Wrap(
@@ -2837,7 +2950,12 @@ $objective''';
             runSpacing: 8,
             children: [
               FilledButton.icon(
-                onPressed: widget.busy || !validation.canApprove || widget.onApprove == null ? null : () => widget.onApprove!(_contentType),
+                onPressed: widget.busy ||
+                        !validation.canApprove ||
+                        widget.onApprove == null ||
+                        selectedTargets.isEmpty
+                    ? null
+                    : () => widget.onApprove!(selectedTargets),
                 icon: const Icon(Icons.check_circle_rounded, size: 18),
                 label: const Text('Aprobar'),
               ),
@@ -2857,6 +2975,34 @@ $objective''';
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildPublishTargetCheckbox(
+    BuildContext context, {
+    required MarketingPublishTarget target,
+    required String label,
+    required String subtitle,
+  }) {
+    return CheckboxListTile(
+      value: _selectedPublishTargets.contains(target),
+      contentPadding: EdgeInsets.zero,
+      dense: true,
+      controlAffinity: ListTileControlAffinity.leading,
+      title: Text(label),
+      subtitle: Text(
+        subtitle,
+        style: Theme.of(context).textTheme.bodySmall,
+      ),
+      onChanged: (value) {
+        setState(() {
+          if (value == true) {
+            _selectedPublishTargets.add(target);
+          } else {
+            _selectedPublishTargets.remove(target);
+          }
+        });
+      },
     );
   }
 
@@ -6158,19 +6304,34 @@ class _PublishStatusPill extends StatelessWidget {
     required this.status,
     required this.facebookPostId,
     required this.instagramPostId,
+    required this.instagramStoryId,
+    required this.publishedChannels,
+    required this.publishTargets,
   });
 
   final MarketingPublishStatus status;
   final String? facebookPostId;
   final String? instagramPostId;
+  final String? instagramStoryId;
+  final List<MarketingPublishTarget> publishedChannels;
+  final List<MarketingPublishTarget> publishTargets;
 
   @override
   Widget build(BuildContext context) {
     final hasFacebook = (facebookPostId ?? '').trim().isNotEmpty;
-    final hasInstagram = (instagramPostId ?? '').trim().isNotEmpty;
-    final effectiveStatus = hasFacebook
-        ? (hasInstagram ? MarketingPublishStatus.published : MarketingPublishStatus.partial)
-        : status;
+    final hasInstagramPost = (instagramPostId ?? '').trim().isNotEmpty;
+    final hasInstagramStory = (instagramStoryId ?? '').trim().isNotEmpty;
+    final hasInstagram = hasInstagramPost || hasInstagramStory;
+    final anyPublished =
+        publishedChannels.isNotEmpty || hasFacebook || hasInstagram;
+    final effectiveStatus = anyPublished && status == MarketingPublishStatus.error
+        ? MarketingPublishStatus.partial
+        : anyPublished && status == MarketingPublishStatus.pending
+            ? MarketingPublishStatus.partial
+            : status;
+    final requestedInstagram =
+        publishTargets.contains(MarketingPublishTarget.instagramPost) ||
+        publishTargets.contains(MarketingPublishTarget.instagramStory);
 
     final (bg, fg, text) = switch (effectiveStatus) {
       MarketingPublishStatus.pending => (
@@ -6186,12 +6347,18 @@ class _PublishStatusPill extends StatelessWidget {
       MarketingPublishStatus.published => (
         const Color(0xFFD9FBE5),
         const Color(0xFF0E5F33),
-        hasInstagram ? 'Publicado' : 'Publicado FB',
+        hasFacebook && hasInstagram
+            ? 'FB + IG'
+            : hasInstagramStory && !hasInstagramPost
+                ? 'IG Story'
+                : hasInstagram
+                    ? 'Instagram'
+                    : 'Facebook',
       ),
       MarketingPublishStatus.partial => (
         const Color(0xFFFFF3CD),
         const Color(0xFF7A5A00),
-        hasFacebook ? 'Publicado FB' : 'Parcial',
+        hasFacebook && requestedInstagram ? 'FB parcial' : 'Parcial',
       ),
       MarketingPublishStatus.error => (
         const Color(0xFFFFE1E1),

@@ -249,9 +249,14 @@ export class MarketingService {
     };
   }
 
-  async approveStory(companyId: string, storyId: string, userId: string, contentType: string = 'post') {
+  async approveStory(
+    companyId: string,
+    storyId: string,
+    userId: string,
+    publishInput: { contentType?: string; publishTargets?: string[] } | string = 'post',
+  ) {
     const approved = await this.approvals.approve(companyId, storyId, userId);
-    const publication = await this.metaPublisher.publishStory(companyId, storyId, userId, contentType);
+    const publication = await this.metaPublisher.publishStory(companyId, storyId, userId, publishInput);
     await this.savePublishedDesignToContentGallery(companyId, storyId, publication);
     const refreshed = await this.prisma.marketingDailyStory.findFirst({
       where: { id: storyId, companyId },
@@ -1395,6 +1400,7 @@ export class MarketingService {
       publishStatus?: string | null;
       facebookPostId?: string | null;
       instagramPostId?: string | null;
+      instagramStoryId?: string | null;
       publishedAt?: Date | null;
     },
   ) {
@@ -1408,7 +1414,8 @@ export class MarketingService {
     const isApprovedVisual = story.status === MarketingStoryStatus.APPROVED;
     const hasAnyPublishedChannel =
       `${publishResult.facebookPostId ?? story.facebookPostId ?? ''}`.trim().length > 0 ||
-      `${publishResult.instagramPostId ?? story.instagramPostId ?? ''}`.trim().length > 0;
+      `${publishResult.instagramPostId ?? story.instagramPostId ?? ''}`.trim().length > 0 ||
+      `${publishResult.instagramStoryId ?? (story as any).instagramStoryId ?? ''}`.trim().length > 0;
     const shouldSave =
       isApprovedVisual ||
       status === 'PUBLISHED' ||
@@ -1423,6 +1430,7 @@ export class MarketingService {
     const normalizedUrl = this.marketingStorage.getPublicUrl(finalImageUrl);
     const facebookPostId = `${publishResult.facebookPostId ?? story.facebookPostId ?? ''}`.trim();
     const instagramPostId = `${publishResult.instagramPostId ?? story.instagramPostId ?? ''}`.trim();
+    const instagramStoryId = `${publishResult.instagramStoryId ?? (story as any).instagramStoryId ?? ''}`.trim();
     const publishedAt = publishResult.publishedAt ?? story.publishedAt ?? new Date();
     const title = `${story.title ?? ''}`.trim() || `Estado ${story.type}`;
     const shortCopy = `${story.shortText ?? ''}`.trim();
@@ -1436,6 +1444,7 @@ export class MarketingService {
         `[publishedAt:${publishedAt.toISOString()}]`,
         facebookPostId ? `[facebookPostId:${facebookPostId}]` : '',
         instagramPostId ? `[instagramPostId:${instagramPostId}]` : '',
+        instagramStoryId ? `[instagramStoryId:${instagramStoryId}]` : '',
       ]
         .filter((item) => item.trim().length > 0)
         .join(' | ');
@@ -1454,6 +1463,7 @@ export class MarketingService {
       `publishedAt:${publishedAt.toISOString()}`,
       ...(facebookPostId ? [`facebookPostId:${facebookPostId}`] : []),
       ...(instagramPostId ? [`instagramPostId:${instagramPostId}`] : []),
+      ...(instagramStoryId ? [`instagramStoryId:${instagramStoryId}`] : []),
     ];
 
     const category = this.derivePublishedCategory(story as any);
