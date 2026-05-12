@@ -644,178 +644,214 @@ ${input.issuerPosition}`;
         (warning.reason ?? warning.title ?? '').toString().trim() || 'No registrado';
       const safeGeneratedText = (warning.generatedText ?? '').toString().trim();
       const fallbackText = warning.description?.toString().trim() || 'Sin contenido';
-      const finalText = safeGeneratedText || fallbackText;
-      const compactDetail =
-        finalText.length > 900
-          ? `${finalText.slice(0, 900).trim()}...`
-          : finalText;
+      const finalText = (safeGeneratedText || fallbackText).replace(/\s+/g, ' ').trim();
 
-      // Header corporativo
+      const fitTextToHeight = (
+        rawText: string,
+        width: number,
+        maxHeight: number,
+        fontSize: number,
+      ) => {
+        const normalized = rawText.replace(/\s+/g, ' ').trim();
+        if (!normalized) return 'No registrado';
+
+        doc.font('Helvetica').fontSize(fontSize);
+        const fullHeight = doc.heightOfString(normalized, {
+          width,
+          align: 'justify',
+          lineGap: 1.2,
+        });
+        if (fullHeight <= maxHeight) return normalized;
+
+        let low = 0;
+        let high = normalized.length;
+        let best = `${normalized.slice(0, 80).trim()}...`;
+
+        while (low <= high) {
+          const mid = Math.floor((low + high) / 2);
+          const candidate = `${normalized.slice(0, mid).trim()}...`;
+          const candidateHeight = doc.heightOfString(candidate, {
+            width,
+            align: 'justify',
+            lineGap: 1.2,
+          });
+
+          if (candidateHeight <= maxHeight) {
+            best = candidate;
+            low = mid + 1;
+          } else {
+            high = mid - 1;
+          }
+        }
+
+        return best;
+      };
+
+      // Header corporativo compacto
       doc
-        .rect(48, 44, 504, 84)
+        .rect(48, 44, 504, 76)
         .fillAndStroke('#f9fbff', '#d7dde8');
 
       doc
         .fillColor('#10243f')
         .font('Helvetica-Bold')
-        .fontSize(18)
-        .text(companyName, 60, 58, { width: 480, align: 'center' });
+        .fontSize(16)
+        .text(companyName, 60, 56, { width: 480, align: 'center' });
 
       doc
         .fillColor('#4d5d73')
         .font('Helvetica')
-        .fontSize(10)
-        .text(`Tel: ${companyPhone}  |  RNC: ${companyRnc}`, 60, 84, {
+        .fontSize(9.5)
+        .text(`Tel: ${companyPhone} | RNC: ${companyRnc}`, 60, 78, {
           width: 480,
           align: 'center',
         });
 
-      doc.text(companyAddress, 60, 100, { width: 480, align: 'center' });
+      doc.text(companyAddress, 60, 94, { width: 480, align: 'center' });
 
-      doc.moveTo(48, 142).lineTo(552, 142).strokeColor('#1f4b8f').lineWidth(1.6).stroke();
+      doc.moveTo(48, 130).lineTo(552, 130).strokeColor('#1f4b8f').lineWidth(1.4).stroke();
 
-      // Titulo formal de carta
+      // Titulo
       doc
         .fillColor('#0f172a')
         .font('Helvetica-Bold')
-        .fontSize(15)
-        .text('CARTA DE AMONESTACION LABORAL', 48, 156, { width: 504, align: 'center' });
+        .fontSize(13.5)
+        .text('AMONESTACION LABORAL', 48, 142, { width: 504, align: 'center' });
 
-      // Datos del documento
-      const topDataY = 188;
+      // Datos basicos
+      const topDataY = 164;
       doc
-        .roundedRect(48, topDataY, 504, 76, 4)
+        .roundedRect(48, topDataY, 504, 52, 4)
         .strokeColor('#d7dde8')
         .lineWidth(1)
         .stroke();
 
-      doc.font('Helvetica-Bold').fontSize(10).fillColor('#1f2937');
-      doc.text('No. de documento:', 60, topDataY + 12);
-      doc.text('Fecha de emision:', 60, topDataY + 30);
-      doc.text('Estado:', 320, topDataY + 12);
-      doc.text('Tipo:', 320, topDataY + 30);
+      doc.font('Helvetica-Bold').fontSize(9.5).fillColor('#1f2937');
+      doc.text('Documento:', 60, topDataY + 10);
+      doc.text('Fecha:', 60, topDataY + 27);
+      doc.text('Tipo:', 320, topDataY + 10);
+      doc.text('Incidente:', 320, topDataY + 27);
 
-      doc.font('Helvetica').fontSize(10).fillColor('#374151');
-      doc.text(warning.warningNumber, 170, topDataY + 12, { width: 130 });
-      doc.text(fmt(warning.warningDate), 170, topDataY + 30, { width: 130 });
-      doc.text(statusLabels[warning.status] ?? warning.status, 360, topDataY + 12, { width: 170 });
-      doc.text(typeLabels[warning.warningType] ?? warning.warningType ?? 'No registrado', 360, topDataY + 30, {
+      doc.font('Helvetica').fontSize(9.5).fillColor('#374151');
+      doc.text(warning.warningNumber, 128, topDataY + 10, { width: 170 });
+      doc.text(fmt(warning.warningDate), 128, topDataY + 27, { width: 170 });
+      doc.text(typeLabels[warning.warningType] ?? warning.warningType ?? 'No registrado', 360, topDataY + 10, {
         width: 170,
       });
+      doc.text(fmt(warning.incidentDate), 380, topDataY + 27, { width: 150 });
 
-      // Referencia destinatario
-      let y = topDataY + 96;
-      doc.font('Helvetica-Bold').fontSize(11).fillColor('#111827').text('DESTINATARIO', 48, y);
-      y += 20;
+      if (warning.status === 'ANNULLED') {
+        doc
+          .font('Helvetica-Bold')
+          .fontSize(9)
+          .fillColor('#b91c1c')
+          .text('ANULADA', 488, topDataY + 10, { width: 54, align: 'right' });
+      }
 
-      doc.font('Helvetica').fontSize(10).fillColor('#1f2937');
-      doc.text(`Sr(a).: ${employeeName}`, 48, y);
-      y += 16;
-      doc.text(`Cedula: ${employeeCedula}`, 48, y);
-      y += 16;
-      doc.text(`Cargo: ${employeePosition}`, 48, y);
-      y += 16;
-      doc.text(`Area/Departamento: ${employeeDepartment}`, 48, y);
-      y += 24;
+      // Destinatario
+      let y = topDataY + 66;
+      doc.font('Helvetica-Bold').fontSize(10).fillColor('#111827').text('Destinatario', 48, y);
+      y += 15;
 
-      // Asunto
+      doc.font('Helvetica').fontSize(9.5).fillColor('#1f2937');
+      doc.text(`Nombre: ${employeeName}`, 48, y, { width: 504 });
+      y += 13;
+      doc.text(`Cedula: ${employeeCedula} | Cargo: ${employeePosition}`, 48, y, { width: 504 });
+      y += 13;
+      doc.text(`Departamento: ${employeeDepartment}`, 48, y, { width: 504 });
+      y += 18;
+
+      // Asunto y contexto
       doc
         .font('Helvetica-Bold')
-        .fontSize(10)
+        .fontSize(9.8)
         .fillColor('#0f172a')
-        .text('ASUNTO:', 48, y, { continued: true })
+        .text('Asunto:', 48, y, { continued: true })
         .font('Helvetica')
         .fillColor('#1f2937')
         .text(' Notificacion formal de amonestacion laboral.');
-      y += 24;
-
-      // Cuerpo (version compacta y formal)
-      doc
-        .font('Helvetica')
-        .fontSize(10)
-        .fillColor('#1f2937')
-        .text(
-          `Por medio de la presente, ${companyName} notifica formalmente la amonestacion laboral del colaborador arriba indicado, en cumplimiento de las normas internas vigentes.`,
-          48,
-          y,
-          { width: 504, align: 'justify', lineGap: 2 },
-        );
-      y = doc.y + 8;
-
-      doc.font('Helvetica-Bold').fontSize(10).fillColor('#111827').text('Motivo de la amonestacion:', 48, y);
-      y = doc.y + 4;
-      doc
-        .font('Helvetica')
-        .fontSize(10)
-        .fillColor('#1f2937')
-        .text(reason, 48, y, { width: 504, align: 'justify', lineGap: 2 });
-      y = doc.y + 8;
-
-      doc.font('Helvetica-Bold').fontSize(10).fillColor('#111827').text('Detalle de los hechos:', 48, y);
-      y = doc.y + 4;
-      doc
-        .font('Helvetica')
-        .fontSize(9.7)
-        .fillColor('#1f2937')
-        .text(compactDetail, 48, y, { width: 504, align: 'justify', lineGap: 2 });
-      y = doc.y + 8;
-
-      doc
-        .font('Helvetica')
-        .fontSize(10)
-        .fillColor('#1f2937')
-        .text(
-          `El incidente se registra con fecha ${fmt(warning.incidentDate)}, hora aproximada ${this.valueOrDefault(warning.incidentTime)} y lugar ${this.valueOrDefault(warning.incidentPlace)}.`,
-          48,
-          y,
-          { width: 504, align: 'justify', lineGap: 2 },
-        );
-      y = doc.y + 8;
-
-      if ((warning.internalNotes ?? '').toString().trim().isNotEmpty) {
-        doc.font('Helvetica-Bold').fontSize(10).fillColor('#111827').text('Observaciones internas:', 48, y);
-        y = doc.y + 4;
-        doc
-          .font('Helvetica')
-          .fontSize(9.5)
-          .fillColor('#4b5563')
-          .text((warning.internalNotes ?? '').toString().trim(), 48, y, {
-            width: 504,
-            align: 'justify',
-            lineGap: 2,
-          });
-        y = doc.y + 8;
-      }
-
-      // Bloque de firmas (fisicas)
-      const signatureBlockHeight = 170;
-      if (y + signatureBlockHeight > 720) {
-        doc.addPage();
-        y = 120;
-      }
-
-      const minSignatureY = 590;
-      if (y < minSignatureY) y = minSignatureY;
-
-      doc.moveTo(48, y).lineTo(552, y).strokeColor('#d7dde8').lineWidth(1).stroke();
       y += 16;
-      doc.font('Helvetica-Bold').fontSize(11).fillColor('#0f172a').text('FIRMAS', 48, y);
-      y += 38;
+
+      doc
+        .font('Helvetica')
+        .fontSize(9.6)
+        .fillColor('#1f2937')
+        .text(
+          `Por medio de la presente, ${companyName} notifica la amonestacion laboral del colaborador indicado por incumplimiento de normas internas.`,
+          48,
+          y,
+          { width: 504, align: 'justify', lineGap: 1.2 },
+        );
+      y = doc.y + 6;
+
+      doc.font('Helvetica-Bold').fontSize(9.8).fillColor('#111827').text('Motivo:', 48, y);
+      y = doc.y + 3;
+      doc
+        .font('Helvetica')
+        .fontSize(9.4)
+        .fillColor('#1f2937')
+        .text(reason, 48, y, { width: 504, align: 'justify', lineGap: 1.2 });
+      y = doc.y + 6;
+
+      doc
+        .font('Helvetica')
+        .fontSize(9.2)
+        .fillColor('#374151')
+        .text(
+          `Registro del incidente: ${fmt(warning.incidentDate)} | Hora: ${this.valueOrDefault(warning.incidentTime)} | Lugar: ${this.valueOrDefault(warning.incidentPlace)}.`,
+          48,
+          y,
+          { width: 504, align: 'left', lineGap: 1.2 },
+        );
+      y = doc.y + 6;
+
+      doc.font('Helvetica-Bold').fontSize(9.8).fillColor('#111827').text('Hechos:', 48, y);
+      y = doc.y + 3;
+
+      const signatureStartY = 618;
+      const closingHeight = 26;
+      const detailAvailableHeight = Math.max(56, signatureStartY - y - closingHeight - 10);
+      const compactDetail = fitTextToHeight(finalText, 504, detailAvailableHeight, 9.2);
+
+      doc
+        .font('Helvetica')
+        .fontSize(9.2)
+        .fillColor('#1f2937')
+        .text(compactDetail, 48, y, { width: 504, align: 'justify', lineGap: 1.2 });
+      y = doc.y + 8;
+
+      doc
+        .font('Helvetica')
+        .fontSize(9.4)
+        .fillColor('#1f2937')
+        .text(
+          'Se solicita firma de recibido para constancia. Este documento se emite para archivo interno.',
+          48,
+          y,
+          { width: 504, align: 'justify', lineGap: 1.2 },
+        );
+      y = Math.max(doc.y + 8, signatureStartY);
+
+      // Bloque de firmas fijo (siempre en la misma hoja)
+      doc.moveTo(48, y).lineTo(552, y).strokeColor('#d7dde8').lineWidth(1).stroke();
+      y += 10;
+      doc.font('Helvetica-Bold').fontSize(10).fillColor('#0f172a').text('Firmas', 48, y);
+      y += 30;
 
       doc.moveTo(48, y).lineTo(250, y).strokeColor('#1f2937').lineWidth(1).stroke();
       doc.moveTo(300, y).lineTo(552, y).strokeColor('#1f2937').lineWidth(1).stroke();
-      y += 6;
+      y += 5;
 
-      doc.font('Helvetica-Bold').fontSize(9).fillColor('#1f2937');
+      doc.font('Helvetica-Bold').fontSize(8.8).fillColor('#1f2937');
       doc.text('Encargado responsable', 48, y, { width: 202, align: 'center' });
       doc.text('Empleado (acuse de recibo)', 300, y, { width: 252, align: 'center' });
-      y += 14;
+      y += 13;
 
-      doc.font('Helvetica').fontSize(8.8).fillColor('#4b5563');
+      doc.font('Helvetica').fontSize(8.6).fillColor('#4b5563');
       doc.text(`${issuerName}`, 48, y, { width: 202, align: 'center' });
       doc.text(`${employeeName}`, 300, y, { width: 252, align: 'center' });
-      y += 12;
-      doc.font('Helvetica').fontSize(8.3).fillColor('#6b7280');
+      y += 11;
+      doc.font('Helvetica').fontSize(8.1).fillColor('#6b7280');
       doc.text(`Cargo: ${issuerPosition}`, 48, y, { width: 202, align: 'center' });
       doc.text('Firma manuscrita requerida', 300, y, { width: 252, align: 'center' });
 
@@ -832,29 +868,11 @@ ${input.issuerPosition}`;
         .fontSize(8)
         .fillColor('#6b7280')
         .text(
-          `Emitido el ${new Date().toLocaleString('es-DO')} | ${companyName} | Documento para impresion y firma fisica`,
+          `Emitido el ${new Date().toLocaleString('es-DO')} | ${companyName} | Documento para firma fisica`,
           48,
           746,
           { width: 504, align: 'center' },
         );
-
-      if (warning.status === 'ANNULLED') {
-        doc.moveDown(0.6);
-        doc
-          .fillColor('#cc0000')
-          .fontSize(9)
-          .font('Helvetica-Bold')
-          .text('DOCUMENTO ANULADO', { align: 'center' });
-        doc
-          .font('Helvetica')
-          .fontSize(8)
-          .text(
-            `Anulado el ${fmt(warning.annulledAt)} - Motivo: ${warning.annulmentReason ?? 'No especificado'}`,
-            {
-              align: 'center',
-            },
-          );
-      }
 
       doc.end();
     });
