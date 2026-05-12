@@ -1059,6 +1059,130 @@ export class MarketingMetaPublisherService {
   }
 
   /**
+   * Prepara una imagen optimizada para Story: 1080x1920
+   * Descarga, valida y transforma si es necesario.
+   * Retorna buffer de imagen optimizada y metadata.
+   */
+  private async prepareStoryImage(
+    imageUrl: string,
+  ): Promise<{
+    buffer: Buffer;
+    width: number;
+    height: number;
+    format: string;
+    wasTransformed: boolean;
+    originalDimensions: { width: number; height: number };
+  }> {
+    const storyWidth = 1080;
+    const storyHeight = 1920;
+    const storyRatio = storyWidth / storyHeight; // 9/16
+
+    // Descarga imagen
+    const response = await fetch(imageUrl, {
+      method: 'GET',
+      redirect: 'follow',
+      headers: { Accept: 'image/*' },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch image: ${response.status}`);
+    }
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+    const metadata = await sharp(buffer).metadata();
+    const originalWidth = metadata.width ?? 0;
+    const originalHeight = metadata.height ?? 0;
+    const currentRatio = originalWidth / originalHeight;
+
+    // Si ya es cercano a 1080x1920 o 9:16, no transformar
+    const isAlreadyOptimized =
+      Math.abs(originalWidth - storyWidth) <= 50 &&
+      Math.abs(originalHeight - storyHeight) <= 50;
+
+    if (isAlreadyOptimized) {
+      this.logger.log(
+        `[story-image-prep] image already optimized ${originalWidth}x${originalHeight}, no transformation needed`,
+      );
+      return {
+        buffer,
+        width: originalWidth,
+        height: originalHeight,
+        format: `${metadata.format ?? 'jpeg'}`.toLowerCase(),
+        wasTransformed: false,
+        originalDimensions: { width: originalWidth, height: originalHeight },
+      };
+    }
+
+    // Transforma a 1080x1920 preservando contenido
+    let transformedBuffer: Buffer;
+
+    if (currentRatio > storyRatio) {
+      // Más ancho que 9:16, recorta horizontalmente desde el centro
+      const newWidth = Math.floor(originalHeight * storyRatio);
+      const leftOffset = Math.floor((originalWidth - newWidth) / 2);
+
+      this.logger.log(
+        `[story-image-prep] transforming ${originalWidth}x${originalHeight} (ratio=${currentRatio.toFixed(4)}) -> crop + resize to 1080x1920`,
+      );
+
+      transformedBuffer = await sharp(buffer)
+        .extract({
+          left: leftOffset,
+          top: 0,
+          width: newWidth,
+          height: originalHeight,
+        })
+        .resize(storyWidth, storyHeight, {
+          fit: 'cover',
+          position: 'center',
+        })
+        .jpeg({ quality: 85 })
+        .toBuffer();
+    } else {
+      // Más alto que 9:16, agrega fondo blur/cover
+      this.logger.log(
+        `[story-image-prep] transforming ${originalWidth}x${originalHeight} (ratio=${currentRatio.toFixed(4)}) -> resize with letterbox to 1080x1920`,
+      );
+
+      // Primero redimensiona la imagen al ancho 1080 manteniendo ratio
+      const scaledHeight = Math.floor(1080 / currentRatio);
+      const scaledBuffer = await sharp(buffer)
+        .resize(1080, scaledHeight, {
+          fit: 'contain',
+          background: '#000000',
+        })
+        .toBuffer();
+
+      // Luego crea fondo 1080x1920 y coloca imagen escalada en el centro
+      const verticalOffset = Math.floor((1920 - scaledHeight) / 2);
+      transformedBuffer = await sharp({
+        create: {
+          width: 1080,
+          height: 1920,
+          channels: 3,
+          background: '#000000',
+        },
+      })
+        .composite([{ input: scaledBuffer, top: verticalOffset, left: 0 }])
+        .jpeg({ quality: 85 })
+        .toBuffer();
+    }
+
+    this.logger.log(
+      `[story-image-prep] transformation complete: ${originalWidth}x${originalHeight} -> 1080x1920`,
+    );
+
+    return {
+      buffer: transformedBuffer,
+      width: storyWidth,
+      height: storyHeight,
+      format: 'jpeg',
+      wasTransformed: true,
+      originalDimensions: { width: originalWidth, height: originalHeight },
+    };
+  }
+
+  /**
    * Recorta un buffer de imagen al ratio 9:16 desde el centro.
    * Si ya está en 9:16, devuelve el buffer original.
    */
@@ -1200,57 +1324,109 @@ export class MarketingMetaPublisherService {
   ): Promise<FacebookStoryPublishResponse> {
     const endpoint = `/${config.pageId}/photo_stories`;
     const url = `https://graph.facebook.com/${config.graphVersion}${endpoint}`;
-    this.logger.log('[meta-facebook-story] publish story');
 
-    const body = new URLSearchParams({
-      photo_url: imageUrl,
-      access_token: config.accessToken,
-    });
+    this.logger.log('[facebook-story] ===== FACEBOOK STORY PUBLISH START =====');
+    this.logger.log(`[facebook-story-diag] endpoint=${endpoint}`);
+    this.logger.log(`[facebook-story-diag] url=${url}`);
+    this.logger.log(`[facebook-story-diag] method=POST`);
+    this.logger.log(`[facebook-story-diag] graph_version=${config.graphVersion}`);
+    this.logger.log(`[facebook-story-diag] page_id=${config.pageId}`);
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body,
-    });
-    const payload = await response.json().catch(() => ({} as any));
-    this.logger.log(`[meta-facebook-story] response=${this.safeJson(payload)}`);
+    try {
+      // Prepara imagen optimizada a 1080x1920
+      this.logger.log('[facebook-story] preparing image...');
+      const imagePrep = await this.prepareStoryImage(imageUrl);
+      this.logger.log(
+        `[facebook-story] image prepared: ${imagePrep.wasTransformed ? 'TRANSFORMED' : 'ORIGINAL'} ${imagePrep.originalDimensions.width}x${imagePrep.originalDimensions.height} -> ${imagePrep.width}x${imagePrep.height}`,
+      );
 
-    if (!response.ok) {
-      const parsed = this.parseMetaErrorPayload(payload, {
-        channel: 'facebook',
-        stage: 'facebook-story-publish',
-        endpoint,
-        httpStatus: response.status,
+      // Crea FormData con buffer de imagen
+      const formData = new FormData();
+      formData.append('photo', new Blob([new Uint8Array(imagePrep.buffer)], { type: 'image/jpeg' }), 'story.jpg');
+      formData.append('access_token', config.accessToken);
+
+      this.logger.log(`[facebook-story-diag] body_keys=photo,access_token`);
+
+      // Publica Facebook Story
+      const response = await fetch(url, {
+        method: 'POST',
+        body: formData,
       });
-      const unsupported =
-        parsed.code === 100 ||
-        parsed.code === 1 ||
-        /unsupported|unknown path|photo_stories|an unknown error has occurred/i.test(parsed.message);
-      if (unsupported) {
-        const result: FacebookStoryPublishResponse = {
-          supported: false,
+
+      this.logger.log(`[facebook-story-diag] http_status=${response.status}`);
+
+      const payload = await response.json().catch(() => ({} as any));
+      this.logger.log(`[facebook-story] response=${this.safeJson(payload)}`);
+
+      if (!response.ok) {
+        const parsed = this.parseMetaErrorPayload(payload, {
+          channel: 'facebook',
+          stage: 'facebook-story-publish',
+          endpoint,
+          httpStatus: response.status,
+        });
+
+        this.logger.log(`[facebook-story-diag] error.message=${parsed.message}`);
+        this.logger.log(`[facebook-story-diag] error.code=${parsed.code ?? 'null'}`);
+        this.logger.log(`[facebook-story-diag] error.subcode=${parsed.subcode ?? 'null'}`);
+        this.logger.log(`[facebook-story-diag] error.type=${parsed.type ?? 'null'}`);
+        this.logger.log(`[facebook-story-diag] fbtrace_id=${parsed.fbtraceId ?? 'null'}`);
+
+        const unsupported =
+          parsed.code === 100 ||
+          parsed.code === 1 ||
+          /unsupported|unknown path|photo_stories|an unknown error has occurred|endpoint/i.test(parsed.message);
+
+        if (unsupported) {
+          this.logger.log(`[facebook-story-diag] UNSUPPORTED_ENDPOINT - Meta no soporta Page Stories API`);
+          const result: FacebookStoryPublishResponse = {
+            supported: false,
+            storyId: null,
+            error: `Meta no permite publicar Facebook Page Stories con este endpoint/token. Instagram Story sí puede continuar.`,
+            endpoint,
+            payload,
+            errorDetails: parsed,
+          };
+
+          this.logger.log('[facebook-story] ===== FACEBOOK STORY UNSUPPORTED =====');
+          return result;
+        }
+
+        throw new MetaApiError(parsed);
+      }
+
+      const storyId = `${payload.story_id ?? payload.id ?? ''}`.trim() || null;
+      this.logger.log(`[facebook-story-diag] story_id=${storyId}`);
+
+      if (!storyId) {
+        this.logger.log('[facebook-story] ===== FACEBOOK STORY ERROR: NO ID =====');
+        return {
+          supported: true,
           storyId: null,
-          error: `Meta no permite publicar Facebook Page Stories por este endpoint/token. Instagram Story sí puede continuar. Detalle: ${this.formatMetaErrorSummary(parsed)}`,
+          error: 'Facebook Story no devolvió ID de historia.',
           endpoint,
           payload,
-          errorDetails: parsed,
+          errorDetails: null,
         };
-
-        // Intenta con imagen recortada como fallback
-        return await this.publishFacebookStoryWithCroppedFallback(config, imageUrl, result);
       }
+
+      this.logger.log('[facebook-story] ===== FACEBOOK STORY PUBLISHED SUCCESSFULLY =====');
+      return {
+        supported: true,
+        storyId,
+        error: null,
+        endpoint,
+        payload,
+        errorDetails: null,
+      };
+    } catch (error) {
+      this.logger.error(
+        `[facebook-story] error during publish: ${error instanceof Error ? error.message : 'unknown'}`,
+      );
+      const parsed = this.parsePublishError(error);
+      this.logger.log(`[facebook-story-diag] error=${parsed.message}`);
       throw new MetaApiError(parsed);
     }
-
-    const storyId = `${payload.story_id ?? payload.id ?? ''}`.trim() || null;
-    return {
-      supported: true,
-      storyId,
-      error: storyId ? null : 'Facebook Story no devolvió ID de historia.',
-      endpoint,
-      payload,
-      errorDetails: null,
-    };
   }
 
   private async inspectMetaToken(config: MetaConfig): Promise<MetaTokenInspection> {
