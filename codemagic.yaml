@@ -9,8 +9,11 @@ workflows:
       vars:
         APP_DIR: apps/fulltech_app
         BUNDLE_ID: com.fulltech.app
-        APPLE_TEAM_ID: M4WNZDXN2U
     scripts:
+      - name: Flutter clean
+        script: |
+          cd "$APP_DIR"
+          flutter clean
       - name: Flutter pub get
         script: |
           cd "$APP_DIR"
@@ -21,13 +24,40 @@ workflows:
           flutter analyze || true
       - name: Build iOS release without codesign
         script: |
+          #!/usr/bin/env bash
+          set -euo pipefail
           cd "$APP_DIR"
+
           IOS_BUILD_NUMBER="$(date +%Y%m%d%H%M%S)"
-          flutter build ios --release --no-codesign --build-number="$IOS_BUILD_NUMBER"
+
+          # Export signing overrides so xcodebuild subprocess inherits them.
+          # This overrides project-level "CODE_SIGN_IDENTITY[sdk=iphoneos*]" and
+          # VALIDATE_PRODUCT = YES which otherwise force signing even with --no-codesign.
+          export CODE_SIGNING_ALLOWED=NO
+          export CODE_SIGNING_REQUIRED=NO
+          export CODE_SIGN_IDENTITY=""
+          export EXPANDED_CODE_SIGN_IDENTITY=""
+
+          echo "== flutter build ios --release --no-codesign =="
+          flutter build ios \
+            --release \
+            --no-codesign \
+            --build-number="$IOS_BUILD_NUMBER"
+
+          echo "== Packaging unsigned IPA =="
+          cd build/ios/iphoneos
+
+          rm -rf Payload Runner-no-codesign.ipa
+
+          mkdir -p Payload
+          cp -R Runner.app Payload/
+          zip -qry Runner-no-codesign.ipa Payload
+
+          echo "Unsigned IPA created:"
+          ls -lah Runner-no-codesign.ipa
     artifacts:
+      - apps/fulltech_app/build/ios/iphoneos/Runner-no-codesign.ipa
       - apps/fulltech_app/build/ios/iphoneos/Runner.app
-      - apps/fulltech_app/build/ios/iphoneos/*.app
-      - apps/fulltech_app/build/ios/**/*.xcarchive
 
   ios-testflight:
     name: iOS TestFlight
