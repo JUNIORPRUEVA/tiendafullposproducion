@@ -1,9 +1,5 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:printing/printing.dart';
-import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 
 import '../application/warnings_controller.dart';
 import '../data/employee_warning_model.dart';
@@ -144,13 +140,6 @@ class _WarningDetailScreenState extends ConsumerState<WarningDetailScreen> {
           if ((w.internalNotes ?? '').trim().isNotEmpty) ...[
             const SizedBox(height: 10),
             _TextPanel(title: 'Observaciones internas', text: (w.internalNotes ?? '').trim()),
-          ],
-          if (w.pdfUrl != null || w.signedPdfUrl != null) ...[
-            const SizedBox(height: 10),
-            _PdfPanel(
-              onOpenInApp: () => _openPdfInApp(context, w),
-              onPrint: () => _printPdf(context, w),
-            ),
           ],
           if (w.signatures.isNotEmpty) ...[
             const SizedBox(height: 10),
@@ -440,38 +429,4 @@ class _Pill extends StatelessWidget {
   }
 }
 
-class _WarningPdfViewerScreen extends StatefulWidget {
-  final Uint8List bytes;
-  final String warningNumber;
-  const _WarningPdfViewerScreen({required this.bytes, required this.warningNumber});
 
-  @override
-  State<_WarningPdfViewerScreen> createState() => _WarningPdfViewerScreenState();
-}
-
-class _WarningPdfViewerScreenState extends State<_WarningPdfViewerScreen> {
-  Future<void> _print() async {
-    await Printing.layoutPdf(onLayout: (_) async => widget.bytes);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('PDF ${widget.warningNumber}'),
-        backgroundColor: const Color(0xFF1a1a2e),
-        foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.print_outlined),
-            tooltip: 'Imprimir',
-            onPressed: _print,
-          ),
-        ],
-      ),
-      body: SfPdfViewer.memory(
-        widget.bytes,
-      ),
-    );
-  }
-}

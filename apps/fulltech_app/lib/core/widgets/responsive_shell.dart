@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
-import '../../features/amonestaciones/application/warnings_controller.dart';
 import '../auth/app_role.dart';
 import '../auth/auth_provider.dart';
 import '../location/location_tracker_provider.dart';
@@ -250,8 +249,7 @@ class DesktopShellAppBar extends ConsumerWidget {
     final branding = resolveRoleBranding(
       currentUser?.appRole ?? AppRole.unknown,
     );
-    final pendingWarningsCount = ref.watch(myPendingWarningsCountProvider);
-    final showPendingWarningsIcon = pendingWarningsCount > 0;
+    const showPendingWarningsIcon = false;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 240),
@@ -386,7 +384,7 @@ class DesktopShellAppBar extends ConsumerWidget {
                     children: [
                       if (showPendingWarningsIcon) ...[
                         _PendingWarningsIconButton(
-                          count: pendingWarningsCount,
+                          count: 0,
                           onTap: () =>
                               context.go(Routes.misAmonestacionesPendientes),
                         ),

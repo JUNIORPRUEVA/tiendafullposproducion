@@ -116,7 +116,8 @@ export class CreateCloseDto {
 
   @IsNumber()
   @Min(0)
-  cashDelivered!: number;
+  @IsOptional()
+  cashDelivered?: number;
 
   @IsString()
   @IsOptional()

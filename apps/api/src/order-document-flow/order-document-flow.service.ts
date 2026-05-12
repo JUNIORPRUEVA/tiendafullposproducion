@@ -131,9 +131,15 @@ export class OrderDocumentFlowService {
 
   async list(user: AuthUser, rawStatus?: string) {
     this.assertAssistantOrAdmin(user);
-    const where: Prisma.OrderDocumentFlowWhereInput = rawStatus
-      ? { status: this.statusFromApi(rawStatus) }
-      : {};
+    // Only show document flows for installation and maintenance services
+    const where: Prisma.OrderDocumentFlowWhereInput = {
+      order: {
+        serviceType: {
+          in: ['INSTALACION', 'MANTENIMIENTO'],
+        },
+      },
+      ...(rawStatus && { status: this.statusFromApi(rawStatus) }),
+    };
 
     const items = await this.prisma.orderDocumentFlow.findMany({
       where,
@@ -223,9 +229,28 @@ export class OrderDocumentFlowService {
       throw new BadRequestException('La orden no tiene un teléfono de cliente válido para WhatsApp.');
     }
 
-    const providedInvoiceBytes = this.parsePdfBase64(dto.invoicePdfBase64, 'la factura');
-    const providedWarrantyBytes = this.parsePdfBase64(dto.warrantyPdfBase64, 'la carta de garantia');
-    const hasProvidedPdfs = !!providedInvoiceBytes && !!providedWarrantyBytes;
+    const serviceType = this.toText(flow.order.serviceType);
+    
+    // Validate document sending rules based on serviceType
+    const shouldSendInvoice = serviceType === 'instalacion' || serviceType === 'mantenimiento';
+    const shouldSendWarranty = serviceType === 'instalacion';
+
+    if (!shouldSendInvoice && !shouldSendWarranty) {
+      throw new BadRequestException(
+        `Este tipo de servicio (${serviceType}) no requiere envío de documentos (factura y/o carta de garantía).`,
+      );
+    }
+
+    const providedInvoiceBytes = shouldSendInvoice
+      ? this.parsePdfBase64(dto.invoicePdfBase64, 'la factura')
+      : null;
+    const providedWarrantyBytes = shouldSendWarranty
+      ? this.parsePdfBase64(dto.warrantyPdfBase64, 'la carta de garantia')
+      : null;
+    const hasProvidedPdfs = !!(
+      (shouldSendInvoice && providedInvoiceBytes) ||
+      (shouldSendWarranty && providedWarrantyBytes)
+    );
 
     if (!hasProvidedPdfs && (!flow.invoiceFinalUrl || !flow.warrantyFinalUrl)) {
       await this.generate(user, id);
@@ -236,47 +261,60 @@ export class OrderDocumentFlowService {
       flow = await this.persistProvidedFinalPdfs(flow, {
         invoiceBytes: providedInvoiceBytes,
         warrantyBytes: providedWarrantyBytes,
-        invoiceFileName: this.toText(dto.invoiceFileName, 'factura-final.pdf'),
-        warrantyFileName: this.toText(dto.warrantyFileName, 'warranty-final.pdf'),
+        invoiceFileName: shouldSendInvoice
+          ? this.toText(dto.invoiceFileName, 'factura-final.pdf')
+          : 'factura-final.pdf',
+        warrantyFileName: shouldSendWarranty
+          ? this.toText(dto.warrantyFileName, 'warranty-final.pdf')
+          : 'warranty-final.pdf',
       });
     }
 
-    const invoiceFinalUrl = this.toText(flow.invoiceFinalUrl);
-    const warrantyFinalUrl = this.toText(flow.warrantyFinalUrl);
-    if (!invoiceFinalUrl || !warrantyFinalUrl) {
-      throw new BadRequestException('No fue posible generar la factura y la carta de garantía para enviar.');
+    const invoiceFinalUrl = shouldSendInvoice ? this.toText(flow.invoiceFinalUrl) : null;
+    const warrantyFinalUrl = shouldSendWarranty ? this.toText(flow.warrantyFinalUrl) : null;
+
+    if ((shouldSendInvoice && !invoiceFinalUrl) || (shouldSendWarranty && !warrantyFinalUrl)) {
+      throw new BadRequestException(
+        'No fue posible generar los documentos necesarios para enviar.',
+      );
     }
 
-    const invoiceBytes = readFileSync(this.resolveUploadAbsolutePath(invoiceFinalUrl));
-    const warrantyBytes = readFileSync(this.resolveUploadAbsolutePath(warrantyFinalUrl));
-    const messageText = [
-      `Hola ${customerName},`,
-      'Gracias por su preferencia. Aqui esta su factura.',
-      'Debajo tambien le compartimos la carta de garantia correspondiente a su servicio.',
-    ].join('\n');
+    const sentDocuments: string[] = [];
+    const messageTextParts = [`Hola ${customerName},`, 'Gracias por su preferencia.'];
 
+    // Send initial message
     await this.evolutionWhatsApp.sendTextMessage({
       toNumber: customerPhone,
-      message: messageText,
+      message: messageTextParts.join('\n'),
       senderUserId: user.id,
-        requirePersonalInstance: false,
+      requirePersonalInstance: false,
     });
-    await this.evolutionWhatsApp.sendPdfDocument({
-      toNumber: customerPhone,
-      bytes: invoiceBytes,
-      fileName: this.buildDocumentFileName('factura', flow.order.id),
-      caption: 'Factura correspondiente a su servicio.',
-      senderUserId: user.id,
+
+    if (shouldSendInvoice) {
+      const invoiceBytes = readFileSync(this.resolveUploadAbsolutePath(invoiceFinalUrl!));
+      await this.evolutionWhatsApp.sendPdfDocument({
+        toNumber: customerPhone,
+        bytes: invoiceBytes,
+        fileName: this.buildDocumentFileName('factura', flow.order.id),
+        caption: 'Factura correspondiente a su servicio.',
+        senderUserId: user.id,
         requirePersonalInstance: false,
-    });
-    await this.evolutionWhatsApp.sendPdfDocument({
-      toNumber: customerPhone,
-      bytes: warrantyBytes,
-      fileName: this.buildDocumentFileName('carta_garantia', flow.order.id),
-      caption: 'Carta de garantia correspondiente a su servicio.',
-      senderUserId: user.id,
+      });
+      sentDocuments.push('factura');
+    }
+
+    if (shouldSendWarranty) {
+      const warrantyBytes = readFileSync(this.resolveUploadAbsolutePath(warrantyFinalUrl!));
+      await this.evolutionWhatsApp.sendPdfDocument({
+        toNumber: customerPhone,
+        bytes: warrantyBytes,
+        fileName: this.buildDocumentFileName('carta_garantia', flow.order.id),
+        caption: 'Carta de garantia correspondiente a su servicio.',
+        senderUserId: user.id,
         requirePersonalInstance: false,
-    });
+      });
+      sentDocuments.push('carta de garantía');
+    }
 
     const updated = await this.prisma.orderDocumentFlow.update({
       where: { id },
@@ -290,7 +328,7 @@ export class OrderDocumentFlowService {
     const mapped = this.mapFlow(updated);
     const normalizedPhone = this.evolutionWhatsApp.normalizeWhatsAppNumber(customerPhone);
     this.logger.log(
-      `Document flow WhatsApp sent by user=${user.id} role=${user.role} to=${normalizedPhone || customerPhone} flow=${id}`,
+      `Document flow WhatsApp sent by user=${user.id} role=${user.role} to=${normalizedPhone || customerPhone} flow=${id} documents=${sentDocuments.join(',')}`,
     );
 
     if (flow.order.createdBy?.id) {
@@ -298,7 +336,7 @@ export class OrderDocumentFlowService {
         '*Documentos enviados al cliente*',
         `Cliente: ${customerName}`,
         `Teléfono: ${normalizedPhone || customerPhone}`,
-          'Se enviaron la factura y la carta de garantía usando la instancia del usuario remitente o, si no tenía una personal, la instancia principal de empresa.',
+        `Se envió: ${sentDocuments.join(' y ')} usando la instancia del usuario remitente o, si no tenía una personal, la instancia principal de empresa.`,
       ].join('\n');
 
       await this.notifications.enqueueWhatsAppToUser({
@@ -323,10 +361,18 @@ export class OrderDocumentFlowService {
       flow: mapped,
       whatsappPayload: {
         toNumber: normalizedPhone || customerPhone,
-        messageText,
-        attachments: [mapped.invoiceFinalUrl, mapped.warrantyFinalUrl].filter(
-          (value): value is string => typeof value === 'string' && value.length > 0,
-        ),
+        messageText: messageTextParts.join('\n'),
+        attachments: shouldSendInvoice && shouldSendWarranty
+          ? [mapped.invoiceFinalUrl, mapped.warrantyFinalUrl].filter(
+              (value): value is string => typeof value === 'string' && value.length > 0,
+            )
+          : shouldSendInvoice
+          ? [mapped.invoiceFinalUrl].filter(
+              (value): value is string => typeof value === 'string' && value.length > 0,
+            )
+          : [mapped.warrantyFinalUrl].filter(
+              (value): value is string => typeof value === 'string' && value.length > 0,
+            ),
       },
     };
   }
@@ -1147,34 +1193,40 @@ export class OrderDocumentFlowService {
   private async persistProvidedFinalPdfs(
     flow: DocumentFlowRow,
     params: {
-      invoiceBytes: Buffer;
-      warrantyBytes: Buffer;
+      invoiceBytes: Buffer | null;
+      warrantyBytes: Buffer | null;
       invoiceFileName: string;
       warrantyFileName: string;
     },
   ) {
-    const invoiceRelativePath = join(
-      'document-flows',
-      flow.id,
-      this.toText(params.invoiceFileName, 'factura-final.pdf'),
-    ).replace(/\\/g, '/');
-    const warrantyRelativePath = join(
-      'document-flows',
-      flow.id,
-      this.toText(params.warrantyFileName, 'warranty-final.pdf'),
-    ).replace(/\\/g, '/');
+    const updateData: Prisma.OrderDocumentFlowUpdateInput = {
+      status: OrderDocumentFlowStatus.APPROVED,
+    };
 
-    writeFileSync(this.buildAbsoluteUploadPath(invoiceRelativePath), params.invoiceBytes);
-    writeFileSync(this.buildAbsoluteUploadPath(warrantyRelativePath), params.warrantyBytes);
+    if (params.invoiceBytes) {
+      const invoiceRelativePath = join(
+        'document-flows',
+        flow.id,
+        this.toText(params.invoiceFileName, 'factura-final.pdf'),
+      ).replace(/\\/g, '/');
+      writeFileSync(this.buildAbsoluteUploadPath(invoiceRelativePath), params.invoiceBytes);
+      updateData.invoiceFinalUrl = `/${join('uploads', invoiceRelativePath).replace(/\\/g, '/')}`;
+    }
+
+    if (params.warrantyBytes) {
+      const warrantyRelativePath = join(
+        'document-flows',
+        flow.id,
+        this.toText(params.warrantyFileName, 'warranty-final.pdf'),
+      ).replace(/\\/g, '/');
+      writeFileSync(this.buildAbsoluteUploadPath(warrantyRelativePath), params.warrantyBytes);
+      updateData.warrantyFinalUrl = `/${join('uploads', warrantyRelativePath).replace(/\\/g, '/')}`;
+    }
 
     const updated = await this.prisma.orderDocumentFlow.update({
       where: { id: flow.id },
       include: this.include,
-      data: {
-        invoiceFinalUrl: `/${join('uploads', invoiceRelativePath).replace(/\\/g, '/')}`,
-        warrantyFinalUrl: `/${join('uploads', warrantyRelativePath).replace(/\\/g, '/')}`,
-        status: OrderDocumentFlowStatus.APPROVED,
-      },
+      data: updateData,
     });
 
     return updated;

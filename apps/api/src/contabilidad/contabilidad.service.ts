@@ -796,7 +796,8 @@ export class ContabilidadService {
     const card = this.decimal(dto.card);
     const otherIncome = this.decimal(dto.otherIncome ?? 0);
     const expenses = this.decimal(dto.expenses);
-    const cashDelivered = this.decimal(dto.cashDelivered);
+    // Calcular automáticamente: cashDelivered = cash - expenses
+    const cashDelivered = this.decimal(cash - expenses);
     const totals = this.calculateCloseTotals({
       cash,
       transfers,
@@ -1144,9 +1145,8 @@ export class ContabilidadService {
     const card = this.decimal(dto.card ?? close.card);
     const otherIncome = this.decimal(dto.otherIncome ?? close.otherIncome);
     const expenses = this.decimal(dto.expenses ?? close.expenses);
-    const cashDelivered = this.decimal(
-      dto.cashDelivered ?? close.cashDelivered,
-    );
+    // Calcular automáticamente: cashDelivered = cash - expenses
+    const cashDelivered = this.decimal(cash - expenses);
     const totals = this.calculateCloseTotals({
       cash,
       transfers,

@@ -324,17 +324,51 @@ class _DocumentFlowDetailScreenState
     });
     try {
       final companySettings = ref.read(companySettingsProvider).valueOrNull;
-      final invoiceBytes = await _buildInvoicePdfBytes(flow, companySettings);
-      final warrantyBytes = await _buildWarrantyPdfBytes(flow, companySettings);
+      final serviceType = flow.order.serviceType;
+
+      // Validate document sending rules based on serviceType
+      final shouldSendInvoice =
+          serviceType == 'instalacion' || serviceType == 'mantenimiento';
+      final shouldSendWarranty = serviceType == 'instalacion';
+
+      if (!shouldSendInvoice && !shouldSendWarranty) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Este tipo de servicio no requiere envío de documentos (factura y/o carta de garantía).',
+            ),
+          ),
+        );
+        return;
+      }
+
       final orderId = flow.order.id.substring(0, 8);
+      String? invoicePdfBase64;
+      String? warrantyPdfBase64;
+      final List<String> sentDocuments = [];
+
+      // Generate and encode invoice if applicable
+      if (shouldSendInvoice) {
+        final invoiceBytes = await _buildInvoicePdfBytes(flow, companySettings);
+        invoicePdfBase64 = base64Encode(invoiceBytes);
+        sentDocuments.add('factura');
+      }
+
+      // Generate and encode warranty if applicable
+      if (shouldSendWarranty) {
+        final warrantyBytes = await _buildWarrantyPdfBytes(flow, companySettings);
+        warrantyPdfBase64 = base64Encode(warrantyBytes);
+        sentDocuments.add('carta de garantía');
+      }
+
       final result = await ref
           .read(documentFlowsRepositoryProvider)
           .send(
             flow.id,
-            invoicePdfBase64: base64Encode(invoiceBytes),
-            warrantyPdfBase64: base64Encode(warrantyBytes),
-            invoiceFileName: 'factura-final-$orderId.pdf',
-            warrantyFileName: 'warranty-final-$orderId.pdf',
+            invoicePdfBase64: invoicePdfBase64,
+            warrantyPdfBase64: warrantyPdfBase64,
+            invoiceFileName: shouldSendInvoice ? 'factura-final-$orderId.pdf' : null,
+            warrantyFileName: shouldSendWarranty ? 'warranty-final-$orderId.pdf' : null,
           );
       if (!mounted) return;
       setState(() {
@@ -344,7 +378,7 @@ class _DocumentFlowDetailScreenState
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         SnackBar(
           content: Text(
-            'Factura y carta de garantía enviadas por WhatsApp a ${result.toNumber}',
+            '${sentDocuments.join(' y ')} enviadas por WhatsApp a ${result.toNumber}',
           ),
         ),
       );
