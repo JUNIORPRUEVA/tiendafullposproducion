@@ -245,15 +245,18 @@ class _WarningDetailScreenState extends ConsumerState<WarningDetailScreen> {
     );
     if (ok != true) return;
 
+    final navigator = Navigator.of(context);
     setState(() => _actionLoading = true);
     try {
       await ref.read(employeeWarningsRepositoryProvider).delete(w.id);
       ref.invalidate(warningsListControllerProvider);
       if (!mounted) return;
-      Navigator.of(context).pop(true);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Amonestacion eliminada'), backgroundColor: Colors.green),
-      );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (navigator.canPop()) {
+          navigator.pop(true);
+        }
+      });
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
