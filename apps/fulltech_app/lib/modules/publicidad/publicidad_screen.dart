@@ -3218,6 +3218,18 @@ $objective''';
     MarketingStory story,
   ) async {
     final details = story.publishErrorDetails;
+    final rawChannelErrors = details['channelErrors'];
+    final firstChannelError =
+        rawChannelErrors is List && rawChannelErrors.isNotEmpty && rawChannelErrors.first is Map
+            ? (rawChannelErrors.first as Map).cast<String, dynamic>()
+            : const <String, dynamic>{};
+    final fallbackChannel = '${firstChannelError['channel'] ?? ''}'.trim();
+    final fallbackStage = '${firstChannelError['stage'] ?? ''}'.trim();
+    final fallbackMessage = '${firstChannelError['message'] ?? ''}'.trim();
+    final fallbackCode = '${firstChannelError['code'] ?? ''}'.trim();
+    final fallbackSubcode = '${firstChannelError['subcode'] ?? ''}'.trim();
+    final fallbackFbtraceId =
+        '${firstChannelError['fbtraceId'] ?? firstChannelError['fbtrace_id'] ?? ''}'.trim();
     final channel = '${details['channel'] ?? ''}'.trim();
     final stage = '${details['stage'] ?? ''}'.trim();
     final message = '${details['message'] ?? story.publishError ?? ''}'.trim();
@@ -3226,6 +3238,14 @@ $objective''';
     final fbtraceId = '${details['fbtraceId'] ?? details['fbtrace_id'] ?? ''}'.trim();
     final happenedAt = '${details['happenedAt'] ?? ''}'.trim();
     final technicalJson = _prettyJson(details);
+    final resolvedChannel = channel.isEmpty || channel == 'unknown' ? fallbackChannel : channel;
+    final resolvedStage = stage.isEmpty || stage == 'post-publish-check' ? fallbackStage : stage;
+    final resolvedMessage = message.isEmpty || message == 'An unknown error has occurred.'
+        ? (fallbackMessage.isEmpty ? message : fallbackMessage)
+        : message;
+    final resolvedCode = code.isEmpty ? fallbackCode : code;
+    final resolvedSubcode = subcode.isEmpty ? fallbackSubcode : subcode;
+    final resolvedFbtraceId = fbtraceId.isEmpty ? fallbackFbtraceId : fbtraceId;
 
     await showDialog<void>(
       context: context,
@@ -3237,12 +3257,12 @@ $objective''';
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _InfoLine(label: 'Canal fallido', value: channel.isEmpty ? '-' : channel),
-                _InfoLine(label: 'Etapa', value: stage.isEmpty ? '-' : stage),
-                _InfoLine(label: 'Mensaje', value: message.isEmpty ? '-' : message, maxLines: 5),
-                _InfoLine(label: 'Código Meta', value: code.isEmpty ? '-' : code),
-                _InfoLine(label: 'Subcódigo', value: subcode.isEmpty ? '-' : subcode),
-                _InfoLine(label: 'fbtrace_id', value: fbtraceId.isEmpty ? '-' : fbtraceId),
+                _InfoLine(label: 'Canal fallido', value: resolvedChannel.isEmpty ? '-' : resolvedChannel),
+                _InfoLine(label: 'Etapa', value: resolvedStage.isEmpty ? '-' : resolvedStage),
+                _InfoLine(label: 'Mensaje', value: resolvedMessage.isEmpty ? '-' : resolvedMessage, maxLines: 5),
+                _InfoLine(label: 'Código Meta', value: resolvedCode.isEmpty ? '-' : resolvedCode),
+                _InfoLine(label: 'Subcódigo', value: resolvedSubcode.isEmpty ? '-' : resolvedSubcode),
+                _InfoLine(label: 'fbtrace_id', value: resolvedFbtraceId.isEmpty ? '-' : resolvedFbtraceId),
                 _InfoLine(
                   label: 'Fecha/hora',
                   value: happenedAt.isEmpty ? _formatDateTime(story.updatedAt) : happenedAt,

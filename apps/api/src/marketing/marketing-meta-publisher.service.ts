@@ -397,6 +397,24 @@ export class MarketingMetaPublisherService {
           } else {
             facebookStoryStatus = 'UNSUPPORTED';
             facebookStoryError = facebookStoryResult.error;
+            channelErrors.push(
+              facebookStoryResult.errorDetails ?? {
+                channel: 'facebook',
+                stage: 'facebook-story-publish',
+                message:
+                  facebookStoryResult.error ??
+                  'Meta no permite publicar Facebook Page Stories por este endpoint/token.',
+                type: 'UNSUPPORTED',
+                code: null,
+                subcode: null,
+                fbtraceId: null,
+                httpStatus: null,
+                endpoint: facebookStoryResult.endpoint,
+                details: {
+                  response: facebookStoryResult.payload,
+                },
+              },
+            );
           }
         } catch (error) {
           const parsed = this.parsePublishError(error);
@@ -596,6 +614,7 @@ export class MarketingMetaPublisherService {
       const successCount = requestedChannels.filter((channel) => publishedChannels.includes(channel)).length;
       const fullSuccess = successCount === requestedChannels.length;
       const anySuccess = successCount > 0;
+      const firstChannelError = channelErrors[0] ?? null;
       publishStatus = fullSuccess ? 'PUBLISHED' : anySuccess ? 'PARTIAL' : 'ERROR';
       publishedAt = anySuccess ? new Date() : null;
       publishError = fullSuccess ? null : anySuccess ? null : 'No se pudo publicar en los canales seleccionados.';
@@ -606,15 +625,21 @@ export class MarketingMetaPublisherService {
               ? `${channelErrors[0].code}`
               : null;
       publishErrorDetails = {
-        channel: anySuccess ? 'unknown' : 'unknown',
-        stage: 'post-publish-check',
+        channel: firstChannelError?.channel ?? 'unknown',
+        stage: firstChannelError?.stage ?? 'post-publish-check',
         message:
           fullSuccess
             ? 'Publicación completada.'
-            : channelErrors[0]?.message ??
+            : firstChannelError?.message ??
               (anySuccess
                 ? 'Publicación parcial: al menos un canal falló.'
                 : 'No se pudo publicar en los canales seleccionados.'),
+        type: firstChannelError?.type ?? null,
+        code: firstChannelError?.code ?? null,
+        subcode: firstChannelError?.subcode ?? null,
+        fbtraceId: firstChannelError?.fbtraceId ?? null,
+        httpStatus: firstChannelError?.httpStatus ?? null,
+        endpoint: firstChannelError?.endpoint ?? null,
         requestedChannels,
         publishedChannels,
         imageValidation,
