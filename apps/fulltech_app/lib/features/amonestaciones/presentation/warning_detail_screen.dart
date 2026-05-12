@@ -1,5 +1,8 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:printing/printing.dart';
 
 import '../application/warnings_controller.dart';
 import '../data/employee_warning_model.dart';
@@ -17,6 +20,9 @@ class WarningDetailScreen extends ConsumerStatefulWidget {
 
 class _WarningDetailScreenState extends ConsumerState<WarningDetailScreen> {
   bool _actionLoading = false;
+  static const String _companyHeaderName = 'FULLTECH, SRL';
+  static const String _companyHeaderPhone = '8295344286';
+  static const String _companyHeaderRnc = '133080206';
 
   @override
   Widget build(BuildContext context) {
@@ -47,7 +53,22 @@ class _WarningDetailScreenState extends ConsumerState<WarningDetailScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF7F8FC),
       appBar: AppBar(
-        title: Text(w.warningNumber),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              w.warningNumber,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            Text(
+              '$_companyHeaderName | Tel: $_companyHeaderPhone | RNC: $_companyHeaderRnc',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
+            ),
+          ],
+        ),
         backgroundColor: const Color(0xFF1a1a2e),
         foregroundColor: Colors.white,
         actions: [
@@ -141,6 +162,11 @@ class _WarningDetailScreenState extends ConsumerState<WarningDetailScreen> {
             const SizedBox(height: 10),
             _TextPanel(title: 'Observaciones internas', text: (w.internalNotes ?? '').trim()),
           ],
+          const SizedBox(height: 10),
+          _PdfPanel(
+            onOpenInApp: _hasPdf(w) ? () => _openPdfInApp(w) : null,
+            onPrint: _hasPdf(w) ? () => _printPdf(w) : null,
+          ),
           if (w.signatures.isNotEmpty) ...[
             const SizedBox(height: 10),
             _TextPanel(
@@ -157,6 +183,12 @@ class _WarningDetailScreenState extends ConsumerState<WarningDetailScreen> {
   String _v(String? value) {
     final v = (value ?? '').trim();
     return v.isEmpty ? 'No registrado' : v;
+  }
+
+  bool _hasPdf(EmployeeWarning w) {
+    final pdfUrl = (w.pdfUrl ?? '').trim();
+    final signedPdfUrl = (w.signedPdfUrl ?? '').trim();
+    return pdfUrl.isNotEmpty || signedPdfUrl.isNotEmpty;
   }
 
   Future<void> _annul(BuildContext context, EmployeeWarning w) async {
@@ -269,17 +301,78 @@ class _WarningDetailScreenState extends ConsumerState<WarningDetailScreen> {
     );
   }
 
-  Future<void> _openPdfInApp(BuildContext context, EmployeeWarning w) async {
+  Future<void> _openPdfInApp(EmployeeWarning w) async {
     try {
       final bytes = await _loadPdfBytes(w);
       if (!mounted) return;
-      await Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => _WarningPdfViewerScreen(
-            bytes: bytes,
-            warningNumber: w.warningNumber,
-          ),
-        ),
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) {
+          final media = MediaQuery.sizeOf(dialogContext);
+          final isCompact = media.width < 560;
+          return Dialog(
+            insetPadding: EdgeInsets.all(isCompact ? 8 : 14),
+            child: SizedBox(
+              width: isCompact ? media.width - 16 : 920,
+              height: isCompact ? media.height * 0.92 : 760,
+              child: Column(
+                children: [
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(isCompact ? 10 : 14, 10, 8, 6),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.picture_as_pdf_outlined),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                'Amonestacion ${w.warningNumber}',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: isCompact ? 14 : 16,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '$_companyHeaderName | Tel: $_companyHeaderPhone | RNC: $_companyHeaderRnc',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: isCompact ? 10 : 11,
+                                  fontWeight: FontWeight.w500,
+                                  color: Colors.black54,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Cerrar',
+                          onPressed: () => Navigator.pop(dialogContext),
+                          icon: const Icon(Icons.close),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: PdfPreview(
+                      canChangePageFormat: false,
+                      canChangeOrientation: false,
+                      canDebug: false,
+                      allowPrinting: true,
+                      allowSharing: true,
+                      build: (_) async => bytes,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
       );
     } catch (e) {
       if (!mounted) return;
@@ -289,7 +382,7 @@ class _WarningDetailScreenState extends ConsumerState<WarningDetailScreen> {
     }
   }
 
-  Future<void> _printPdf(BuildContext context, EmployeeWarning w) async {
+  Future<void> _printPdf(EmployeeWarning w) async {
     try {
       final bytes = await _loadPdfBytes(w);
       await Printing.layoutPdf(onLayout: (_) async => bytes);
@@ -355,8 +448,8 @@ class _TextPanel extends StatelessWidget {
 }
 
 class _PdfPanel extends StatelessWidget {
-  final VoidCallback onOpenInApp;
-  final VoidCallback onPrint;
+  final VoidCallback? onOpenInApp;
+  final VoidCallback? onPrint;
   const _PdfPanel({required this.onOpenInApp, required this.onPrint});
 
   @override
@@ -368,7 +461,7 @@ class _PdfPanel extends StatelessWidget {
               child: OutlinedButton.icon(
                 onPressed: onOpenInApp,
                 icon: const Icon(Icons.picture_as_pdf_outlined, size: 16),
-                label: const Text('Abrir PDF'),
+                label: const Text('Ver amonestacion'),
               ),
             ),
             const SizedBox(width: 8),
