@@ -25,6 +25,10 @@ type RequestUser = {
 type ApproveStoryBody = {
   contentType?: string;
   publishTargets?: string[];
+  publishFacebookStory?: boolean;
+  publishInstagramStory?: boolean;
+  publishFacebookPost?: boolean;
+  publishInstagramPost?: boolean;
 };
 
 @Controller('marketing')
@@ -84,9 +88,16 @@ export class MarketingController {
     const user = req.user as RequestUser;
     const companyId = this.marketing.resolveCompanyId();
     const contentType = dto?.contentType ?? 'post';
-    const publishTargets = Array.isArray(dto?.publishTargets)
+    const explicitTargets: string[] = [];
+    if (dto?.publishFacebookStory === true) explicitTargets.push('facebook_story');
+    if (dto?.publishInstagramStory === true) explicitTargets.push('instagram_story');
+    if (dto?.publishFacebookPost === true) explicitTargets.push('facebook_post');
+    if (dto?.publishInstagramPost === true) explicitTargets.push('instagram_post');
+
+    const arrayTargets = Array.isArray(dto?.publishTargets)
       ? dto!.publishTargets!.map((item) => `${item}`.trim()).filter((item) => item.length > 0)
       : [];
+    const publishTargets = Array.from(new Set([...explicitTargets, ...arrayTargets]));
     this.logger.log(
       `[marketing-approve] storyId=${storyId} contentType=${contentType} publishTargets=${JSON.stringify(publishTargets)}`,
     );

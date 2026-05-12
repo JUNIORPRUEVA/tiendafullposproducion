@@ -2274,13 +2274,49 @@ class _StoryCardState extends State<_StoryCard> {
     _selectedPublishTargets = _defaultPublishTargets(widget.story);
   }
 
+  @override
+  void didUpdateWidget(covariant _StoryCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.story.id != widget.story.id) {
+      _selectedPublishTargets = _defaultPublishTargets(widget.story);
+    }
+  }
+
   Set<MarketingPublishTarget> _defaultPublishTargets(MarketingStory story) {
     if (story.publishTargets.isNotEmpty) {
       return story.publishTargets.toSet();
     }
+
+    final published = {
+      ...story.publishedChannels,
+      if ((story.facebookStoryId ?? '').trim().isNotEmpty)
+        MarketingPublishTarget.facebookStory,
+      if ((story.instagramStoryId ?? '').trim().isNotEmpty)
+        MarketingPublishTarget.instagramStory,
+      if ((story.facebookPostId ?? '').trim().isNotEmpty)
+        MarketingPublishTarget.facebookPost,
+      if ((story.instagramPostId ?? '').trim().isNotEmpty)
+        MarketingPublishTarget.instagramPost,
+    };
+    final hasAnyPublished =
+        published.isNotEmpty ||
+        (story.facebookPostId ?? '').trim().isNotEmpty ||
+        (story.facebookStoryId ?? '').trim().isNotEmpty ||
+        (story.instagramPostId ?? '').trim().isNotEmpty ||
+        (story.instagramStoryId ?? '').trim().isNotEmpty;
+
+    if (hasAnyPublished) {
+      return {
+        if (!published.contains(MarketingPublishTarget.facebookStory))
+          MarketingPublishTarget.facebookStory,
+        if (!published.contains(MarketingPublishTarget.instagramStory))
+          MarketingPublishTarget.instagramStory,
+      };
+    }
+
     return {
-      MarketingPublishTarget.facebookPost,
-      MarketingPublishTarget.instagramPost,
+      MarketingPublishTarget.facebookStory,
+      MarketingPublishTarget.instagramStory,
     };
   }
 
@@ -2305,6 +2341,7 @@ class _StoryCardState extends State<_StoryCard> {
               status: story.publishStatus,
               facebookPostId: story.facebookPostId,
               instagramPostId: story.instagramPostId,
+              facebookStoryId: story.facebookStoryId,
               instagramStoryId: story.instagramStoryId,
               publishedChannels: story.publishedChannels,
               publishTargets: story.publishTargets,
@@ -2669,9 +2706,14 @@ $objective''';
     final failedChannel = '${publishDetails['channel'] ?? ''}'.trim().toLowerCase();
     final publishedChannels = story.publishedChannels.toSet();
     final requestedChannels = _selectedPublishTargets;
+    final hasFacebookStoryPublished =
+      publishedChannels.contains(MarketingPublishTarget.facebookStory) ||
+      (story.facebookStoryId ?? '').trim().isNotEmpty;
+    final hasFacebookPostPublished =
+      publishedChannels.contains(MarketingPublishTarget.facebookPost) ||
+      (story.facebookPostId ?? '').trim().isNotEmpty;
     final hasFacebookPublished =
-        publishedChannels.contains(MarketingPublishTarget.facebookPost) ||
-        (story.facebookPostId ?? '').trim().isNotEmpty;
+      hasFacebookStoryPublished || hasFacebookPostPublished;
     final hasInstagramPostPublished =
         publishedChannels.contains(MarketingPublishTarget.instagramPost) ||
         (story.instagramPostId ?? '').trim().isNotEmpty;
@@ -2691,13 +2733,19 @@ $objective''';
     final showPartialInfo =
       !hasPublishError &&
       (story.publishStatus == MarketingPublishStatus.partial ||
-        (hasFacebookPublished && requestedInstagram && !hasInstagramPublished));
+      (hasFacebookStoryPublished &&
+        requestedChannels.contains(MarketingPublishTarget.instagramStory) &&
+        !hasInstagramStoryPublished) ||
+      (hasFacebookPublished && requestedInstagram && !hasInstagramPublished));
     final retryLabel = failedChannel == 'instagram'
         ? 'Reintentar Instagram'
         : failedChannel == 'facebook'
             ? 'Reintentar Facebook'
             : 'Reintentar publicación';
     final selectedTargets = _selectedPublishTargets.toList(growable: false);
+    final facebookStoryStatus = (story.facebookStoryStatus ?? '').trim().toUpperCase();
+    final showFacebookStoryChannelError =
+      facebookStoryStatus == 'ERROR' || facebookStoryStatus == 'UNSUPPORTED';
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -2771,7 +2819,14 @@ $objective''';
                   if ((story.facebookPostId ?? '').trim().isNotEmpty) ...[
                     const SizedBox(height: 4),
                     Text(
-                      'ID Facebook: ${story.facebookPostId}',
+                      'ID Facebook Post: ${story.facebookPostId}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                  if ((story.facebookStoryId ?? '').trim().isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'ID Facebook Story: ${story.facebookStoryId}',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],
@@ -2831,8 +2886,12 @@ $objective''';
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    hasFacebookPublished && requestedInstagram && !hasInstagramPublished
-                        ? 'Publicado en Facebook, pendiente/error en Instagram'
+                    hasInstagramStoryPublished &&
+                            requestedChannels.contains(MarketingPublishTarget.facebookStory) &&
+                            !hasFacebookStoryPublished
+                        ? 'Historia publicada en Instagram. Facebook Story pendiente/error.'
+                        : hasFacebookPublished && requestedInstagram && !hasInstagramPublished
+                            ? 'Publicado en Facebook, pendiente/error en Instagram'
                         : 'Publicado parcialmente',
                     style: Theme.of(context).textTheme.labelMedium?.copyWith(
                       fontWeight: FontWeight.w800,
@@ -2853,6 +2912,45 @@ $objective''';
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],
+                ],
+              ),
+            ),
+          ],
+          if (showFacebookStoryChannelError) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: facebookStoryStatus == 'UNSUPPORTED'
+                    ? const Color(0xFFFFF7E6)
+                    : const Color(0xFFFFEAEA),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: facebookStoryStatus == 'UNSUPPORTED'
+                      ? const Color(0xFFE2A63A)
+                      : const Color(0xFFE57373),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    facebookStoryStatus == 'UNSUPPORTED'
+                        ? 'Facebook Story no soportado'
+                        : 'Error en Facebook Story',
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: facebookStoryStatus == 'UNSUPPORTED'
+                          ? const Color(0xFF8A5A00)
+                          : const Color(0xFF8E1C1C),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    (story.facebookStoryError ?? 'Meta no devolvió detalle para Facebook Story.').trim(),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
                 ],
               ),
             ),
@@ -2917,12 +3015,24 @@ $objective''';
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Canales a publicar',
+                  'Canales de publicación',
                   style: Theme.of(context).textTheme.labelMedium?.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
                 ),
                 const SizedBox(height: 8),
+                _buildPublishTargetCheckbox(
+                  context,
+                  target: MarketingPublishTarget.facebookStory,
+                  label: 'Facebook Story',
+                  subtitle: 'Publica como historia en Facebook Page',
+                ),
+                _buildPublishTargetCheckbox(
+                  context,
+                  target: MarketingPublishTarget.instagramStory,
+                  label: 'Instagram Story',
+                  subtitle: 'Publica como historia en Instagram Business',
+                ),
                 _buildPublishTargetCheckbox(
                   context,
                   target: MarketingPublishTarget.facebookPost,
@@ -2934,12 +3044,6 @@ $objective''';
                   target: MarketingPublishTarget.instagramPost,
                   label: 'Instagram Post',
                   subtitle: 'Publica en el feed del Instagram Business',
-                ),
-                _buildPublishTargetCheckbox(
-                  context,
-                  target: MarketingPublishTarget.instagramStory,
-                  label: 'Instagram Story',
-                  subtitle: 'Publica como story en Instagram Business',
                 ),
               ],
             ),
@@ -6303,6 +6407,7 @@ class _PublishStatusPill extends StatelessWidget {
   const _PublishStatusPill({
     required this.status,
     required this.facebookPostId,
+    required this.facebookStoryId,
     required this.instagramPostId,
     required this.instagramStoryId,
     required this.publishedChannels,
@@ -6311,6 +6416,7 @@ class _PublishStatusPill extends StatelessWidget {
 
   final MarketingPublishStatus status;
   final String? facebookPostId;
+  final String? facebookStoryId;
   final String? instagramPostId;
   final String? instagramStoryId;
   final List<MarketingPublishTarget> publishedChannels;
@@ -6318,7 +6424,9 @@ class _PublishStatusPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasFacebook = (facebookPostId ?? '').trim().isNotEmpty;
+    final hasFacebookPost = (facebookPostId ?? '').trim().isNotEmpty;
+    final hasFacebookStory = (facebookStoryId ?? '').trim().isNotEmpty;
+    final hasFacebook = hasFacebookPost || hasFacebookStory;
     final hasInstagramPost = (instagramPostId ?? '').trim().isNotEmpty;
     final hasInstagramStory = (instagramStoryId ?? '').trim().isNotEmpty;
     final hasInstagram = hasInstagramPost || hasInstagramStory;
@@ -6347,11 +6455,17 @@ class _PublishStatusPill extends StatelessWidget {
       MarketingPublishStatus.published => (
         const Color(0xFFD9FBE5),
         const Color(0xFF0E5F33),
-        hasFacebook && hasInstagram
-            ? 'FB + IG'
-            : hasInstagramStory && !hasInstagramPost
+        hasFacebookStory && hasInstagramStory
+          ? 'Stories OK'
+          : hasFacebookPost && hasInstagramPost
+            ? 'Posts OK'
+            : hasFacebook && hasInstagram
+              ? 'FB + IG'
+              : hasInstagramStory && !hasInstagramPost
                 ? 'IG Story'
-                : hasInstagram
+                : hasFacebookStory && !hasFacebookPost
+                  ? 'FB Story'
+                  : hasInstagram
                     ? 'Instagram'
                     : 'Facebook',
       ),

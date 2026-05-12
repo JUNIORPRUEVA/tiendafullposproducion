@@ -10,18 +10,23 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { MarketingStorageService } from './marketing-storage.service';
 
-type PublishChannel = 'facebook_post' | 'instagram_post' | 'instagram_story';
+type PublishChannel = 'facebook_story' | 'instagram_story' | 'facebook_post' | 'instagram_post';
 
 type PublishRequest = {
   contentType?: string;
   publishTargets?: string[];
+  publishFacebookStory?: boolean;
+  publishInstagramStory?: boolean;
+  publishFacebookPost?: boolean;
+  publishInstagramPost?: boolean;
 };
 
 type PublishSelection = {
   requestedChannels: PublishChannel[];
+  publishFacebookStory: boolean;
+  publishInstagramStory: boolean;
   publishFacebookPost: boolean;
   publishInstagramPost: boolean;
-  publishInstagramStory: boolean;
 };
 
 type InstagramPublishResponse = {
@@ -29,12 +34,26 @@ type InstagramPublishResponse = {
   mediaId: string;
 };
 
+type FacebookStoryPublishResponse = {
+  supported: boolean;
+  storyId: string | null;
+  error: string | null;
+};
+
 type MetaPublishResult = {
+  facebookStoryId: string | null;
   facebookPostId: string | null;
   instagramPostId: string | null;
   instagramMediaId: string | null;
   instagramStoryId: string | null;
   instagramContainerId: string | null;
+  instagramStoryContainerId: string | null;
+  instagramStoryPublishedAt: Date | null;
+  facebookStoryStatus: string | null;
+  instagramStoryStatus: string | null;
+  facebookPostStatus: string | null;
+  instagramPostStatus: string | null;
+  facebookStoryError: string | null;
   publishedChannels: PublishChannel[];
   requestedChannels: PublishChannel[];
   publishedAt: Date | null;
@@ -101,11 +120,12 @@ class MetaApiError extends Error {
 export class MarketingMetaPublisherService {
   private readonly logger = new Logger(MarketingMetaPublisherService.name);
   private static readonly DEFAULT_POST_CHANNELS: PublishChannel[] = ['facebook_post', 'instagram_post'];
-  private static readonly DEFAULT_STORY_CHANNELS: PublishChannel[] = ['instagram_story'];
+  private static readonly DEFAULT_STORY_CHANNELS: PublishChannel[] = ['facebook_story', 'instagram_story'];
   private static readonly VALID_PUBLISH_CHANNELS: PublishChannel[] = [
+    'facebook_story',
+    'instagram_story',
     'facebook_post',
     'instagram_post',
-    'instagram_story',
   ];
 
   constructor(
@@ -148,6 +168,7 @@ export class MarketingMetaPublisherService {
     }
 
     const currentFacebookPostId = `${(story as any).facebookPostId ?? ''}`.trim();
+    const currentFacebookStoryId = `${(story as any).facebookStoryId ?? ''}`.trim();
     const currentInstagramPostId = `${(story as any).instagramPostId ?? ''}`.trim();
     const currentInstagramStoryId = `${(story as any).instagramStoryId ?? ''}`.trim();
     const storedTargets = this.normalizePublishChannels((story as any).publishTargets);
@@ -171,6 +192,7 @@ export class MarketingMetaPublisherService {
       !retryOnlyMissing &&
       currentPublishStatus === 'PUBLISHED' &&
       this.areAllRequestedChannelsPublished(requestedChannels, {
+        facebookStoryId: currentFacebookStoryId,
         facebookPostId: currentFacebookPostId,
         instagramPostId: currentInstagramPostId,
         instagramStoryId: currentInstagramStoryId,
@@ -180,18 +202,29 @@ export class MarketingMetaPublisherService {
     }
 
     const normalizedImageUrl = this.marketingStorage.getPublicUrl(imageUrl);
+    let facebookStoryId = currentFacebookStoryId || null;
     let facebookPostId = currentFacebookPostId || null;
     let instagramPostId = currentInstagramPostId || null;
     let instagramMediaId = currentInstagramPostId || null;
     let instagramStoryId = currentInstagramStoryId || null;
     let instagramContainerId = `${(story as any).instagramContainerId ?? ''}`.trim() || null;
+    let instagramStoryContainerId = `${(story as any).instagramStoryContainerId ?? ''}`.trim() || null;
+    let instagramStoryPublishedAt: Date | null =
+      (story as any).instagramStoryPublishedAt instanceof Date ? (story as any).instagramStoryPublishedAt : null;
+    let facebookStoryStatus: string | null = `${(story as any).facebookStoryStatus ?? ''}`.trim() || null;
+    let instagramStoryStatus: string | null = `${(story as any).instagramStoryStatus ?? ''}`.trim() || null;
+    let facebookPostStatus: string | null = `${(story as any).facebookPostStatus ?? ''}`.trim() || null;
+    let instagramPostStatus: string | null = `${(story as any).instagramPostStatus ?? ''}`.trim() || null;
+    let facebookStoryError: string | null = `${(story as any).facebookStoryError ?? ''}`.trim() || null;
     let publishError: string | null = null;
     let publishErrorCode: string | null = null;
     let publishErrorDetails: Prisma.InputJsonValue | typeof Prisma.JsonNull = Prisma.JsonNull;
+    const channelErrors: MetaPublishErrorDetails[] = [];
     let publishStatus = 'PUBLISHING';
     let publishedAt: Date | null = null;
     let retryCount = ((story as any).retryCount ?? 0) as number;
     let publishedChannels = this.buildPublishedChannels({
+      facebookStoryId,
       facebookPostId,
       instagramPostId,
       instagramStoryId,
@@ -217,17 +250,46 @@ export class MarketingMetaPublisherService {
       await this.validateMetaConnectivity(config);
       await this.validatePageTokenPermissions(config, selection);
 
+      const publishFacebookStoryNow = selection.publishFacebookStory && (!retryOnlyMissing || !facebookStoryId);
+      const publishInstagramStoryNow = selection.publishInstagramStory && (!retryOnlyMissing || !instagramStoryId);
       const publishFacebookNow = selection.publishFacebookPost && (!retryOnlyMissing || !facebookPostId);
       const publishInstagramPostNow = selection.publishInstagramPost && (!retryOnlyMissing || !instagramPostId);
-      const publishInstagramStoryNow = selection.publishInstagramStory && (!retryOnlyMissing || !instagramStoryId);
+
+      if (publishFacebookStoryNow) {
+        try {
+          const facebookStoryResult = await this.publishFacebookStory(config, normalizedImageUrl);
+          if (facebookStoryResult.supported) {
+            facebookStoryId = facebookStoryResult.storyId;
+            facebookStoryStatus = facebookStoryResult.storyId ? 'PUBLISHED' : 'ERROR';
+            facebookStoryError = facebookStoryResult.storyId ? null : facebookStoryResult.error;
+          } else {
+            facebookStoryStatus = 'UNSUPPORTED';
+            facebookStoryError = facebookStoryResult.error;
+          }
+        } catch (error) {
+          const parsed = this.parsePublishError(error);
+          facebookStoryStatus = 'ERROR';
+          facebookStoryError = parsed.message;
+          channelErrors.push(parsed);
+          this.logger.error(`[meta-facebook-story] error=${parsed.message}`);
+        }
+      }
 
       if (publishFacebookNow) {
-        this.logger.log(`[meta-facebook] publishing to pageId=${config.pageId}`);
-        this.logger.log('[meta-facebook] endpoint=/{pageId}/photos');
-        this.logger.log('[meta-facebook] never using publish_actions');
-        const facebookResult = await this.publishFacebookPhoto(config, normalizedImageUrl, caption);
-        facebookPostId = facebookResult;
-        this.logger.log(`[meta-publish-facebook] success id=${facebookPostId}`);
+        try {
+          this.logger.log(`[meta-facebook] publishing to pageId=${config.pageId}`);
+          this.logger.log('[meta-facebook] endpoint=/{pageId}/photos');
+          this.logger.log('[meta-facebook] never using publish_actions');
+          const facebookResult = await this.publishFacebookPhoto(config, normalizedImageUrl, caption);
+          facebookPostId = facebookResult;
+          facebookPostStatus = 'PUBLISHED';
+          this.logger.log(`[meta-publish-facebook] success id=${facebookPostId}`);
+        } catch (error) {
+          const parsed = this.parsePublishError(error);
+          facebookPostStatus = 'ERROR';
+          channelErrors.push(parsed);
+          this.logger.error(`[meta-facebook] error=${parsed.message}`);
+        }
       }
 
       if (publishInstagramPostNow || publishInstagramStoryNow) {
@@ -249,19 +311,37 @@ export class MarketingMetaPublisherService {
       }
 
       if (publishInstagramPostNow) {
-        const instagramResult = await this.publishInstagramFeedPost(config, normalizedImageUrl, caption);
-        instagramContainerId = instagramResult.creationId;
-        instagramMediaId = instagramResult.mediaId;
-        instagramPostId = instagramResult.mediaId;
+        try {
+          const instagramResult = await this.publishInstagramFeedPost(config, normalizedImageUrl, caption);
+          instagramContainerId = instagramResult.creationId;
+          instagramMediaId = instagramResult.mediaId;
+          instagramPostId = instagramResult.mediaId;
+          instagramPostStatus = 'PUBLISHED';
+        } catch (error) {
+          const parsed = this.parsePublishError(error);
+          instagramPostStatus = 'ERROR';
+          channelErrors.push(parsed);
+          this.logger.error(`[meta-instagram-post] error=${parsed.message}`);
+        }
       }
 
       if (publishInstagramStoryNow) {
-        const instagramResult = await this.publishInstagramStory(config, normalizedImageUrl);
-        instagramContainerId = instagramResult.creationId;
-        instagramStoryId = instagramResult.mediaId;
+        try {
+          const instagramResult = await this.publishInstagramStory(config, normalizedImageUrl);
+          instagramStoryContainerId = instagramResult.creationId;
+          instagramStoryId = instagramResult.mediaId;
+          instagramStoryStatus = 'PUBLISHED';
+          instagramStoryPublishedAt = new Date();
+        } catch (error) {
+          const parsed = this.parsePublishError(error);
+          instagramStoryStatus = 'ERROR';
+          channelErrors.push(parsed);
+          this.logger.error(`[meta-instagram-story] error=${parsed.message}`);
+        }
       }
 
       publishedChannels = this.buildPublishedChannels({
+        facebookStoryId,
         facebookPostId,
         instagramPostId,
         instagramStoryId,
@@ -272,17 +352,25 @@ export class MarketingMetaPublisherService {
       publishStatus = fullSuccess ? 'PUBLISHED' : anySuccess ? 'PARTIAL' : 'ERROR';
       publishedAt = anySuccess ? new Date() : null;
       publishError = fullSuccess ? null : anySuccess ? null : 'No se pudo publicar en los canales seleccionados.';
-      publishErrorCode = fullSuccess ? null : publishErrorCode;
+      publishErrorCode =
+        fullSuccess || channelErrors.length === 0
+          ? null
+          : channelErrors[0].code != null
+              ? `${channelErrors[0].code}`
+              : null;
       publishErrorDetails = fullSuccess
         ? Prisma.JsonNull
-        : anySuccess
-          ? Prisma.JsonNull
-          : {
-              channel: 'unknown',
-              stage: 'post-publish-check',
-              message: 'No se pudo publicar en los canales seleccionados.',
-              requestedChannels,
-            } as Prisma.InputJsonValue;
+        : {
+            channel: anySuccess ? 'unknown' : 'unknown',
+            stage: 'post-publish-check',
+            message:
+              channelErrors[0]?.message ??
+              (anySuccess
+                ? 'Publicación parcial: al menos un canal falló.'
+                : 'No se pudo publicar en los canales seleccionados.'),
+            requestedChannels,
+            channelErrors: channelErrors.map((item) => this.toErrorDetailsJson(item)),
+          } as Prisma.InputJsonValue;
     } catch (error) {
       const parsed = this.parsePublishError(error);
       const isLegacyPublishActionsError =
@@ -290,6 +378,7 @@ export class MarketingMetaPublisherService {
       const publishActionsGuidance =
         'Meta está rechazando el token como flujo antiguo/publish_actions. Genera un Page Access Token con pages_manage_posts y vuelve a conectar.';
       publishedChannels = this.buildPublishedChannels({
+        facebookStoryId,
         facebookPostId,
         instagramPostId,
         instagramStoryId,
@@ -302,9 +391,11 @@ export class MarketingMetaPublisherService {
           requestedChannels,
           publishedChannels,
           facebookPostId,
+          facebookStoryId,
           instagramPostId,
           instagramStoryId,
           instagramContainerId,
+          instagramStoryContainerId,
         },
       });
       if (publishedChannels.length > 0) {
@@ -321,11 +412,19 @@ export class MarketingMetaPublisherService {
       where: { id: story.id },
       data: {
         publishedAt,
+        facebookStoryId,
         facebookPostId,
         instagramPostId,
         instagramMediaId,
         instagramStoryId,
         instagramContainerId,
+        instagramStoryContainerId,
+        instagramStoryPublishedAt,
+        facebookStoryStatus,
+        instagramStoryStatus,
+        facebookPostStatus,
+        instagramPostStatus,
+        facebookStoryError,
         publishedChannels,
         publishTargets: requestedChannels,
         publishStatus,
@@ -353,11 +452,19 @@ export class MarketingMetaPublisherService {
           userId,
           metadata: {
             storyId: story.id,
+            facebookStoryId,
             facebookPostId,
             instagramPostId,
             instagramMediaId,
             instagramStoryId,
             instagramContainerId,
+            instagramStoryContainerId,
+            instagramStoryPublishedAt,
+            facebookStoryStatus,
+            instagramStoryStatus,
+            facebookPostStatus,
+            instagramPostStatus,
+            facebookStoryError,
             requestedChannels,
             publishedChannels,
             publishStatus,
@@ -372,11 +479,19 @@ export class MarketingMetaPublisherService {
     }
 
     return {
+      facebookStoryId,
       facebookPostId,
       instagramPostId,
       instagramMediaId,
       instagramStoryId,
       instagramContainerId,
+      instagramStoryContainerId,
+      instagramStoryPublishedAt,
+      facebookStoryStatus,
+      instagramStoryStatus,
+      facebookPostStatus,
+      instagramPostStatus,
+      facebookStoryError,
       publishedChannels,
       requestedChannels,
       publishedAt,
@@ -624,7 +739,7 @@ export class MarketingMetaPublisherService {
       });
     }
 
-    if (selection.publishFacebookPost && !token.hasPagesManagePosts) {
+    if ((selection.publishFacebookPost || selection.publishFacebookStory) && !token.hasPagesManagePosts) {
       throw new MetaApiError({
         channel: 'validation',
         stage: 'debug-token-validate',
@@ -655,6 +770,55 @@ export class MarketingMetaPublisherService {
         details: token,
       });
     }
+  }
+
+  private async publishFacebookStory(
+    config: MetaConfig,
+    imageUrl: string,
+  ): Promise<FacebookStoryPublishResponse> {
+    const endpoint = `/${config.pageId}/photo_stories`;
+    const url = `https://graph.facebook.com/${config.graphVersion}${endpoint}`;
+    this.logger.log('[meta-facebook-story] publish story');
+
+    const body = new URLSearchParams({
+      photo_url: imageUrl,
+      access_token: config.accessToken,
+    });
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+    });
+    const payload = await response.json().catch(() => ({} as any));
+    this.logger.log(`[meta-facebook-story] response=${this.safeJson(payload)}`);
+
+    if (!response.ok) {
+      const parsed = this.parseMetaErrorPayload(payload, {
+        channel: 'facebook',
+        stage: 'facebook-story-publish',
+        endpoint,
+        httpStatus: response.status,
+      });
+      const unsupported =
+        parsed.code === 100 ||
+        /unsupported|unknown path|photo_stories/i.test(parsed.message);
+      if (unsupported) {
+        return {
+          supported: false,
+          storyId: null,
+          error: parsed.message,
+        };
+      }
+      throw new MetaApiError(parsed);
+    }
+
+    const storyId = `${payload.story_id ?? payload.id ?? ''}`.trim() || null;
+    return {
+      supported: true,
+      storyId,
+      error: storyId ? null : 'Facebook Story no devolvió ID de historia.',
+    };
   }
 
   private async inspectMetaToken(config: MetaConfig): Promise<MetaTokenInspection> {
@@ -1103,17 +1267,31 @@ export class MarketingMetaPublisherService {
     storedTargets: PublishChannel[] = [],
   ): PublishSelection {
     const contentType = typeof publishInput === 'string' ? publishInput : `${publishInput?.contentType ?? ''}`.trim();
+    const requestObject: PublishRequest | null =
+      typeof publishInput === 'string' ? null : publishInput;
+    const explicitBooleanTargets: PublishChannel[] = [];
+    if (requestObject?.publishFacebookStory === true) explicitBooleanTargets.push('facebook_story');
+    if (requestObject?.publishInstagramStory === true) explicitBooleanTargets.push('instagram_story');
+    if (requestObject?.publishFacebookPost === true) explicitBooleanTargets.push('facebook_post');
+    if (requestObject?.publishInstagramPost === true) explicitBooleanTargets.push('instagram_post');
+
     const requested = this.normalizePublishChannels(
-      typeof publishInput === 'string' ? [] : Array.isArray(publishInput?.publishTargets) ? publishInput!.publishTargets! : [],
+      typeof publishInput === 'string'
+        ? []
+        : [
+            ...explicitBooleanTargets,
+            ...(Array.isArray(publishInput?.publishTargets) ? publishInput!.publishTargets! : []),
+          ],
     );
     const fallback = storedTargets.length > 0 ? storedTargets : this.legacyContentTypeToChannels(contentType);
     const requestedChannels = requested.length > 0 ? requested : fallback;
 
     return {
       requestedChannels,
+      publishFacebookStory: requestedChannels.includes('facebook_story'),
+      publishInstagramStory: requestedChannels.includes('instagram_story'),
       publishFacebookPost: requestedChannels.includes('facebook_post'),
       publishInstagramPost: requestedChannels.includes('instagram_post'),
-      publishInstagramStory: requestedChannels.includes('instagram_story'),
     };
   }
 
@@ -1136,11 +1314,13 @@ export class MarketingMetaPublisherService {
   }
 
   private buildPublishedChannels(input: {
+    facebookStoryId: string | null;
     facebookPostId: string | null;
     instagramPostId: string | null;
     instagramStoryId: string | null;
   }): PublishChannel[] {
     const channels: PublishChannel[] = [];
+    if (`${input.facebookStoryId ?? ''}`.trim()) channels.push('facebook_story');
     if (`${input.facebookPostId ?? ''}`.trim()) channels.push('facebook_post');
     if (`${input.instagramPostId ?? ''}`.trim()) channels.push('instagram_post');
     if (`${input.instagramStoryId ?? ''}`.trim()) channels.push('instagram_story');
@@ -1149,9 +1329,10 @@ export class MarketingMetaPublisherService {
 
   private areAllRequestedChannelsPublished(
     requestedChannels: PublishChannel[],
-    ids: { facebookPostId: string; instagramPostId: string; instagramStoryId: string },
+    ids: { facebookStoryId: string; facebookPostId: string; instagramPostId: string; instagramStoryId: string },
   ) {
     const published = this.buildPublishedChannels({
+      facebookStoryId: ids.facebookStoryId || null,
       facebookPostId: ids.facebookPostId || null,
       instagramPostId: ids.instagramPostId || null,
       instagramStoryId: ids.instagramStoryId || null,
@@ -1166,10 +1347,19 @@ export class MarketingMetaPublisherService {
     publishError: string | null,
   ) {
     const publishedSet = new Set(publishedChannels);
-    const hasFacebook = publishedSet.has('facebook_post');
+    const hasFacebookStory = publishedSet.has('facebook_story');
+    const hasFacebookPost = publishedSet.has('facebook_post');
+    const hasFacebook = hasFacebookStory || hasFacebookPost;
     const hasInstagram = publishedSet.has('instagram_post') || publishedSet.has('instagram_story');
+    const hasInstagramStory = publishedSet.has('instagram_story');
     const requestedInstagram =
       requestedChannels.includes('instagram_post') || requestedChannels.includes('instagram_story');
+    const requestedFacebookStory = requestedChannels.includes('facebook_story');
+    const requestedInstagramStory = requestedChannels.includes('instagram_story');
+
+    if (hasFacebookStory && hasInstagramStory) {
+      return 'Historias publicadas correctamente.';
+    }
 
     if (publishStatus === 'PUBLISHED') {
       if (hasFacebook && hasInstagram) return 'Publicado en Facebook e Instagram correctamente';
@@ -1178,6 +1368,12 @@ export class MarketingMetaPublisherService {
     }
 
     if (publishStatus === 'PARTIAL') {
+      if (hasInstagramStory && requestedFacebookStory && !hasFacebookStory) {
+        return 'Historia publicada en Instagram. Facebook Story pendiente/error.';
+      }
+      if (hasFacebookStory && requestedInstagramStory && !hasInstagramStory) {
+        return 'Historia publicada en Facebook. Instagram Story pendiente/error.';
+      }
       if (hasFacebook && requestedInstagram && !hasInstagram) {
         return 'Publicado en Facebook, pendiente/error en Instagram';
       }

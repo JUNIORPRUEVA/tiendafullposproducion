@@ -145,13 +145,19 @@ class MarketingApi {
     List<MarketingPublishTarget> publishTargets = const [],
   }) async {
     try {
+      final targetValues = publishTargets
+          .map(publishTargetApiValue)
+          .toList(growable: false);
+      final targetSet = targetValues.toSet();
       await _dio.post(
         ApiRoutes.marketingStoryApprove(storyId),
         data: {
           'contentType': contentType,
-          'publishTargets': publishTargets
-              .map(publishTargetApiValue)
-              .toList(growable: false),
+          'publishTargets': targetValues,
+          'publishFacebookStory': targetSet.contains('facebook_story'),
+          'publishInstagramStory': targetSet.contains('instagram_story'),
+          'publishFacebookPost': targetSet.contains('facebook_post'),
+          'publishInstagramPost': targetSet.contains('instagram_post'),
         },
       );
     } on DioException catch (error) {
