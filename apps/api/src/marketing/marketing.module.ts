@@ -7,10 +7,12 @@ import { MarketingCreativeComposerService } from './marketing-creative-composer.
 import { MarketingDebugController } from './marketing-debug.controller';
 import { MarketingGenerationService } from './marketing-generation.service';
 import { MarketingImageAnalyzerService } from './marketing-image-analyzer.service';
+import { MarketingCampaignService } from './marketing-campaign.service';
 import { MarketingImageGenerationService } from './marketing-image-generation.service';
 import { MarketingImageJobService } from './marketing-image-job.service';
 import { MarketingImageEditProvider } from './marketing-image-edit.provider';
 import { MarketingLearningService } from './marketing-learning.service';
+import { MarketingMetaAdsService } from './marketing-meta-ads.service';
 import { MarketingMetaPublisherService } from './marketing-meta-publisher.service';
 import { MarketingMediaAssetService } from './marketing-media-asset.service';
 import { MarketingMediaSelectorService } from './marketing-media-selector.service';
@@ -31,10 +33,12 @@ import { ProductsModule } from '../products/products.module';
     MarketingMediaAssetService,
     MarketingCreativeComposerService,
     MarketingImageAnalyzerService,
+    MarketingCampaignService,
     MarketingImageGenerationService,
     MarketingImageJobService,
     MarketingImageEditProvider,
     MarketingApprovalService,
+    MarketingMetaAdsService,
     MarketingMetaPublisherService,
     MarketingConfigService,
     MarketingAutomationScheduler,

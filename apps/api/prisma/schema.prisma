@@ -307,6 +307,39 @@ enum MarketingImageStatus {
   @@map("marketing_image_status")
 }
 
+enum MarketingCampaignStatus {
+  DRAFT
+  READY
+  PUBLISHING
+  ACTIVE
+  PAUSED
+  ERROR
+  REJECTED
+
+  @@map("marketing_campaign_status")
+}
+
+enum MarketingCampaignPhase {
+  DESIGN
+  COPY_SEGMENTATION
+  PUBLISH
+
+  @@map("marketing_campaign_phase")
+}
+
+enum MarketingCampaignType {
+  META_ADS
+
+  @@map("marketing_campaign_type")
+}
+
+enum MarketingCampaignCurrency {
+  DOP
+  USD
+
+  @@map("marketing_campaign_currency")
+}
+
 enum NotificationContentType {
   TEXT
   DOCUMENT
@@ -554,6 +587,8 @@ model User {
   marketingResearchConfigs MarketingResearchConfig[] @relation("MarketingResearchConfigUpdatedByUser")
   marketingResearchesForced MarketingResearch[]      @relation("MarketingResearchForcedByUser")
   marketingResearchesApproved MarketingResearch[]    @relation("MarketingResearchApprovedByUser")
+  marketingCampaignsCreated MarketingAdCampaign[]    @relation("MarketingCampaignCreatedByUser")
+  marketingCampaignsUpdated MarketingAdCampaign[]    @relation("MarketingCampaignUpdatedByUser")
   payrollEmployeePeriodStatuses PayrollEmployeePeriodStatus[]
   payrollServiceCommissionRequestsOwned PayrollServiceCommissionRequest[] @relation("PayrollServiceCommissionOwner")
   payrollServiceCommissionRequests PayrollServiceCommissionRequest[] @relation("PayrollServiceCommissionTechnicianUser")
@@ -819,11 +854,68 @@ model MarketingMediaAsset {
   updatedAt       DateTime @updatedAt @map("updated_at")
 
   stories         MarketingDailyStory[]
+  campaigns       MarketingAdCampaign[]
 
   @@index([companyId, isActive, isFeatured])
   @@index([companyId, category, relatedService])
   @@index([companyId, useCount, lastUsedAt])
   @@map("marketing_media_assets")
+}
+
+model MarketingAdCampaign {
+  id                    String                    @id @default(uuid()) @db.Uuid
+  companyId             String                    @map("company_id") @db.Uuid
+  date                  DateTime                  @db.Date
+  campaignType          MarketingCampaignType     @default(META_ADS) @map("campaign_type")
+  status                MarketingCampaignStatus   @default(DRAFT)
+  phase                 MarketingCampaignPhase    @default(DESIGN)
+  baseImageUrl          String?                   @db.Text @map("base_image_url")
+  finalDesignUrl        String?                   @db.Text @map("final_design_url")
+  galleryAssetId        String?                   @map("gallery_asset_id") @db.Uuid
+  headline              String?
+  primaryText           String?                   @db.Text @map("primary_text")
+  description           String?                   @db.Text
+  cta                   String?
+  hashtags              String[]                  @default([])
+  aiAngle               String?                   @db.Text @map("ai_angle")
+  aiResearchId          String?                   @map("ai_research_id") @db.Uuid
+  recommendedAudienceJson Json?                   @map("recommended_audience_json")
+  finalAudienceJson     Json?                     @map("final_audience_json")
+  dailyBudget           Decimal?                  @db.Decimal(12, 2) @map("daily_budget")
+  totalBudget           Decimal?                  @db.Decimal(12, 2) @map("total_budget")
+  currency              MarketingCampaignCurrency @default(DOP)
+  whatsappPhone         String?                   @map("whatsapp_phone")
+  whatsappMessageTemplate String?                 @db.Text @map("whatsapp_message_template")
+  destinationUrl        String?                   @db.Text @map("destination_url")
+  startTime             DateTime?                 @map("start_time")
+  endTime               DateTime?                 @map("end_time")
+  keepRunningUntilPaused Boolean                  @default(true) @map("keep_running_until_paused")
+  metaCampaignId        String?                   @map("meta_campaign_id")
+  metaAdSetId           String?                   @map("meta_ad_set_id")
+  metaCreativeId        String?                   @map("meta_creative_id")
+  metaAdId              String?                   @map("meta_ad_id")
+  metaStatus            String?                   @map("meta_status")
+  metaError             String?                   @db.Text @map("meta_error")
+  metaErrorCode         String?                   @map("meta_error_code")
+  metaErrorSubcode      String?                   @map("meta_error_subcode")
+  fbtraceId             String?                   @map("fbtrace_id")
+  createdByUserId       String?                   @map("created_by_user_id") @db.Uuid
+  updatedByUserId       String?                   @map("updated_by_user_id") @db.Uuid
+  publishedAt           DateTime?                 @map("published_at")
+  createdAt             DateTime                  @default(now()) @map("created_at")
+  updatedAt             DateTime                  @updatedAt @map("updated_at")
+
+  mediaAsset            MarketingMediaAsset?      @relation(fields: [galleryAssetId], references: [id], onDelete: SetNull)
+  research              MarketingResearch?        @relation(fields: [aiResearchId], references: [id], onDelete: SetNull)
+  createdByUser         User?                     @relation("MarketingCampaignCreatedByUser", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedByUser         User?                     @relation("MarketingCampaignUpdatedByUser", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, date])
+  @@index([companyId, status, updatedAt])
+  @@index([companyId, phase, updatedAt])
+  @@index([galleryAssetId])
+  @@index([aiResearchId])
+  @@map("marketing_ad_campaigns")
 }
 
 model MarketingActivityLog {
@@ -916,6 +1008,7 @@ model MarketingResearch {
   approvedByUser   User?                     @relation("MarketingResearchApprovedByUser", fields: [approvedByUserId], references: [id], onDelete: SetNull)
   learningMemories MarketingLearningMemory[]
   dailyStories     MarketingDailyStory[]
+  campaigns        MarketingAdCampaign[]
 
   @@index([companyId, date, status])
   @@index([companyId, status, createdAt])

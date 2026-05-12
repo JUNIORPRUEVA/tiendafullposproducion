@@ -258,6 +258,31 @@ class ApiRoutes {
   static String marketingStoryChangeBaseImage(String id, String mediaAssetId) =>
       '/marketing/stories/$id/base-image/$mediaAssetId';
   static String marketingStoryEdit(String id) => '/marketing/stories/$id';
+  static const marketingCampaigns = '/marketing/campaigns';
+  static const marketingCampaignsGenerateMissing =
+      '/marketing/campaigns/generate-missing';
+  static String marketingCampaignConfirmBaseImage(String id) =>
+      '/marketing/campaigns/$id/confirm-base-image';
+  static String marketingCampaignChangeBaseImage(String id, String mediaAssetId) =>
+      '/marketing/campaigns/$id/base-image/$mediaAssetId';
+  static String marketingCampaignUploadDesign(String id) =>
+      '/marketing/campaigns/$id/upload-design';
+  static String marketingCampaignRegenerateCopy(String id) =>
+      '/marketing/campaigns/$id/regenerate-copy';
+  static String marketingCampaignUpdate(String id) => '/marketing/campaigns/$id';
+  static String marketingCampaignCreateMeta(String id) =>
+      '/marketing/campaigns/$id/create-meta-campaign';
+  static String marketingCampaignActivate(String id) =>
+      '/marketing/campaigns/$id/activate';
+  static String marketingCampaignPause(String id) =>
+      '/marketing/campaigns/$id/pause';
+  static String marketingCampaignReject(String id) =>
+      '/marketing/campaigns/$id/reject';
+  static String marketingCampaignDuplicate(String id) =>
+      '/marketing/campaigns/$id/duplicate';
+  static String marketingCampaignDetails(String id) =>
+      '/marketing/campaigns/$id/details';
+  static const marketingDebugMetaAdsConfig = '/marketing/debug/meta-ads-config';
     static const marketingContentGallery = '/marketing/content-gallery';
     static const marketingMediaAssets = '/marketing/media-assets';
     static const marketingPublishedAssets = '/marketing/published-assets';

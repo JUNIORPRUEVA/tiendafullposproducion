@@ -1,9 +1,13 @@
 import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { MarketingService } from './marketing.service';
+import { MarketingMetaAdsService } from './marketing-meta-ads.service';
 
 @Controller('marketing/debug')
 export class MarketingDebugController {
-  constructor(private readonly marketing: MarketingService) {}
+  constructor(
+    private readonly marketing: MarketingService,
+    private readonly metaAds: MarketingMetaAdsService,
+  ) {}
 
   @Get('version')
   async version() {
@@ -35,6 +39,11 @@ export class MarketingDebugController {
   @Get('meta-token')
   async metaToken() {
     return this.marketing.debugMetaToken();
+  }
+
+  @Get('meta-ads-config')
+  async metaAdsConfig() {
+    return this.metaAds.debugAdsConfig();
   }
 
   @Post('test-meta-publish')

@@ -27,6 +27,7 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
   List<CompanyManualEntry> _entries = const [];
   CompanyManualEntryKind? _kindFilter;
   String? _selectedEntryId;
+  Set<String> _selectedForBulkDelete = {};
 
   @override
   void initState() {
@@ -199,6 +200,71 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
     }
   }
 
+  Future<void> _deleteBulkSelected() async {
+    if (_selectedForBulkDelete.isEmpty) return;
+    final count = _selectedForBulkDelete.length;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Eliminar múltiples entradas'),
+        content: Text('¿Estás seguro que deseas eliminar $count regla${count > 1 ? 's' : ''}?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    setState(() => _saving = true);
+    try {
+      final repo = ref.read(companyManualRepositoryProvider);
+      for (final id in _selectedForBulkDelete) {
+        await repo.deleteEntry(id);
+      }
+      await _loadEntries();
+      if (mounted) {
+        setState(() => _selectedForBulkDelete.clear());
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Se eliminaron $count regla${count > 1 ? 's' : ''}')),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error al eliminar: $e')));
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  void _toggleBulkSelection(String entryId) {
+    setState(() {
+      if (_selectedForBulkDelete.contains(entryId)) {
+        _selectedForBulkDelete.remove(entryId);
+      } else {
+        _selectedForBulkDelete.add(entryId);
+      }
+    });
+  }
+
+  void _toggleAllBulkSelection() {
+    setState(() {
+      if (_selectedForBulkDelete.length == _visibleEntries.length) {
+        _selectedForBulkDelete.clear();
+      } else {
+        _selectedForBulkDelete = _visibleEntries.map((e) => e.id).toSet();
+      }
+    });
+  }
+
   CompanyManualEntry? _resolveSelectedEntry(List<CompanyManualEntry> entries) {
     if (entries.isEmpty) return null;
     for (final entry in entries) {
@@ -261,37 +327,64 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
 
     return Scaffold(
       appBar: CustomAppBar(
-        title: 'Manual Interno',
+        title: _selectedForBulkDelete.isEmpty
+            ? 'Manual Interno'
+            : '${_selectedForBulkDelete.length} seleccionada${_selectedForBulkDelete.length > 1 ? 's' : ''}',
         showLogo: false,
         darkerTone: true,
         actions: [
-          IconButton(
-            tooltip: 'Buscar',
-            onPressed: null, // Búsqueda avanzada eliminada
-            icon: const Icon(Icons.search_rounded),
-          ),
-          PopupMenuButton<CompanyManualEntryKind?>(
-            tooltip: 'Filtrar',
-            initialValue: _kindFilter,
-            onSelected: (kind) {
-              setState(() {
-                _kindFilter = kind;
-              });
-            },
-            itemBuilder: (context) => [
-              const PopupMenuItem<CompanyManualEntryKind?>(
-                value: null,
-                child: Text('Todo'),
-              ),
-              ...CompanyManualEntryKind.values.map(
-                (kind) => PopupMenuItem<CompanyManualEntryKind?>(
-                  value: kind,
-                  child: Text(kind.label),
+          if (_selectedForBulkDelete.isNotEmpty) ...
+            [
+              IconButton(
+                tooltip: 'Seleccionar todas',
+                onPressed: _toggleAllBulkSelection,
+                icon: Icon(
+                  _selectedForBulkDelete.length == _visibleEntries.length
+                      ? Icons.check_circle_rounded
+                      : Icons.circle_outlined,
                 ),
               ),
+              IconButton(
+                tooltip: 'Eliminar seleccionadas',
+                icon: const Icon(Icons.delete_rounded),
+                onPressed: _saving ? null : _deleteBulkSelected,
+              ),
+              IconButton(
+                tooltip: 'Cancelar selección',
+                icon: const Icon(Icons.close_rounded),
+                onPressed: () => setState(() => _selectedForBulkDelete.clear()),
+              ),
+            ]
+          else ...
+            [
+              IconButton(
+                tooltip: 'Buscar',
+                onPressed: null, // Búsqueda avanzada eliminada
+                icon: const Icon(Icons.search_rounded),
+              ),
+              PopupMenuButton<CompanyManualEntryKind?>(
+                tooltip: 'Filtrar',
+                initialValue: _kindFilter,
+                onSelected: (kind) {
+                  setState(() {
+                    _kindFilter = kind;
+                  });
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem<CompanyManualEntryKind?>(
+                    value: null,
+                    child: Text('Todo'),
+                  ),
+                  ...CompanyManualEntryKind.values.map(
+                    (kind) => PopupMenuItem<CompanyManualEntryKind?>(
+                      value: kind,
+                      child: Text(kind.label),
+                    ),
+                  ),
+                ],
+                icon: const Icon(Icons.tune_rounded),
+              ),
             ],
-            icon: const Icon(Icons.tune_rounded),
-          ),
         ],
       ),
       drawer: buildAdaptiveDrawer(context, currentUser: user),
@@ -341,10 +434,12 @@ class _ManualInternoScreenState extends ConsumerState<ManualInternoScreen> {
                             entries: entries,
                             selectedEntryId: selectedEntry?.id,
                             canManage: canManage,
+                            selectedForBulkDelete: _selectedForBulkDelete,
                             onOpenEntry: (entry) =>
                                 _openEntryDetail(entry, canManage),
                             onEditEntry: (entry) => _openEditor(entry: entry),
                             onDeleteEntry: _deleteEntry,
+                            onToggleBulkSelection: _toggleBulkSelection,
                             formatDate: _formatDate,
                           );
 
@@ -499,18 +594,22 @@ class _ManualEntriesList extends StatelessWidget {
     required this.entries,
     required this.selectedEntryId,
     required this.canManage,
+    required this.selectedForBulkDelete,
     required this.onOpenEntry,
     required this.onEditEntry,
     required this.onDeleteEntry,
+    required this.onToggleBulkSelection,
     required this.formatDate,
   });
 
   final List<CompanyManualEntry> entries;
   final String? selectedEntryId;
   final bool canManage;
+  final Set<String> selectedForBulkDelete;
   final ValueChanged<CompanyManualEntry> onOpenEntry;
   final Future<bool> Function(CompanyManualEntry entry) onEditEntry;
   final Future<bool> Function(CompanyManualEntry entry) onDeleteEntry;
+  final ValueChanged<String> onToggleBulkSelection;
   final String Function(DateTime? value) formatDate;
 
   @override
@@ -525,10 +624,12 @@ class _ManualEntriesList extends StatelessWidget {
         return _ManualTopicCard(
           entry: entry,
           isSelected: entry.id == selectedEntryId,
+          isChecked: selectedForBulkDelete.contains(entry.id),
           canManage: canManage,
           onTap: () => onOpenEntry(entry),
           onEdit: () => onEditEntry(entry),
           onDelete: () => onDeleteEntry(entry),
+          onToggleCheckbox: () => onToggleBulkSelection(entry.id),
           formatDate: formatDate,
         );
       },
@@ -540,19 +641,23 @@ class _ManualTopicCard extends StatelessWidget {
   const _ManualTopicCard({
     required this.entry,
     required this.isSelected,
+    required this.isChecked,
     required this.canManage,
     required this.onTap,
     required this.onEdit,
     required this.onDelete,
+    required this.onToggleCheckbox,
     required this.formatDate,
   });
 
   final CompanyManualEntry entry;
   final bool isSelected;
+  final bool isChecked;
   final bool canManage;
   final VoidCallback onTap;
   final Future<bool> Function() onEdit;
   final Future<bool> Function() onDelete;
+  final VoidCallback onToggleCheckbox;
   final String Function(DateTime? value) formatDate;
 
   @override
@@ -589,15 +694,14 @@ class _ManualTopicCard extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  color: isSelected ? scheme.primary : scheme.outline,
-                  shape: BoxShape.circle,
+              GestureDetector(
+                onTap: onToggleCheckbox,
+                child: Checkbox(
+                  value: isChecked,
+                  onChanged: (_) => onToggleCheckbox(),
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               Expanded(
                 child: _ManualCompactEntryBody(entry: entry, dense: false),
               ),

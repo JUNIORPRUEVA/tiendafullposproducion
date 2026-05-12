@@ -92,7 +92,12 @@ class _FullscreenMediaGalleryState extends State<_FullscreenMediaGallery> {
             style: IconButton.styleFrom(
               backgroundColor: Colors.black.withValues(alpha: 0.55),
             ),
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () {
+              final navigator = Navigator.of(context, rootNavigator: true);
+              if (navigator.canPop()) {
+                navigator.pop();
+              }
+            },
             icon: const Icon(Icons.arrow_back_rounded),
           ),
         ),

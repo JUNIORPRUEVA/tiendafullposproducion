@@ -1,0 +1,309 @@
+enum MarketingCampaignStatus {
+  draft,
+  ready,
+  publishing,
+  active,
+  paused,
+  error,
+  rejected,
+}
+
+enum MarketingCampaignPhase {
+  design,
+  copySegmentation,
+  publish,
+}
+
+enum MarketingCampaignCurrency { dop, usd }
+
+MarketingCampaignStatus parseMarketingCampaignStatus(String? value) {
+  switch ((value ?? '').trim().toUpperCase()) {
+    case 'READY':
+      return MarketingCampaignStatus.ready;
+    case 'PUBLISHING':
+      return MarketingCampaignStatus.publishing;
+    case 'ACTIVE':
+      return MarketingCampaignStatus.active;
+    case 'PAUSED':
+      return MarketingCampaignStatus.paused;
+    case 'ERROR':
+      return MarketingCampaignStatus.error;
+    case 'REJECTED':
+      return MarketingCampaignStatus.rejected;
+    case 'DRAFT':
+    default:
+      return MarketingCampaignStatus.draft;
+  }
+}
+
+MarketingCampaignPhase parseMarketingCampaignPhase(String? value) {
+  switch ((value ?? '').trim().toUpperCase()) {
+    case 'COPY_SEGMENTATION':
+      return MarketingCampaignPhase.copySegmentation;
+    case 'PUBLISH':
+      return MarketingCampaignPhase.publish;
+    case 'DESIGN':
+    default:
+      return MarketingCampaignPhase.design;
+  }
+}
+
+MarketingCampaignCurrency parseMarketingCampaignCurrency(String? value) {
+  switch ((value ?? '').trim().toUpperCase()) {
+    case 'USD':
+      return MarketingCampaignCurrency.usd;
+    case 'DOP':
+    default:
+      return MarketingCampaignCurrency.dop;
+  }
+}
+
+String marketingCampaignStatusApi(MarketingCampaignStatus status) {
+  switch (status) {
+    case MarketingCampaignStatus.ready:
+      return 'READY';
+    case MarketingCampaignStatus.publishing:
+      return 'PUBLISHING';
+    case MarketingCampaignStatus.active:
+      return 'ACTIVE';
+    case MarketingCampaignStatus.paused:
+      return 'PAUSED';
+    case MarketingCampaignStatus.error:
+      return 'ERROR';
+    case MarketingCampaignStatus.rejected:
+      return 'REJECTED';
+    case MarketingCampaignStatus.draft:
+      return 'DRAFT';
+  }
+}
+
+String marketingCampaignPhaseApi(MarketingCampaignPhase phase) {
+  switch (phase) {
+    case MarketingCampaignPhase.copySegmentation:
+      return 'COPY_SEGMENTATION';
+    case MarketingCampaignPhase.publish:
+      return 'PUBLISH';
+    case MarketingCampaignPhase.design:
+      return 'DESIGN';
+  }
+}
+
+String marketingCampaignCurrencyApi(MarketingCampaignCurrency currency) {
+  switch (currency) {
+    case MarketingCampaignCurrency.usd:
+      return 'USD';
+    case MarketingCampaignCurrency.dop:
+      return 'DOP';
+  }
+}
+
+class MarketingCampaign {
+  const MarketingCampaign({
+    required this.id,
+    required this.date,
+    required this.status,
+    required this.phase,
+    required this.baseImageUrl,
+    required this.finalDesignUrl,
+    required this.galleryAssetId,
+    required this.headline,
+    required this.primaryText,
+    required this.description,
+    required this.cta,
+    required this.hashtags,
+    required this.aiAngle,
+    required this.aiResearchId,
+    required this.recommendedAudience,
+    required this.finalAudience,
+    required this.dailyBudget,
+    required this.totalBudget,
+    required this.currency,
+    required this.whatsappPhone,
+    required this.whatsappMessageTemplate,
+    required this.destinationUrl,
+    required this.metaCampaignId,
+    required this.metaAdSetId,
+    required this.metaCreativeId,
+    required this.metaAdId,
+    required this.metaStatus,
+    required this.metaError,
+    required this.metaErrorCode,
+    required this.metaErrorSubcode,
+    required this.fbtraceId,
+    required this.publishedAt,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  final String id;
+  final DateTime? date;
+  final MarketingCampaignStatus status;
+  final MarketingCampaignPhase phase;
+  final String? baseImageUrl;
+  final String? finalDesignUrl;
+  final String? galleryAssetId;
+  final String? headline;
+  final String? primaryText;
+  final String? description;
+  final String? cta;
+  final List<String> hashtags;
+  final String? aiAngle;
+  final String? aiResearchId;
+  final Map<String, dynamic>? recommendedAudience;
+  final Map<String, dynamic>? finalAudience;
+  final double? dailyBudget;
+  final double? totalBudget;
+  final MarketingCampaignCurrency currency;
+  final String? whatsappPhone;
+  final String? whatsappMessageTemplate;
+  final String? destinationUrl;
+  final String? metaCampaignId;
+  final String? metaAdSetId;
+  final String? metaCreativeId;
+  final String? metaAdId;
+  final String? metaStatus;
+  final String? metaError;
+  final String? metaErrorCode;
+  final String? metaErrorSubcode;
+  final String? fbtraceId;
+  final DateTime? publishedAt;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  factory MarketingCampaign.fromJson(Map<String, dynamic> json) {
+    final hashtagsRaw = json['hashtags'];
+    final recommendedAudienceRaw = json['recommendedAudienceJson'];
+    final finalAudienceRaw = json['finalAudienceJson'];
+
+    return MarketingCampaign(
+      id: '${json['id'] ?? ''}',
+      date: DateTime.tryParse('${json['date'] ?? ''}'),
+      status: parseMarketingCampaignStatus('${json['status'] ?? ''}'),
+      phase: parseMarketingCampaignPhase('${json['phase'] ?? ''}'),
+      baseImageUrl: '${json['baseImageUrl'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${json['baseImageUrl']}',
+      finalDesignUrl: '${json['finalDesignUrl'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${json['finalDesignUrl']}',
+      galleryAssetId: '${json['galleryAssetId'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${json['galleryAssetId']}',
+      headline: '${json['headline'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${json['headline']}',
+      primaryText: '${json['primaryText'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${json['primaryText']}',
+      description: '${json['description'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${json['description']}',
+      cta: '${json['cta'] ?? ''}'.trim().isEmpty ? null : '${json['cta']}',
+      hashtags: hashtagsRaw is List
+          ? hashtagsRaw
+                .map((item) => '$item'.trim())
+                .where((item) => item.isNotEmpty)
+                .toList(growable: false)
+          : const <String>[],
+      aiAngle: '${json['aiAngle'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${json['aiAngle']}',
+      aiResearchId: '${json['aiResearchId'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${json['aiResearchId']}',
+      recommendedAudience: recommendedAudienceRaw is Map
+          ? recommendedAudienceRaw.cast<String, dynamic>()
+          : null,
+      finalAudience: finalAudienceRaw is Map
+          ? finalAudienceRaw.cast<String, dynamic>()
+          : null,
+      dailyBudget: (json['dailyBudget'] as num?)?.toDouble(),
+      totalBudget: (json['totalBudget'] as num?)?.toDouble(),
+      currency: parseMarketingCampaignCurrency('${json['currency'] ?? ''}'),
+      whatsappPhone: '${json['whatsappPhone'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${json['whatsappPhone']}',
+      whatsappMessageTemplate:
+          '${json['whatsappMessageTemplate'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${json['whatsappMessageTemplate']}',
+      destinationUrl: '${json['destinationUrl'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${json['destinationUrl']}',
+      metaCampaignId: '${json['metaCampaignId'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${json['metaCampaignId']}',
+      metaAdSetId: '${json['metaAdSetId'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${json['metaAdSetId']}',
+      metaCreativeId: '${json['metaCreativeId'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${json['metaCreativeId']}',
+      metaAdId: '${json['metaAdId'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${json['metaAdId']}',
+      metaStatus: '${json['metaStatus'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${json['metaStatus']}',
+      metaError: '${json['metaError'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${json['metaError']}',
+      metaErrorCode: '${json['metaErrorCode'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${json['metaErrorCode']}',
+      metaErrorSubcode: '${json['metaErrorSubcode'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${json['metaErrorSubcode']}',
+      fbtraceId: '${json['fbtraceId'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${json['fbtraceId']}',
+      publishedAt: DateTime.tryParse('${json['publishedAt'] ?? ''}'),
+      createdAt: DateTime.tryParse('${json['createdAt'] ?? ''}'),
+      updatedAt: DateTime.tryParse('${json['updatedAt'] ?? ''}'),
+    );
+  }
+}
+
+class MetaAdsConfigDebug {
+  const MetaAdsConfigDebug({
+    required this.hasAppId,
+    required this.hasAppSecret,
+    required this.hasBusinessId,
+    required this.hasAdAccountId,
+    required this.hasPageId,
+    required this.hasInstagramId,
+    required this.tokenPreview,
+    required this.tokenValid,
+    required this.scopes,
+    required this.adAccountAccessible,
+  });
+
+  final bool hasAppId;
+  final bool hasAppSecret;
+  final bool hasBusinessId;
+  final bool hasAdAccountId;
+  final bool hasPageId;
+  final bool hasInstagramId;
+  final String tokenPreview;
+  final bool tokenValid;
+  final List<String> scopes;
+  final bool adAccountAccessible;
+
+  factory MetaAdsConfigDebug.fromJson(Map<String, dynamic> json) {
+    final scopesRaw = json['scopes'];
+    return MetaAdsConfigDebug(
+      hasAppId: json['hasAppId'] == true,
+      hasAppSecret: json['hasAppSecret'] == true,
+      hasBusinessId: json['hasBusinessId'] == true,
+      hasAdAccountId: json['hasAdAccountId'] == true,
+      hasPageId: json['hasPageId'] == true,
+      hasInstagramId: json['hasInstagramId'] == true,
+      tokenPreview: '${json['tokenPreview'] ?? ''}',
+      tokenValid: json['tokenValid'] == true,
+      scopes: scopesRaw is List
+          ? scopesRaw.map((item) => '$item').toList(growable: false)
+          : const <String>[],
+      adAccountAccessible: json['adAccountAccessible'] == true,
+    );
+  }
+}

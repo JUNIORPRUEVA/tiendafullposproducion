@@ -16,6 +16,15 @@ import { UpdateMarketingConfigDto } from './dto/update-marketing-config.dto';
 import { UpdateMarketingStoryDto } from './dto/update-marketing-story.dto';
 import { GenerateResearchDto, UpdateMarketingResearchConfigDto } from './dto/marketing-research.dto';
 import { MarketingResetCleanDto } from './dto/marketing-reset-clean.dto';
+import {
+  CreateMetaCampaignDto,
+  GenerateMarketingCampaignsDto,
+  MarketingCampaignQueryDto,
+  MetaActivationDto,
+  UpdateMarketingCampaignDto,
+  UploadCampaignDesignDto,
+} from './dto/marketing-campaign.dto';
+import { MarketingCampaignService } from './marketing-campaign.service';
 
 type RequestUser = {
   id?: string;
@@ -41,6 +50,7 @@ export class MarketingController {
     private readonly marketing: MarketingService,
     private readonly research: MarketingResearchService,
     private readonly analyzer: MarketingImageAnalyzerService,
+    private readonly campaigns: MarketingCampaignService,
   ) {}
 
   @Get('dashboard')
@@ -217,6 +227,121 @@ export class MarketingController {
   async history(@Query() query: MarketingHistoryQueryDto) {
     const companyId = this.marketing.resolveCompanyId();
     return this.marketing.getHistory(companyId, query);
+  }
+
+  @Get('campaigns')
+  async campaignsList(@Query() query: MarketingCampaignQueryDto) {
+    const companyId = this.marketing.resolveCompanyId();
+    const date = query.date ? this.marketing.parseDateOnly(query.date) : undefined;
+    return this.campaigns.list(companyId, date);
+  }
+
+  @Post('campaigns/generate-missing')
+  async campaignsGenerateMissing(@Req() req: Request, @Body() dto: GenerateMarketingCampaignsDto) {
+    const user = req.user as RequestUser;
+    const companyId = this.marketing.resolveCompanyId();
+    const date = this.marketing.parseDateOnly(dto.date);
+    return this.campaigns.generateMissing(companyId, user.id ?? '', date);
+  }
+
+  @Post('campaigns/:id/confirm-base-image')
+  async campaignsConfirmBaseImage(@Req() req: Request, @Param('id') id: string) {
+    const user = req.user as RequestUser;
+    const companyId = this.marketing.resolveCompanyId();
+    return this.campaigns.confirmBaseImage(companyId, id, user.id ?? '');
+  }
+
+  @Patch('campaigns/:id/base-image/:mediaAssetId')
+  async campaignsChangeBaseImage(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Param('mediaAssetId') mediaAssetId: string,
+  ) {
+    const user = req.user as RequestUser;
+    const companyId = this.marketing.resolveCompanyId();
+    return this.campaigns.changeBaseImage(companyId, id, mediaAssetId, user.id ?? '');
+  }
+
+  @Post('campaigns/:id/upload-design')
+  async campaignsUploadDesign(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() dto: UploadCampaignDesignDto,
+  ) {
+    const user = req.user as RequestUser;
+    const companyId = this.marketing.resolveCompanyId();
+    return this.campaigns.uploadDesign(companyId, id, dto, user.id ?? '');
+  }
+
+  @Post('campaigns/:id/regenerate-copy')
+  async campaignsRegenerateCopy(@Req() req: Request, @Param('id') id: string) {
+    const user = req.user as RequestUser;
+    const companyId = this.marketing.resolveCompanyId();
+    return this.campaigns.regenerateCopy(companyId, id, user.id ?? '');
+  }
+
+  @Patch('campaigns/:id')
+  async campaignsUpdate(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() dto: UpdateMarketingCampaignDto,
+  ) {
+    const user = req.user as RequestUser;
+    const companyId = this.marketing.resolveCompanyId();
+    return this.campaigns.update(companyId, id, dto, user.id ?? '');
+  }
+
+  @Post('campaigns/:id/create-meta-campaign')
+  async campaignsCreateMetaCampaign(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() dto: CreateMetaCampaignDto,
+  ) {
+    const user = req.user as RequestUser;
+    const companyId = this.marketing.resolveCompanyId();
+    return this.campaigns.createMetaCampaign(companyId, id, dto, user.id ?? '');
+  }
+
+  @Post('campaigns/:id/activate')
+  async campaignsActivate(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() _dto: MetaActivationDto,
+  ) {
+    const user = req.user as RequestUser;
+    const companyId = this.marketing.resolveCompanyId();
+    return this.campaigns.activate(companyId, id, user.id ?? '');
+  }
+
+  @Post('campaigns/:id/pause')
+  async campaignsPause(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() _dto: MetaActivationDto,
+  ) {
+    const user = req.user as RequestUser;
+    const companyId = this.marketing.resolveCompanyId();
+    return this.campaigns.pause(companyId, id, user.id ?? '');
+  }
+
+  @Post('campaigns/:id/reject')
+  async campaignsReject(@Req() req: Request, @Param('id') id: string) {
+    const user = req.user as RequestUser;
+    const companyId = this.marketing.resolveCompanyId();
+    return this.campaigns.reject(companyId, id, user.id ?? '');
+  }
+
+  @Post('campaigns/:id/duplicate')
+  async campaignsDuplicate(@Req() req: Request, @Param('id') id: string) {
+    const user = req.user as RequestUser;
+    const companyId = this.marketing.resolveCompanyId();
+    return this.campaigns.duplicate(companyId, id, user.id ?? '');
+  }
+
+  @Get('campaigns/:id/details')
+  async campaignsDetails(@Param('id') id: string) {
+    const companyId = this.marketing.resolveCompanyId();
+    return this.campaigns.details(companyId, id);
   }
 
   @Get('config')

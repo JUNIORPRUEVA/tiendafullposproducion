@@ -2068,6 +2068,19 @@ class _DailyStoriesTabState extends State<_DailyStoriesTab> {
       children: [
         SegmentedButton<_EstadosPhase>(
           showSelectedIcon: false,
+          style: ButtonStyle(
+            visualDensity: VisualDensity.compact,
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            padding: const MaterialStatePropertyAll(
+              EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            ),
+            textStyle: MaterialStatePropertyAll(
+              Theme.of(context).textTheme.labelSmall?.copyWith(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
           segments: const [
             ButtonSegment<_EstadosPhase>(
               value: _EstadosPhase.crearDiseno,
@@ -2110,10 +2123,10 @@ class _DailyStoriesTabState extends State<_DailyStoriesTab> {
                   SizedBox(
                     width: cardWidth,
                     child: Container(
-                      padding: const EdgeInsets.all(12),
+                      padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
                         color: Theme.of(context).colorScheme.surface,
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(12),
                         border: Border.all(
                           color: Theme.of(
                             context,
@@ -2356,9 +2369,13 @@ class _StoryCardState extends State<_StoryCard> {
           overflow: TextOverflow.ellipsis,
           style: Theme.of(
             context,
-          ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+          ).textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+            fontSize: 14,
+            height: 1.15,
+          ),
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 8),
         if (phaseIndex == 0)
           _buildPhase1(context, story, validation, baseImage)
         else if (phaseIndex == 1)
@@ -2703,6 +2720,7 @@ $objective''';
     String designUploadedUrl,
   ) {
     final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
     final publishDetails = story.publishErrorDetails;
     final failedChannel = '${publishDetails['channel'] ?? ''}'.trim().toLowerCase();
     final publishedChannels = story.publishedChannels.toSet();
@@ -2767,6 +2785,7 @@ $objective''';
     final facebookStoryPhotoId =
       _technicalValue(facebookStoryDetails, 'photoId');
     final hasTechnicalDetails = story.publishErrorDetails.isNotEmpty;
+    final hasDesign = designUploadedUrl.isNotEmpty;
     final alreadyPublishedMessages = <String>[
       if (_selectedPublishTargets.contains(MarketingPublishTarget.facebookStory) &&
           (story.facebookStoryId ?? '').trim().isNotEmpty)
@@ -2794,43 +2813,120 @@ $objective''';
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Fase 3: Aprobar / Publicar',
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+            'Fase 3: Publicar',
+            style: textTheme.labelMedium?.copyWith(
               fontWeight: FontWeight.w700,
               color: scheme.primary,
             ),
           ),
           const SizedBox(height: 10),
-          for (final item in validation.checklist.entries)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 5),
-              child: Row(
-                children: [
-                  Icon(
-                    item.value ? Icons.check_circle_rounded : Icons.radio_button_unchecked,
-                    color: item.value ? const Color(0xFF15803D) : const Color(0xFFB45309),
-                    size: 16,
-                  ),
-                  const SizedBox(width: 6),
-                  Text(item.key, style: Theme.of(context).textTheme.bodySmall),
-                ],
-              ),
-            ),
-          if (designUploadedUrl.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Center(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(8),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final wide = constraints.maxWidth >= 430;
+              final previewWidth = wide ? 130.0 : 112.0;
+              final preview = ClipRRect(
+                borderRadius: BorderRadius.circular(10),
                 child: SizedBox(
-                  width: 70,
+                  width: previewWidth,
                   child: AspectRatio(
                     aspectRatio: 9 / 16,
-                    child: _StoryImageView(url: designUploadedUrl),
+                    child: hasDesign
+                        ? _StoryImageView(url: designUploadedUrl)
+                        : Container(
+                            color: scheme.surfaceContainerHighest,
+                            child: Icon(
+                              Icons.image_not_supported_outlined,
+                              color: scheme.outline,
+                              size: 28,
+                            ),
+                          ),
                   ),
                 ),
-              ),
-            ),
-          ],
+              );
+
+              final summary = Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  color: scheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Checklist previo',
+                      style: textTheme.labelSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: scheme.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    for (final item in validation.checklist.entries)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.only(top: 1),
+                              child: Icon(
+                                item.value
+                                    ? Icons.check_circle_rounded
+                                    : Icons.radio_button_unchecked,
+                                color: item.value
+                                    ? const Color(0xFF15803D)
+                                    : const Color(0xFFB45309),
+                                size: 14,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                item.key,
+                                style: textTheme.bodySmall?.copyWith(
+                                  fontSize: 12,
+                                  height: 1.15,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    if (story.shortText.trim().isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      _InfoLine(
+                        label: 'Copy',
+                        value: story.shortText.trim(),
+                        maxLines: 3,
+                      ),
+                    ],
+                    if (story.usedCTA.trim().isNotEmpty)
+                      _InfoLine(label: 'CTA', value: story.usedCTA.trim()),
+                  ],
+                ),
+              );
+
+              if (!wide) {
+                return Column(
+                  children: [
+                    Center(child: preview),
+                    const SizedBox(height: 10),
+                    summary,
+                  ],
+                );
+              }
+
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  preview,
+                  const SizedBox(width: 12),
+                  Expanded(child: summary),
+                ],
+              );
+            },
+          ),
           if (story.status == MarketingStoryStatus.approved && hasFacebookPublished) ...[
             const SizedBox(height: 10),
             Container(
@@ -3109,6 +3205,7 @@ $objective''';
                   'Canales de publicación',
                   style: Theme.of(context).textTheme.labelMedium?.copyWith(
                     fontWeight: FontWeight.w700,
+                    fontSize: 12,
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -3176,19 +3273,34 @@ $objective''';
                         selectedTargets.isEmpty
                     ? null
                     : () => widget.onApprove!(selectedTargets),
-                icon: const Icon(Icons.check_circle_rounded, size: 18),
-                label: const Text('Aprobar'),
+                style: FilledButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                ),
+                icon: const Icon(Icons.publish_rounded, size: 16),
+                label: const Text('Publicar'),
               ),
               if ((story.publishStatus == MarketingPublishStatus.partial ||
                       story.publishStatus == MarketingPublishStatus.error) &&
                   story.publishStatus != MarketingPublishStatus.published)
                 FilledButton.tonalIcon(
                   onPressed: widget.busy ? null : widget.onRetryPublish,
+                  style: FilledButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  ),
                   icon: const Icon(Icons.restart_alt_rounded, size: 18),
                   label: Text(retryLabel),
                 ),
               OutlinedButton(
                 onPressed: widget.busy || widget.onReject == null ? null : widget.onReject,
+                style: OutlinedButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                ),
                 child: const Text('Rechazar'),
               ),
             ],
@@ -3568,7 +3680,7 @@ class StoryProgressValidation {
   }
 
   String get currentPhaseLabel {
-    if (canApprove) return 'Fase 3: Aprobar/Publicar';
+    if (canApprove) return 'Fase 3: Publicar';
     if (!missingDesign) return 'Fase 2: Copys y anuncio';
     return 'Fase 1: Crear diseño';
   }
@@ -3578,7 +3690,7 @@ class StoryProgressValidation {
     if (missingDesign) return 'Generar diseño 9:16';
     if (missingCopy || missingCTA) return 'Generar copys del anuncio';
     if (missingResearch) return 'Vincular investigación aprobada';
-    return 'Aprobar y publicar';
+    return 'Publicar';
   }
 }
 

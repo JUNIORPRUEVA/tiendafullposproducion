@@ -6,21 +6,6 @@ import '../../core/auth/auth_provider.dart';
 import '../../core/widgets/app_drawer.dart';
 import '../../core/widgets/custom_app_bar.dart';
 
-class PublicidadCampanasScreen extends ConsumerWidget {
-  const PublicidadCampanasScreen({super.key});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return const _PublicidadComingSoonScreen(
-      title: 'Campañas',
-      subtitle: 'Crear contenido y anuncios para campañas pagadas.',
-      description:
-          'Este submódulo quedará preparado para IA y aprobación semi-automática.',
-      icon: Icons.rocket_launch_rounded,
-    );
-  }
-}
-
 class PublicidadMarketplaceScreen extends ConsumerWidget {
   const PublicidadMarketplaceScreen({super.key});
 

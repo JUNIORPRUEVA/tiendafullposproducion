@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/api/api_error_mapper.dart';
 import '../../core/api/api_routes.dart';
 import '../../core/auth/auth_repository.dart';
+import 'marketing_campaign_models.dart';
 import 'marketing_models.dart';
 
 final marketingApiProvider = Provider<MarketingApi>((ref) {
@@ -601,6 +602,275 @@ class MarketingApi {
           .toList(growable: false);
     } on DioException catch (error) {
       _rethrow(error, 'No se pudo cargar imágenes publicadas');
+    }
+  }
+
+  Future<(List<MarketingCampaign>, MetaAdsConfigDebug)> loadCampaigns({
+    DateTime? date,
+  }) async {
+    try {
+      final res = await _dio.get(
+        ApiRoutes.marketingCampaigns,
+        queryParameters: {
+          if (date != null) 'date': _dateOnly(date),
+        },
+        options: _backgroundOptions,
+      );
+      final raw =
+          (res.data as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
+      final rows = (raw['items'] is List) ? (raw['items'] as List) : const [];
+      final items = rows
+          .whereType<Map>()
+          .map(
+            (item) => MarketingCampaign.fromJson(
+              item.cast<String, dynamic>(),
+            ),
+          )
+          .toList(growable: false);
+      final configRaw = (raw['config'] is Map)
+          ? (raw['config'] as Map).cast<String, dynamic>()
+          : const <String, dynamic>{};
+      return (items, MetaAdsConfigDebug.fromJson(configRaw));
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudieron cargar las campañas publicitarias');
+    }
+  }
+
+  Future<MarketingCampaign> generateCampaignDraft({DateTime? date}) async {
+    try {
+      final res = await _dio.post(
+        ApiRoutes.marketingCampaignsGenerateMissing,
+        data: {
+          if (date != null) 'date': _dateOnly(date),
+        },
+      );
+      final raw =
+          (res.data as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
+      return MarketingCampaign.fromJson(raw);
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo generar el borrador de campaña');
+    }
+  }
+
+  Future<MarketingCampaign> confirmCampaignBaseImage(String id) async {
+    try {
+      final res = await _dio.post(ApiRoutes.marketingCampaignConfirmBaseImage(id));
+      final raw =
+          (res.data as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
+      return MarketingCampaign.fromJson(raw);
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo confirmar la imagen base de la campaña');
+    }
+  }
+
+  Future<MarketingCampaign> changeCampaignBaseImage(
+    String id,
+    String mediaAssetId,
+  ) async {
+    try {
+      final res = await _dio.patch(
+        ApiRoutes.marketingCampaignChangeBaseImage(id, mediaAssetId),
+      );
+      final raw =
+          (res.data as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
+      return MarketingCampaign.fromJson(raw);
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo cambiar la imagen base de la campaña');
+    }
+  }
+
+  Future<MarketingCampaign> uploadCampaignDesign(
+    String id, {
+    required String finalDesignUrl,
+    String? fileName,
+    String? mimeType,
+  }) async {
+    try {
+      final res = await _dio.post(
+        ApiRoutes.marketingCampaignUploadDesign(id),
+        data: {
+          'finalDesignUrl': finalDesignUrl,
+          if ((fileName ?? '').trim().isNotEmpty) 'fileName': fileName,
+          if ((mimeType ?? '').trim().isNotEmpty) 'mimeType': mimeType,
+        },
+      );
+      final raw =
+          (res.data as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
+      return MarketingCampaign.fromJson(raw);
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo subir el diseño final de campaña');
+    }
+  }
+
+  Future<MarketingCampaign> regenerateCampaignCopy(String id) async {
+    try {
+      final res = await _dio.post(ApiRoutes.marketingCampaignRegenerateCopy(id));
+      final raw =
+          (res.data as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
+      return MarketingCampaign.fromJson(raw);
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo regenerar el copy y segmentación de campaña');
+    }
+  }
+
+  Future<MarketingCampaign> updateCampaign(
+    String id, {
+    String? headline,
+    String? primaryText,
+    String? description,
+    String? cta,
+    List<String>? hashtags,
+    String? aiAngle,
+    Map<String, dynamic>? recommendedAudience,
+    Map<String, dynamic>? finalAudience,
+    double? dailyBudget,
+    double? totalBudget,
+    MarketingCampaignCurrency? currency,
+    String? whatsappPhone,
+    String? whatsappMessageTemplate,
+    String? destinationUrl,
+    DateTime? startTime,
+    DateTime? endTime,
+    bool? keepRunningUntilPaused,
+  }) async {
+    try {
+      final res = await _dio.patch(
+        ApiRoutes.marketingCampaignUpdate(id),
+        data: {
+          if (headline != null) 'headline': headline,
+          if (primaryText != null) 'primaryText': primaryText,
+          if (description != null) 'description': description,
+          if (cta != null) 'cta': cta,
+          if (hashtags != null) 'hashtags': hashtags,
+          if (aiAngle != null) 'aiAngle': aiAngle,
+          if (recommendedAudience != null)
+            'recommendedAudienceJson': recommendedAudience,
+          if (finalAudience != null) 'finalAudienceJson': finalAudience,
+          if (dailyBudget != null) 'dailyBudget': dailyBudget,
+          if (totalBudget != null) 'totalBudget': totalBudget,
+          if (currency != null) 'currency': marketingCampaignCurrencyApi(currency),
+          if (whatsappPhone != null) 'whatsappPhone': whatsappPhone,
+          if (whatsappMessageTemplate != null)
+            'whatsappMessageTemplate': whatsappMessageTemplate,
+          if (destinationUrl != null) 'destinationUrl': destinationUrl,
+          if (startTime != null) 'startTime': startTime.toIso8601String(),
+          if (endTime != null) 'endTime': endTime.toIso8601String(),
+          if (keepRunningUntilPaused != null)
+            'keepRunningUntilPaused': keepRunningUntilPaused,
+        },
+      );
+      final raw =
+          (res.data as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
+      return MarketingCampaign.fromJson(raw);
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo actualizar la campaña');
+    }
+  }
+
+  Future<MarketingCampaign> createMetaCampaign(
+    String id, {
+    String objective = 'OUTCOME_TRAFFIC',
+    bool activateAfterCreate = false,
+  }) async {
+    try {
+      final res = await _dio.post(
+        ApiRoutes.marketingCampaignCreateMeta(id),
+        data: {
+          'objective': objective,
+          'activateAfterCreate': activateAfterCreate,
+        },
+      );
+      final raw =
+          (res.data as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
+      return MarketingCampaign.fromJson(raw);
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo crear la campaña en Meta Ads');
+    }
+  }
+
+  Future<MarketingCampaign> activateCampaign(String id) async {
+    try {
+      final res = await _dio.post(ApiRoutes.marketingCampaignActivate(id));
+      final raw =
+          (res.data as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
+      return MarketingCampaign.fromJson(raw);
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo activar la campaña');
+    }
+  }
+
+  Future<MarketingCampaign> pauseCampaign(String id) async {
+    try {
+      final res = await _dio.post(ApiRoutes.marketingCampaignPause(id));
+      final raw =
+          (res.data as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
+      return MarketingCampaign.fromJson(raw);
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo pausar la campaña');
+    }
+  }
+
+  Future<MarketingCampaign> rejectCampaign(String id) async {
+    try {
+      final res = await _dio.post(ApiRoutes.marketingCampaignReject(id));
+      final raw =
+          (res.data as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
+      return MarketingCampaign.fromJson(raw);
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo rechazar la campaña');
+    }
+  }
+
+  Future<MarketingCampaign> duplicateCampaign(String id) async {
+    try {
+      final res = await _dio.post(ApiRoutes.marketingCampaignDuplicate(id));
+      final raw =
+          (res.data as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
+      return MarketingCampaign.fromJson(raw);
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo duplicar la campaña');
+    }
+  }
+
+  Future<MarketingCampaign> loadCampaignDetails(String id) async {
+    try {
+      final res = await _dio.get(
+        ApiRoutes.marketingCampaignDetails(id),
+        options: _backgroundOptions,
+      );
+      final raw =
+          (res.data as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
+      return MarketingCampaign.fromJson(raw);
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo cargar el detalle de la campaña');
+    }
+  }
+
+  Future<MetaAdsConfigDebug> loadMetaAdsConfigDebug() async {
+    try {
+      final res = await _dio.get(
+        ApiRoutes.marketingDebugMetaAdsConfig,
+        options: _backgroundOptions,
+      );
+      final raw =
+          (res.data as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
+      return MetaAdsConfigDebug.fromJson(raw);
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo validar la configuración de Meta Ads');
     }
   }
 }

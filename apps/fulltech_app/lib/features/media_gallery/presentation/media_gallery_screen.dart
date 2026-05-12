@@ -362,6 +362,7 @@ class _MediaGalleryScreenState extends ConsumerState<MediaGalleryScreen> {
         title: 'Galería media',
         showLogo: false,
         showDepartmentLabel: false,
+        fallbackRoute: '/publicidad',
         actions: [
           IconButton(
             tooltip: 'Buscar',

@@ -10,6 +10,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../../core/auth/app_permissions.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/auth/auth_repository.dart';
+import '../../../core/api/env.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../../core/models/product_model.dart';
 import '../../../core/utils/media_file_actions.dart';
@@ -315,7 +316,10 @@ class _GaleriaPublicidadScreenState
       setState(() => _uploadCurrent = i + 1);
       final product = selectedProducts[i];
       try {
-        await controller.create(url: product.url, caption: product.caption);
+        await controller.create(
+          url: _resolveImportedProductImageUrl(product.url),
+          caption: product.caption,
+        );
         successCount++;
       } catch (_) {
         failed.add(product.caption);
@@ -347,6 +351,18 @@ class _GaleriaPublicidadScreenState
         ),
       );
     }
+  }
+
+  String _resolveImportedProductImageUrl(String rawUrl) {
+    final value = rawUrl.trim();
+    if (value.isEmpty) return value;
+    if (value.startsWith('http://') || value.startsWith('https://')) return value;
+
+    final base = Env.apiBaseUrl.trim().replaceAll(RegExp(r'/+$'), '');
+    if (base.isEmpty) return value;
+
+    final normalized = value.startsWith('/') ? value : '/$value';
+    return '$base$normalized';
   }
 
   Future<void> _downloadItem(MediaGalleryItem item) async {
@@ -2003,7 +2019,7 @@ class _SelectProductsForPublicidadDialogState
                       itemBuilder: (context, index) {
                         final product = visible[index];
                         final selected = _selectedIds.contains(product.id);
-                        final imageUrl = (product.displayFotoUrl ?? '').trim();
+                        final imageUrl = _bestProductImageUrl(product);
                         return ListTile(
                           dense: true,
                           enabled: imageUrl.isNotEmpty,
@@ -2104,7 +2120,7 @@ class _SelectProductsForPublicidadDialogState
                       .where((p) => _selectedIds.contains(p.id))
                       .map(
                         (p) => _ProductForPublicidadCandidate(
-                          url: p.displayFotoUrl ?? '',
+                          url: _bestProductImageUrl(p),
                           caption: p.nombre,
                         ),
                       )
@@ -2117,5 +2133,26 @@ class _SelectProductsForPublicidadDialogState
         ),
       ],
     );
+  }
+
+  String _bestProductImageUrl(ProductModel product) {
+    final candidates = <String?>[
+      product.originalFotoUrl,
+      product.fotoUrl,
+      product.displayFotoUrl,
+    ];
+    for (final candidate in candidates) {
+      final value = candidate?.trim() ?? '';
+      if (value.isEmpty) continue;
+      if (value.startsWith('http://') || value.startsWith('https://')) {
+        return value;
+      }
+      final base = Env.apiBaseUrl.trim().replaceAll(RegExp(r'/+$'), '');
+      if (base.isNotEmpty) {
+        final normalized = value.startsWith('/') ? value : '/$value';
+        return '$base$normalized';
+      }
+    }
+    return '';
   }
 }
