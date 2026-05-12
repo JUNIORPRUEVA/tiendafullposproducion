@@ -2584,16 +2584,119 @@ class _HistoryFullScreenPageState
     }
   }
 
+  bool _isDepositMoneyAvailable(CloseFinancialSummaryModel summary) {
+    final available = summary.availableForDeposit.total;
+    final pending = summary.totals.pendingDeposit;
+    return available > 0.009 && pending > 0.009;
+  }
+
+  String _depositAvailabilityReason(CloseFinancialSummaryModel summary) {
+    final status = summary.depositStatus.status.trim().toLowerCase();
+    final available = summary.availableForDeposit.total;
+    final pending = summary.totals.pendingDeposit;
+
+    if (available <= 0.009 || pending <= 0.009) {
+      if (status == 'deposited' ||
+          summary.totals.deposited >= summary.totals.netTotal) {
+        return 'No disponible: este rango ya fue depositado.';
+      }
+      return 'No disponible: no hay fondos pendientes por depositar en este rango.';
+    }
+
+    if (status == 'partial') {
+      return 'Disponible parcial: aún queda dinero pendiente por depositar.';
+    }
+
+    return 'Disponible: hay dinero pendiente por depositar.';
+  }
+
+  int _getResponsiveColumnCount(double maxWidth) {
+    if (maxWidth < 500) return 1;
+    if (maxWidth < 900) return 2;
+    return 3;
+  }
+
+  Widget _buildMetricsGrid(int columnsCount, CloseFinancialTotals totals) {
+    const spacing = 5.0;
+    const columnSpacing = 5.0;
+
+    // Organizar métricas en secciones lógicas
+    final metricRows = [
+      // Income section (3 cols)
+      [
+        ('Efectivo declarado', totals.cashDeclared, null),
+        ('Efectivo entregado', totals.cashDelivered, null),
+        ('Efec. disponible', totals.cashAvailable, const Color(0xFF047857)),
+      ],
+      // Transfers section (2 cols)
+      [
+        ('Transferencias', totals.transfers, null),
+        ('Pago tarjeta', totals.cardPayments, null),
+      ],
+      // Expenses section (1 col)
+      [
+        ('Otros ingresos', totals.otherIncome, null),
+        ('Gastos', totals.expenses, const Color(0xFFB91C1C)),
+      ],
+      // Deposit section (3 cols)
+      [
+        ('Total neto', totals.netTotal, null),
+        ('Depositado', totals.deposited, null),
+        ('Pendiente dep.', totals.pendingDeposit, const Color(0xFF1D4ED8)),
+      ],
+      // Difference section (1 col)
+      [('Diferencia', totals.difference, const Color(0xFFB91C1C))],
+    ];
+
+    final gridCards = <Widget>[];
+    for (final row in metricRows) {
+      for (final (title, amount, color) in row) {
+        gridCards.add(
+          _buildSummaryMetricCard(title, amount, amountColor: color),
+        );
+      }
+    }
+
+    // Agrupar en filas según número de columnas
+    final rows = <List<Widget>>[];
+    for (int i = 0; i < gridCards.length; i += columnsCount) {
+      final rowEnd = (i + columnsCount > gridCards.length)
+          ? gridCards.length
+          : i + columnsCount;
+      rows.add(gridCards.sublist(i, rowEnd));
+    }
+
+    return Column(
+      children: rows.map((rowCards) {
+        return Padding(
+          padding: EdgeInsets.only(bottom: spacing),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: rowCards.asMap().entries.map((entry) {
+              final isLast = entry.key == rowCards.length - 1;
+              return Expanded(
+                child: Padding(
+                  padding: EdgeInsets.only(right: isLast ? 0 : columnSpacing),
+                  child: entry.value,
+                ),
+              );
+            }).toList(),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
   Widget _buildSummaryMetricCard(
     String title,
     double amount, {
     Color? amountColor,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(color: const Color(0xFFE5E7EB)),
       ),
       child: Column(
@@ -2602,7 +2705,7 @@ class _HistoryFullScreenPageState
           Text(
             title,
             style: const TextStyle(
-              fontSize: 10,
+              fontSize: 9,
               fontWeight: FontWeight.w600,
               color: Color(0xFF475569),
               height: 1.1,
@@ -2610,11 +2713,11 @@ class _HistoryFullScreenPageState
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
-          const SizedBox(height: 3),
+          const SizedBox(height: 2),
           Text(
             _money(amount),
             style: TextStyle(
-              fontSize: 13,
+              fontSize: 12,
               fontWeight: FontWeight.w800,
               color: amountColor ?? const Color(0xFF0F172A),
               height: 1.1,
@@ -2630,8 +2733,6 @@ class _HistoryFullScreenPageState
   Widget _buildSummaryPanel({required bool compact}) {
     final summary = _summary;
     final cardColor = const Color(0xFFF8FAFC);
-    final metricColumns = compact ? 2 : 3;
-    final metricSpacing = compact ? 6.0 : 5.0;
 
     return Container(
       height: double.infinity,
@@ -2644,10 +2745,12 @@ class _HistoryFullScreenPageState
         padding: const EdgeInsets.all(10),
         child: LayoutBuilder(
           builder: (context, panelConstraints) {
-            final cardWidth =
-                (panelConstraints.maxWidth -
-                    ((metricColumns - 1) * metricSpacing)) /
-                metricColumns;
+            final moneyAvailable = summary == null
+                ? false
+                : _isDepositMoneyAvailable(summary);
+            final availabilityReason = summary == null
+                ? 'No hay resumen para calcular disponibilidad.'
+                : _depositAvailabilityReason(summary);
 
             final content = Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -2813,92 +2916,9 @@ class _HistoryFullScreenPageState
                     ),
                   ),
                   const SizedBox(height: 5),
-                  Wrap(
-                    spacing: metricSpacing,
-                    runSpacing: metricSpacing,
-                    children: [
-                      SizedBox(
-                        width: cardWidth,
-                        child: _buildSummaryMetricCard(
-                          'Efectivo declarado',
-                          summary.totals.cashDeclared,
-                        ),
-                      ),
-                      SizedBox(
-                        width: cardWidth,
-                        child: _buildSummaryMetricCard(
-                          'Efectivo entregado',
-                          summary.totals.cashDelivered,
-                        ),
-                      ),
-                      SizedBox(
-                        width: cardWidth,
-                        child: _buildSummaryMetricCard(
-                          'Efec. disponible',
-                          summary.totals.cashAvailable,
-                          amountColor: const Color(0xFF047857),
-                        ),
-                      ),
-                      SizedBox(
-                        width: cardWidth,
-                        child: _buildSummaryMetricCard(
-                          'Transferencias',
-                          summary.totals.transfers,
-                        ),
-                      ),
-                      SizedBox(
-                        width: cardWidth,
-                        child: _buildSummaryMetricCard(
-                          'Pago tarjeta',
-                          summary.totals.cardPayments,
-                        ),
-                      ),
-                      SizedBox(
-                        width: cardWidth,
-                        child: _buildSummaryMetricCard(
-                          'Otros ingresos',
-                          summary.totals.otherIncome,
-                        ),
-                      ),
-                      SizedBox(
-                        width: cardWidth,
-                        child: _buildSummaryMetricCard(
-                          'Gastos',
-                          summary.totals.expenses,
-                          amountColor: const Color(0xFFB91C1C),
-                        ),
-                      ),
-                      SizedBox(
-                        width: cardWidth,
-                        child: _buildSummaryMetricCard(
-                          'Total neto',
-                          summary.totals.netTotal,
-                        ),
-                      ),
-                      SizedBox(
-                        width: cardWidth,
-                        child: _buildSummaryMetricCard(
-                          'Depositado',
-                          summary.totals.deposited,
-                        ),
-                      ),
-                      SizedBox(
-                        width: cardWidth,
-                        child: _buildSummaryMetricCard(
-                          'Pendiente dep.',
-                          summary.totals.pendingDeposit,
-                          amountColor: const Color(0xFF1D4ED8),
-                        ),
-                      ),
-                      SizedBox(
-                        width: cardWidth,
-                        child: _buildSummaryMetricCard(
-                          'Diferencia',
-                          summary.totals.difference,
-                          amountColor: const Color(0xFFB91C1C),
-                        ),
-                      ),
-                    ],
+                  _buildMetricsGrid(
+                    _getResponsiveColumnCount(panelConstraints.maxWidth),
+                    summary.totals,
                   ),
                   const SizedBox(height: 7),
                   Container(
@@ -2909,20 +2929,36 @@ class _HistoryFullScreenPageState
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: const Color(0xFFD1FAE5)),
+                      border: Border.all(
+                        color: moneyAvailable
+                            ? const Color(0xFFD1FAE5)
+                            : const Color(0xFFFECACA),
+                      ),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          'Disponible para depósito',
+                        Text(
+                          moneyAvailable
+                              ? 'Dinero disponible para depósito'
+                              : 'Dinero no disponible para depósito',
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w900,
-                            color: Color(0xFF065F46),
+                            color: moneyAvailable
+                                ? const Color(0xFF065F46)
+                                : const Color(0xFF991B1B),
                           ),
                         ),
                         const SizedBox(height: 4),
+                        Text(
+                          availabilityReason,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 10.5,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
                         Text(
                           'Efectivo: ${_money(summary.availableForDeposit.cash)} · Transferencias: ${_money(summary.availableForDeposit.transfers)} · Total: ${_money(summary.availableForDeposit.total)}',
                           style: const TextStyle(
@@ -3543,15 +3579,9 @@ class _HistoryFullScreenPageState
                             style: TextStyle(fontWeight: FontWeight.w800),
                           ),
                           children: [
-                            SizedBox(
-                              height: 560,
-                              child: Padding(
-                                padding: const EdgeInsets.fromLTRB(
-                                  10,
-                                  0,
-                                  10,
-                                  10,
-                                ),
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+                              child: SingleChildScrollView(
                                 child: _buildSummaryPanel(compact: true),
                               ),
                             ),
@@ -3627,20 +3657,6 @@ class _CloseDetailFullScreenPageState
 
   String _normalizeAssetUrl(String raw) => _resolveContabilidadAssetUrl(raw);
 
-  void _ensureAiGeneratedOnOpen(CloseModel close) {
-    if (_autoAiRequested) return;
-    _autoAiRequested = true;
-    final summary = (close.aiReportSummary ?? '').trim();
-    final missing = summary.isEmpty || close.aiGeneratedAt == null;
-    final stale =
-        close.aiGeneratedAt != null &&
-        close.aiGeneratedAt!.isBefore(close.updatedAt);
-    if (!missing && !stale) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _runAiReport(close);
-    });
-  }
 
   Future<String?> _askAdminPassword() async {
     final ctrl = TextEditingController();
@@ -3889,7 +3905,6 @@ class _CloseDetailFullScreenPageState
       );
     }
 
-    _ensureAiGeneratedOnOpen(currentClose);
     final posVoucher = CloseTransferVoucherModel(
       storageKey: currentClose.evidenceStorageKey ?? '',
       fileUrl: _normalizeAssetUrl(currentClose.evidenceUrl ?? ''),
@@ -3926,7 +3941,26 @@ class _CloseDetailFullScreenPageState
           const SizedBox(width: 8),
         ],
       ),
-      body: ListView(
+      floatingActionButton: currentClose.isPending && canReview
+          ? FloatingActionButton.extended(
+              tooltip: 'Aprobar o rechazar cierre',
+              backgroundColor: AppTheme.primaryColor,
+              onPressed: () => _showApproveFab(currentClose),
+              icon: const Icon(Icons.done_all_outlined),
+              label: const Text('Gestionar'),
+            )
+          : null,
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final showSidePanel = constraints.maxWidth >= 1240;
+
+          if (showSidePanel) {
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: ListView(
         padding: const EdgeInsets.fromLTRB(18, 14, 18, 24),
         children: [
           Wrap(
@@ -4102,8 +4136,81 @@ class _CloseDetailFullScreenPageState
               label: const Text('Exportar PDF'),
             ),
           ),
-          if (currentClose.expenseDetails.isNotEmpty) ...[
+          const SizedBox(height: 18),
+          if (currentClose.evidenceUrl != null &&
+              currentClose.evidenceFileName != null) ...[
+            Text(
+              'Voucher de cierre POS',
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: Column(
+                children: [
+                  ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    leading: Icon(
+                      (currentClose.evidenceMimeType ?? '').startsWith('image/')
+                          ? Icons.image_outlined
+                          : Icons.picture_as_pdf_outlined,
+                    ),
+                    title: Text(
+                      currentClose.evidenceFileName!,
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    subtitle: Text(currentClose.evidenceMimeType ?? 'archivo'),
+                    trailing: OutlinedButton.icon(
+                      onPressed: () =>
+                          _showVoucherPreviewDialog(context, posVoucher),
+                      icon: const Icon(Icons.fullscreen_outlined, size: 18),
+                      label: const Text('Ver', style: TextStyle(fontSize: 11)),
+                    ),
+                  ),
+                  if (_isImageVoucher(posVoucher))
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      child: InkWell(
+                        onTap: () =>
+                            _showVoucherPreviewDialog(context, posVoucher),
+                        borderRadius: BorderRadius.circular(8),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: SizedBox(
+                            width: double.infinity,
+                            height: 160,
+                            child: Image.network(
+                              _normalizeAssetUrl(currentClose.evidenceUrl!),
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => Container(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .surfaceContainerHighest,
+                                alignment: Alignment.center,
+                                child: const Icon(Icons.broken_image_outlined),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
             const SizedBox(height: 18),
+          ],
+          if (currentClose.expenseDetails.isNotEmpty) ...[
             Text(
               'Detalle de gastos',
               style: Theme.of(
@@ -4111,79 +4218,134 @@ class _CloseDetailFullScreenPageState
               ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 8),
-            ...currentClose.expenseDetails.map((row) {
-              final concept = (row['concept'] as String?)?.trim();
-              final amount = (row['amount'] as num?)?.toDouble() ?? 0;
-              final vouchers = ((row['vouchers'] as List?) ?? const [])
-                  .whereType<Map>()
-                  .map(
-                    (voucher) => CloseTransferVoucherModel.fromJson(
-                      voucher.cast<String, dynamic>(),
-                    ),
-                  )
-                  .map(
-                    (voucher) => CloseTransferVoucherModel(
-                      storageKey: voucher.storageKey,
-                      fileUrl: _normalizeAssetUrl(voucher.fileUrl),
-                      fileName: voucher.fileName,
-                      mimeType: voucher.mimeType,
-                    ),
-                  )
-                  .toList();
-
-              return Column(
+            Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: Column(
                 children: [
-                  ListTile(
-                    dense: true,
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(
-                      concept?.isNotEmpty == true ? concept! : 'Sin concepto',
-                    ),
-                    subtitle: vouchers.isEmpty
-                        ? const Text('Sin comprobantes')
-                        : Text(
-                            vouchers.length == 1
-                                ? '1 comprobante adjunto'
-                                : '${vouchers.length} comprobantes adjuntos',
+                  ...currentClose.expenseDetails.asMap().entries.map((entry) {
+                    final idx = entry.key;
+                    final row = entry.value;
+                    final concept = (row['concept'] as String?)?.trim();
+                    final amount = (row['amount'] as num?)?.toDouble() ?? 0;
+                    final vouchers = ((row['vouchers'] as List?) ?? const [])
+                        .whereType<Map>()
+                        .map(
+                          (voucher) => CloseTransferVoucherModel.fromJson(
+                            voucher.cast<String, dynamic>(),
                           ),
-                    trailing: Text(
-                      _money(amount),
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                  ),
-                  if (vouchers.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: vouchers
-                              .map(
-                                (voucher) => InputChip(
-                                  avatar: Icon(
-                                    voucher.mimeType.startsWith('image/')
-                                        ? Icons.image_outlined
-                                        : Icons.picture_as_pdf_outlined,
-                                    size: 18,
-                                  ),
-                                  label: Text(voucher.fileName),
-                                  onPressed: () => _showVoucherPreviewDialog(
-                                    context,
-                                    voucher,
-                                  ),
+                        )
+                        .map(
+                          (voucher) => CloseTransferVoucherModel(
+                            storageKey: voucher.storageKey,
+                            fileUrl: _normalizeAssetUrl(voucher.fileUrl),
+                            fileName: voucher.fileName,
+                            mimeType: voucher.mimeType,
+                          ),
+                        )
+                        .toList();
+
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (idx > 0) const Divider(height: 0),
+                        ListTile(
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                          title: Text(
+                            concept?.isNotEmpty == true
+                                ? concept!
+                                : 'Sin concepto',
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          subtitle: vouchers.isEmpty
+                              ? const Text('Sin comprobantes', style: TextStyle(fontSize: 11))
+                              : Text(
+                                  '${vouchers.length} ${vouchers.length == 1 ? 'comprobante' : 'comprobantes'}',
+                                  style: const TextStyle(fontSize: 11),
                                 ),
-                              )
-                              .toList(),
+                          trailing: Text(
+                            _money(amount),
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w900,
+                              fontSize: 13,
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
+                        if (vouchers.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                            child: Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: vouchers
+                                  .asMap()
+                                  .entries
+                                  .map((vEntry) {
+                                    final voucher = vEntry.value;
+                                    return InkWell(
+                                      onTap: () => _showVoucherPreviewDialog(
+                                        context,
+                                        voucher,
+                                      ),
+                                      borderRadius: BorderRadius.circular(6),
+                                      child: ClipRRect(
+                                        borderRadius: BorderRadius.circular(6),
+                                        child: SizedBox(
+                                          width: 72,
+                                          height: 72,
+                                          child: voucher.mimeType
+                                                  .startsWith('image/')
+                                              ? Image.network(
+                                                  voucher.fileUrl,
+                                                  fit: BoxFit.cover,
+                                                  errorBuilder:
+                                                      (_, __, ___) =>
+                                                          Container(
+                                                    color: Theme.of(context)
+                                                        .colorScheme
+                                                        .surfaceContainerHighest,
+                                                    alignment: Alignment.center,
+                                                    child: const Icon(
+                                                      Icons
+                                                          .picture_as_pdf_outlined,
+                                                      size: 28,
+                                                    ),
+                                                  ),
+                                                )
+                                              : Container(
+                                                  color: Theme.of(context)
+                                                      .colorScheme
+                                                      .surfaceContainerHighest,
+                                                  alignment: Alignment.center,
+                                                  child: const Icon(
+                                                    Icons
+                                                        .picture_as_pdf_outlined,
+                                                    size: 28,
+                                                  ),
+                                                ),
+                                        ),
+                                      ),
+                                    );
+                                  })
+                                  .toList(),
+                            ),
+                          ),
+                      ],
+                    );
+                  }),
                 ],
-              );
-            }),
+              ),
+            ),
+            const SizedBox(height: 18),
           ],
-          const SizedBox(height: 18),
           Text(
             'Transferencias y vouchers',
             style: Theme.of(
@@ -4289,56 +4451,6 @@ class _CloseDetailFullScreenPageState
                 ],
               );
             }),
-          if (currentClose.evidenceUrl != null &&
-              currentClose.evidenceFileName != null) ...[
-            const SizedBox(height: 18),
-            Text(
-              'Voucher de cierre POS',
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
-            ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(
-                (currentClose.evidenceMimeType ?? '').startsWith('image/')
-                    ? Icons.image_outlined
-                    : Icons.picture_as_pdf_outlined,
-              ),
-              title: Text(currentClose.evidenceFileName!),
-              subtitle: Text(currentClose.evidenceMimeType ?? 'archivo'),
-              trailing: OutlinedButton(
-                onPressed: () => _showVoucherPreviewDialog(context, posVoucher),
-                child: const Text('Expandir'),
-              ),
-            ),
-            if (_isImageVoucher(posVoucher))
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: InkWell(
-                  onTap: () => _showVoucherPreviewDialog(context, posVoucher),
-                  borderRadius: BorderRadius.circular(10),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
-                    child: SizedBox(
-                      width: 120,
-                      height: 120,
-                      child: Image.network(
-                        _normalizeAssetUrl(currentClose.evidenceUrl!),
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => Container(
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.surfaceContainerHighest,
-                          alignment: Alignment.center,
-                          child: const Icon(Icons.broken_image_outlined),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-          ],
           if ((currentClose.notes ?? '').trim().isNotEmpty) ...[
             const SizedBox(height: 18),
             Text(
@@ -4359,7 +4471,7 @@ class _CloseDetailFullScreenPageState
                       ? null
                       : () => _runAiReport(currentClose),
                   icon: const Icon(Icons.auto_awesome_outlined),
-                  label: const Text('Regenerar reporte IA'),
+                  label: const Text('Generar informe IA'),
                 ),
               ),
             ],
@@ -4514,33 +4626,178 @@ class _CloseDetailFullScreenPageState
               ),
             ],
           ],
-          if (currentClose.isPending && canReview) ...[
-            const SizedBox(height: 18),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () =>
-                        _askApproveReject(close: currentClose, approve: false),
-                    icon: const Icon(Icons.close),
-                    label: const Text('Rechazar'),
+          const SizedBox(height: 24),
+        ],
                   ),
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: () =>
-                        _askApproveReject(close: currentClose, approve: true),
-                    icon: const Icon(Icons.verified_outlined),
-                    label: const Text('Aprobar'),
+                const SizedBox(width: 12),
+                SizedBox(
+                  width: 420,
+                  child: SingleChildScrollView(
+                    child: _buildCloseSummaryPanel(currentClose, statusLabel),
                   ),
                 ),
               ],
+            );
+          }
+
+          return SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 14, 18, 0),
+                  child: _buildCloseSummaryPanel(currentClose, statusLabel),
+                ),
+              ],
             ),
-          ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildCloseSummaryPanel(CloseModel close, String statusLabel) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Resumen del cierre',
+            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _InfoPill(label: 'Estado', value: statusLabel),
+              _InfoPill(
+                label: 'Creado por',
+                value: close.createdByName ?? close.createdById ?? 'N/D',
+              ),
+              _InfoPill(
+                label: 'Creado en',
+                value: DateFormat('dd/MM/yyyy h:mm a', 'es_DO')
+                    .format(close.createdAt),
+              ),
+              if (close.reviewedAt != null)
+                _InfoPill(
+                  label: 'Revisado en',
+                  value: DateFormat('dd/MM/yyyy h:mm a', 'es_DO')
+                      .format(close.reviewedAt!),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          const Divider(),
+          const SizedBox(height: 12),
+          const Text(
+            'Montos',
+            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+          ),
+          const SizedBox(height: 8),
+          _buildCompactMoneyRow('Total ingresos', _money(close.incomeTotal)),
+          _buildCompactMoneyRow('Total neto', _money(close.netTotal)),
+          _buildCompactMoneyRow(
+            'Diferencia',
+            _money(close.difference),
+            isNegative: close.difference < -0.009,
+          ),
+          const SizedBox(height: 10),
+          const Text(
+            'Desglose de pagos',
+            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+          ),
+          const SizedBox(height: 8),
+          _buildCompactMoneyRow('Efectivo', _money(close.cash)),
+          _buildCompactMoneyRow('Transferencia', _money(close.transfer)),
+          _buildCompactMoneyRow('Tarjeta', _money(close.card)),
+          _buildCompactMoneyRow('Otros ingresos', _money(close.otherIncome)),
+          _buildCompactMoneyRow(
+            'Gastos',
+            _money(close.expenses),
+            isNegative: true,
+          ),
+          const SizedBox(height: 10),
+          const Text(
+            'Efectivo entregado',
+            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+          ),
+          const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: const Color(0xFFE5E7EB)),
+            ),
+            child: Text(
+              _money(close.cashDelivered),
+              style: const TextStyle(
+                fontWeight: FontWeight.w900,
+                fontSize: 15,
+                color: Color(0xFF047857),
+              ),
+            ),
+          ),
         ],
       ),
     );
+  }
+
+  Widget _buildCompactMoneyRow(String label, String value,
+      {bool isNegative = false}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              color: isNegative ? const Color(0xFFB91C1C) : Colors.black87,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showApproveFab(CloseModel close) async {
+    final approved = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Gestionar cierre'),
+        content: const Text(
+            '¿Qué acción deseas realizar con este cierre?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Rechazar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Aprobar'),
+          ),
+        ],
+      ),
+    );
+    if (approved == null) return;
+    if (!mounted) return;
+    await _askApproveReject(close: close, approve: approved);
   }
 }
 

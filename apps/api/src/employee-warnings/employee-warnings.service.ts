@@ -583,6 +583,33 @@ ${input.issuerPosition}`;
     return { body, contentType: contentType ?? 'application/pdf', filename };
   }
 
+  async getPdfBytes(
+    id: string,
+  ): Promise<{ body: Buffer; contentType: string; filename: string }> {
+    const companyId = this.getCompanyId();
+    const warning = await this.prisma.employeeWarning.findFirst({
+      where: { id, companyId },
+      select: { id: true, pdfUrl: true, warningNumber: true },
+    });
+
+    if (!warning) throw new NotFoundException('Amonestacion no encontrada');
+    if (!warning.pdfUrl) {
+      throw new NotFoundException('El PDF de esta amonestacion aun no esta disponible.');
+    }
+
+    let objectKey: string;
+    try {
+      const url = new URL(warning.pdfUrl);
+      objectKey = url.pathname.replace(/^\//, '');
+    } catch {
+      objectKey = warning.pdfUrl;
+    }
+
+    const { body, contentType } = await this.r2.getObject(objectKey);
+    const filename = `amonestacion-${warning.warningNumber}.pdf`;
+    return { body, contentType: contentType ?? 'application/pdf', filename };
+  }
+
   private async generatePdfBuffer(warning: any): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       const chunks: Buffer[] = [];

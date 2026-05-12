@@ -1,9 +1,10 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:printing/printing.dart';
 import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
-import 'package:url_launcher/url_launcher.dart';
 
-import '../../../core/api/env.dart';
 import '../application/warnings_controller.dart';
 import '../data/employee_warning_model.dart';
 import '../data/employee_warnings_repository.dart';
@@ -147,9 +148,8 @@ class _WarningDetailScreenState extends ConsumerState<WarningDetailScreen> {
           if (w.pdfUrl != null || w.signedPdfUrl != null) ...[
             const SizedBox(height: 10),
             _PdfPanel(
-              warning: w,
-              warningId: w.id,
-              onOpenInApp: (url) => _openPdfInApp(context, url, w.id),
+              onOpenInApp: () => _openPdfInApp(context, w),
+              onPrint: () => _printPdf(context, w),
             ),
           ],
           if (w.signatures.isNotEmpty) ...[
@@ -272,46 +272,44 @@ class _WarningDetailScreenState extends ConsumerState<WarningDetailScreen> {
     }
   }
 
-  List<String> _buildPdfCandidates(String warningId, String rawUrl) {
-    final value = rawUrl.trim();
-    final candidates = <String>[];
-
-    // Primero: usar el endpoint API autenticado para descargar el PDF
-    final apiBase = Env.apiBaseUrl.trim().replaceAll(RegExp(r'/+$'), '');
-    if (apiBase.isNotEmpty) {
-      candidates.add('$apiBase/employee-warnings/me/$warningId/pdf');
-    }
-
-    // Segundo: si la URL es una URL completa con esquema, usarla directamente
-    if (value.isNotEmpty) {
-      final uri = Uri.tryParse(value);
-      if (uri != null && uri.hasScheme) {
-        candidates.add(uri.toString());
-      } else {
-        // Si es una ruta relativa, intentar construirla con el base URL
-        if (apiBase.isNotEmpty) {
-          final normalized = value.replaceAll('\\', '/');
-          if (normalized.startsWith('/')) {
-            candidates.add('$apiBase$normalized');
-          } else {
-            candidates.add('$apiBase/$normalized');
-          }
-        }
-      }
-    }
-
-    return candidates.toSet().toList(); // Eliminar duplicados
+  Future<Uint8List> _loadPdfBytes(EmployeeWarning w) {
+    final rawPdfUrl = (w.pdfUrl ?? w.signedPdfUrl ?? '').trim();
+    return ref.read(employeeWarningsRepositoryProvider).getMyWarningPdfBytes(
+      id: w.id,
+      rawPdfUrl: rawPdfUrl.isEmpty ? null : rawPdfUrl,
+    );
   }
 
-  Future<void> _openPdfInApp(BuildContext context, String rawUrl, String warningId) async {
-    final candidates = _buildPdfCandidates(warningId, rawUrl);
-    if (candidates.isEmpty) return;
+  Future<void> _openPdfInApp(BuildContext context, EmployeeWarning w) async {
+    try {
+      final bytes = await _loadPdfBytes(w);
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => _WarningPdfViewerScreen(
+            bytes: bytes,
+            warningNumber: w.warningNumber,
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo abrir el PDF: $e')),
+      );
+    }
+  }
 
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => _WarningPdfViewerScreen(candidateUrls: candidates),
-      ),
-    );
+  Future<void> _printPdf(BuildContext context, EmployeeWarning w) async {
+    try {
+      final bytes = await _loadPdfBytes(w);
+      await Printing.layoutPdf(onLayout: (_) async => bytes);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo imprimir el PDF: $e')),
+      );
+    }
   }
 }
 
@@ -368,51 +366,29 @@ class _TextPanel extends StatelessWidget {
 }
 
 class _PdfPanel extends StatelessWidget {
-  final EmployeeWarning warning;
-  final String warningId;
-  final ValueChanged<String> onOpenInApp;
-  const _PdfPanel({required this.warning, required this.warningId, required this.onOpenInApp});
+  final VoidCallback onOpenInApp;
+  final VoidCallback onPrint;
+  const _PdfPanel({required this.onOpenInApp, required this.onPrint});
 
   @override
   Widget build(BuildContext context) => _Container(
         title: 'Documento PDF',
-        child: Column(
-          children: [
-            if (warning.pdfUrl != null)
-              _PdfButton(label: 'PDF principal', url: warning.pdfUrl!, onOpenInApp: onOpenInApp),
-            if (warning.signedPdfUrl != null)
-              _PdfButton(
-                label: 'PDF historico firmado',
-                url: warning.signedPdfUrl!,
-                onOpenInApp: onOpenInApp,
-              ),
-          ],
-        ),
-      );
-}
-
-class _PdfButton extends StatelessWidget {
-  final String label;
-  final String url;
-  final ValueChanged<String> onOpenInApp;
-  const _PdfButton({required this.label, required this.url, required this.onOpenInApp});
-
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(bottom: 6),
         child: Row(
           children: [
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: () => onOpenInApp(url),
+                onPressed: onOpenInApp,
                 icon: const Icon(Icons.picture_as_pdf_outlined, size: 16),
-                label: Text(label),
+                label: const Text('Abrir PDF'),
               ),
             ),
             const SizedBox(width: 8),
-            OutlinedButton(
-              onPressed: () => launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication),
-              child: const Icon(Icons.open_in_new, size: 16),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: onPrint,
+                icon: const Icon(Icons.print_outlined, size: 16),
+                label: const Text('Imprimir'),
+              ),
             ),
           ],
         ),
@@ -465,39 +441,36 @@ class _Pill extends StatelessWidget {
 }
 
 class _WarningPdfViewerScreen extends StatefulWidget {
-  final List<String> candidateUrls;
-  const _WarningPdfViewerScreen({required this.candidateUrls});
+  final Uint8List bytes;
+  final String warningNumber;
+  const _WarningPdfViewerScreen({required this.bytes, required this.warningNumber});
 
   @override
   State<_WarningPdfViewerScreen> createState() => _WarningPdfViewerScreenState();
 }
 
 class _WarningPdfViewerScreenState extends State<_WarningPdfViewerScreen> {
-  int _index = 0;
-
-  String get _currentUrl => widget.candidateUrls[_index];
-
-  void _onLoadFailed(PdfDocumentLoadFailedDetails details) {
-    if (_index + 1 < widget.candidateUrls.length) {
-      setState(() => _index += 1);
-      return;
-    }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('No se pudo cargar el PDF: ${details.description}')),
-    );
+  Future<void> _print() async {
+    await Printing.layoutPdf(onLayout: (_) async => widget.bytes);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Documento PDF'),
+        title: Text('PDF ${widget.warningNumber}'),
         backgroundColor: const Color(0xFF1a1a2e),
         foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.print_outlined),
+            tooltip: 'Imprimir',
+            onPressed: _print,
+          ),
+        ],
       ),
-      body: SfPdfViewer.network(
-        _currentUrl,
-        onDocumentLoadFailed: _onLoadFailed,
+      body: SfPdfViewer.memory(
+        widget.bytes,
       ),
     );
   }

@@ -107,6 +107,24 @@ export class EmployeeWarningsController {
     return this.service.generatePdf(id, actor.id ?? '');
   }
 
+  /** Download warning PDF for admin/asistente (authenticated stream) */
+  @Get(':id/pdf-download')
+  @Roles(...AUTHORIZED_ROLES)
+  async downloadPdf(
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const { body, contentType, filename } = await this.service.getPdfBytes(id);
+    res
+      .set({
+        'Content-Type': contentType,
+        'Content-Disposition': `inline; filename="${filename}"`,
+        'Content-Length': body.length,
+        'Cache-Control': 'private, max-age=300',
+      })
+      .send(body);
+  }
+
   /** Upload evidence file for a draft warning */
   @Post(':id/evidences')
   @Roles(...AUTHORIZED_ROLES)

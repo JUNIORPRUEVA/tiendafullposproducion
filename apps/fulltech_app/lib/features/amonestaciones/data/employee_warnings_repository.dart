@@ -162,6 +162,19 @@ class EmployeeWarningsRepository {
   }) async {
     try {
       final res = await _dio.get<List<int>>(
+        ApiRoutes.employeeWarningPdfDownload(id),
+        options: Options(responseType: ResponseType.bytes),
+      );
+      if (res.data != null && res.data!.isNotEmpty) {
+        return Uint8List.fromList(res.data!);
+      }
+    } on DioException catch (e) {
+      final status = e.response?.statusCode ?? 0;
+      if (status != 403 && status != 404) rethrow;
+    }
+
+    try {
+      final res = await _dio.get<List<int>>(
         ApiRoutes.employeeWarningsMyPdf(id),
         options: Options(responseType: ResponseType.bytes),
       );
