@@ -504,13 +504,11 @@ class _CreateServiceOrderScreenState
                     label: 'Cliente',
                     value:
                         state.selectedClient?.nombre ?? 'Seleccionar cliente',
-                    enabled: !state.isCloneMode && !_inlineFlowBusy,
-                    onTap: state.isCloneMode
-                        ? null
-                        : () => _pickClient(context, state, controller),
+                    enabled: !_inlineFlowBusy,
+                    onTap: () => _pickClient(context, state, controller),
                   ),
                 ),
-                if (!state.isCloneMode && canCreateClients) ...[
+                if (canCreateClients) ...[
                   const SizedBox(width: 6),
                   _CompactActionIconButton(
                     icon: Icons.person_add_alt_1_rounded,
@@ -547,44 +545,36 @@ class _CreateServiceOrderScreenState
                     value: state.selectedQuotation == null
                         ? 'Seleccionar cotización'
                         : 'Cotización ${state.selectedQuotation!.id.substring(0, state.selectedQuotation!.id.length >= 6 ? 6 : state.selectedQuotation!.id.length).toUpperCase()}',
-                    enabled:
-                        !state.isCloneMode &&
-                        !_inlineFlowBusy &&
-                        state.selectedClient != null,
-                    onTap: state.isCloneMode || state.selectedClient == null
+                    enabled: !_inlineFlowBusy && state.selectedClient != null,
+                    onTap: state.selectedClient == null
                         ? null
                         : () => _pickQuotation(context, state, controller),
                   ),
                 ),
-                if (!state.isCloneMode) ...[
+                const SizedBox(width: 6),
+                _CompactActionIconButton(
+                  icon: Icons.add_circle_outline_rounded,
+                  onTap:
+                      _inlineFlowBusy ||
+                          state.loading ||
+                          state.selectedClient == null
+                      ? null
+                      : () =>
+                            _createQuotationInline(context, state, controller),
+                ),
+                if (state.selectedQuotation != null &&
+                    _canEditQuotation(state.selectedQuotation!)) ...[
                   const SizedBox(width: 6),
                   _CompactActionIconButton(
-                    icon: Icons.add_circle_outline_rounded,
-                    onTap:
-                        _inlineFlowBusy ||
-                            state.loading ||
-                            state.selectedClient == null
+                    icon: Icons.edit_outlined,
+                    onTap: _inlineFlowBusy || state.loading
                         ? null
-                        : () => _createQuotationInline(
+                        : () => _editQuotationInline(
                             context,
-                            state,
                             controller,
+                            state.selectedQuotation!,
                           ),
                   ),
-                  if (state.selectedQuotation != null &&
-                      _canEditQuotation(state.selectedQuotation!)) ...[
-                    const SizedBox(width: 6),
-                    _CompactActionIconButton(
-                      icon: Icons.edit_outlined,
-                      onTap: _inlineFlowBusy || state.loading
-                          ? null
-                          : () => _editQuotationInline(
-                              context,
-                              controller,
-                              state.selectedQuotation!,
-                            ),
-                    ),
-                  ],
                 ],
               ],
             ),

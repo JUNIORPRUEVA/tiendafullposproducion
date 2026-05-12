@@ -317,39 +317,33 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                 ),
               ),
             )
+          : isAssistant
+          ? RefreshIndicator(
+              onRefresh: controller.refresh,
+              child: _buildAssistantBody(context, state, controller, user?.id),
+            )
+          : isAdmin
+          ? _HistoryFullScreenPage(initialType: _type)
           : RefreshIndicator(
               onRefresh: controller.refresh,
-              child: isAssistant
-                  ? _buildAssistantBody(context, state, controller, user?.id)
-                  : ListView(
-                      padding: const EdgeInsets.all(16),
-                      children: [
-                        Center(
-                          child: ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 820),
-                            child: _buildFormCard(context, state, controller),
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        if (state.loading) const LinearProgressIndicator(),
-                        if (state.error != null) ...[
-                          const SizedBox(height: 8),
-                          _ErrorBox(message: state.error!),
-                        ],
-                        const SizedBox(height: 10),
-                        if (isAdmin)
-                          SizedBox(
-                            height: 48,
-                            child: OutlinedButton.icon(
-                              onPressed: () => _openHistoryScreen(context),
-                              icon: const Icon(Icons.history),
-                              label: Text(
-                                'Historial de cierres (${state.closes.length})',
-                              ),
-                            ),
-                          ),
-                      ],
+              child: ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 820),
+                      child: _buildFormCard(context, state, controller),
                     ),
+                  ),
+                  const SizedBox(height: 14),
+                  if (state.loading) const LinearProgressIndicator(),
+                  if (state.error != null) ...[
+                    const SizedBox(height: 8),
+                    _ErrorBox(message: state.error!),
+                  ],
+                  const SizedBox(height: 10),
+                ],
+              ),
             ),
     );
   }
@@ -418,10 +412,7 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
             child: Column(
               children: [
                 ...statusWidgets,
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: historyButton,
-                ),
+                Align(alignment: Alignment.centerRight, child: historyButton),
                 const SizedBox(height: 12),
                 Expanded(
                   child: Row(
@@ -1485,8 +1476,7 @@ class _AssistantDailyPairBanner extends StatelessWidget {
       if (editingId != null && close.id == editingId) return false;
       if (close.type != type) return false;
       return _sameDay(close.date, date);
-    }).toList()
-      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    }).toList()..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return matches.isEmpty ? null : matches.first;
   }
 
@@ -2248,7 +2238,7 @@ class _HistoryFullScreenPage extends ConsumerStatefulWidget {
 
 class _HistoryFullScreenPageState
     extends ConsumerState<_HistoryFullScreenPage> {
-  late CloseType _selectedType = widget.initialType;
+  CloseType? _selectedType;
   String _selectedStatus = 'TODOS';
   DateTime? _fromDate;
   DateTime? _toDate;
@@ -3024,7 +3014,7 @@ class _HistoryFullScreenPageState
     final state = ref.watch(cierresDiariosControllerProvider);
     final canDelete = _isAdmin;
     final filtered = state.closes.where((close) {
-      if (close.type != _selectedType) return false;
+      if (_selectedType != null && close.type != _selectedType) return false;
       if (!_matchesAdminStatusFilter(close)) return false;
       return _isWithinRange(close);
     }).toList();
@@ -3093,6 +3083,11 @@ class _HistoryFullScreenPageState
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 FilterChip(
+                  label: const Text('Todas'),
+                  selected: _selectedType == null,
+                  onSelected: (_) => setState(() => _selectedType = null),
+                ),
+                FilterChip(
                   label: const Text('Tecnología'),
                   selected: _selectedType == CloseType.tienda,
                   onSelected: (_) =>
@@ -3139,165 +3134,259 @@ class _HistoryFullScreenPageState
         );
       }
 
+      final byDay = <DateTime, List<CloseModel>>{};
+      for (final close in filtered) {
+        final day = DateTime(close.date.year, close.date.month, close.date.day);
+        byDay.putIfAbsent(day, () => <CloseModel>[]).add(close);
+      }
+
+      final orderedDays = byDay.keys.toList()..sort((a, b) => b.compareTo(a));
+
+      int typeRank(CloseType type) {
+        if (type == CloseType.tienda) return 0;
+        if (type == CloseType.phytoemagry) return 1;
+        return 2;
+      }
+
       return ListView.separated(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 18),
-        itemCount: filtered.length,
+        itemCount: orderedDays.length,
         separatorBuilder: (_, __) => const SizedBox(height: 10),
         itemBuilder: (context, index) {
-          final close = filtered[index];
-          final statusLabel = _adminStatusLabel(close);
-          final statusColor = _adminStatusColor(close);
+          final day = orderedDays[index];
+          final closes = [...(byDay[day] ?? const <CloseModel>[])]
+            ..sort((a, b) {
+              final typeCompare = typeRank(a.type).compareTo(typeRank(b.type));
+              if (typeCompare != 0) return typeCompare;
+              return b.createdAt.compareTo(a.createdAt);
+            });
+          final hasTecnologia = closes.any(
+            (close) => close.type == CloseType.tienda,
+          );
+          final hasPhyto = closes.any(
+            (close) => close.type == CloseType.phytoemagry,
+          );
+          final pairComplete = hasTecnologia && hasPhyto;
 
-          return Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(10),
-              onTap: () async {
-                if (_selectionMode) {
-                  setState(() {
-                    if (_selectedCloseIds.contains(close.id)) {
-                      _selectedCloseIds.remove(close.id);
-                    } else {
-                      _selectedCloseIds.add(close.id);
-                    }
-                  });
-                  return;
-                }
-
-                final duplicate = await Navigator.of(context).push<CloseModel>(
-                  MaterialPageRoute(
-                    builder: (_) =>
-                        _CloseDetailFullScreenPage(closeId: close.id),
-                  ),
-                );
-                if (duplicate != null && context.mounted) {
-                  Navigator.of(context).pop(duplicate);
-                }
-              },
-              child: Ink(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 10,
-                ),
-                decoration: BoxDecoration(
-                  color: close.isPending
-                      ? const Color(0xFFFFFBEB)
-                      : Theme.of(context).colorScheme.surface,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                    color: close.isPending
-                        ? const Color(0xFFF59E0B).withValues(alpha: 0.42)
-                        : Theme.of(context).colorScheme.outlineVariant,
-                  ),
-                ),
-                child: Row(
+          return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              color: Theme.of(context).colorScheme.surface,
+              border: Border.all(
+                color: Theme.of(context).colorScheme.outlineVariant,
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
                   children: [
-                    if (_selectionMode)
-                      Checkbox(
-                        value: _selectedCloseIds.contains(close.id),
-                        onChanged: (_) {
-                          setState(() {
-                            if (_selectedCloseIds.contains(close.id)) {
-                              _selectedCloseIds.remove(close.id);
-                            } else {
-                              _selectedCloseIds.add(close.id);
-                            }
-                          });
-                        },
-                      ),
                     Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
+                      child: Text(
+                        DateFormat('dd/MM/yyyy').format(day),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                    _MiniCloseTag(
+                      label: pairComplete ? 'Par completo' : 'Par incompleto',
+                      color: pairComplete
+                          ? const Color(0xFF15803D)
+                          : const Color(0xFFB45309),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                ...closes.asMap().entries.map((entry) {
+                  final close = entry.value;
+                  final statusLabel = _adminStatusLabel(close);
+                  final statusColor = _adminStatusColor(close);
+
+                  return Padding(
+                    padding: EdgeInsets.only(
+                      bottom: entry.key == closes.length - 1 ? 0 : 8,
+                    ),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(10),
+                        onTap: () async {
+                          if (_selectionMode) {
+                            setState(() {
+                              if (_selectedCloseIds.contains(close.id)) {
+                                _selectedCloseIds.remove(close.id);
+                              } else {
+                                _selectedCloseIds.add(close.id);
+                              }
+                            });
+                            return;
+                          }
+
+                          final duplicate = await Navigator.of(context)
+                              .push<CloseModel>(
+                                MaterialPageRoute(
+                                  builder: (_) => _CloseDetailFullScreenPage(
+                                    closeId: close.id,
+                                  ),
+                                ),
+                              );
+                          if (duplicate != null && context.mounted) {
+                            Navigator.of(context).pop(duplicate);
+                          }
+                        },
+                        child: Ink(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                          decoration: BoxDecoration(
+                            color: close.isPending
+                                ? const Color(0xFFFFFBEB)
+                                : Theme.of(context)
+                                      .colorScheme
+                                      .surfaceContainerHighest
+                                      .withValues(alpha: 0.26),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: close.isPending
+                                  ? const Color(
+                                      0xFFF59E0B,
+                                    ).withValues(alpha: 0.42)
+                                  : Theme.of(
+                                      context,
+                                    ).colorScheme.outlineVariant,
+                            ),
+                          ),
+                          child: Row(
                             children: [
+                              if (_selectionMode)
+                                Checkbox(
+                                  value: _selectedCloseIds.contains(close.id),
+                                  onChanged: (_) {
+                                    setState(() {
+                                      if (_selectedCloseIds.contains(
+                                        close.id,
+                                      )) {
+                                        _selectedCloseIds.remove(close.id);
+                                      } else {
+                                        _selectedCloseIds.add(close.id);
+                                      }
+                                    });
+                                  },
+                                ),
                               Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            close.type == CloseType.tienda
+                                                ? 'Tecnología'
+                                                : close.type.label,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w900,
+                                              fontSize: 14,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          _money(close.netTotal),
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w900,
+                                            fontSize: 13.5,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 5),
+                                    Wrap(
+                                      spacing: 7,
+                                      runSpacing: 5,
+                                      crossAxisAlignment:
+                                          WrapCrossAlignment.center,
+                                      children: [
+                                        Text(
+                                          'Creado por ${close.createdByName ?? close.createdById ?? 'N/D'}',
+                                          style: Theme.of(
+                                            context,
+                                          ).textTheme.bodySmall,
+                                        ),
+                                        if (close.isCorrection)
+                                          _MiniCloseTag(
+                                            label:
+                                                'Corrección #${_shortCloseId(close.correctionOfCloseId)}',
+                                            color: const Color(0xFF7C3AED),
+                                          ),
+                                        if ((close.reviewNote ?? '')
+                                                .trim()
+                                                .isNotEmpty &&
+                                            close.isRejected)
+                                          const _MiniCloseTag(
+                                            label: 'Con motivo',
+                                            color: Color(0xFFB91C1C),
+                                          ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 9,
+                                  vertical: 5,
+                                ),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(999),
+                                  color: statusColor.withValues(alpha: 0.12),
+                                  border: Border.all(
+                                    color: statusColor.withValues(alpha: 0.28),
+                                  ),
+                                ),
                                 child: Text(
-                                  '${close.type == CloseType.tienda ? 'Tecnología' : close.type.label} · ${DateFormat('dd/MM/yyyy').format(close.date)}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
+                                  statusLabel,
+                                  style: TextStyle(
+                                    fontSize: 11,
                                     fontWeight: FontWeight.w900,
-                                    fontSize: 14,
+                                    color: statusColor,
                                   ),
                                 ),
                               ),
-                              const SizedBox(width: 8),
-                              Text(
-                                _money(close.netTotal),
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w900,
-                                  fontSize: 13.5,
+                              if (!_selectionMode &&
+                                  canDelete &&
+                                  close.isPending) ...[
+                                const SizedBox(width: 6),
+                                const Icon(
+                                  Icons.rate_review_outlined,
+                                  size: 18,
                                 ),
-                              ),
+                              ],
+                              if (!_selectionMode && canDelete)
+                                IconButton(
+                                  tooltip: 'Eliminar cierre',
+                                  onPressed: () => _deleteOneClose(close),
+                                  icon: const Icon(Icons.delete_outline),
+                                )
+                              else if (!_selectionMode) ...[
+                                const SizedBox(width: 8),
+                                const Icon(Icons.chevron_right_rounded),
+                              ],
                             ],
                           ),
-                          const SizedBox(height: 5),
-                          Wrap(
-                            spacing: 7,
-                            runSpacing: 5,
-                            crossAxisAlignment: WrapCrossAlignment.center,
-                            children: [
-                              Text(
-                                'Creado por ${close.createdByName ?? close.createdById ?? 'N/D'}',
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                              if (close.isCorrection)
-                                _MiniCloseTag(
-                                  label:
-                                      'Corrección #${_shortCloseId(close.correctionOfCloseId)}',
-                                  color: const Color(0xFF7C3AED),
-                                ),
-                              if ((close.reviewNote ?? '').trim().isNotEmpty &&
-                                  close.isRejected)
-                                const _MiniCloseTag(
-                                  label: 'Con motivo',
-                                  color: Color(0xFFB91C1C),
-                                ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 9,
-                        vertical: 5,
-                      ),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(999),
-                        color: statusColor.withValues(alpha: 0.12),
-                        border: Border.all(
-                          color: statusColor.withValues(alpha: 0.28),
-                        ),
-                      ),
-                      child: Text(
-                        statusLabel,
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w900,
-                          color: statusColor,
                         ),
                       ),
                     ),
-                    if (!_selectionMode && canDelete && close.isPending) ...[
-                      const SizedBox(width: 6),
-                      const Icon(Icons.rate_review_outlined, size: 18),
-                    ],
-                    if (!_selectionMode && canDelete)
-                      IconButton(
-                        tooltip: 'Eliminar cierre',
-                        onPressed: () => _deleteOneClose(close),
-                        icon: const Icon(Icons.delete_outline),
-                      )
-                    else if (!_selectionMode) ...[
-                      const SizedBox(width: 8),
-                      const Icon(Icons.chevron_right_rounded),
-                    ],
-                  ],
-                ),
-              ),
+                  );
+                }),
+              ],
             ),
           );
         },

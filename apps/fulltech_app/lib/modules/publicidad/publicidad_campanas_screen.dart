@@ -405,22 +405,46 @@ class _PublicidadCampanasScreenState
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(child: Text(_error!))
-              : Row(
-                  children: [
-                    SizedBox(
-                      width: 340,
-                      child: _buildCampaignList(selected),
-                    ),
-                    const VerticalDivider(width: 1),
-                    Expanded(
-                      child: selected == null
-                          ? const Center(
-                              child: Text('No hay campañas. Crea una para iniciar.'),
-                            )
-                          : _buildCampaignDetail(selected),
-                    ),
-                  ],
+              ? Center(
+                  child: Text(
+                    _error!.trim().isEmpty
+                        ? 'No se pudo cargar campañas. Intenta recargar.'
+                        : _error!,
+                  ),
+                )
+              : LayoutBuilder(
+                  builder: (context, constraints) {
+                    final isCompact = constraints.maxWidth < 900;
+                    final detail = selected == null
+                        ? const Center(
+                            child: Text('No hay campañas. Crea una para iniciar.'),
+                          )
+                        : _buildCampaignDetail(selected);
+
+                    if (isCompact) {
+                      return Column(
+                        children: [
+                          SizedBox(
+                            height: 240,
+                            child: _buildCampaignList(selected),
+                          ),
+                          const Divider(height: 1),
+                          Expanded(child: detail),
+                        ],
+                      );
+                    }
+
+                    return Row(
+                      children: [
+                        SizedBox(
+                          width: 340,
+                          child: _buildCampaignList(selected),
+                        ),
+                        const VerticalDivider(width: 1),
+                        Expanded(child: detail),
+                      ],
+                    );
+                  },
                 ),
     );
   }
@@ -487,6 +511,9 @@ class _PublicidadCampanasScreenState
     final metaConfig = _metaConfig;
     final isMetaIncomplete =
         metaConfig != null && (!metaConfig.hasAdAccountId || !metaConfig.tokenValid);
+    final validGalleryAssetId = _assets.any((item) => item.id == campaign.galleryAssetId)
+      ? campaign.galleryAssetId
+      : null;
 
     final prompt = _buildDesignPrompt(campaign);
 
@@ -524,7 +551,7 @@ class _PublicidadCampanasScreenState
                   ),
                 const SizedBox(height: 10),
                 DropdownButtonFormField<String>(
-                  value: campaign.galleryAssetId,
+                  value: validGalleryAssetId,
                   isExpanded: true,
                   items: _assets
                       .map(
@@ -803,7 +830,7 @@ class _PublicidadCampanasScreenState
       child: Row(
         children: [
           SizedBox(width: 140, child: Text(key)),
-          Expanded(child: SelectableText((value ?? '-').trim().isEmpty ? '-' : value!)),
+          Expanded(child: SelectableText(value?.trim().isEmpty ?? true ? '-' : value!)),
         ],
       ),
     );

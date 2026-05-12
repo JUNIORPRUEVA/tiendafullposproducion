@@ -9,6 +9,24 @@ class EmployeeWarning {
   final DateTime warningDate;
   final DateTime incidentDate;
   final String title;
+  final String? warningType;
+  final String? reason;
+  final String? details;
+  final String? incidentTime;
+  final String? incidentPlace;
+  final String? issuedByUserId;
+  final String? issuedByNameSnapshot;
+  final String? issuedByPositionSnapshot;
+  final String? internalNotes;
+  final String? generatedText;
+  final String? employeeNameSnapshot;
+  final String? employeeCedulaSnapshot;
+  final String? employeePositionSnapshot;
+  final String? employeeDepartmentSnapshot;
+  final String? employeePhoneSnapshot;
+  final String? companyNameSnapshot;
+  final String? companyRncSnapshot;
+  final String? companyAddressSnapshot;
   final String category;
   final String severity;
   final String? legalBasis;
@@ -45,6 +63,24 @@ class EmployeeWarning {
     required this.warningDate,
     required this.incidentDate,
     required this.title,
+    this.warningType,
+    this.reason,
+    this.details,
+    this.incidentTime,
+    this.incidentPlace,
+    this.issuedByUserId,
+    this.issuedByNameSnapshot,
+    this.issuedByPositionSnapshot,
+    this.internalNotes,
+    this.generatedText,
+    this.employeeNameSnapshot,
+    this.employeeCedulaSnapshot,
+    this.employeePositionSnapshot,
+    this.employeeDepartmentSnapshot,
+    this.employeePhoneSnapshot,
+    this.companyNameSnapshot,
+    this.companyRncSnapshot,
+    this.companyAddressSnapshot,
     required this.category,
     required this.severity,
     this.legalBasis,
@@ -82,6 +118,24 @@ class EmployeeWarning {
         warningDate: DateTime.parse(j['warningDate'] as String),
         incidentDate: DateTime.parse(j['incidentDate'] as String),
         title: j['title'] as String,
+        warningType: j['warningType'] as String?,
+        reason: j['reason'] as String?,
+        details: j['details'] as String?,
+        incidentTime: j['incidentTime'] as String?,
+        incidentPlace: j['incidentPlace'] as String?,
+        issuedByUserId: j['issuedByUserId'] as String?,
+        issuedByNameSnapshot: j['issuedByNameSnapshot'] as String?,
+        issuedByPositionSnapshot: j['issuedByPositionSnapshot'] as String?,
+        internalNotes: j['internalNotes'] as String?,
+        generatedText: j['generatedText'] as String?,
+        employeeNameSnapshot: j['employeeNameSnapshot'] as String?,
+        employeeCedulaSnapshot: j['employeeCedulaSnapshot'] as String?,
+        employeePositionSnapshot: j['employeePositionSnapshot'] as String?,
+        employeeDepartmentSnapshot: j['employeeDepartmentSnapshot'] as String?,
+        employeePhoneSnapshot: j['employeePhoneSnapshot'] as String?,
+        companyNameSnapshot: j['companyNameSnapshot'] as String?,
+        companyRncSnapshot: j['companyRncSnapshot'] as String?,
+        companyAddressSnapshot: j['companyAddressSnapshot'] as String?,
         category: j['category'] as String,
         severity: j['severity'] as String,
         legalBasis: j['legalBasis'] as String?,
@@ -141,6 +195,7 @@ class EmployeeWarningUser {
   final String id;
   final String nombreCompleto;
   final String? email;
+  final String? telefono;
   final String? cedula;
   final String? workContractJobTitle;
 
@@ -148,6 +203,7 @@ class EmployeeWarningUser {
     required this.id,
     required this.nombreCompleto,
     this.email,
+    this.telefono,
     this.cedula,
     this.workContractJobTitle,
   });
@@ -157,6 +213,7 @@ class EmployeeWarningUser {
         id: j['id'] as String,
         nombreCompleto: j['nombreCompleto'] as String,
         email: j['email'] as String?,
+        telefono: j['telefono'] as String?,
         cedula: j['cedula'] as String?,
         workContractJobTitle: j['workContractJobTitle'] as String?,
       );

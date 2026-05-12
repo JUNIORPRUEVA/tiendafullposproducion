@@ -1,15 +1,9 @@
 import {
   BadRequestException,
-  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import {
-  EmployeeWarningStatus,
-  EmployeeWarningSignatureType,
-  Prisma,
-  Role,
-} from '@prisma/client';
+import { EmployeeWarningStatus, Prisma } from '@prisma/client';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const PDFDocument = require('pdfkit') as typeof import('pdfkit');
 import { PrismaService } from '../prisma/prisma.service';
@@ -18,8 +12,6 @@ import {
   AnnulEmployeeWarningDto,
   CreateEmployeeWarningDto,
   EmployeeWarningsQueryDto,
-  RefuseEmployeeWarningDto,
-  SignEmployeeWarningDto,
   UpdateEmployeeWarningDto,
 } from './dto/employee-warning.dto';
 
@@ -30,11 +22,13 @@ const WARNING_INCLUDE = {
       nombreCompleto: true,
       email: true,
       cedula: true,
+      telefono: true,
       workContractJobTitle: true,
+      workContractWorkLocation: true,
     },
   },
   createdByUser: {
-    select: { id: true, nombreCompleto: true },
+    select: { id: true, nombreCompleto: true, workContractJobTitle: true },
   },
   annulledByUser: {
     select: { id: true, nombreCompleto: true },
@@ -62,13 +56,27 @@ export class EmployeeWarningsService {
     private readonly r2: R2Service,
   ) {}
 
-  // ─── Helpers ─────────────────────────────────────────────────────────────────
-
   private getCompanyId(): string {
-    // Single-tenant: derive from settings or env. We use a fixed approach
-    // consistent with other modules – the company_id in the DB is the same
-    // for all records since this is a single-company SaaS.
     return process.env.COMPANY_ID ?? '00000000-0000-0000-0000-000000000001';
+  }
+
+  private valueOrDefault(value: string | null | undefined): string {
+    const v = (value ?? '').trim();
+    return v.length > 0 ? v : 'No registrado';
+  }
+
+  private cleanOptional(value: string | undefined): string | null {
+    const v = (value ?? '').trim();
+    return v.length > 0 ? v : null;
+  }
+
+  private safeStatus(status: string): EmployeeWarningStatus {
+    const normalized = status.toUpperCase().replace('-', '_');
+    if (normalized === 'ISSUED') return normalized as EmployeeWarningStatus;
+    if (normalized in EmployeeWarningStatus) {
+      return normalized as EmployeeWarningStatus;
+    }
+    return EmployeeWarningStatus.DRAFT;
   }
 
   private async ensureWarningExists(id: string, companyId: string) {
@@ -76,7 +84,7 @@ export class EmployeeWarningsService {
       where: { id, companyId },
       include: WARNING_INCLUDE,
     });
-    if (!w) throw new NotFoundException('Amonestación no encontrada');
+    if (!w) throw new NotFoundException('Amonestacion no encontrada');
     return w;
   }
 
@@ -106,7 +114,49 @@ export class EmployeeWarningsService {
     });
   }
 
-  // ─── Admin: list ─────────────────────────────────────────────────────────────
+  private buildGeneratedText(input: {
+    warningDate: Date;
+    incidentDate: Date;
+    incidentTime?: string | null;
+    incidentPlace?: string | null;
+    reason: string;
+    details: string;
+    employeeName: string;
+    employeeCedula: string;
+    employeePosition: string;
+    employeeDepartment: string;
+    companyName: string;
+    companyRnc: string;
+    companyAddress: string;
+    issuerName: string;
+    issuerPosition: string;
+  }): string {
+    const fmtDate = (d: Date) =>
+      new Intl.DateTimeFormat('es-DO', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(d);
+
+    return `AMONESTACION ESCRITA
+
+En fecha ${fmtDate(input.warningDate)}, la empresa ${input.companyName}, RNC ${input.companyRnc}, emite la presente amonestacion al colaborador ${input.employeeName}, cedula ${input.employeeCedula}, quien ocupa el cargo de ${input.employeePosition} en el area de ${input.employeeDepartment}.
+
+La presente amonestacion se emite por el siguiente motivo:
+
+${input.reason}
+
+Detalle de los hechos:
+
+${input.details}
+
+Los hechos ocurrieron en fecha ${fmtDate(input.incidentDate)}, aproximadamente a las ${this.valueOrDefault(input.incidentTime ?? null)}, en ${this.valueOrDefault(input.incidentPlace ?? null)}.
+
+Se le exhorta al colaborador a corregir dicha conducta y cumplir correctamente con las normas internas de la empresa, las instrucciones de sus superiores y las obligaciones propias de su puesto.
+
+Esta amonestacion queda registrada en el expediente laboral del colaborador como constancia formal. En caso de reincidencia o comision de nuevas faltas, la empresa podra tomar las medidas correspondientes conforme a sus politicas internas y la legislacion laboral aplicable en Republica Dominicana.
+
+Emitido por:
+
+${input.issuerName}
+${input.issuerPosition}`;
+  }
 
   async findAll(query: EmployeeWarningsQueryDto) {
     const companyId = this.getCompanyId();
@@ -117,23 +167,8 @@ export class EmployeeWarningsService {
     const where: Prisma.EmployeeWarningWhereInput = { companyId };
 
     if (query.employeeUserId) where.employeeUserId = query.employeeUserId;
-
-    if (query.status) {
-      const st = query.status.toUpperCase().replace('-', '_') as EmployeeWarningStatus;
-      if (Object.values(EmployeeWarningStatus).includes(st)) {
-        where.status = st;
-      }
-    }
-
-    if (query.severity) {
-      const sev = query.severity.toUpperCase();
-      where.severity = sev as any;
-    }
-
-    if (query.category) {
-      const cat = query.category.toUpperCase();
-      where.category = cat as any;
-    }
+    if (query.status) (where as any).status = this.safeStatus(query.status);
+    if (query.warningType) (where as any).warningType = query.warningType.toUpperCase();
 
     if (query.fromDate || query.toDate) {
       where.warningDate = {};
@@ -144,9 +179,12 @@ export class EmployeeWarningsService {
     if (query.search) {
       const q = query.search.trim();
       where.OR = [
-        { title: { contains: q, mode: 'insensitive' } },
         { warningNumber: { contains: q, mode: 'insensitive' } },
+        { title: { contains: q, mode: 'insensitive' } },
+        { description: { contains: q, mode: 'insensitive' } },
         { employeeUser: { nombreCompleto: { contains: q, mode: 'insensitive' } } },
+        { createdByUser: { nombreCompleto: { contains: q, mode: 'insensitive' } } },
+        { reason: { contains: q, mode: 'insensitive' } } as any,
       ];
     }
 
@@ -164,24 +202,69 @@ export class EmployeeWarningsService {
     return { items, total, page, limit };
   }
 
-  // ─── Admin: find one ─────────────────────────────────────────────────────────
-
   async findOne(id: string) {
     return this.ensureWarningExists(id, this.getCompanyId());
   }
 
-  // ─── Admin: create ───────────────────────────────────────────────────────────
-
   async create(dto: CreateEmployeeWarningDto, actorId: string) {
     const companyId = this.getCompanyId();
 
-    // Verify employee exists
-    const employee = await this.prisma.user.findUnique({
-      where: { id: dto.employeeUserId },
-    });
+    const employee = await this.prisma.user.findUnique({ where: { id: dto.employeeUserId } });
     if (!employee) throw new NotFoundException('Empleado no encontrado');
 
+    const issuerId = dto.issuedByUserId ?? actorId;
+    const issuer = await this.prisma.user.findUnique({ where: { id: issuerId } });
+
+    const appConfig = await this.prisma.appConfig.findUnique({
+      where: { id: 'global' },
+      select: { companyName: true, rnc: true, address: true },
+    });
+
+    const employeeNameSnapshot = this.valueOrDefault(employee.nombreCompleto);
+    const employeeCedulaSnapshot = this.valueOrDefault(employee.cedula);
+    const employeePositionSnapshot = this.valueOrDefault(employee.workContractJobTitle);
+    const employeeDepartmentSnapshot = this.valueOrDefault(employee.workContractWorkLocation);
+    const employeePhoneSnapshot = this.valueOrDefault(employee.telefono);
+
+    const issuedByNameSnapshot = this.valueOrDefault(
+      this.cleanOptional(dto.issuedByNameSnapshot) ?? issuer?.nombreCompleto,
+    );
+    const issuedByPositionSnapshot = this.valueOrDefault(
+      this.cleanOptional(dto.issuedByPositionSnapshot) ?? issuer?.workContractJobTitle,
+    );
+
+    const companyNameSnapshot = this.valueOrDefault(appConfig?.companyName);
+    const companyRncSnapshot = this.valueOrDefault(appConfig?.rnc);
+    const companyAddressSnapshot = this.valueOrDefault(appConfig?.address);
+
     const warningNumber = await this.nextWarningNumber(companyId);
+    const warningDate = new Date(dto.warningDate);
+    const incidentDate = new Date(dto.incidentDate);
+    const reason = dto.reason.trim();
+    const details = dto.details.trim();
+
+    if (!reason) throw new BadRequestException('El motivo es obligatorio');
+    if (!details) throw new BadRequestException('El detalle de los hechos es obligatorio');
+
+    const generatedText = this.buildGeneratedText({
+      warningDate,
+      incidentDate,
+      incidentTime: dto.incidentTime,
+      incidentPlace: dto.incidentPlace,
+      reason,
+      details,
+      employeeName: employeeNameSnapshot,
+      employeeCedula: employeeCedulaSnapshot,
+      employeePosition: employeePositionSnapshot,
+      employeeDepartment: employeeDepartmentSnapshot,
+      companyName: companyNameSnapshot,
+      companyRnc: companyRncSnapshot,
+      companyAddress: companyAddressSnapshot,
+      issuerName: issuedByNameSnapshot,
+      issuerPosition: issuedByPositionSnapshot,
+    });
+
+    const status = dto.saveAsDraft ? EmployeeWarningStatus.DRAFT : ('ISSUED' as EmployeeWarningStatus);
 
     const warning = await this.prisma.employeeWarning.create({
       data: {
@@ -189,70 +272,129 @@ export class EmployeeWarningsService {
         employeeUserId: dto.employeeUserId,
         createdByUserId: actorId,
         warningNumber,
-        warningDate: new Date(dto.warningDate),
-        incidentDate: new Date(dto.incidentDate),
-        title: dto.title.trim(),
-        category: dto.category,
-        severity: dto.severity,
-        legalBasis: dto.legalBasis?.trim() ?? null,
-        internalRuleReference: dto.internalRuleReference?.trim() ?? null,
-        description: dto.description.trim(),
-        employeeExplanation: dto.employeeExplanation?.trim() ?? null,
-        correctiveAction: dto.correctiveAction?.trim() ?? null,
-        consequenceNote: dto.consequenceNote?.trim() ?? null,
-        evidenceNotes: dto.evidenceNotes?.trim() ?? null,
-        status: EmployeeWarningStatus.DRAFT,
-      },
+        warningDate,
+        incidentDate,
+        title: reason,
+        category: 'OTHER' as any,
+        severity: 'MEDIUM' as any,
+        description: details,
+        status,
+        submittedAt: status === EmployeeWarningStatus.DRAFT ? null : new Date(),
+        reason,
+        details,
+        warningType: dto.warningType,
+        incidentTime: this.cleanOptional(dto.incidentTime),
+        incidentPlace: this.cleanOptional(dto.incidentPlace),
+        issuedByUserId: issuer?.id ?? null,
+        issuedByNameSnapshot,
+        issuedByPositionSnapshot,
+        internalNotes: this.cleanOptional(dto.internalNotes),
+        generatedText,
+        employeeNameSnapshot,
+        employeeCedulaSnapshot,
+        employeePositionSnapshot,
+        employeeDepartmentSnapshot,
+        employeePhoneSnapshot,
+        companyNameSnapshot,
+        companyRncSnapshot,
+        companyAddressSnapshot,
+      } as any,
+      include: WARNING_INCLUDE,
+    });
+
+    const pdfBuffer = await this.generatePdfBuffer(warning as any);
+    const objectKey = `employee-warnings/${warning.id}/amonestacion-${warning.warningNumber}.pdf`;
+    await this.r2.putObject({ objectKey, body: pdfBuffer, contentType: 'application/pdf' });
+    const pdfUrl = this.r2.buildPublicUrl(objectKey);
+
+    const updated = await this.prisma.employeeWarning.update({
+      where: { id: warning.id },
+      data: { pdfUrl },
       include: WARNING_INCLUDE,
     });
 
     await this.logAudit({
       warningId: warning.id,
-      action: 'created',
+      action: status === EmployeeWarningStatus.DRAFT ? 'created_draft' : 'created_issued',
       actorUserId: actorId,
-      newStatus: EmployeeWarningStatus.DRAFT,
+      newStatus: status,
+      metadata: {
+        employeeUserId: dto.employeeUserId,
+        warningType: dto.warningType,
+        reason,
+      },
     });
 
-    return warning;
+    return updated;
   }
-
-  // ─── Admin: update (draft only) ──────────────────────────────────────────────
 
   async update(id: string, dto: UpdateEmployeeWarningDto, actorId: string) {
     const warning = await this.ensureWarningExists(id, this.getCompanyId());
 
     if (!EDITABLE_STATUSES.includes(warning.status)) {
-      throw new BadRequestException(
-        'Solo se pueden editar amonestaciones en estado borrador',
-      );
+      throw new BadRequestException('Solo se pueden editar amonestaciones en estado borrador');
     }
+
+    const nextReason = (dto.reason ?? (warning as any).reason ?? warning.title).trim();
+    const nextDetails = (dto.details ?? (warning as any).details ?? warning.description).trim();
+    if (!nextReason) throw new BadRequestException('El motivo es obligatorio');
+    if (!nextDetails) throw new BadRequestException('El detalle de los hechos es obligatorio');
+
+    const warningDate = dto.warningDate ? new Date(dto.warningDate) : warning.warningDate;
+    const incidentDate = dto.incidentDate ? new Date(dto.incidentDate) : warning.incidentDate;
+
+    const generatedText = this.buildGeneratedText({
+      warningDate,
+      incidentDate,
+      incidentTime: dto.incidentTime ?? (warning as any).incidentTime,
+      incidentPlace: dto.incidentPlace ?? (warning as any).incidentPlace,
+      reason: nextReason,
+      details: nextDetails,
+      employeeName: this.valueOrDefault((warning as any).employeeNameSnapshot ?? warning.employeeUser?.nombreCompleto),
+      employeeCedula: this.valueOrDefault((warning as any).employeeCedulaSnapshot ?? warning.employeeUser?.cedula),
+      employeePosition: this.valueOrDefault((warning as any).employeePositionSnapshot ?? warning.employeeUser?.workContractJobTitle),
+      employeeDepartment: this.valueOrDefault((warning as any).employeeDepartmentSnapshot ?? warning.employeeUser?.workContractWorkLocation),
+      companyName: this.valueOrDefault((warning as any).companyNameSnapshot),
+      companyRnc: this.valueOrDefault((warning as any).companyRncSnapshot),
+      companyAddress: this.valueOrDefault((warning as any).companyAddressSnapshot),
+      issuerName: this.valueOrDefault(dto.issuedByNameSnapshot ?? (warning as any).issuedByNameSnapshot ?? warning.createdByUser?.nombreCompleto),
+      issuerPosition: this.valueOrDefault(dto.issuedByPositionSnapshot ?? (warning as any).issuedByPositionSnapshot ?? warning.createdByUser?.workContractJobTitle),
+    });
+
+    const status = dto.saveAsDraft == null
+      ? warning.status
+      : dto.saveAsDraft
+          ? EmployeeWarningStatus.DRAFT
+          : ('ISSUED' as EmployeeWarningStatus);
 
     const updated = await this.prisma.employeeWarning.update({
       where: { id },
       data: {
-        ...(dto.warningDate && { warningDate: new Date(dto.warningDate) }),
-        ...(dto.incidentDate && { incidentDate: new Date(dto.incidentDate) }),
-        ...(dto.title && { title: dto.title.trim() }),
-        ...(dto.category && { category: dto.category }),
-        ...(dto.severity && { severity: dto.severity }),
-        ...(dto.legalBasis !== undefined && { legalBasis: dto.legalBasis?.trim() ?? null }),
-        ...(dto.internalRuleReference !== undefined && {
-          internalRuleReference: dto.internalRuleReference?.trim() ?? null,
+        ...(dto.warningDate && { warningDate }),
+        ...(dto.incidentDate && { incidentDate }),
+        ...(dto.warningType && { warningType: dto.warningType }),
+        ...(dto.reason !== undefined && { reason: nextReason, title: nextReason }),
+        ...(dto.details !== undefined && { details: nextDetails, description: nextDetails }),
+        ...(dto.incidentTime !== undefined && { incidentTime: this.cleanOptional(dto.incidentTime) }),
+        ...(dto.incidentPlace !== undefined && { incidentPlace: this.cleanOptional(dto.incidentPlace) }),
+        ...(dto.issuedByNameSnapshot !== undefined && { issuedByNameSnapshot: this.cleanOptional(dto.issuedByNameSnapshot) }),
+        ...(dto.issuedByPositionSnapshot !== undefined && {
+          issuedByPositionSnapshot: this.cleanOptional(dto.issuedByPositionSnapshot),
         }),
-        ...(dto.description && { description: dto.description.trim() }),
-        ...(dto.employeeExplanation !== undefined && {
-          employeeExplanation: dto.employeeExplanation?.trim() ?? null,
-        }),
-        ...(dto.correctiveAction !== undefined && {
-          correctiveAction: dto.correctiveAction?.trim() ?? null,
-        }),
-        ...(dto.consequenceNote !== undefined && {
-          consequenceNote: dto.consequenceNote?.trim() ?? null,
-        }),
-        ...(dto.evidenceNotes !== undefined && {
-          evidenceNotes: dto.evidenceNotes?.trim() ?? null,
-        }),
-      },
+        ...(dto.internalNotes !== undefined && { internalNotes: this.cleanOptional(dto.internalNotes) }),
+        status,
+        generatedText,
+      } as any,
+      include: WARNING_INCLUDE,
+    });
+
+    const pdfBuffer = await this.generatePdfBuffer(updated as any);
+    const objectKey = `employee-warnings/${id}/amonestacion-${updated.warningNumber}.pdf`;
+    await this.r2.putObject({ objectKey, body: pdfBuffer, contentType: 'application/pdf' });
+    const pdfUrl = this.r2.buildPublicUrl(objectKey);
+    const withPdf = await this.prisma.employeeWarning.update({
+      where: { id },
+      data: { pdfUrl },
       include: WARNING_INCLUDE,
     });
 
@@ -260,79 +402,48 @@ export class EmployeeWarningsService {
       warningId: id,
       action: 'updated',
       actorUserId: actorId,
+      oldStatus: warning.status,
+      newStatus: status,
+      metadata: { reason: nextReason },
     });
 
-    return updated;
+    return withPdf;
   }
-
-  // ─── Admin: delete draft ─────────────────────────────────────────────────────
 
   async deleteDraft(id: string, actorId: string) {
     const warning = await this.ensureWarningExists(id, this.getCompanyId());
 
     if (warning.status !== EmployeeWarningStatus.DRAFT) {
-      throw new BadRequestException(
-        'Solo se pueden eliminar amonestaciones en borrador',
-      );
+      throw new BadRequestException('Solo se pueden eliminar amonestaciones en borrador');
     }
 
-    // Clean up evidences from R2
     for (const ev of warning.evidences) {
       if (ev.storageKey) {
-        try { await this.r2.deleteObject(ev.storageKey); } catch { /* best-effort */ }
+        try {
+          await this.r2.deleteObject(ev.storageKey);
+        } catch {
+          // best effort
+        }
       }
     }
 
     await this.prisma.employeeWarning.delete({ where: { id } });
 
-    return { deleted: true };
-  }
-
-  // ─── Admin: submit for signature ─────────────────────────────────────────────
-
-  async submit(id: string, actorId: string) {
-    const warning = await this.ensureWarningExists(id, this.getCompanyId());
-
-    if (warning.status !== EmployeeWarningStatus.DRAFT) {
-      throw new BadRequestException('Solo se pueden enviar amonestaciones en borrador');
-    }
-
-    const pdfBuffer = await this.generatePdfBuffer(warning as any);
-    const objectKey = `employee-warnings/${id}/amonestacion-${warning.warningNumber}.pdf`;
-    await this.r2.putObject({ objectKey, body: pdfBuffer, contentType: 'application/pdf' });
-    const pdfUrl = this.r2.buildPublicUrl(objectKey);
-
-    const updated = await this.prisma.employeeWarning.update({
-      where: { id },
-      data: {
-        status: EmployeeWarningStatus.PENDING_SIGNATURE,
-        submittedAt: new Date(),
-        pdfUrl,
-      },
-      include: WARNING_INCLUDE,
-    });
-
     await this.logAudit({
       warningId: id,
-      action: 'submitted_for_signature',
+      action: 'deleted',
       actorUserId: actorId,
-      oldStatus: EmployeeWarningStatus.DRAFT,
-      newStatus: EmployeeWarningStatus.PENDING_SIGNATURE,
+      oldStatus: warning.status,
     });
 
-    return updated;
+    return { deleted: true };
   }
-
-  // ─── Admin: annul ─────────────────────────────────────────────────────────────
 
   async annul(id: string, dto: AnnulEmployeeWarningDto, actorId: string) {
     const warning = await this.ensureWarningExists(id, this.getCompanyId());
 
-    if (
-      warning.status === EmployeeWarningStatus.DRAFT ||
-      warning.status === EmployeeWarningStatus.ANNULLED
-    ) {
-      throw new BadRequestException('Estado no permite anulación');
+    if (warning.status === EmployeeWarningStatus.ANNULLED) {
+      throw new BadRequestException('La amonestacion ya esta anulada');
     }
 
     const oldStatus = warning.status;
@@ -360,8 +471,6 @@ export class EmployeeWarningsService {
     return updated;
   }
 
-  // ─── Admin: regenerate PDF ────────────────────────────────────────────────────
-
   async generatePdf(id: string, actorId: string) {
     const warning = await this.ensureWarningExists(id, this.getCompanyId());
     const pdfBuffer = await this.generatePdfBuffer(warning as any);
@@ -380,8 +489,6 @@ export class EmployeeWarningsService {
     return { pdfUrl };
   }
 
-  // ─── Admin: upload evidence ───────────────────────────────────────────────────
-
   async uploadEvidence(
     id: string,
     file: { buffer: Buffer; originalname: string; mimetype: string },
@@ -390,9 +497,7 @@ export class EmployeeWarningsService {
     const warning = await this.ensureWarningExists(id, this.getCompanyId());
 
     if (!EDITABLE_STATUSES.includes(warning.status)) {
-      throw new BadRequestException(
-        'Solo se pueden subir evidencias a amonestaciones en borrador',
-      );
+      throw new BadRequestException('Solo se pueden subir evidencias a amonestaciones en borrador');
     }
 
     const ext = file.originalname.split('.').pop() ?? 'bin';
@@ -425,23 +530,20 @@ export class EmployeeWarningsService {
     return evidence;
   }
 
-  // ─── Employee: my pending ─────────────────────────────────────────────────────
-
   async findMyPending(userId: string) {
     const companyId = this.getCompanyId();
     const items = await this.prisma.employeeWarning.findMany({
       where: {
         companyId,
         employeeUserId: userId,
-        status: EmployeeWarningStatus.PENDING_SIGNATURE,
-      },
+        status: { not: EmployeeWarningStatus.ANNULLED },
+      } as any,
       include: WARNING_INCLUDE,
-      orderBy: { submittedAt: 'desc' },
+      orderBy: { warningDate: 'desc' },
+      take: 20,
     });
     return items;
   }
-
-  // ─── Employee: get own warning ────────────────────────────────────────────────
 
   async findMyWarning(id: string, userId: string) {
     const companyId = this.getCompanyId();
@@ -449,154 +551,9 @@ export class EmployeeWarningsService {
       where: { id, companyId, employeeUserId: userId },
       include: WARNING_INCLUDE,
     });
-    if (!warning) throw new NotFoundException('Amonestación no encontrada');
+    if (!warning) throw new NotFoundException('Amonestacion no encontrada');
     return warning;
   }
-
-  // ─── Employee: sign ───────────────────────────────────────────────────────────
-
-  async sign(id: string, dto: SignEmployeeWarningDto, userId: string, ipAddress: string) {
-    const companyId = this.getCompanyId();
-    const warning = await this.prisma.employeeWarning.findFirst({
-      where: { id, companyId, employeeUserId: userId },
-      include: WARNING_INCLUDE,
-    });
-
-    if (!warning) throw new NotFoundException('Amonestación no encontrada');
-
-    if (warning.status !== EmployeeWarningStatus.PENDING_SIGNATURE) {
-      throw new BadRequestException('La amonestación no está pendiente de firma');
-    }
-
-    const existingSig = warning.signatures.find((s) => s.employeeUserId === userId);
-    if (existingSig) throw new BadRequestException('Ya registraste una firma en esta amonestación');
-
-    const now = new Date();
-
-    await this.prisma.$transaction(async (tx) => {
-      await tx.employeeWarningSignature.create({
-        data: {
-          warningId: id,
-          employeeUserId: userId,
-          signatureType: EmployeeWarningSignatureType.SIGNED,
-          signatureImageUrl: dto.signatureImageUrl ?? null,
-          typedName: dto.typedName.trim(),
-          comment: dto.comment?.trim() ?? null,
-          ipAddress: ipAddress ?? null,
-          deviceInfo: dto.deviceInfo?.trim() ?? null,
-          signedAt: now,
-        },
-      });
-
-      await tx.employeeWarning.update({
-        where: { id },
-        data: {
-          status: EmployeeWarningStatus.SIGNED,
-          signedAt: now,
-        },
-      });
-    });
-
-    await this.logAudit({
-      warningId: id,
-      action: 'signed',
-      actorUserId: userId,
-      oldStatus: EmployeeWarningStatus.PENDING_SIGNATURE,
-      newStatus: EmployeeWarningStatus.SIGNED,
-      metadata: { typedName: dto.typedName },
-    });
-
-    // Generate signed PDF
-    try {
-      const updated = await this.prisma.employeeWarning.findUnique({
-        where: { id },
-        include: WARNING_INCLUDE,
-      });
-      const pdfBuffer = await this.generatePdfBuffer(updated as any, true);
-      const objectKey = `employee-warnings/${id}/amonestacion-${warning.warningNumber}-firmada.pdf`;
-      await this.r2.putObject({ objectKey, body: pdfBuffer, contentType: 'application/pdf' });
-      const signedPdfUrl = this.r2.buildPublicUrl(objectKey);
-      await this.prisma.employeeWarning.update({ where: { id }, data: { signedPdfUrl } });
-    } catch (e) {
-      // best-effort PDF generation after signing
-      console.error('[EmployeeWarnings] Error generando PDF firmado:', e);
-    }
-
-    return this.prisma.employeeWarning.findUnique({ where: { id }, include: WARNING_INCLUDE });
-  }
-
-  // ─── Employee: refuse ─────────────────────────────────────────────────────────
-
-  async refuse(id: string, dto: RefuseEmployeeWarningDto, userId: string, ipAddress: string) {
-    const companyId = this.getCompanyId();
-    const warning = await this.prisma.employeeWarning.findFirst({
-      where: { id, companyId, employeeUserId: userId },
-      include: WARNING_INCLUDE,
-    });
-
-    if (!warning) throw new NotFoundException('Amonestación no encontrada');
-
-    if (warning.status !== EmployeeWarningStatus.PENDING_SIGNATURE) {
-      throw new BadRequestException('La amonestación no está pendiente de firma');
-    }
-
-    const existingSig = warning.signatures.find((s) => s.employeeUserId === userId);
-    if (existingSig) throw new BadRequestException('Ya registraste una firma en esta amonestación');
-
-    const now = new Date();
-
-    await this.prisma.$transaction(async (tx) => {
-      await tx.employeeWarningSignature.create({
-        data: {
-          warningId: id,
-          employeeUserId: userId,
-          signatureType: EmployeeWarningSignatureType.REFUSED,
-          signatureImageUrl: null,
-          typedName: dto.typedName.trim(),
-          comment: dto.comment.trim(),
-          ipAddress: ipAddress ?? null,
-          deviceInfo: dto.deviceInfo?.trim() ?? null,
-          signedAt: now,
-        },
-      });
-
-      await tx.employeeWarning.update({
-        where: { id },
-        data: {
-          status: EmployeeWarningStatus.REFUSED_TO_SIGN,
-          refusedAt: now,
-        },
-      });
-    });
-
-    await this.logAudit({
-      warningId: id,
-      action: 'refused_to_sign',
-      actorUserId: userId,
-      oldStatus: EmployeeWarningStatus.PENDING_SIGNATURE,
-      newStatus: EmployeeWarningStatus.REFUSED_TO_SIGN,
-      metadata: { comment: dto.comment },
-    });
-
-    // Generate refusal PDF
-    try {
-      const updated = await this.prisma.employeeWarning.findUnique({
-        where: { id },
-        include: WARNING_INCLUDE,
-      });
-      const pdfBuffer = await this.generatePdfBuffer(updated as any, true);
-      const objectKey = `employee-warnings/${id}/amonestacion-${warning.warningNumber}-negativa.pdf`;
-      await this.r2.putObject({ objectKey, body: pdfBuffer, contentType: 'application/pdf' });
-      const signedPdfUrl = this.r2.buildPublicUrl(objectKey);
-      await this.prisma.employeeWarning.update({ where: { id }, data: { signedPdfUrl } });
-    } catch (e) {
-      console.error('[EmployeeWarnings] Error generando PDF de negativa:', e);
-    }
-
-    return this.prisma.employeeWarning.findUnique({ where: { id }, include: WARNING_INCLUDE });
-  }
-
-  // ─── Employee: stream PDF ─────────────────────────────────────────────────────
 
   async getMyPdfBytes(
     id: string,
@@ -608,23 +565,16 @@ export class EmployeeWarningsService {
       select: { id: true, pdfUrl: true, warningNumber: true },
     });
 
-    if (!warning) throw new NotFoundException('Amonestación no encontrada');
+    if (!warning) throw new NotFoundException('Amonestacion no encontrada');
     if (!warning.pdfUrl) {
-      throw new NotFoundException(
-        'El PDF de esta amonestación aún no está disponible. Contacta a Recursos Humanos.',
-      );
+      throw new NotFoundException('El PDF de esta amonestacion aun no esta disponible.');
     }
 
-    // Derive the R2 object key.
-    // When R2_PUBLIC_BASE_URL is not configured, buildPublicUrl returns the raw
-    // object key (no scheme). When it IS configured it returns a full https URL.
     let objectKey: string;
     try {
       const url = new URL(warning.pdfUrl);
-      // It's a full URL — extract the path without leading slash as the key.
       objectKey = url.pathname.replace(/^\//, '');
     } catch {
-      // Not a valid absolute URL → it's already the raw object key.
       objectKey = warning.pdfUrl;
     }
 
@@ -633,279 +583,104 @@ export class EmployeeWarningsService {
     return { body, contentType: contentType ?? 'application/pdf', filename };
   }
 
-  // ─── PDF generation ───────────────────────────────────────────────────────────
-
-  private async generatePdfBuffer(warning: any, withSignature = false): Promise<Buffer> {
+  private async generatePdfBuffer(warning: any): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       const chunks: Buffer[] = [];
-      const doc = new PDFDocument({ margin: 60, size: 'LETTER' });
+      const doc = new PDFDocument({ margin: 54, size: 'LETTER' });
 
       doc.on('data', (chunk: Buffer) => chunks.push(chunk));
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
-      const scheme = { primary: '#1a1a2e', accent: '#e63946', muted: '#555555' };
-
-      const categoryLabels: Record<string, string> = {
-        TARDINESS: 'Tardanza',
-        ABSENCE: 'Ausencia',
-        MISCONDUCT: 'Conducta inapropiada',
-        NEGLIGENCE: 'Negligencia',
-        POLICY_VIOLATION: 'Violación de política',
-        INSUBORDINATION: 'Insubordinación',
-        OTHER: 'Otro',
-      };
-
-      const severityLabels: Record<string, string> = {
-        LOW: 'Leve',
-        MEDIUM: 'Moderada',
-        HIGH: 'Grave',
-        CRITICAL: 'Muy Grave',
-      };
-
       const statusLabels: Record<string, string> = {
         DRAFT: 'Borrador',
-        PENDING_SIGNATURE: 'Pendiente de firma',
-        SIGNED: 'Firmada',
-        REFUSED_TO_SIGN: 'Negativa a firmar',
+        ISSUED: 'Emitida',
         ANNULLED: 'Anulada',
+        PENDING_SIGNATURE: 'Pendiente de firma (historico)',
+        SIGNED: 'Firmada (historico)',
+        REFUSED_TO_SIGN: 'Negativa a firmar (historico)',
         ARCHIVED: 'Archivada',
       };
 
-      const fmt = (d: Date | null | undefined) =>
-        d ? new Intl.DateTimeFormat('es-DO', { dateStyle: 'long' }).format(new Date(d)) : '—';
-
-      // ── Header ──
-      doc
-        .fillColor(scheme.primary)
-        .fontSize(16)
-        .font('Helvetica-Bold')
-        .text('AMONESTACIÓN LABORAL', { align: 'center' });
-      doc.moveDown(0.3);
-      doc
-        .fillColor(scheme.muted)
-        .fontSize(10)
-        .font('Helvetica')
-        .text('República Dominicana — Documento de Recursos Humanos', { align: 'center' });
-      doc.moveDown(0.5);
-      doc
-        .moveTo(60, doc.y)
-        .lineTo(552, doc.y)
-        .strokeColor(scheme.accent)
-        .lineWidth(2)
-        .stroke();
-      doc.moveDown(0.8);
-
-      // ── Meta row ──
-      const row = (label: string, value: string) => {
-        doc
-          .fillColor(scheme.muted)
-          .fontSize(9)
-          .font('Helvetica-Bold')
-          .text(`${label.toUpperCase()}: `, { continued: true })
-          .fillColor(scheme.primary)
-          .font('Helvetica')
-          .text(value || '—');
+      const typeLabels: Record<string, string> = {
+        VERBAL_DOCUMENTED: 'Verbal documentada',
+        WRITTEN: 'Escrita',
+        REINCIDENCE: 'Reincidencia',
+        OTHER: 'Otra',
       };
 
-      row('No. Amonestación', warning.warningNumber);
-      row('Fecha del documento', fmt(warning.warningDate));
-      row('Fecha del incidente', fmt(warning.incidentDate));
-      row('Estado', statusLabels[warning.status] ?? warning.status);
+      const fmt = (d: Date | null | undefined) => {
+        if (!d) return 'No registrado';
+        return new Intl.DateTimeFormat('es-DO', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+        }).format(new Date(d));
+      };
+
+      const safeGeneratedText = (warning.generatedText ?? '').toString().trim();
+      const fallbackText = warning.description?.toString().trim() || 'Sin contenido';
+
+      doc.font('Helvetica-Bold').fontSize(16).text('AMONESTACION', { align: 'center' });
+      doc.moveDown(0.5);
+      doc.font('Helvetica').fontSize(10).text(`No.: ${warning.warningNumber}`);
+      doc.text(`Estado: ${statusLabels[warning.status] ?? warning.status}`);
+      doc.text(`Tipo: ${typeLabels[warning.warningType] ?? warning.warningType ?? 'No registrado'}`);
+      doc.text(`Fecha de amonestacion: ${fmt(warning.warningDate)}`);
+      doc.text(`Fecha del hecho: ${fmt(warning.incidentDate)}`);
+      doc.moveDown(0.8);
+
+      doc.font('Helvetica-Bold').fontSize(11).text('DATOS DEL EMPLEADO');
+      doc.moveDown(0.2);
+      doc.font('Helvetica').fontSize(10);
+      doc.text(`Nombre: ${this.valueOrDefault(warning.employeeNameSnapshot ?? warning.employeeUser?.nombreCompleto)}`);
+      doc.text(`Cedula: ${this.valueOrDefault(warning.employeeCedulaSnapshot ?? warning.employeeUser?.cedula)}`);
+      doc.text(`Cargo: ${this.valueOrDefault(warning.employeePositionSnapshot ?? warning.employeeUser?.workContractJobTitle)}`);
+      doc.text(`Departamento: ${this.valueOrDefault(warning.employeeDepartmentSnapshot ?? warning.employeeUser?.workContractWorkLocation)}`);
+      doc.text(`Telefono: ${this.valueOrDefault(warning.employeePhoneSnapshot ?? warning.employeeUser?.telefono)}`);
       doc.moveDown(0.6);
 
-      // ── Employee info ──
-      doc
-        .fillColor(scheme.primary)
-        .fontSize(11)
-        .font('Helvetica-Bold')
-        .text('DATOS DEL EMPLEADO');
-      doc.moveTo(60, doc.y).lineTo(552, doc.y).strokeColor('#cccccc').lineWidth(0.5).stroke();
-      doc.moveDown(0.4);
-      row('Nombre completo', warning.employeeUser?.nombreCompleto ?? '—');
-      if (warning.employeeUser?.cedula) row('Cédula', warning.employeeUser.cedula);
-      if (warning.employeeUser?.workContractJobTitle)
-        row('Cargo', warning.employeeUser.workContractJobTitle);
+      doc.font('Helvetica-Bold').fontSize(11).text('DATOS DE LA EMPRESA');
+      doc.moveDown(0.2);
+      doc.font('Helvetica').fontSize(10);
+      doc.text(`Empresa: ${this.valueOrDefault(warning.companyNameSnapshot)}`);
+      doc.text(`RNC: ${this.valueOrDefault(warning.companyRncSnapshot)}`);
+      doc.text(`Direccion: ${this.valueOrDefault(warning.companyAddressSnapshot)}`);
       doc.moveDown(0.6);
 
-      // ── Warning details ──
-      doc.fillColor(scheme.primary).fontSize(11).font('Helvetica-Bold').text('DETALLES');
-      doc.moveTo(60, doc.y).lineTo(552, doc.y).strokeColor('#cccccc').lineWidth(0.5).stroke();
-      doc.moveDown(0.4);
-      row('Título', warning.title);
-      row('Categoría', categoryLabels[warning.category] ?? warning.category);
-      row('Severidad', severityLabels[warning.severity] ?? warning.severity);
-      if (warning.legalBasis) row('Base legal', warning.legalBasis);
-      if (warning.internalRuleReference)
-        row('Referencia reglamento interno', warning.internalRuleReference);
+      doc.font('Helvetica-Bold').fontSize(11).text('MOTIVO Y DETALLE');
+      doc.moveDown(0.2);
+      doc.font('Helvetica').fontSize(10);
+      doc.text(`Motivo: ${(warning.reason ?? warning.title ?? '').toString().trim() || 'No registrado'}`);
+      doc.text(`Hora aproximada: ${this.valueOrDefault(warning.incidentTime)}`);
+      doc.text(`Lugar/area: ${this.valueOrDefault(warning.incidentPlace)}`);
+      doc.moveDown(0.3);
+      doc.text(`Encargado emisor: ${this.valueOrDefault(warning.issuedByNameSnapshot ?? warning.createdByUser?.nombreCompleto)}`);
+      doc.text(`Cargo encargado: ${this.valueOrDefault(warning.issuedByPositionSnapshot ?? warning.createdByUser?.workContractJobTitle)}`);
       doc.moveDown(0.6);
 
-      // ── Description ──
-      doc.fillColor(scheme.primary).fontSize(11).font('Helvetica-Bold').text('DESCRIPCIÓN DE LOS HECHOS');
-      doc.moveTo(60, doc.y).lineTo(552, doc.y).strokeColor('#cccccc').lineWidth(0.5).stroke();
-      doc.moveDown(0.4);
-      doc.fillColor(scheme.muted).fontSize(10).font('Helvetica').text(warning.description, {
-        width: 492,
+      doc.font('Helvetica-Bold').fontSize(11).text('TEXTO GENERADO');
+      doc.moveDown(0.2);
+      doc.font('Helvetica').fontSize(10).text(safeGeneratedText || fallbackText, {
         align: 'justify',
       });
-      doc.moveDown(0.6);
 
-      // ── Corrective action ──
-      if (warning.correctiveAction) {
-        doc
-          .fillColor(scheme.primary)
-          .fontSize(11)
-          .font('Helvetica-Bold')
-          .text('ACCIÓN CORRECTIVA REQUERIDA');
-        doc.moveTo(60, doc.y).lineTo(552, doc.y).strokeColor('#cccccc').lineWidth(0.5).stroke();
-        doc.moveDown(0.4);
-        doc
-          .fillColor(scheme.muted)
-          .fontSize(10)
-          .font('Helvetica')
-          .text(warning.correctiveAction, { width: 492, align: 'justify' });
-        doc.moveDown(0.6);
-      }
-
-      // ── Consequence note ──
-      if (warning.consequenceNote) {
-        doc
-          .fillColor(scheme.primary)
-          .fontSize(11)
-          .font('Helvetica-Bold')
-          .text('CONSECUENCIAS');
-        doc.moveTo(60, doc.y).lineTo(552, doc.y).strokeColor('#cccccc').lineWidth(0.5).stroke();
-        doc.moveDown(0.4);
-        doc
-          .fillColor(scheme.muted)
-          .fontSize(10)
-          .font('Helvetica')
-          .text(warning.consequenceNote, { width: 492, align: 'justify' });
-        doc.moveDown(0.6);
-      }
-
-      // ── Employee explanation ──
-      if (warning.employeeExplanation) {
-        doc
-          .fillColor(scheme.primary)
-          .fontSize(11)
-          .font('Helvetica-Bold')
-          .text('DESCARGO DEL EMPLEADO');
-        doc.moveTo(60, doc.y).lineTo(552, doc.y).strokeColor('#cccccc').lineWidth(0.5).stroke();
-        doc.moveDown(0.4);
-        doc
-          .fillColor(scheme.muted)
-          .fontSize(10)
-          .font('Helvetica')
-          .text(warning.employeeExplanation, { width: 492, align: 'justify' });
-        doc.moveDown(0.6);
-      }
-
-      // ── Evidences ──
-      if (warning.evidences?.length) {
-        doc
-          .fillColor(scheme.primary)
-          .fontSize(11)
-          .font('Helvetica-Bold')
-          .text('EVIDENCIAS ADJUNTAS');
-        doc.moveTo(60, doc.y).lineTo(552, doc.y).strokeColor('#cccccc').lineWidth(0.5).stroke();
-        doc.moveDown(0.4);
-        for (const ev of warning.evidences) {
-          doc
-            .fillColor(scheme.muted)
-            .fontSize(9)
-            .font('Helvetica')
-            .text(`• ${ev.fileName}`, { width: 492 });
-        }
-        doc.moveDown(0.6);
-      }
-
-      // ── Issuer ──
-      doc
-        .fillColor(scheme.primary)
-        .fontSize(11)
-        .font('Helvetica-Bold')
-        .text('EMITIDA POR');
-      doc.moveTo(60, doc.y).lineTo(552, doc.y).strokeColor('#cccccc').lineWidth(0.5).stroke();
-      doc.moveDown(0.4);
-      row('Responsable RRHH / Admin', warning.createdByUser?.nombreCompleto ?? '—');
-      doc.moveDown(1.2);
-
-      // ── Signature section ──
-      if (withSignature && warning.signatures?.length) {
-        const sig = warning.signatures[0];
-        doc
-          .fillColor(scheme.primary)
-          .fontSize(11)
-          .font('Helvetica-Bold')
-          .text(
-            sig.signatureType === 'REFUSED'
-              ? 'NEGATIVA A FIRMAR'
-              : 'RECEPCIÓN / FIRMA DEL EMPLEADO',
-          );
-        doc.moveTo(60, doc.y).lineTo(552, doc.y).strokeColor('#cccccc').lineWidth(0.5).stroke();
-        doc.moveDown(0.4);
-        row('Empleado', warning.employeeUser?.nombreCompleto ?? '—');
-        row(
-          sig.signatureType === 'REFUSED' ? 'Se negó a firmar el' : 'Firmado el',
-          fmt(sig.signedAt),
-        );
-        row('Nombre escrito', sig.typedName);
-        if (sig.comment) row('Comentario / motivo', sig.comment);
-        if (sig.ipAddress) row('IP registrada', sig.ipAddress);
-      } else {
-        doc
-          .fillColor(scheme.primary)
-          .fontSize(11)
-          .font('Helvetica-Bold')
-          .text('FIRMA DEL EMPLEADO (PENDIENTE)');
-        doc.moveTo(60, doc.y).lineTo(552, doc.y).strokeColor('#cccccc').lineWidth(0.5).stroke();
-        doc.moveDown(2);
-        doc
-          .moveTo(60, doc.y)
-          .lineTo(252, doc.y)
-          .strokeColor('#333333')
-          .lineWidth(1)
-          .stroke();
+      if ((warning.internalNotes ?? '').toString().trim().isNotEmpty) {
+        doc.moveDown(0.8);
+        doc.font('Helvetica-Bold').fontSize(11).text('OBSERVACIONES INTERNAS');
         doc.moveDown(0.2);
-        doc.fillColor(scheme.muted).fontSize(9).text('Firma del empleado', 60);
+        doc.font('Helvetica').fontSize(10).text((warning.internalNotes ?? '').toString().trim(), {
+          align: 'justify',
+        });
       }
 
-      // ── Annulment ──
       if (warning.status === 'ANNULLED') {
         doc.moveDown(0.8);
-        doc
-          .fillColor(scheme.accent)
-          .fontSize(11)
-          .font('Helvetica-Bold')
-          .text('ANULADA');
-        doc.moveTo(60, doc.y).lineTo(552, doc.y).strokeColor(scheme.accent).lineWidth(0.5).stroke();
-        doc.moveDown(0.4);
-        doc
-          .fillColor(scheme.muted)
-          .fontSize(9)
-          .font('Helvetica')
-          .text(`Anulada el ${fmt(warning.annulledAt)} por ${warning.annulledByUser?.nombreCompleto ?? '—'}.`);
-        doc.text(`Motivo: ${warning.annulmentReason ?? '—'}`);
-      }
-
-      // ── Footer ──
-      doc.moveDown(1.5);
-      doc
-        .moveTo(60, doc.y)
-        .lineTo(552, doc.y)
-        .strokeColor('#cccccc')
-        .lineWidth(0.5)
-        .stroke();
-      doc.moveDown(0.3);
-      doc
-        .fillColor(scheme.muted)
-        .fontSize(8)
-        .font('Helvetica')
-        .text(
-          `Documento generado el ${new Date().toLocaleString('es-DO')} · Sistema FullTech RRHH · Uso confidencial`,
-          { align: 'center' },
+        doc.font('Helvetica-Bold').fontSize(11).text('DOCUMENTO ANULADO');
+        doc.font('Helvetica').fontSize(10).text(
+          `Motivo de anulacion: ${(warning.annulmentReason ?? 'No registrado').toString()}`,
         );
+      }
 
       doc.end();
     });

@@ -501,6 +501,7 @@ enum EmployeeWarningSeverity {
 
 enum EmployeeWarningStatus {
   DRAFT            @map("draft")
+  ISSUED           @map("issued")
   PENDING_SIGNATURE @map("pending_signature")
   SIGNED           @map("signed")
   REFUSED_TO_SIGN  @map("refused_to_sign")
@@ -508,6 +509,15 @@ enum EmployeeWarningStatus {
   ARCHIVED         @map("archived")
 
   @@map("employee_warning_status")
+}
+
+enum EmployeeWarningType {
+  VERBAL_DOCUMENTED @map("verbal_documented")
+  WRITTEN           @map("written")
+  REINCIDENCE       @map("reincidence")
+  OTHER             @map("other")
+
+  @@map("employee_warning_type")
 }
 
 enum EmployeeWarningCategory {
@@ -577,6 +587,7 @@ model User {
   payrollEntries PayrollEntry[]
   employeeWarningsAssigned EmployeeWarning[] @relation("EmployeeWarningAssignedUser")
   employeeWarningsCreated EmployeeWarning[] @relation("EmployeeWarningCreatedByUser")
+  employeeWarningsIssued EmployeeWarning[] @relation("EmployeeWarningIssuedByUser")
   employeeWarningsAnnulled EmployeeWarning[] @relation("EmployeeWarningAnnulledByUser")
   employeeWarningEvidencesUploaded EmployeeWarningEvidence[] @relation("EmployeeWarningEvidenceUploadedByUser")
   employeeWarningSignatures EmployeeWarningSignature[] @relation("EmployeeWarningSignatureEmployeeUser")
@@ -668,6 +679,25 @@ model EmployeeWarning {
   correctiveAction      String?                      @db.Text @map("corrective_action")
   consequenceNote       String?                      @db.Text @map("consequence_note")
   evidenceNotes         String?                      @db.Text @map("evidence_notes")
+  warningType           EmployeeWarningType          @default(WRITTEN) @map("warning_type")
+  reason                String?                      @db.Text
+  details               String?                      @db.Text
+  incidentTime          String?                      @map("incident_time")
+  incidentPlace         String?                      @db.Text @map("incident_place")
+  issuedByUserId        String?                      @map("issued_by_user_id") @db.Uuid
+  issuedByNameSnapshot  String?                      @db.Text @map("issued_by_name_snapshot")
+  issuedByPositionSnapshot String?                   @db.Text @map("issued_by_position_snapshot")
+  internalNotes         String?                      @db.Text @map("internal_notes")
+  generatedText         String?                      @db.Text @map("generated_text")
+  employeeNameSnapshot  String?                      @db.Text @map("employee_name_snapshot")
+  employeeCedulaSnapshot String?                     @db.Text @map("employee_cedula_snapshot")
+  employeePositionSnapshot String?                   @db.Text @map("employee_position_snapshot")
+  employeeDepartmentSnapshot String?                 @db.Text @map("employee_department_snapshot")
+  employeePhoneSnapshot String?                      @db.Text @map("employee_phone_snapshot")
+  companyNameSnapshot   String?                      @db.Text @map("company_name_snapshot")
+  companyRncSnapshot    String?                      @db.Text @map("company_rnc_snapshot")
+  companyAddressSnapshot String?                     @db.Text @map("company_address_snapshot")
+  deletedAt             DateTime?                    @map("deleted_at")
   status                EmployeeWarningStatus        @default(DRAFT)
   pdfUrl                String?                      @db.Text @map("pdf_url")
   signedPdfUrl          String?                      @db.Text @map("signed_pdf_url")
@@ -682,6 +712,7 @@ model EmployeeWarning {
 
   employeeUser          User                         @relation("EmployeeWarningAssignedUser", fields: [employeeUserId], references: [id], onDelete: Restrict)
   createdByUser         User                         @relation("EmployeeWarningCreatedByUser", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  issuedByUser          User?                        @relation("EmployeeWarningIssuedByUser", fields: [issuedByUserId], references: [id], onDelete: SetNull)
   annulledByUser        User?                        @relation("EmployeeWarningAnnulledByUser", fields: [annulledByUserId], references: [id], onDelete: SetNull)
   evidences             EmployeeWarningEvidence[]
   signatures            EmployeeWarningSignature[]
@@ -689,6 +720,8 @@ model EmployeeWarning {
 
   @@index([companyId, employeeUserId])
   @@index([companyId, status])
+  @@index([companyId, warningType])
+  @@index([issuedByUserId])
   @@index([companyId, createdAt])
   @@unique([companyId, warningNumber])
   @@map("employee_warnings")

@@ -243,7 +243,10 @@ class CreateServiceOrderController
       final seedOrder = args?.editSource ?? args?.cloneSource;
       final seedQuotation = args?.initialQuotation;
       final seedClientId =
-          (seedOrder?.clientId ?? args?.initialClientId ?? seedQuotation?.customerId ?? '')
+          (seedOrder?.clientId ??
+                  args?.initialClientId ??
+                  seedQuotation?.customerId ??
+                  '')
               .trim();
       final selectedClient = seedClientId.isEmpty
           ? null
@@ -254,7 +257,8 @@ class CreateServiceOrderController
                   orElse: () => ClienteModel(
                     id: seedClientId,
                     ownerId: _ownerId,
-                    nombre: (seedQuotation?.customerName ?? 'Cliente vinculado').trim(),
+                    nombre: (seedQuotation?.customerName ?? 'Cliente vinculado')
+                        .trim(),
                     telefono: (seedQuotation?.customerPhone ?? '').trim(),
                   ),
                 );
@@ -301,6 +305,7 @@ class CreateServiceOrderController
     ClienteModel client, {
     String? preserveQuotationId,
   }) async {
+    final normalizedPreserveQuotationId = (preserveQuotationId ?? '').trim();
     state = state.copyWith(
       selectedClient: client,
       quotations: const [],
@@ -311,6 +316,27 @@ class CreateServiceOrderController
       loading: true,
     );
     if (client.telefono.trim().isEmpty) {
+      if (normalizedPreserveQuotationId.isNotEmpty) {
+        try {
+          final preservedQuotation = await ref
+              .read(cotizacionesRepositoryProvider)
+              .getByIdAndCache(normalizedPreserveQuotationId);
+          state = state.copyWith(
+            loading: false,
+            quotations: [preservedQuotation],
+            selectedQuotation: preservedQuotation,
+            quotationMessage: 'Cotización seleccionada automáticamente',
+            clearActionError: true,
+          );
+          return;
+        } catch (error) {
+          final message = error is ApiException
+              ? error.message
+              : 'No se pudo cargar la cotización vinculada';
+          state = state.copyWith(loading: false, actionError: message);
+          return;
+        }
+      }
       state = state.copyWith(
         loading: false,
         quotations: const [],
@@ -324,12 +350,24 @@ class CreateServiceOrderController
       final quotations = await ref
           .read(cotizacionesRepositoryProvider)
           .list(customerPhone: client.telefono.trim());
+      final nextQuotations = [...quotations];
       CotizacionModel? selectedQuotation;
-      if ((preserveQuotationId ?? '').trim().isNotEmpty) {
-        for (final quotation in quotations) {
-          if (quotation.id == preserveQuotationId) {
+      if (normalizedPreserveQuotationId.isNotEmpty) {
+        for (final quotation in nextQuotations) {
+          if (quotation.id == normalizedPreserveQuotationId) {
             selectedQuotation = quotation;
             break;
+          }
+        }
+        if (selectedQuotation == null) {
+          try {
+            final preservedQuotation = await ref
+                .read(cotizacionesRepositoryProvider)
+                .getByIdAndCache(normalizedPreserveQuotationId);
+            nextQuotations.insert(0, preservedQuotation);
+            selectedQuotation = preservedQuotation;
+          } catch (_) {
+            // Keep the fetched list to avoid blocking order creation flow.
           }
         }
       } else if (quotations.length == 1) {
@@ -337,11 +375,11 @@ class CreateServiceOrderController
       }
       state = state.copyWith(
         loading: false,
-        quotations: quotations,
+        quotations: nextQuotations,
         selectedQuotation: selectedQuotation,
-        quotationMessage: quotations.isEmpty
+        quotationMessage: nextQuotations.isEmpty
             ? 'Este cliente no tiene cotizaciones'
-            : quotations.length == 1
+            : selectedQuotation != null
             ? 'Cotización seleccionada automáticamente'
             : 'Selecciona la cotización que deseas usar',
       );
@@ -514,7 +552,10 @@ class CreateServiceOrderController
     if (serviceType == null) {
       throw ApiException('Debes seleccionar el tipo de servicio');
     }
-    final effectiveQuotationId = quotation?.id ?? state.editSource?.quotationId;
+    final effectiveQuotationId =
+        quotation?.id ??
+        state.editSource?.quotationId ??
+        state.cloneSource?.quotationId;
     if ((effectiveQuotationId ?? '').trim().isEmpty) {
       throw ApiException('Debes seleccionar una cotización');
     }
@@ -554,6 +595,8 @@ class CreateServiceOrderController
                   state.cloneSource!.id,
                   CloneServiceOrderRequest(
                     serviceType: serviceType,
+                    clientId: client.id,
+                    quotationId: effectiveQuotationId!,
                     technicalNote: technicalNoteValue,
                     extraRequirements: extraRequirementsValue,
                     assignedToId: assignedToId,

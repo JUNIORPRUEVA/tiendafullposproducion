@@ -27,15 +27,13 @@ import {
   AnnulEmployeeWarningDto,
   CreateEmployeeWarningDto,
   EmployeeWarningsQueryDto,
-  RefuseEmployeeWarningDto,
-  SignEmployeeWarningDto,
   UpdateEmployeeWarningDto,
 } from './dto/employee-warning.dto';
 
 type RequestUser = { id?: string; role?: string };
 
-// Only ADMIN can manage warnings
-const ADMIN_ROLES: Role[] = [Role.ADMIN];
+// Roles autorizados a gestionar amonestaciones en el flujo actual.
+const AUTHORIZED_ROLES: Role[] = [Role.ADMIN, Role.ASISTENTE];
 
 // ────────────────────────────────────────────────────────────────────────────
 // Admin endpoints  →  /employee-warnings
@@ -48,29 +46,29 @@ export class EmployeeWarningsController {
 
   /** List all warnings (admin only) */
   @Get()
-  @Roles(...ADMIN_ROLES)
+  @Roles(...AUTHORIZED_ROLES)
   findAll(@Query() query: EmployeeWarningsQueryDto) {
     return this.service.findAll(query);
   }
 
   /** Get single warning by id (admin only) */
   @Get(':id')
-  @Roles(...ADMIN_ROLES)
+  @Roles(...AUTHORIZED_ROLES)
   findOne(@Param('id') id: string) {
     return this.service.findOne(id);
   }
 
-  /** Create a draft warning (admin only) */
+  /** Create warning (default: emitted) */
   @Post()
-  @Roles(...ADMIN_ROLES)
+  @Roles(...AUTHORIZED_ROLES)
   create(@Body() dto: CreateEmployeeWarningDto, @Req() req: Request) {
     const actor = req.user as RequestUser;
     return this.service.create(dto, actor.id ?? '');
   }
 
-  /** Update a draft warning (admin only) */
+  /** Update warning (draft only) */
   @Put(':id')
-  @Roles(...ADMIN_ROLES)
+  @Roles(...AUTHORIZED_ROLES)
   update(
     @Param('id') id: string,
     @Body() dto: UpdateEmployeeWarningDto,
@@ -80,26 +78,18 @@ export class EmployeeWarningsController {
     return this.service.update(id, dto, actor.id ?? '');
   }
 
-  /** Delete a draft warning (admin only) */
+  /** Delete a draft warning */
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
-  @Roles(...ADMIN_ROLES)
+  @Roles(...AUTHORIZED_ROLES)
   deleteDraft(@Param('id') id: string, @Req() req: Request) {
     const actor = req.user as RequestUser;
     return this.service.deleteDraft(id, actor.id ?? '');
   }
 
-  /** Submit warning for signature – generates initial PDF (admin only) */
-  @Post(':id/submit')
-  @Roles(...ADMIN_ROLES)
-  submit(@Param('id') id: string, @Req() req: Request) {
-    const actor = req.user as RequestUser;
-    return this.service.submit(id, actor.id ?? '');
-  }
-
-  /** Annul a submitted/signed warning (admin only) */
+  /** Annul an emitted warning */
   @Post(':id/annul')
-  @Roles(...ADMIN_ROLES)
+  @Roles(...AUTHORIZED_ROLES)
   annul(
     @Param('id') id: string,
     @Body() dto: AnnulEmployeeWarningDto,
@@ -109,17 +99,17 @@ export class EmployeeWarningsController {
     return this.service.annul(id, dto, actor.id ?? '');
   }
 
-  /** Regenerate PDF for a warning (admin only) */
+  /** Regenerate PDF for a warning */
   @Post(':id/pdf')
-  @Roles(...ADMIN_ROLES)
+  @Roles(...AUTHORIZED_ROLES)
   generatePdf(@Param('id') id: string, @Req() req: Request) {
     const actor = req.user as RequestUser;
     return this.service.generatePdf(id, actor.id ?? '');
   }
 
-  /** Upload evidence file for a draft warning (admin only) */
+  /** Upload evidence file for a draft warning */
   @Post(':id/evidences')
-  @Roles(...ADMIN_ROLES)
+  @Roles(...AUTHORIZED_ROLES)
   @UseInterceptors(
     FileInterceptor('file', {
       storage: memoryStorage(),
@@ -143,7 +133,7 @@ export class EmployeeWarningsController {
   // Employee endpoints  →  /employee-warnings/me/…
   // ──────────────────────────────────────────────────────────────────────────
 
-  /** Employee: list their own pending warnings */
+  /** Employee: list their own warnings (read-only) */
   @Get('me/pending')
   myPending(@Req() req: Request) {
     const user = req.user as RequestUser;
@@ -179,31 +169,4 @@ export class EmployeeWarningsController {
       .send(body);
   }
 
-  /** Employee: sign a warning */
-  @Post('me/:id/sign')
-  sign(
-    @Param('id') id: string,
-    @Body() dto: SignEmployeeWarningDto,
-    @Req() req: Request,
-  ) {
-    const user = req.user as RequestUser;
-    const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
-      ?? req.socket?.remoteAddress
-      ?? '';
-    return this.service.sign(id, dto, user.id ?? '', ip);
-  }
-
-  /** Employee: refuse to sign a warning */
-  @Post('me/:id/refuse')
-  refuse(
-    @Param('id') id: string,
-    @Body() dto: RefuseEmployeeWarningDto,
-    @Req() req: Request,
-  ) {
-    const user = req.user as RequestUser;
-    const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
-      ?? req.socket?.remoteAddress
-      ?? '';
-    return this.service.refuse(id, dto, user.id ?? '', ip);
-  }
 }

@@ -981,12 +981,16 @@ export class ServiceOrdersService {
     const original = await this.findOrderOrThrow(user, id);
 
     const serviceType = this.requireAliasValue(dto.serviceType, dto.service_type, 'service_type');
+    const clientId = this.cleanOptionalText(dto.clientId, dto.client_id) ?? original.clientId;
+    const quotationId = this.cleanOptionalText(dto.quotationId, dto.quotation_id) ?? original.quotationId;
     const assignedToId = await this.resolveAssignedToId(dto.assignedToId, dto.assigned_to);
     const technicalNote = this.cleanOptionalText(dto.technicalNote, dto.technical_note) ?? original.technicalNote;
     const extraRequirements =
       this.cleanOptionalText(dto.extraRequirements, dto.extra_requirements) ?? original.extraRequirements;
 
-    await this.assertClientHasNoOpenOrder(original.clientId);
+    await this.assertClientExists(clientId);
+    await this.assertQuotationMatchesClient(quotationId, clientId);
+    await this.assertClientHasNoOpenOrder(clientId);
 
     try {
       const cloned = await this.prisma.$transaction(async (tx) => {
@@ -1007,8 +1011,8 @@ export class ServiceOrdersService {
             },
           },
           data: {
-            clientId: original.clientId,
-            quotationId: original.quotationId,
+            clientId,
+            quotationId,
             category: original.category,
             serviceType: SERVICE_ORDER_TYPE_TO_DB[serviceType as ApiServiceOrderType],
             status: SERVICE_ORDER_STATUS_TO_DB.pendiente,

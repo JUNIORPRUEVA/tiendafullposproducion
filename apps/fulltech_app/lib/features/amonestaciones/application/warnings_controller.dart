@@ -13,8 +13,7 @@ class WarningsListState {
   final int page;
   final int limit;
   final String? filterStatus;
-  final String? filterSeverity;
-  final String? filterCategory;
+  final String? filterWarningType;
   final String search;
 
   const WarningsListState({
@@ -25,8 +24,7 @@ class WarningsListState {
     this.page = 1,
     this.limit = 20,
     this.filterStatus,
-    this.filterSeverity,
-    this.filterCategory,
+    this.filterWarningType,
     this.search = '',
   });
 
@@ -38,8 +36,7 @@ class WarningsListState {
     int? page,
     int? limit,
     Object? filterStatus = _sentinel,
-    Object? filterSeverity = _sentinel,
-    Object? filterCategory = _sentinel,
+    Object? filterWarningType = _sentinel,
     String? search,
   }) {
     return WarningsListState(
@@ -51,10 +48,8 @@ class WarningsListState {
       limit: limit ?? this.limit,
       filterStatus:
           filterStatus == _sentinel ? this.filterStatus : filterStatus as String?,
-      filterSeverity:
-          filterSeverity == _sentinel ? this.filterSeverity : filterSeverity as String?,
-      filterCategory:
-          filterCategory == _sentinel ? this.filterCategory : filterCategory as String?,
+        filterWarningType:
+          filterWarningType == _sentinel ? this.filterWarningType : filterWarningType as String?,
       search: search ?? this.search,
     );
   }
@@ -75,8 +70,7 @@ class WarningsListController extends StateNotifier<WarningsListState> {
     try {
       final page = await _repo.listAll(
         status: state.filterStatus,
-        severity: state.filterSeverity,
-        category: state.filterCategory,
+        warningType: state.filterWarningType,
         search: state.search.isEmpty ? null : state.search,
         page: nextPage,
         limit: state.limit,
@@ -102,13 +96,8 @@ class WarningsListController extends StateNotifier<WarningsListState> {
     load(reset: true);
   }
 
-  void setFilterSeverity(String? v) {
-    state = state.copyWith(filterSeverity: v, page: 1);
-    load(reset: true);
-  }
-
-  void setFilterCategory(String? v) {
-    state = state.copyWith(filterCategory: v, page: 1);
+  void setFilterWarningType(String? v) {
+    state = state.copyWith(filterWarningType: v, page: 1);
     load(reset: true);
   }
 
@@ -132,15 +121,11 @@ final warningDetailProvider =
 });
 
 // ── Employee pending ──────────────────────────────────────────────────────────
-// Solo muestra amonestaciones pendientes de firma del empleado actual
+// Flujo de firma desactivado: badge de pendientes no se usa.
 
 final myPendingWarningsProvider =
     FutureProvider<List<EmployeeWarning>>((ref) async {
-  final userId = ref.watch(authStateProvider.select((s) => s.user?.id));
-  if (userId == null || userId.trim().isEmpty) {
-    return const <EmployeeWarning>[];
-  }
-  return ref.watch(employeeWarningsRepositoryProvider).myPending();
+  return const <EmployeeWarning>[];
 });
 
 final myPendingWarningsCountProvider = Provider<int>((ref) {

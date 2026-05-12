@@ -942,12 +942,16 @@ class UpdateServiceOrderRequest {
 
 class CloneServiceOrderRequest {
   final ServiceOrderType serviceType;
+  final String? clientId;
+  final String? quotationId;
   final String? technicalNote;
   final String? extraRequirements;
   final String? assignedToId;
 
   const CloneServiceOrderRequest({
     required this.serviceType,
+    this.clientId,
+    this.quotationId,
     this.technicalNote,
     this.extraRequirements,
     this.assignedToId,
@@ -956,6 +960,9 @@ class CloneServiceOrderRequest {
   Map<String, dynamic> toJson() {
     return {
       'serviceType': serviceType.apiValue,
+      if ((clientId ?? '').trim().isNotEmpty) 'clientId': clientId!.trim(),
+      if ((quotationId ?? '').trim().isNotEmpty)
+        'quotationId': quotationId!.trim(),
       if ((technicalNote ?? '').trim().isNotEmpty)
         'technicalNote': technicalNote!.trim(),
       if ((extraRequirements ?? '').trim().isNotEmpty)

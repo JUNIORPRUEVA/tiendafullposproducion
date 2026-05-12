@@ -11,6 +11,22 @@ export class CloneServiceOrderDto {
   service_type?: string;
 
   @IsOptional()
+  @IsUUID()
+  clientId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  client_id?: string;
+
+  @IsOptional()
+  @IsUUID()
+  quotationId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  quotation_id?: string;
+
+  @IsOptional()
   @IsString()
   technicalNote?: string;
 

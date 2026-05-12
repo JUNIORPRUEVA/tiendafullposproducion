@@ -16,6 +16,14 @@ enum MarketingCampaignPhase {
 
 enum MarketingCampaignCurrency { dop, usd }
 
+double? _readNullableDouble(dynamic value) {
+  if (value == null) return null;
+  if (value is num) return value.toDouble();
+  final raw = '$value'.trim();
+  if (raw.isEmpty) return null;
+  return double.tryParse(raw);
+}
+
 MarketingCampaignStatus parseMarketingCampaignStatus(String? value) {
   switch ((value ?? '').trim().toUpperCase()) {
     case 'READY':
@@ -217,8 +225,8 @@ class MarketingCampaign {
       finalAudience: finalAudienceRaw is Map
           ? finalAudienceRaw.cast<String, dynamic>()
           : null,
-      dailyBudget: (json['dailyBudget'] as num?)?.toDouble(),
-      totalBudget: (json['totalBudget'] as num?)?.toDouble(),
+      dailyBudget: _readNullableDouble(json['dailyBudget']),
+      totalBudget: _readNullableDouble(json['totalBudget']),
       currency: parseMarketingCampaignCurrency('${json['currency'] ?? ''}'),
       whatsappPhone: '${json['whatsappPhone'] ?? ''}'.trim().isEmpty
           ? null

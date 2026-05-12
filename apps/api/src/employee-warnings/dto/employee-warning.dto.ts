@@ -1,14 +1,14 @@
 import {
   IsDateString,
   IsEnum,
+  IsBoolean,
   IsOptional,
   IsString,
   IsUUID,
   MaxLength,
 } from 'class-validator';
 import {
-  EmployeeWarningCategory,
-  EmployeeWarningSeverity,
+  EmployeeWarningType,
 } from '@prisma/client';
 
 export class CreateEmployeeWarningDto {
@@ -22,41 +22,42 @@ export class CreateEmployeeWarningDto {
   incidentDate!: string;
 
   @IsString()
-  @MaxLength(200)
-  title!: string;
+  @MaxLength(120)
+  reason!: string;
 
-  @IsEnum(EmployeeWarningCategory)
-  category!: EmployeeWarningCategory;
+  @IsEnum(EmployeeWarningType)
+  warningType!: EmployeeWarningType;
 
-  @IsEnum(EmployeeWarningSeverity)
-  severity!: EmployeeWarningSeverity;
+  @IsString()
+  details!: string;
 
   @IsOptional()
   @IsString()
-  legalBasis?: string;
+  incidentTime?: string;
 
   @IsOptional()
   @IsString()
-  internalRuleReference?: string;
+  incidentPlace?: string;
 
-  @IsString()
-  description!: string;
+  @IsOptional()
+  @IsUUID()
+  issuedByUserId?: string;
 
   @IsOptional()
   @IsString()
-  employeeExplanation?: string;
+  issuedByNameSnapshot?: string;
 
   @IsOptional()
   @IsString()
-  correctiveAction?: string;
+  issuedByPositionSnapshot?: string;
 
   @IsOptional()
   @IsString()
-  consequenceNote?: string;
+  internalNotes?: string;
 
   @IsOptional()
-  @IsString()
-  evidenceNotes?: string;
+  @IsBoolean()
+  saveAsDraft?: boolean;
 }
 
 export class UpdateEmployeeWarningDto {
@@ -70,44 +71,40 @@ export class UpdateEmployeeWarningDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(200)
-  title?: string;
+  @MaxLength(120)
+  reason?: string;
 
   @IsOptional()
-  @IsEnum(EmployeeWarningCategory)
-  category?: EmployeeWarningCategory;
-
-  @IsOptional()
-  @IsEnum(EmployeeWarningSeverity)
-  severity?: EmployeeWarningSeverity;
+  @IsEnum(EmployeeWarningType)
+  warningType?: EmployeeWarningType;
 
   @IsOptional()
   @IsString()
-  legalBasis?: string;
+  details?: string;
 
   @IsOptional()
   @IsString()
-  internalRuleReference?: string;
+  incidentTime?: string;
 
   @IsOptional()
   @IsString()
-  description?: string;
+  incidentPlace?: string;
 
   @IsOptional()
   @IsString()
-  employeeExplanation?: string;
+  issuedByNameSnapshot?: string;
 
   @IsOptional()
   @IsString()
-  correctiveAction?: string;
+  issuedByPositionSnapshot?: string;
 
   @IsOptional()
   @IsString()
-  consequenceNote?: string;
+  internalNotes?: string;
 
   @IsOptional()
-  @IsString()
-  evidenceNotes?: string;
+  @IsBoolean()
+  saveAsDraft?: boolean;
 }
 
 export class AnnulEmployeeWarningDto {
@@ -155,11 +152,7 @@ export class EmployeeWarningsQueryDto {
 
   @IsOptional()
   @IsString()
-  severity?: string;
-
-  @IsOptional()
-  @IsString()
-  category?: string;
+  warningType?: string;
 
   @IsOptional()
   @IsString()

@@ -23,8 +23,7 @@ class EmployeeWarningsRepository {
   Future<EmployeeWarningsPage> listAll({
     String? employeeUserId,
     String? status,
-    String? severity,
-    String? category,
+    String? warningType,
     String? search,
     String? fromDate,
     String? toDate,
@@ -36,8 +35,7 @@ class EmployeeWarningsRepository {
       queryParameters: {
         if (employeeUserId != null) 'employeeUserId': employeeUserId,
         if (status != null) 'status': status,
-        if (severity != null) 'severity': severity,
-        if (category != null) 'category': category,
+        if (warningType != null) 'warningType': warningType,
         if (search != null && search.isNotEmpty) 'search': search,
         if (fromDate != null) 'fromDate': fromDate,
         if (toDate != null) 'toDate': toDate,
@@ -65,11 +63,6 @@ class EmployeeWarningsRepository {
 
   Future<void> delete(String id) async {
     await _dio.delete(ApiRoutes.employeeWarningDelete(id));
-  }
-
-  Future<EmployeeWarning> submit(String id) async {
-    final res = await _dio.post(ApiRoutes.employeeWarningSubmit(id));
-    return EmployeeWarning.fromJson(res.data as Map<String, dynamic>);
   }
 
   Future<EmployeeWarning> annul(String id, String reason) async {
@@ -207,40 +200,4 @@ class EmployeeWarningsRepository {
     throw Exception('No se pudo descargar el PDF');
   }
 
-  Future<EmployeeWarning> sign(
-    String id, {
-    required String typedName,
-    String? comment,
-    String? signatureImageUrl,
-    String? deviceInfo,
-  }) async {
-    final res = await _dio.post(
-      ApiRoutes.employeeWarningsMySign(id),
-      data: {
-        'typedName': typedName,
-        if (comment != null && comment.isNotEmpty) 'comment': comment,
-        if (signatureImageUrl != null && signatureImageUrl.isNotEmpty)
-          'signatureImageUrl': signatureImageUrl,
-        if (deviceInfo != null) 'deviceInfo': deviceInfo,
-      },
-    );
-    return EmployeeWarning.fromJson(res.data as Map<String, dynamic>);
-  }
-
-  Future<EmployeeWarning> refuse(
-    String id, {
-    required String typedName,
-    required String comment,
-    String? deviceInfo,
-  }) async {
-    final res = await _dio.post(
-      ApiRoutes.employeeWarningsMyRefuse(id),
-      data: {
-        'typedName': typedName,
-        'comment': comment,
-        if (deviceInfo != null) 'deviceInfo': deviceInfo,
-      },
-    );
-    return EmployeeWarning.fromJson(res.data as Map<String, dynamic>);
-  }
 }

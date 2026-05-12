@@ -95,12 +95,10 @@ class _AmonestacionesScreenState
           _FilterBar(
             searchCtrl: _searchCtrl,
             filterStatus: state.filterStatus,
-            filterSeverity: state.filterSeverity,
-            filterCategory: state.filterCategory,
+            filterWarningType: state.filterWarningType,
             onSearch: ctrl.setSearch,
             onStatus: ctrl.setFilterStatus,
-            onSeverity: ctrl.setFilterSeverity,
-            onCategory: ctrl.setFilterCategory,
+            onWarningType: ctrl.setFilterWarningType,
           ),
           Expanded(
             child: state.loading && state.items.isEmpty
@@ -185,22 +183,18 @@ class _AmonestacionesScreenState
 class _FilterBar extends StatelessWidget {
   final TextEditingController searchCtrl;
   final String? filterStatus;
-  final String? filterSeverity;
-  final String? filterCategory;
+  final String? filterWarningType;
   final void Function(String) onSearch;
   final void Function(String?) onStatus;
-  final void Function(String?) onSeverity;
-  final void Function(String?) onCategory;
+  final void Function(String?) onWarningType;
 
   const _FilterBar({
     required this.searchCtrl,
     required this.filterStatus,
-    required this.filterSeverity,
-    required this.filterCategory,
+    required this.filterWarningType,
     required this.onSearch,
     required this.onStatus,
-    required this.onSeverity,
-    required this.onCategory,
+    required this.onWarningType,
   });
 
   @override
@@ -242,17 +236,10 @@ class _FilterBar extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 _DropFilter(
-                  label: 'Severidad',
-                  value: filterSeverity,
-                  options: WarningLabels.severity,
-                  onChanged: onSeverity,
-                ),
-                const SizedBox(width: 8),
-                _DropFilter(
-                  label: 'Categoría',
-                  value: filterCategory,
-                  options: WarningLabels.category,
-                  onChanged: onCategory,
+                  label: 'Tipo',
+                  value: filterWarningType,
+                  options: WarningLabels.warningType,
+                  onChanged: onWarningType,
                 ),
               ],
             ),
@@ -317,7 +304,10 @@ class _WarningCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final statusColor = WarningLabels.statusColor(warning.status);
-    final severityColor = WarningLabels.severityColor(warning.severity);
+    final typeLabel = WarningLabels.warningType[warning.warningType ?? ''] ?? (warning.warningType ?? 'No registrado');
+    final reason = (warning.reason ?? warning.title).trim();
+    final employeeName = (warning.employeeNameSnapshot ?? warning.employeeUser?.nombreCompleto ?? warning.employeeUserId).trim();
+    final issuer = (warning.issuedByNameSnapshot ?? warning.createdByUser?.nombreCompleto ?? 'No registrado').trim();
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -356,7 +346,7 @@ class _WarningCard extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               Text(
-                warning.title,
+                reason,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontSize: 13, color: Colors.black87),
@@ -368,21 +358,21 @@ class _WarningCard extends StatelessWidget {
                   const SizedBox(width: 3),
                   Expanded(
                     child: Text(
-                      warning.employeeUser?.nombreCompleto ?? warning.employeeUserId,
+                      employeeName,
                       style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
                   _Pill(
-                    label: WarningLabels.severity[warning.severity] ?? warning.severity,
-                    color: severityColor,
+                    label: typeLabel,
+                    color: const Color(0xFF34495e),
                   ),
                 ],
               ),
               const SizedBox(height: 4),
               Text(
-                WarningLabels.fmt(warning.warningDate),
+                '${WarningLabels.fmt(warning.warningDate)}  |  Encargado: $issuer',
                 style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
               ),
             ],

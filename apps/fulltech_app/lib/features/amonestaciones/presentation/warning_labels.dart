@@ -3,11 +3,19 @@ import 'package:flutter/material.dart';
 abstract class WarningLabels {
   static const Map<String, String> status = {
     'DRAFT': 'Borrador',
-    'PENDING_SIGNATURE': 'Pendiente firma',
-    'SIGNED': 'Firmada',
-    'REFUSED_TO_SIGN': 'Negativa',
+    'ISSUED': 'Emitida',
     'ANNULLED': 'Anulada',
     'ARCHIVED': 'Archivada',
+    'PENDING_SIGNATURE': 'Pendiente firma (legacy)',
+    'SIGNED': 'Firmada (legacy)',
+    'REFUSED_TO_SIGN': 'Negativa (legacy)',
+  };
+
+  static const Map<String, String> warningType = {
+    'VERBAL_DOCUMENTED': 'Verbal documentada',
+    'WRITTEN': 'Escrita',
+    'REINCIDENCE': 'Reincidencia',
+    'OTHER': 'Otra',
   };
 
   static const Map<String, String> severity = {
@@ -30,6 +38,8 @@ abstract class WarningLabels {
   static Color statusColor(String s) {
     switch (s) {
       case 'SIGNED':
+        return const Color(0xFF2ecc71);
+      case 'ISSUED':
         return const Color(0xFF2ecc71);
       case 'PENDING_SIGNATURE':
         return const Color(0xFFf39c12);
