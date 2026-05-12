@@ -137,83 +137,94 @@ export class CompanyManualService {
   }
 
   private async ensureStarterEntries(ownerId: string, actorUserId: string) {
-    const count = await this.prisma.companyManualEntry.count({ where: { ownerId } });
-    if (count > 0) return;
+    // Usar transaction con isolation level para evitar race conditions
+    const result = await this.prisma.$transaction(
+      async (tx) => {
+        const count = await tx.companyManualEntry.count({ where: { ownerId } });
+        if (count > 0) return null;
 
-    const entries: Array<Prisma.CompanyManualEntryCreateInput> = [
-      {
-        ownerId,
-        createdByUserId: actorUserId,
-        updatedByUserId: actorUserId,
-        title: 'Atencion y registro correcto del cliente',
-        summary: 'Toda gestion debe iniciar con datos completos y trazables del cliente.',
-        content: `1. Confirmar nombre, telefono y necesidad principal antes de crear cualquier registro.
+        const entries: Array<Prisma.CompanyManualEntryCreateInput> = [
+          {
+            ownerId,
+            createdByUserId: actorUserId,
+            updatedByUserId: actorUserId,
+            title: 'Atencion y registro correcto del cliente',
+            summary: 'Toda gestion debe iniciar con datos completos y trazables del cliente.',
+            content: `1. Confirmar nombre, telefono y necesidad principal antes de crear cualquier registro.
 2. Evitar duplicados; si el cliente ya existe, actualizar su ficha en lugar de crear otra.
 3. Registrar observaciones claras y verificables para que ventas y soporte trabajen con la misma informacion.
 4. No prometer tiempos, precios o garantias fuera de lo documentado en el sistema.`,
-        kind: CompanyManualEntryKind.GENERAL_RULE,
-        audience: CompanyManualAudience.GENERAL,
-        targetRoles: [],
-        moduleKey: 'clientes',
-        published: true,
-        sortOrder: 1,
-      },
-      {
-        ownerId,
-        createdByUserId: actorUserId,
-        updatedByUserId: actorUserId,
-        title: 'Politica base de cotizaciones y precios',
-        summary: 'Los precios y descuentos deben sustentarse en la cotizacion registrada.',
-        content: `1. Toda oferta debe salir desde el modulo de cotizaciones o quedar respaldada en el sistema.
+            kind: CompanyManualEntryKind.GENERAL_RULE,
+            audience: CompanyManualAudience.GENERAL,
+            targetRoles: [],
+            moduleKey: 'clientes',
+            published: true,
+            sortOrder: 1,
+          },
+          {
+            ownerId,
+            createdByUserId: actorUserId,
+            updatedByUserId: actorUserId,
+            title: 'Politica base de cotizaciones y precios',
+            summary: 'Los precios y descuentos deben sustentarse en la cotizacion registrada.',
+            content: `1. Toda oferta debe salir desde el modulo de cotizaciones o quedar respaldada en el sistema.
 2. No se deben modificar precios finales sin dejar justificacion comercial.
 3. Antes de confirmar una venta, validar monto, alcance y condiciones con el cliente.
 4. Si existe una excepcion comercial, debe quedar observacion escrita y responsable identificado.`,
-        kind: CompanyManualEntryKind.PRICE_RULE,
-        audience: CompanyManualAudience.GENERAL,
-        targetRoles: [],
-        moduleKey: 'cotizaciones',
-        published: true,
-        sortOrder: 2,
-      },
-      {
-        ownerId,
-        createdByUserId: actorUserId,
-        updatedByUserId: actorUserId,
-        title: 'Responsabilidad al actualizar estados y datos',
-        summary: 'Quien modifica un registro es responsable de la exactitud y completitud del cambio.',
-        content: `1. Antes de guardar cambios, revisar que el cliente, servicio o venta correcto este seleccionado.
+            kind: CompanyManualEntryKind.PRICE_RULE,
+            audience: CompanyManualAudience.GENERAL,
+            targetRoles: [],
+            moduleKey: 'cotizaciones',
+            published: true,
+            sortOrder: 2,
+          },
+          {
+            ownerId,
+            createdByUserId: actorUserId,
+            updatedByUserId: actorUserId,
+            title: 'Responsabilidad al actualizar estados y datos',
+            summary: 'Quien modifica un registro es responsable de la exactitud y completitud del cambio.',
+            content: `1. Antes de guardar cambios, revisar que el cliente, servicio o venta correcto este seleccionado.
 2. Evitar dejar campos claves en blanco cuando el proceso ya dispone de esa informacion.
 3. Si un cambio impacta otra area, dejar nota visible para mantener continuidad operativa.
 4. No usar datos temporales o no verificados como informacion definitiva.`,
-        kind: CompanyManualEntryKind.RESPONSIBILITY,
-        audience: CompanyManualAudience.GENERAL,
-        targetRoles: [],
-        moduleKey: 'general',
-        published: true,
-        sortOrder: 3,
-      },
-      {
-        ownerId,
-        createdByUserId: actorUserId,
-        updatedByUserId: actorUserId,
-        title: 'Guia rapida de uso de modulos principales',
-        summary: 'Clientes, cotizaciones y ventas deben mantenerse alineados en una misma cadena de trabajo.',
-        content: `1. Registrar o validar el cliente antes de iniciar una cotizacion o venta.
+            kind: CompanyManualEntryKind.RESPONSIBILITY,
+            audience: CompanyManualAudience.GENERAL,
+            targetRoles: [],
+            moduleKey: 'general',
+            published: true,
+            sortOrder: 3,
+          },
+          {
+            ownerId,
+            createdByUserId: actorUserId,
+            updatedByUserId: actorUserId,
+            title: 'Guia rapida de uso de modulos principales',
+            summary: 'Clientes, cotizaciones y ventas deben mantenerse alineados en una misma cadena de trabajo.',
+            content: `1. Registrar o validar el cliente antes de iniciar una cotizacion o venta.
       2. Usar cotizaciones para dejar claro el alcance comercial antes de confirmar.
       3. Mantener observaciones visibles para soporte cuando el caso requiera seguimiento posterior.
       4. Mantener consistencia entre lo cotizado, lo vendido y lo entregado.`,
-        kind: CompanyManualEntryKind.MODULE_GUIDE,
-        audience: CompanyManualAudience.GENERAL,
-        targetRoles: [],
-        moduleKey: 'general',
-        published: true,
-        sortOrder: 4,
-      },
-    ];
+            kind: CompanyManualEntryKind.MODULE_GUIDE,
+            audience: CompanyManualAudience.GENERAL,
+            targetRoles: [],
+            moduleKey: 'general',
+            published: true,
+            sortOrder: 4,
+          },
+        ];
 
-    await this.prisma.$transaction(
-      entries.map((entry) => this.prisma.companyManualEntry.create({ data: entry })),
+        return Promise.all(
+          entries.map((entry) => tx.companyManualEntry.create({ data: entry })),
+        );
+      },
+      {
+        // Usar serializable isolation para evitar race conditions
+        isolationLevel: 'Serializable',
+        timeout: 30000, // 30 segundos
+      },
     );
+    return result;
   }
 
   private normalizeTargetRoles(audience: CompanyManualAudience, targetRoles?: Role[]) {
