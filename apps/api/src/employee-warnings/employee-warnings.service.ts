@@ -410,12 +410,8 @@ ${input.issuerPosition}`;
     return withPdf;
   }
 
-  async deleteDraft(id: string, actorId: string) {
+  async deleteWarning(id: string, actorId: string) {
     const warning = await this.ensureWarningExists(id, this.getCompanyId());
-
-    if (warning.status !== EmployeeWarningStatus.DRAFT) {
-      throw new BadRequestException('Solo se pueden eliminar amonestaciones en borrador');
-    }
 
     for (const ev of warning.evidences) {
       if (ev.storageKey) {
@@ -537,41 +533,20 @@ ${input.issuerPosition}`;
   }
 
   async findMyWarning(id: string, userId: string) {
-    const companyId = this.getCompanyId();
-    const warning = await this.prisma.employeeWarning.findFirst({
-      where: { id, companyId, employeeUserId: userId },
-      include: WARNING_INCLUDE,
-    });
-    if (!warning) throw new NotFoundException('Amonestacion no encontrada');
-    return warning;
+    // Flujo de firma desactivado: no se expone detalle al colaborador.
+    void id;
+    void userId;
+    throw new NotFoundException('No hay amonestaciones disponibles para colaborador.');
   }
 
   async getMyPdfBytes(
     id: string,
     userId: string,
   ): Promise<{ body: Buffer; contentType: string; filename: string }> {
-    const companyId = this.getCompanyId();
-    const warning = await this.prisma.employeeWarning.findFirst({
-      where: { id, companyId, employeeUserId: userId },
-      select: { id: true, pdfUrl: true, warningNumber: true },
-    });
-
-    if (!warning) throw new NotFoundException('Amonestacion no encontrada');
-    if (!warning.pdfUrl) {
-      throw new NotFoundException('El PDF de esta amonestacion aun no esta disponible.');
-    }
-
-    let objectKey: string;
-    try {
-      const url = new URL(warning.pdfUrl);
-      objectKey = url.pathname.replace(/^\//, '');
-    } catch {
-      objectKey = warning.pdfUrl;
-    }
-
-    const { body, contentType } = await this.r2.getObject(objectKey);
-    const filename = `amonestacion-${warning.warningNumber}.pdf`;
-    return { body, contentType: contentType ?? 'application/pdf', filename };
+    // Flujo de firma desactivado: no se expone PDF al colaborador.
+    void id;
+    void userId;
+    throw new NotFoundException('No hay amonestaciones disponibles para colaborador.');
   }
 
   async getPdfBytes(

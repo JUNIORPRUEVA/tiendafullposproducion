@@ -78,12 +78,11 @@ class _WarningDetailScreenState extends ConsumerState<WarningDetailScreen> {
               tooltip: 'Editar',
               onPressed: () => _openEdit(context, w),
             ),
-          if (w.status == 'DRAFT')
-            IconButton(
-              icon: const Icon(Icons.delete_outline),
-              tooltip: 'Eliminar',
-              onPressed: _actionLoading ? null : () => _deleteWarning(context, w),
-            ),
+          IconButton(
+            icon: const Icon(Icons.delete_outline),
+            tooltip: 'Eliminar',
+            onPressed: _actionLoading ? null : () => _deleteWarning(context, w),
+          ),
           if (w.status != 'ANNULLED')
             IconButton(
               icon: const Icon(Icons.block_rounded),
@@ -236,7 +235,7 @@ class _WarningDetailScreenState extends ConsumerState<WarningDetailScreen> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Eliminar borrador'),
+        title: const Text('Eliminar amonestacion'),
         content: const Text('Esta accion no se puede deshacer.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancelar')),

@@ -118,9 +118,7 @@ class _AmonestacionesScreenState
                               itemBuilder: (context, i) => _WarningCard(
                                 warning: state.items[i],
                                 onTap: () => _openDetail(context, state.items[i].id),
-                                onDelete: state.items[i].status == 'DRAFT'
-                                    ? () => _confirmDelete(context, state.items[i], ctrl)
-                                    : null,
+                                onDelete: () => _confirmDelete(context, state.items[i], ctrl),
                               ),
                             ),
                           ),
@@ -151,7 +149,7 @@ class _AmonestacionesScreenState
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Eliminar borrador'),
+        title: const Text('Eliminar amonestacion'),
         content: Text('¿Eliminar "${w.warningNumber}"? Esta acción no se puede deshacer.'),
         actions: [
           TextButton(

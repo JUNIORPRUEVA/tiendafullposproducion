@@ -78,13 +78,13 @@ export class EmployeeWarningsController {
     return this.service.update(id, dto, actor.id ?? '');
   }
 
-  /** Delete a draft warning */
+  /** Delete a warning (admin only) */
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
-  @Roles(...AUTHORIZED_ROLES)
-  deleteDraft(@Param('id') id: string, @Req() req: Request) {
+  @Roles(Role.ADMIN)
+  deleteWarning(@Param('id') id: string, @Req() req: Request) {
     const actor = req.user as RequestUser;
-    return this.service.deleteDraft(id, actor.id ?? '');
+    return this.service.deleteWarning(id, actor.id ?? '');
   }
 
   /** Annul an emitted warning */
