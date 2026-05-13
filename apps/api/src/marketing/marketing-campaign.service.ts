@@ -499,7 +499,7 @@ export class MarketingCampaignService {
         region,
         radiusKm: 15,
         ageMin: 25,
-        ageMax: 60,
+        ageMax: 50,
         gender: 'ALL',
         interests: [
           'seguridad del hogar',
@@ -525,7 +525,7 @@ export class MarketingCampaignService {
         region,
         radiusKm: 20,
         ageMin: 30,
-        ageMax: 65,
+        ageMax: 50,
         gender: 'ALL',
         interests: [
           'automatización',
@@ -544,7 +544,7 @@ export class MarketingCampaignService {
       region,
       radiusKm: 10,
       ageMin: 25,
-      ageMax: 60,
+      ageMax: 50,
       gender: 'ALL',
       interests: ['tecnología', 'servicios', 'seguridad', 'hogar'],
       audience: ['personas con intención de compra'],
@@ -554,7 +554,7 @@ export class MarketingCampaignService {
 
   private mapAudienceToMetaTargeting(audience: Record<string, unknown>) {
     const ageMin = Number(audience.ageMin ?? 24);
-    const ageMax = Number(audience.ageMax ?? 60);
+    const ageMax = Number(audience.ageMax ?? 50);
     const city = `${audience.city ?? 'Higuey'}`.trim() || 'Higuey';
     const region = `${audience.region ?? 'La Altagracia'}`.trim() || 'La Altagracia';
 
