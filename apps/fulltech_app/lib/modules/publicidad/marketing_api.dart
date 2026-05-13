@@ -6,6 +6,7 @@ import '../../core/api/api_routes.dart';
 import '../../core/auth/auth_repository.dart';
 import 'marketing_campaign_models.dart';
 import 'marketing_models.dart';
+import 'marketing_social_accounts_models.dart';
 
 final marketingApiProvider = Provider<MarketingApi>((ref) {
   return MarketingApi(ref.watch(dioProvider));
@@ -602,6 +603,120 @@ class MarketingApi {
           .toList(growable: false);
     } on DioException catch (error) {
       _rethrow(error, 'No se pudo cargar imágenes publicadas');
+    }
+  }
+
+  Future<List<MarketingSocialAccount>> loadSocialAccounts({
+    MarketingSocialAccountType? type,
+    String? search,
+    bool activeOnly = false,
+  }) async {
+    try {
+      final res = await _dio.get(
+        ApiRoutes.marketingSocialAccounts,
+        options: _backgroundOptions,
+        queryParameters: {
+          if (type != null) 'type': marketingSocialAccountTypeApiValue(type),
+          if ((search ?? '').trim().isNotEmpty) 'search': search!.trim(),
+          if (activeOnly) 'activeOnly': true,
+        },
+      );
+      final raw =
+          (res.data as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
+      final rows = (raw['items'] is List) ? (raw['items'] as List) : const [];
+      return rows
+          .whereType<Map>()
+          .map(
+            (item) => MarketingSocialAccount.fromJson(
+              item.cast<String, dynamic>(),
+            ),
+          )
+          .toList(growable: false);
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudieron cargar las cuentas empresariales');
+    }
+  }
+
+  Future<MarketingSocialAccount> createSocialAccount({
+    required MarketingSocialAccountType type,
+    required String accountName,
+    String? username,
+    String? password,
+    String? profileLink,
+    String? whatsappNumber,
+    String? observations,
+    String? avatarUrl,
+    bool isActive = true,
+  }) async {
+    try {
+      final res = await _dio.post(
+        ApiRoutes.marketingSocialAccounts,
+        data: {
+          'type': marketingSocialAccountTypeApiValue(type),
+          'accountName': accountName.trim(),
+          if ((username ?? '').trim().isNotEmpty) 'username': username!.trim(),
+          if ((password ?? '').trim().isNotEmpty) 'password': password!.trim(),
+          if ((profileLink ?? '').trim().isNotEmpty)
+            'profileLink': profileLink!.trim(),
+          if ((whatsappNumber ?? '').trim().isNotEmpty)
+            'whatsappNumber': whatsappNumber!.trim(),
+          if ((observations ?? '').trim().isNotEmpty)
+            'observations': observations!.trim(),
+          if ((avatarUrl ?? '').trim().isNotEmpty) 'avatarUrl': avatarUrl!.trim(),
+          'isActive': isActive,
+        },
+      );
+      final raw =
+          (res.data as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
+      return MarketingSocialAccount.fromJson(raw);
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo crear la cuenta empresarial');
+    }
+  }
+
+  Future<MarketingSocialAccount> updateSocialAccount(
+    String id, {
+    MarketingSocialAccountType? type,
+    String? accountName,
+    String? username,
+    String? password,
+    String? profileLink,
+    String? whatsappNumber,
+    String? observations,
+    String? avatarUrl,
+    bool? isActive,
+  }) async {
+    try {
+      final res = await _dio.patch(
+        ApiRoutes.marketingSocialAccountById(id),
+        data: {
+          if (type != null) 'type': marketingSocialAccountTypeApiValue(type),
+          if (accountName != null) 'accountName': accountName.trim(),
+          if (username != null) 'username': username.trim(),
+          if (password != null) 'password': password.trim(),
+          if (profileLink != null) 'profileLink': profileLink.trim(),
+          if (whatsappNumber != null) 'whatsappNumber': whatsappNumber.trim(),
+          if (observations != null) 'observations': observations.trim(),
+          if (avatarUrl != null) 'avatarUrl': avatarUrl.trim(),
+          if (isActive != null) 'isActive': isActive,
+        },
+      );
+      final raw =
+          (res.data as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
+      return MarketingSocialAccount.fromJson(raw);
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo actualizar la cuenta empresarial');
+    }
+  }
+
+  Future<void> deleteSocialAccount(String id) async {
+    try {
+      await _dio.delete(ApiRoutes.marketingSocialAccountById(id));
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo eliminar la cuenta empresarial');
     }
   }
 

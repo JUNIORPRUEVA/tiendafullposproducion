@@ -340,6 +340,14 @@ enum MarketingCampaignCurrency {
   @@map("marketing_campaign_currency")
 }
 
+enum MarketingSocialAccountType {
+  FACEBOOK
+  INSTAGRAM
+  WHATSAPP
+
+  @@map("marketing_social_account_type")
+}
+
 enum NotificationContentType {
   TEXT
   DOCUMENT
@@ -600,6 +608,8 @@ model User {
   marketingResearchesApproved MarketingResearch[]    @relation("MarketingResearchApprovedByUser")
   marketingCampaignsCreated MarketingAdCampaign[]    @relation("MarketingCampaignCreatedByUser")
   marketingCampaignsUpdated MarketingAdCampaign[]    @relation("MarketingCampaignUpdatedByUser")
+  marketingSocialAccountsCreated MarketingSocialAccount[] @relation("MarketingSocialAccountCreatedByUser")
+  marketingSocialAccountsUpdated MarketingSocialAccount[] @relation("MarketingSocialAccountUpdatedByUser")
   payrollEmployeePeriodStatuses PayrollEmployeePeriodStatus[]
   payrollServiceCommissionRequestsOwned PayrollServiceCommissionRequest[] @relation("PayrollServiceCommissionOwner")
   payrollServiceCommissionRequests PayrollServiceCommissionRequest[] @relation("PayrollServiceCommissionTechnicianUser")
@@ -949,6 +959,34 @@ model MarketingAdCampaign {
   @@index([galleryAssetId])
   @@index([aiResearchId])
   @@map("marketing_ad_campaigns")
+}
+
+model MarketingSocialAccount {
+  id                String                     @id @default(uuid()) @db.Uuid
+  companyId         String                     @map("company_id") @db.Uuid
+  type              MarketingSocialAccountType
+  accountName       String                     @map("account_name")
+  username          String?                    @map("username")
+  passwordEncrypted String?                    @db.Text @map("password_encrypted")
+  profileLink       String?                    @db.Text @map("profile_link")
+  whatsappNumber    String?                    @map("whatsapp_number")
+  whatsappWaLink    String?                    @db.Text @map("whatsapp_wa_link")
+  observations      String?                    @db.Text @map("observations")
+  avatarUrl         String?                    @db.Text @map("avatar_url")
+  isActive          Boolean                    @default(true) @map("is_active")
+  createdByUserId   String?                    @map("created_by_user_id") @db.Uuid
+  updatedByUserId   String?                    @map("updated_by_user_id") @db.Uuid
+  createdAt         DateTime                   @default(now()) @map("created_at")
+  updatedAt         DateTime                   @updatedAt @map("updated_at")
+  deletedAt         DateTime?                  @map("deleted_at")
+
+  createdByUser User? @relation("MarketingSocialAccountCreatedByUser", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedByUser User? @relation("MarketingSocialAccountUpdatedByUser", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, type, isActive])
+  @@index([companyId, updatedAt])
+  @@index([companyId, deletedAt])
+  @@map("marketing_social_accounts")
 }
 
 model MarketingActivityLog {

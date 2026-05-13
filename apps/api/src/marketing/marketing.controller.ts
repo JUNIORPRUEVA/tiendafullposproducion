@@ -25,6 +25,12 @@ import {
   UploadCampaignDesignDto,
 } from './dto/marketing-campaign.dto';
 import { MarketingCampaignService } from './marketing-campaign.service';
+import { MarketingSocialAccountsService } from './marketing-social-accounts.service';
+import {
+  CreateMarketingSocialAccountDto,
+  MarketingSocialAccountsQueryDto,
+  UpdateMarketingSocialAccountDto,
+} from './dto/marketing-social-account.dto';
 
 type RequestUser = {
   id?: string;
@@ -51,6 +57,7 @@ export class MarketingController {
     private readonly research: MarketingResearchService,
     private readonly analyzer: MarketingImageAnalyzerService,
     private readonly campaigns: MarketingCampaignService,
+    private readonly socialAccounts: MarketingSocialAccountsService,
   ) {}
 
   @Get('dashboard')
@@ -418,6 +425,40 @@ export class MarketingController {
   async listPublishedAssets() {
     const companyId = this.marketing.resolveCompanyId();
     return this.marketing.listPublishedAssets(companyId);
+  }
+
+  @Get('social-accounts')
+  async listSocialAccounts(@Query() query: MarketingSocialAccountsQueryDto) {
+    const companyId = this.marketing.resolveCompanyId();
+    return this.socialAccounts.list(companyId, query);
+  }
+
+  @Post('social-accounts')
+  async createSocialAccount(
+    @Req() req: Request,
+    @Body() dto: CreateMarketingSocialAccountDto,
+  ) {
+    const user = req.user as RequestUser;
+    const companyId = this.marketing.resolveCompanyId();
+    return this.socialAccounts.create(companyId, dto, user.id ?? '');
+  }
+
+  @Patch('social-accounts/:id')
+  async updateSocialAccount(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() dto: UpdateMarketingSocialAccountDto,
+  ) {
+    const user = req.user as RequestUser;
+    const companyId = this.marketing.resolveCompanyId();
+    return this.socialAccounts.update(companyId, id, dto, user.id ?? '');
+  }
+
+  @Delete('social-accounts/:id')
+  async deleteSocialAccount(@Req() req: Request, @Param('id') id: string) {
+    const user = req.user as RequestUser;
+    const companyId = this.marketing.resolveCompanyId();
+    return this.socialAccounts.remove(companyId, id, user.id ?? '');
   }
 
   @Post('media-assets')

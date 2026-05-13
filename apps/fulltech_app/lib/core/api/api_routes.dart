@@ -286,7 +286,9 @@ class ApiRoutes {
     static const marketingContentGallery = '/marketing/content-gallery';
     static const marketingMediaAssets = '/marketing/media-assets';
     static const marketingPublishedAssets = '/marketing/published-assets';
+    static const marketingSocialAccounts = '/marketing/social-accounts';
   static String marketingMediaAssetById(String id) => '/marketing/media-assets/$id';
+    static String marketingSocialAccountById(String id) => '/marketing/social-accounts/$id';
   static const marketingHistory = '/marketing/history';
   static const marketingConfig = '/marketing/config';
   static const marketingResearchConfig = '/marketing/research/config';

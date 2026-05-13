@@ -20,6 +20,7 @@ import { MarketingResearchService } from './marketing-research.service';
 import { MarketingResearchSourceService } from './marketing-research-source.service';
 import { MarketingService } from './marketing.service';
 import { MarketingStorageService } from './marketing-storage.service';
+import { MarketingSocialAccountsService } from './marketing-social-accounts.service';
 import { StorageModule } from '../storage/storage.module';
 import { ProductsModule } from '../products/products.module';
 
@@ -46,6 +47,7 @@ import { ProductsModule } from '../products/products.module';
     MarketingResearchSourceService,
     MarketingLearningService,
     MarketingStorageService,
+    MarketingSocialAccountsService,
   ],
 })
 export class MarketingModule {}
