@@ -7,11 +7,7 @@ class AutosaveStatusIndicator extends StatefulWidget {
   final AutosaveState state;
   final VoidCallback? onRetry;
 
-  const AutosaveStatusIndicator({
-    required this.state,
-    this.onRetry,
-    super.key,
-  });
+  const AutosaveStatusIndicator({required this.state, this.onRetry, super.key});
 
   @override
   State<AutosaveStatusIndicator> createState() =>
@@ -91,9 +87,7 @@ class _AutosaveStatusIndicatorState extends State<AutosaveStatusIndicator>
         decoration: BoxDecoration(
           color: statusColor.withValues(alpha: 0.12),
           borderRadius: BorderRadius.circular(6),
-          border: Border.all(
-            color: statusColor.withValues(alpha: 0.3),
-          ),
+          border: Border.all(color: statusColor.withValues(alpha: 0.3)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -117,9 +111,9 @@ class _AutosaveStatusIndicatorState extends State<AutosaveStatusIndicator>
             Text(
               statusText,
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: statusColor,
-                    fontWeight: FontWeight.w500,
-                  ),
+                color: statusColor,
+                fontWeight: FontWeight.w500,
+              ),
             ),
             if (widget.state.error != null && widget.onRetry != null)
               Padding(
@@ -129,10 +123,10 @@ class _AutosaveStatusIndicatorState extends State<AutosaveStatusIndicator>
                   child: Text(
                     'Reintentar',
                     style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: scheme.primary,
-                          fontWeight: FontWeight.w600,
-                          decoration: TextDecoration.underline,
-                        ),
+                      color: scheme.primary,
+                      fontWeight: FontWeight.w600,
+                      decoration: TextDecoration.underline,
+                    ),
                   ),
                 ),
               ),
@@ -156,12 +150,8 @@ class FloatingAutosaveIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-
     // Don't show if saved and no unsaved changes
-    if (!state.isLoading &&
-        state.error == null &&
-        !state.hasUnsavedChanges) {
+    if (!state.isLoading && state.error == null && !state.hasUnsavedChanges) {
       return const SizedBox.shrink();
     }
 
@@ -170,10 +160,7 @@ class FloatingAutosaveIndicator extends StatelessWidget {
       right: 16,
       child: Material(
         color: Colors.transparent,
-        child: AutosaveStatusIndicator(
-          state: state,
-          onRetry: onRetry,
-        ),
+        child: AutosaveStatusIndicator(state: state, onRetry: onRetry),
       ),
     );
   }

@@ -29,11 +29,7 @@ enum _PublicidadTab {
   configuracion,
 }
 
-enum _EstadosPhase {
-  crearDiseno,
-  copys,
-  aprobarPublicar,
-}
+enum _EstadosPhase { crearDiseno, copys, aprobarPublicar }
 
 class MarketingMediaAssetDraft {
   const MarketingMediaAssetDraft({
@@ -180,7 +176,9 @@ class PublicidadController extends StateNotifier<PublicidadState> {
     await _refresh(keepLoading: false);
   }
 
-  Future<void> generateNow({List<String> selectedMediaAssetIds = const []}) async {
+  Future<void> generateNow({
+    List<String> selectedMediaAssetIds = const [],
+  }) async {
     await _runBusy(() async {
       await _api.generateMissing(
         state.date,
@@ -276,9 +274,7 @@ class PublicidadController extends StateNotifier<PublicidadState> {
   Future<void> changeBaseImage(String storyId, String mediaAssetId) async {
     await _runStoryImageBusy(storyId, () async {
       final selectedId = mediaAssetId.trim();
-      developer.log(
-        '[publicidad-estados] selected asset id=$selectedId',
-      );
+      developer.log('[publicidad-estados] selected asset id=$selectedId');
 
       var authorizedAssets = state.contentGalleryAssets;
       developer.log(
@@ -682,7 +678,11 @@ class PublicidadController extends StateNotifier<PublicidadState> {
       if (stories.isEmpty && historyItems.isNotEmpty) {
         DateTime? latestDate;
         for (final item in historyItems) {
-          final candidate = DateTime(item.date.year, item.date.month, item.date.day);
+          final candidate = DateTime(
+            item.date.year,
+            item.date.month,
+            item.date.day,
+          );
           if (latestDate == null || candidate.isAfter(latestDate)) {
             latestDate = candidate;
           }
@@ -690,10 +690,14 @@ class PublicidadController extends StateNotifier<PublicidadState> {
 
         if (latestDate != null) {
           final latest = latestDate;
-          final fallback = historyItems.where((item) {
-            final d = item.date;
-            return d.year == latest.year && d.month == latest.month && d.day == latest.day;
-          }).toList(growable: false);
+          final fallback = historyItems
+              .where((item) {
+                final d = item.date;
+                return d.year == latest.year &&
+                    d.month == latest.month &&
+                    d.day == latest.day;
+              })
+              .toList(growable: false);
 
           final normalizedFallback = _normalizeDailyStories(fallback);
           if (normalizedFallback.isNotEmpty) {
@@ -1022,13 +1026,15 @@ class PublicidadController extends StateNotifier<PublicidadState> {
         .toList(growable: false);
     if (candidateMediaAssetIds.isEmpty) return;
 
-    final pendingStories = state.dailyStories.where((story) {
-      if (_autoSelectionAttemptedStoryIds.contains(story.id)) return false;
-      final hasMediaAsset = (story.mediaAssetId ?? '').trim().isNotEmpty;
-      final isConfirmed =
-          story.imageGenerationMetadata['imageSelectionConfirmed'] == true;
-      return !hasMediaAsset && !isConfirmed;
-    }).toList(growable: false);
+    final pendingStories = state.dailyStories
+        .where((story) {
+          if (_autoSelectionAttemptedStoryIds.contains(story.id)) return false;
+          final hasMediaAsset = (story.mediaAssetId ?? '').trim().isNotEmpty;
+          final isConfirmed =
+              story.imageGenerationMetadata['imageSelectionConfirmed'] == true;
+          return !hasMediaAsset && !isConfirmed;
+        })
+        .toList(growable: false);
     if (pendingStories.isEmpty) return;
 
     _autoSelectingBaseImages = true;
@@ -1189,16 +1195,18 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
     if (bytes == null || bytes.isEmpty) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No se pudo leer el archivo seleccionado.')),
+          const SnackBar(
+            content: Text('No se pudo leer el archivo seleccionado.'),
+          ),
         );
       }
       return null;
     }
 
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Subiendo imagen...')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Subiendo imagen...')));
     }
 
     try {
@@ -1217,15 +1225,19 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
     } on ApiException catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.message.isNotEmpty ? e.message : 'Error al subir la imagen.')),
+          SnackBar(
+            content: Text(
+              e.message.isNotEmpty ? e.message : 'Error al subir la imagen.',
+            ),
+          ),
         );
       }
       return null;
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al subir la imagen: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error al subir la imagen: $e')));
       }
       return null;
     }
@@ -1398,7 +1410,7 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
                                 stories: activeStories,
                                 mediaAssets: state.mediaAssets,
                                 contentGalleryAssets:
-                                  state.contentGalleryAssets,
+                                    state.contentGalleryAssets,
                                 researches: state.researchHistory,
                                 onActivate: controller.activateFlow,
                                 onPause: controller.pauseFlow,
@@ -1415,7 +1427,8 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
                                   controller,
                                   state.date,
                                 ),
-                                onApprove: (storyId, contentType) => controller.approve(storyId, contentType),
+                                onApprove: (storyId, contentType) =>
+                                    controller.approve(storyId, contentType),
                                 onRegenerate: controller.regenerate,
                                 onRegenerateImage: controller.regenerateImage,
                                 onConfirmBaseImage: controller.confirmBaseImage,
@@ -1454,7 +1467,8 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
                                 researches: state.researchHistory,
                                 busy: state.busy,
                                 imageBusyStoryIds: state.imageBusyStoryIds,
-                                onApprove: (storyId, contentType) => controller.approve(storyId, contentType),
+                                onApprove: (storyId, contentType) =>
+                                    controller.approve(storyId, contentType),
                                 onReject: controller.reject,
                                 onRegenerate: controller.regenerate,
                                 onRegenerateImage: controller.regenerateImage,
@@ -1818,14 +1832,14 @@ class _DashboardTab extends StatelessWidget {
   final List<MarketingResearchDetail> researches;
   final Future<void> Function() onActivate;
   final Future<void> Function() onPause;
-  final Future<void> Function(List<String> selectedMediaAssetIds)
-  onGenerateNow;
+  final Future<void> Function(List<String> selectedMediaAssetIds) onGenerateNow;
   final Future<void> Function() onRepairIncomplete;
   final Future<void> Function() onResetClean;
   final Future<void> Function(
     String storyId,
     List<MarketingPublishTarget> publishTargets,
-  ) onApprove;
+  )
+  onApprove;
   final Future<void> Function(String storyId) onRegenerate;
   final Future<void> Function(String storyId, {String? customPrompt})
   onRegenerateImage;
@@ -1843,11 +1857,15 @@ class _DashboardTab extends StatelessWidget {
     final completeStories = stories.where(_isCompleteStory).length;
     final incompleteStories = stories.length - completeStories;
     final suggestedImages = stories
-      .where((s) => _resolveBaseImageUrl(s).isNotEmpty)
-      .length;
+        .where((s) => _resolveBaseImageUrl(s).isNotEmpty)
+        .length;
     final readyBaseImages = stories
-      .where((s) => _resolveBaseImageUrl(s).isNotEmpty && s.imagePrompt.trim().isNotEmpty)
-      .length;
+        .where(
+          (s) =>
+              _resolveBaseImageUrl(s).isNotEmpty &&
+              s.imagePrompt.trim().isNotEmpty,
+        )
+        .length;
     final generatedImages = stories
         .where(
           (s) =>
@@ -1856,8 +1874,12 @@ class _DashboardTab extends StatelessWidget {
         )
         .length;
     final pendingApproval = stories
-      .where((s) => s.status == MarketingStoryStatus.pending || s.status == MarketingStoryStatus.regenerated)
-      .length;
+        .where(
+          (s) =>
+              s.status == MarketingStoryStatus.pending ||
+              s.status == MarketingStoryStatus.regenerated,
+        )
+        .length;
     final imagesWithoutLoad = stories
         .where((s) => _safeImageUrl(s.generatedImageUrl).isEmpty)
         .length;
@@ -1975,7 +1997,8 @@ class _DashboardTab extends StatelessWidget {
           mediaAssets: contentGalleryAssets,
           researches: researches,
           busy: busy,
-          onApprove: (storyId, publishTargets) => onApprove(storyId, publishTargets),
+          onApprove: (storyId, publishTargets) =>
+              onApprove(storyId, publishTargets),
           onReject: (_, {reason = ''}) async {},
           onRegenerate: onRegenerate,
           onRegenerateImage: onRegenerateImage,
@@ -2028,7 +2051,8 @@ class _DailyStoriesTab extends StatefulWidget {
   final Future<void> Function(
     String storyId,
     List<MarketingPublishTarget> publishTargets,
-  ) onApprove;
+  )
+  onApprove;
   final Future<void> Function(String storyId, {String reason}) onReject;
   final Future<void> Function(String storyId) onRegenerate;
   final Future<void> Function(String storyId, {String? customPrompt})
@@ -2071,10 +2095,10 @@ class _DailyStoriesTabState extends State<_DailyStoriesTab> {
           style: ButtonStyle(
             visualDensity: VisualDensity.compact,
             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            padding: const MaterialStatePropertyAll(
+            padding: const WidgetStatePropertyAll(
               EdgeInsets.symmetric(horizontal: 8, vertical: 6),
             ),
-            textStyle: MaterialStatePropertyAll(
+            textStyle: WidgetStatePropertyAll(
               Theme.of(context).textTheme.labelSmall?.copyWith(
                 fontSize: 11.5,
                 fontWeight: FontWeight.w700,
@@ -2141,13 +2165,18 @@ class _DailyStoriesTabState extends State<_DailyStoriesTab> {
                         imageBusy: widget.imageBusyStoryIds.contains(story.id),
                         compactActions: widget.compactActions,
                         mediaAssets: widget.mediaAssets,
-                        onApprove: (publishTargets) => widget.onApprove(story.id, publishTargets),
+                        onApprove: (publishTargets) =>
+                            widget.onApprove(story.id, publishTargets),
                         onReject: () => widget.onReject(story.id),
                         onRegenerate: () => widget.onRegenerate(story.id),
-                        onRegenerateImage: () => widget.onRegenerateImage(story.id),
-                        onConfirmBaseImage: () => widget.onConfirmBaseImage(story.id),
-                        onGenerateDesign: () => widget.onGenerateDesign(story.id),
-                        onRegenerateCopyFromDesign: () => widget.onRegenerateCopyFromDesign(story.id),
+                        onRegenerateImage: () =>
+                            widget.onRegenerateImage(story.id),
+                        onConfirmBaseImage: () =>
+                            widget.onConfirmBaseImage(story.id),
+                        onGenerateDesign: () =>
+                            widget.onGenerateDesign(story.id),
+                        onRegenerateCopyFromDesign: () =>
+                            widget.onRegenerateCopyFromDesign(story.id),
                         onRetryPublish: () => widget.onRetryPublish(story.id),
                         onChangeBaseImage: () async {
                           final chosen = await showDialog<String>(
@@ -2185,8 +2214,10 @@ class _DailyStoriesTabState extends State<_DailyStoriesTab> {
                         onUploadFinalDesign: widget.onUploadDesignImage == null
                             ? null
                             : (ctx) async {
-                                final uploadedUrl = await widget.onUploadDesignImage!(ctx);
-                                if (uploadedUrl == null || uploadedUrl.isEmpty) return;
+                                final uploadedUrl =
+                                    await widget.onUploadDesignImage!(ctx);
+                                if (uploadedUrl == null || uploadedUrl.isEmpty)
+                                  return;
                                 // Save imageUrl to story
                                 await widget.onEdit(
                                   story,
@@ -2200,7 +2231,9 @@ class _DailyStoriesTabState extends State<_DailyStoriesTab> {
                                   ),
                                 );
                                 // Trigger AI copy regeneration using the uploaded design image
-                                await widget.onRegenerateCopyFromDesign(story.id);
+                                await widget.onRegenerateCopyFromDesign(
+                                  story.id,
+                                );
                                 if (ctx.mounted) {
                                   ScaffoldMessenger.of(ctx).showSnackBar(
                                     const SnackBar(
@@ -2261,7 +2294,8 @@ class _StoryCard extends StatefulWidget {
   final MarketingResearchDetail? usedResearch;
   final bool busy;
   final bool imageBusy;
-  final Future<void> Function(List<MarketingPublishTarget> publishTargets)? onApprove;
+  final Future<void> Function(List<MarketingPublishTarget> publishTargets)?
+  onApprove;
   final Future<void> Function()? onReject;
   final Future<void> Function() onRegenerate;
   final Future<void> Function() onRegenerateImage;
@@ -2367,9 +2401,7 @@ class _StoryCardState extends State<_StoryCard> {
           story.title.trim().isEmpty ? 'Sin titular' : story.title.trim(),
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
-          style: Theme.of(
-            context,
-          ).textTheme.titleSmall?.copyWith(
+          style: Theme.of(context).textTheme.titleSmall?.copyWith(
             fontWeight: FontWeight.w700,
             fontSize: 14,
             height: 1.15,
@@ -2420,7 +2452,8 @@ class _StoryCardState extends State<_StoryCard> {
                       child: Image.network(
                         baseImage,
                         fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => const _BrokenImagePlaceholder(),
+                        errorBuilder: (_, __, ___) =>
+                            const _BrokenImagePlaceholder(),
                       ),
                     ),
                   ),
@@ -2433,7 +2466,11 @@ class _StoryCardState extends State<_StoryCard> {
                     color: scheme.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: Icon(Icons.image_outlined, color: scheme.outline, size: 22),
+                  child: Icon(
+                    Icons.image_outlined,
+                    color: scheme.outline,
+                    size: 22,
+                  ),
                 ),
               const SizedBox(width: 10),
               Expanded(
@@ -2449,10 +2486,14 @@ class _StoryCardState extends State<_StoryCard> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      hasImage ? 'Imagen recomendada por IA' : 'Seleccionando imagen...',
+                      hasImage
+                          ? 'Imagen recomendada por IA'
+                          : 'Seleccionando imagen...',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: scheme.onSurfaceVariant,
-                        fontStyle: hasImage ? FontStyle.normal : FontStyle.italic,
+                        fontStyle: hasImage
+                            ? FontStyle.normal
+                            : FontStyle.italic,
                       ),
                     ),
                     if (story.usedResearchAngle.trim().isNotEmpty) ...[
@@ -2475,14 +2516,21 @@ class _StoryCardState extends State<_StoryCard> {
                               ? Icons.hourglass_empty_rounded
                               : Icons.check_circle_rounded,
                           size: 12,
-                          color: prompt.isEmpty ? scheme.outline : const Color(0xFF15803D),
+                          color: prompt.isEmpty
+                              ? scheme.outline
+                              : const Color(0xFF15803D),
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          prompt.isEmpty ? 'Generando prompt...' : 'Prompt listo',
-                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: prompt.isEmpty ? scheme.outline : const Color(0xFF15803D),
-                          ),
+                          prompt.isEmpty
+                              ? 'Generando prompt...'
+                              : 'Prompt listo',
+                          style: Theme.of(context).textTheme.labelSmall
+                              ?.copyWith(
+                                color: prompt.isEmpty
+                                    ? scheme.outline
+                                    : const Color(0xFF15803D),
+                              ),
                         ),
                       ],
                     ),
@@ -2497,15 +2545,19 @@ class _StoryCardState extends State<_StoryCard> {
             runSpacing: 8,
             children: [
               FilledButton.icon(
-                onPressed: (prompt.isEmpty || !hasImage) ? null : () async {
-                  final research = story.usedResearchAngle.trim().isNotEmpty
-                      ? story.usedResearchAngle
-                      : 'Producto/servicio premium de FULLTECH';
-                  final objective = story.usedOffer.trim().isNotEmpty
-                      ? story.usedOffer
-                      : 'Convertir visitantes en clientes';
+                onPressed: (prompt.isEmpty || !hasImage)
+                    ? null
+                    : () async {
+                        final research =
+                            story.usedResearchAngle.trim().isNotEmpty
+                            ? story.usedResearchAngle
+                            : 'Producto/servicio premium de FULLTECH';
+                        final objective = story.usedOffer.trim().isNotEmpty
+                            ? story.usedOffer
+                            : 'Convertir visitantes en clientes';
 
-                  final fullPrompt = '''REFERENCE IMAGE URL:
+                        final fullPrompt =
+                            '''REFERENCE IMAGE URL:
 $baseImage
 
 TASK:
@@ -2557,18 +2609,24 @@ $research
 COMMERCIAL GOAL:
 $objective''';
 
-                  await Clipboard.setData(ClipboardData(text: fullPrompt));
-                  developer.log('[publicidad-ui] Prompt copiado con URL: $baseImage');
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('✓ Prompt copiado con imagen. Úsalo en ChatGPT.'),
-                        duration: Duration(seconds: 3),
-                        behavior: SnackBarBehavior.floating,
-                      ),
-                    );
-                  }
-                },
+                        await Clipboard.setData(
+                          ClipboardData(text: fullPrompt),
+                        );
+                        developer.log(
+                          '[publicidad-ui] Prompt copiado con URL: $baseImage',
+                        );
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                '✓ Prompt copiado con imagen. Úsalo en ChatGPT.',
+                              ),
+                              duration: Duration(seconds: 3),
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                        }
+                      },
                 icon: const Icon(Icons.copy_rounded, size: 16),
                 label: const Text('Copiar prompt'),
               ),
@@ -2579,7 +2637,8 @@ $objective''';
               ),
               if (hasImage)
                 OutlinedButton.icon(
-                  onPressed: () => _openFullscreenPreview(context, story, baseImage, ''),
+                  onPressed: () =>
+                      _openFullscreenPreview(context, story, baseImage, ''),
                   icon: const Icon(Icons.visibility_rounded, size: 16),
                   label: const Text('Ver imagen'),
                 ),
@@ -2626,7 +2685,11 @@ $objective''';
             Center(
               child: Column(
                 children: [
-                  Icon(Icons.upload_file_rounded, size: 36, color: scheme.outline),
+                  Icon(
+                    Icons.upload_file_rounded,
+                    size: 36,
+                    color: scheme.outline,
+                  ),
                   const SizedBox(height: 8),
                   Text(
                     'Sube el diseño generado en ChatGPT',
@@ -2637,7 +2700,9 @@ $objective''';
                   ),
                   const SizedBox(height: 12),
                   FilledButton.icon(
-                    onPressed: widget.busy ? null : () => _uploadDesignImage(context),
+                    onPressed: widget.busy
+                        ? null
+                        : () => _uploadDesignImage(context),
                     icon: const Icon(Icons.upload_rounded, size: 18),
                     label: const Text('Subir diseño final'),
                   ),
@@ -2663,17 +2728,21 @@ $objective''';
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      if (headline.isNotEmpty) _InfoLine(label: 'Headline', value: headline),
-                      if (copy.isNotEmpty) _InfoLine(label: 'Copy', value: copy),
+                      if (headline.isNotEmpty)
+                        _InfoLine(label: 'Headline', value: headline),
+                      if (copy.isNotEmpty)
+                        _InfoLine(label: 'Copy', value: copy),
                       if (cta.isNotEmpty) _InfoLine(label: 'CTA', value: cta),
-                      if (hashtags.isNotEmpty) _InfoLine(label: 'Tags', value: hashtags.join(' ')),
+                      if (hashtags.isNotEmpty)
+                        _InfoLine(label: 'Tags', value: hashtags.join(' ')),
                       if (headline.isEmpty && copy.isEmpty && cta.isEmpty)
                         Text(
                           'Generando copy...',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            fontStyle: FontStyle.italic,
-                            color: scheme.onSurfaceVariant,
-                          ),
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                fontStyle: FontStyle.italic,
+                                color: scheme.onSurfaceVariant,
+                              ),
                         ),
                     ],
                   ),
@@ -2686,12 +2755,16 @@ $objective''';
               runSpacing: 8,
               children: [
                 FilledButton.icon(
-                  onPressed: widget.busy ? null : widget.onRegenerateCopyFromDesign,
+                  onPressed: widget.busy
+                      ? null
+                      : widget.onRegenerateCopyFromDesign,
                   icon: const Icon(Icons.refresh_rounded, size: 16),
                   label: const Text('Regenerar copy'),
                 ),
                 OutlinedButton.icon(
-                  onPressed: widget.busy ? null : () => _uploadDesignImage(context),
+                  onPressed: widget.busy
+                      ? null
+                      : () => _uploadDesignImage(context),
                   icon: const Icon(Icons.swap_horiz_rounded, size: 16),
                   label: const Text('Cambiar diseño'),
                 ),
@@ -2701,7 +2774,12 @@ $objective''';
                   label: const Text('Editar'),
                 ),
                 OutlinedButton.icon(
-                  onPressed: () => _openFullscreenPreview(context, story, designUploadedUrl, ''),
+                  onPressed: () => _openFullscreenPreview(
+                    context,
+                    story,
+                    designUploadedUrl,
+                    '',
+                  ),
                   icon: const Icon(Icons.open_in_full_rounded, size: 16),
                   label: const Text('Ver completo'),
                 ),
@@ -2722,33 +2800,43 @@ $objective''';
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
     final publishDetails = story.publishErrorDetails;
-    final failedChannel = '${publishDetails['channel'] ?? ''}'.trim().toLowerCase();
+    final failedChannel = '${publishDetails['channel'] ?? ''}'
+        .trim()
+        .toLowerCase();
     final publishedChannels = story.publishedChannels.toSet();
     final requestedChannels = _selectedPublishTargets;
-    final facebookStoryStatusValue = (story.facebookStoryStatus ?? '').trim().toUpperCase();
-    final instagramStoryStatusValue = (story.instagramStoryStatus ?? '').trim().toUpperCase();
-    final facebookPostStatusValue = (story.facebookPostStatus ?? '').trim().toUpperCase();
-    final instagramPostStatusValue = (story.instagramPostStatus ?? '').trim().toUpperCase();
+    final facebookStoryStatusValue = (story.facebookStoryStatus ?? '')
+        .trim()
+        .toUpperCase();
+    final instagramStoryStatusValue = (story.instagramStoryStatus ?? '')
+        .trim()
+        .toUpperCase();
+    final facebookPostStatusValue = (story.facebookPostStatus ?? '')
+        .trim()
+        .toUpperCase();
+    final instagramPostStatusValue = (story.instagramPostStatus ?? '')
+        .trim()
+        .toUpperCase();
     final hasFacebookStoryPublished =
-      publishedChannels.contains(MarketingPublishTarget.facebookStory) ||
-      ((story.facebookStoryId ?? '').trim().isNotEmpty &&
-        facebookStoryStatusValue != 'ERROR' &&
-        facebookStoryStatusValue != 'UNSUPPORTED');
+        publishedChannels.contains(MarketingPublishTarget.facebookStory) ||
+        ((story.facebookStoryId ?? '').trim().isNotEmpty &&
+            facebookStoryStatusValue != 'ERROR' &&
+            facebookStoryStatusValue != 'UNSUPPORTED');
     final hasFacebookPostPublished =
-      publishedChannels.contains(MarketingPublishTarget.facebookPost) ||
-      ((story.facebookPostId ?? '').trim().isNotEmpty &&
-        facebookPostStatusValue != 'ERROR');
+        publishedChannels.contains(MarketingPublishTarget.facebookPost) ||
+        ((story.facebookPostId ?? '').trim().isNotEmpty &&
+            facebookPostStatusValue != 'ERROR');
     final hasFacebookPublished =
-      hasFacebookStoryPublished || hasFacebookPostPublished;
+        hasFacebookStoryPublished || hasFacebookPostPublished;
     final hasInstagramPostPublished =
         publishedChannels.contains(MarketingPublishTarget.instagramPost) ||
         ((story.instagramPostId ?? '').trim().isNotEmpty &&
-          instagramPostStatusValue != 'ERROR');
+            instagramPostStatusValue != 'ERROR');
     final hasInstagramStoryPublished =
         publishedChannels.contains(MarketingPublishTarget.instagramStory) ||
         ((story.instagramStoryId ?? '').trim().isNotEmpty &&
-          instagramStoryStatusValue != 'ERROR' &&
-          instagramStoryStatusValue != 'UNKNOWN_VERIFY');
+            instagramStoryStatusValue != 'ERROR' &&
+            instagramStoryStatusValue != 'UNKNOWN_VERIFY');
     final hasInstagramPublished =
         hasInstagramPostPublished || hasInstagramStoryPublished;
     final anyPublished = hasFacebookPublished || hasInstagramPublished;
@@ -2756,47 +2844,68 @@ $objective''';
         requestedChannels.contains(MarketingPublishTarget.instagramPost) ||
         requestedChannels.contains(MarketingPublishTarget.instagramStory);
     final hasPublishError =
-      !anyPublished &&
-      (story.publishStatus == MarketingPublishStatus.error ||
-        story.publishStatus == MarketingPublishStatus.partial);
+        !anyPublished &&
+        (story.publishStatus == MarketingPublishStatus.error ||
+            story.publishStatus == MarketingPublishStatus.partial);
     final showPartialInfo =
-      !hasPublishError &&
-      (story.publishStatus == MarketingPublishStatus.partial ||
-      (hasFacebookStoryPublished &&
-        requestedChannels.contains(MarketingPublishTarget.instagramStory) &&
-        !hasInstagramStoryPublished) ||
-      (hasFacebookPublished && requestedInstagram && !hasInstagramPublished));
+        !hasPublishError &&
+        (story.publishStatus == MarketingPublishStatus.partial ||
+            (hasFacebookStoryPublished &&
+                requestedChannels.contains(
+                  MarketingPublishTarget.instagramStory,
+                ) &&
+                !hasInstagramStoryPublished) ||
+            (hasFacebookPublished &&
+                requestedInstagram &&
+                !hasInstagramPublished));
     final retryLabel = failedChannel == 'instagram'
         ? 'Reintentar Instagram'
         : failedChannel == 'facebook'
-            ? 'Reintentar Facebook'
-            : 'Reintentar publicación';
+        ? 'Reintentar Facebook'
+        : 'Reintentar publicación';
     final selectedTargets = _selectedPublishTargets.toList(growable: false);
     final showFacebookStoryChannelError =
-      facebookStoryStatusValue == 'ERROR' || facebookStoryStatusValue == 'UNSUPPORTED';
+        facebookStoryStatusValue == 'ERROR' ||
+        facebookStoryStatusValue == 'UNSUPPORTED';
     final showInstagramStoryUnknownVerify =
-      instagramStoryStatusValue == 'UNKNOWN_VERIFY';
-    final instagramStoryDetails =
-      _technicalChannelResult(story, MarketingPublishTarget.instagramStory);
-    final instagramStoryPermalink =
-      _technicalValue(instagramStoryDetails, 'permalink');
-    final facebookStoryDetails =
-      _technicalChannelResult(story, MarketingPublishTarget.facebookStory);
-    final facebookStoryPhotoId =
-      _technicalValue(facebookStoryDetails, 'photoId');
+        instagramStoryStatusValue == 'UNKNOWN_VERIFY';
+    final instagramStoryDetails = _technicalChannelResult(
+      story,
+      MarketingPublishTarget.instagramStory,
+    );
+    final instagramStoryPermalink = _technicalValue(
+      instagramStoryDetails,
+      'permalink',
+    );
+    final facebookStoryDetails = _technicalChannelResult(
+      story,
+      MarketingPublishTarget.facebookStory,
+    );
+    final facebookStoryPhotoId = _technicalValue(
+      facebookStoryDetails,
+      'photoId',
+    );
     final hasTechnicalDetails = story.publishErrorDetails.isNotEmpty;
     final hasDesign = designUploadedUrl.isNotEmpty;
     final alreadyPublishedMessages = <String>[
-      if (_selectedPublishTargets.contains(MarketingPublishTarget.facebookStory) &&
+      if (_selectedPublishTargets.contains(
+            MarketingPublishTarget.facebookStory,
+          ) &&
           (story.facebookStoryId ?? '').trim().isNotEmpty)
         'Facebook Story ya fue publicada. No se volverá a enviar automáticamente.',
-      if (_selectedPublishTargets.contains(MarketingPublishTarget.instagramStory) &&
+      if (_selectedPublishTargets.contains(
+            MarketingPublishTarget.instagramStory,
+          ) &&
           (story.instagramStoryId ?? '').trim().isNotEmpty)
         'Instagram Story ya fue publicada. No se volverá a enviar automáticamente.',
-      if (_selectedPublishTargets.contains(MarketingPublishTarget.facebookPost) &&
+      if (_selectedPublishTargets.contains(
+            MarketingPublishTarget.facebookPost,
+          ) &&
           (story.facebookPostId ?? '').trim().isNotEmpty)
         'Facebook Post ya fue publicado. No se volverá a enviar automáticamente.',
-      if (_selectedPublishTargets.contains(MarketingPublishTarget.instagramPost) &&
+      if (_selectedPublishTargets.contains(
+            MarketingPublishTarget.instagramPost,
+          ) &&
           (story.instagramPostId ?? '').trim().isNotEmpty)
         'Instagram Post ya fue publicado. No se volverá a enviar automáticamente.',
     ];
@@ -2927,7 +3036,8 @@ $objective''';
               );
             },
           ),
-          if (story.status == MarketingStoryStatus.approved && hasFacebookPublished) ...[
+          if (story.status == MarketingStoryStatus.approved &&
+              hasFacebookPublished) ...[
             const SizedBox(height: 10),
             Container(
               width: double.infinity,
@@ -2974,7 +3084,8 @@ $objective''';
               ),
             ),
           ],
-          if (story.status == MarketingStoryStatus.approved && hasInstagramPublished) ...[
+          if (story.status == MarketingStoryStatus.approved &&
+              hasInstagramPublished) ...[
             const SizedBox(height: 10),
             Container(
               width: double.infinity,
@@ -3020,7 +3131,8 @@ $objective''';
                     Align(
                       alignment: Alignment.centerLeft,
                       child: OutlinedButton.icon(
-                        onPressed: () => _openExternalUrl(context, instagramStoryPermalink),
+                        onPressed: () =>
+                            _openExternalUrl(context, instagramStoryPermalink),
                         icon: const Icon(Icons.open_in_new_rounded, size: 16),
                         label: const Text('Ver en Instagram'),
                       ),
@@ -3074,11 +3186,15 @@ $objective''';
                 children: [
                   Text(
                     hasInstagramStoryPublished &&
-                            requestedChannels.contains(MarketingPublishTarget.facebookStory) &&
+                            requestedChannels.contains(
+                              MarketingPublishTarget.facebookStory,
+                            ) &&
                             !hasFacebookStoryPublished
                         ? 'Instagram Story publicada correctamente. Facebook Story no se pudo completar.'
-                        : hasFacebookPublished && requestedInstagram && !hasInstagramPublished
-                            ? 'Publicado en Facebook, pendiente/error en Instagram'
+                        : hasFacebookPublished &&
+                              requestedInstagram &&
+                              !hasInstagramPublished
+                        ? 'Publicado en Facebook, pendiente/error en Instagram'
                         : 'Publicado parcialmente',
                     style: Theme.of(context).textTheme.labelMedium?.copyWith(
                       fontWeight: FontWeight.w800,
@@ -3135,7 +3251,9 @@ $objective''';
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    (story.facebookStoryError ?? 'Meta no devolvió detalle para Facebook Story.').trim(),
+                    (story.facebookStoryError ??
+                            'Meta no devolvió detalle para Facebook Story.')
+                        .trim(),
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ],
@@ -3167,14 +3285,16 @@ $objective''';
                         : 'Error al publicar',
                     style: Theme.of(context).textTheme.labelMedium?.copyWith(
                       fontWeight: FontWeight.w800,
-                      color: story.publishStatus == MarketingPublishStatus.partial
+                      color:
+                          story.publishStatus == MarketingPublishStatus.partial
                           ? const Color(0xFF8A5A00)
                           : const Color(0xFF8E1C1C),
                     ),
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    (story.publishError ?? 'No se recibió detalle de error.').trim(),
+                    (story.publishError ?? 'No se recibió detalle de error.')
+                        .trim(),
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   const SizedBox(height: 8),
@@ -3267,7 +3387,8 @@ $objective''';
             runSpacing: 8,
             children: [
               FilledButton.icon(
-                onPressed: widget.busy ||
+                onPressed:
+                    widget.busy ||
                         !validation.canApprove ||
                         widget.onApprove == null ||
                         selectedTargets.isEmpty
@@ -3276,7 +3397,10 @@ $objective''';
                 style: FilledButton.styleFrom(
                   visualDensity: VisualDensity.compact,
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                 ),
                 icon: const Icon(Icons.publish_rounded, size: 16),
                 label: const Text('Publicar'),
@@ -3289,17 +3413,25 @@ $objective''';
                   style: FilledButton.styleFrom(
                     visualDensity: VisualDensity.compact,
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
                   ),
                   icon: const Icon(Icons.restart_alt_rounded, size: 18),
                   label: Text(retryLabel),
                 ),
               OutlinedButton(
-                onPressed: widget.busy || widget.onReject == null ? null : widget.onReject,
+                onPressed: widget.busy || widget.onReject == null
+                    ? null
+                    : widget.onReject,
                 style: OutlinedButton.styleFrom(
                   visualDensity: VisualDensity.compact,
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                 ),
                 child: const Text('Rechazar'),
               ),
@@ -3322,10 +3454,7 @@ $objective''';
       dense: true,
       controlAffinity: ListTileControlAffinity.leading,
       title: Text(label),
-      subtitle: Text(
-        subtitle,
-        style: Theme.of(context).textTheme.bodySmall,
-      ),
+      subtitle: Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
       onChanged: (value) {
         setState(() {
           if (value == true) {
@@ -3345,27 +3474,36 @@ $objective''';
     final details = story.publishErrorDetails;
     final rawChannelErrors = details['channelErrors'];
     final firstChannelError =
-        rawChannelErrors is List && rawChannelErrors.isNotEmpty && rawChannelErrors.first is Map
-            ? (rawChannelErrors.first as Map).cast<String, dynamic>()
-            : const <String, dynamic>{};
+        rawChannelErrors is List &&
+            rawChannelErrors.isNotEmpty &&
+            rawChannelErrors.first is Map
+        ? (rawChannelErrors.first as Map).cast<String, dynamic>()
+        : const <String, dynamic>{};
     final fallbackChannel = '${firstChannelError['channel'] ?? ''}'.trim();
     final fallbackStage = '${firstChannelError['stage'] ?? ''}'.trim();
     final fallbackMessage = '${firstChannelError['message'] ?? ''}'.trim();
     final fallbackCode = '${firstChannelError['code'] ?? ''}'.trim();
     final fallbackSubcode = '${firstChannelError['subcode'] ?? ''}'.trim();
     final fallbackFbtraceId =
-        '${firstChannelError['fbtraceId'] ?? firstChannelError['fbtrace_id'] ?? ''}'.trim();
+        '${firstChannelError['fbtraceId'] ?? firstChannelError['fbtrace_id'] ?? ''}'
+            .trim();
     final channel = '${details['channel'] ?? ''}'.trim();
     final stage = '${details['stage'] ?? ''}'.trim();
     final message = '${details['message'] ?? story.publishError ?? ''}'.trim();
     final code = story.publishErrorCode ?? '${details['code'] ?? ''}'.trim();
     final subcode = '${details['subcode'] ?? ''}'.trim();
-    final fbtraceId = '${details['fbtraceId'] ?? details['fbtrace_id'] ?? ''}'.trim();
+    final fbtraceId = '${details['fbtraceId'] ?? details['fbtrace_id'] ?? ''}'
+        .trim();
     final happenedAt = '${details['happenedAt'] ?? ''}'.trim();
     final technicalJson = _prettyJson(details);
-    final resolvedChannel = channel.isEmpty || channel == 'unknown' ? fallbackChannel : channel;
-    final resolvedStage = stage.isEmpty || stage == 'post-publish-check' ? fallbackStage : stage;
-    final resolvedMessage = message.isEmpty || message == 'An unknown error has occurred.'
+    final resolvedChannel = channel.isEmpty || channel == 'unknown'
+        ? fallbackChannel
+        : channel;
+    final resolvedStage = stage.isEmpty || stage == 'post-publish-check'
+        ? fallbackStage
+        : stage;
+    final resolvedMessage =
+        message.isEmpty || message == 'An unknown error has occurred.'
         ? (fallbackMessage.isEmpty ? message : fallbackMessage)
         : message;
     final resolvedCode = code.isEmpty ? fallbackCode : code;
@@ -3382,22 +3520,42 @@ $objective''';
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _InfoLine(label: 'Canal fallido', value: resolvedChannel.isEmpty ? '-' : resolvedChannel),
-                _InfoLine(label: 'Etapa', value: resolvedStage.isEmpty ? '-' : resolvedStage),
-                _InfoLine(label: 'Mensaje', value: resolvedMessage.isEmpty ? '-' : resolvedMessage, maxLines: 5),
-                _InfoLine(label: 'Código Meta', value: resolvedCode.isEmpty ? '-' : resolvedCode),
-                _InfoLine(label: 'Subcódigo', value: resolvedSubcode.isEmpty ? '-' : resolvedSubcode),
-                _InfoLine(label: 'fbtrace_id', value: resolvedFbtraceId.isEmpty ? '-' : resolvedFbtraceId),
+                _InfoLine(
+                  label: 'Canal fallido',
+                  value: resolvedChannel.isEmpty ? '-' : resolvedChannel,
+                ),
+                _InfoLine(
+                  label: 'Etapa',
+                  value: resolvedStage.isEmpty ? '-' : resolvedStage,
+                ),
+                _InfoLine(
+                  label: 'Mensaje',
+                  value: resolvedMessage.isEmpty ? '-' : resolvedMessage,
+                  maxLines: 5,
+                ),
+                _InfoLine(
+                  label: 'Código Meta',
+                  value: resolvedCode.isEmpty ? '-' : resolvedCode,
+                ),
+                _InfoLine(
+                  label: 'Subcódigo',
+                  value: resolvedSubcode.isEmpty ? '-' : resolvedSubcode,
+                ),
+                _InfoLine(
+                  label: 'fbtrace_id',
+                  value: resolvedFbtraceId.isEmpty ? '-' : resolvedFbtraceId,
+                ),
                 _InfoLine(
                   label: 'Fecha/hora',
-                  value: happenedAt.isEmpty ? _formatDateTime(story.updatedAt) : happenedAt,
+                  value: happenedAt.isEmpty
+                      ? _formatDateTime(story.updatedAt)
+                      : happenedAt,
                 ),
                 const SizedBox(height: 12),
                 Text(
                   'Rastro técnico',
-                  style: Theme.of(dialogContext).textTheme.labelMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+                  style: Theme.of(dialogContext).textTheme.labelMedium
+                      ?.copyWith(fontWeight: FontWeight.w700),
                 ),
                 const SizedBox(height: 6),
                 Container(
@@ -3412,9 +3570,9 @@ $objective''';
                   ),
                   child: SelectableText(
                     technicalJson,
-                    style: Theme.of(dialogContext).textTheme.bodySmall?.copyWith(
-                      fontFamily: 'monospace',
-                    ),
+                    style: Theme.of(
+                      dialogContext,
+                    ).textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),
                   ),
                 ),
               ],
@@ -3549,10 +3707,7 @@ $objective''';
         child: SizedBox(
           width: 500,
           height: 900,
-          child: _StoryFullscreenPreview(
-            story: story,
-            imageUrl: imageUrl,
-          ),
+          child: _StoryFullscreenPreview(story: story, imageUrl: imageUrl),
         ),
       ),
     );
@@ -3630,7 +3785,12 @@ String _resolveStoryCopy(
     }
   }
 
-  if (keys.any((key) => key.toLowerCase().contains('facebook') || key.toLowerCase().contains('instagram') || key.toLowerCase().contains('marketplace'))) {
+  if (keys.any(
+    (key) =>
+        key.toLowerCase().contains('facebook') ||
+        key.toLowerCase().contains('instagram') ||
+        key.toLowerCase().contains('marketplace'),
+  )) {
     final short = story.shortText.trim();
     if (short.isNotEmpty) return short;
   }
@@ -3891,13 +4051,17 @@ class _DesignNotReadyPlaceholder extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            isLoading ? Icons.hourglass_top_rounded : Icons.image_not_supported_outlined,
+            isLoading
+                ? Icons.hourglass_top_rounded
+                : Icons.image_not_supported_outlined,
             color: const Color(0x8800B4D8),
             size: 32,
           ),
           const SizedBox(height: 10),
           Text(
-            isLoading ? 'Generando dise\u00f1o...' : 'A\u00fan no hay dise\u00f1o final',
+            isLoading
+                ? 'Generando dise\u00f1o...'
+                : 'A\u00fan no hay dise\u00f1o final',
             style: const TextStyle(
               color: Color(0xFF64748B),
               fontWeight: FontWeight.w600,
@@ -5855,27 +6019,30 @@ class _PickMediaAssetDialogState extends State<_PickMediaAssetDialog> {
     final galleryAssets = widget.assets
         .where((item) => item.fileUrl.trim().isNotEmpty)
         .toList(growable: false);
-    final categories = galleryAssets
-        .map((item) => item.category.trim())
-        .where((item) => item.isNotEmpty)
-        .toSet()
-        .toList(growable: false)
-      ..sort();
+    final categories =
+        galleryAssets
+            .map((item) => item.category.trim())
+            .where((item) => item.isNotEmpty)
+            .toSet()
+            .toList(growable: false)
+          ..sort();
     final search = _search.trim().toLowerCase();
-    final visible = galleryAssets.where((item) {
-      if (_category != null && item.category != _category) return false;
-      if (_originFilter != 'ALL' && _originKey(item) != _originFilter) {
-        return false;
-      }
-      if (_stateFilter == 'PUBLISHED' && !_isPublishedState(item)) {
-        return false;
-      }
-      if (search.isEmpty) return true;
-      return item.fileName.toLowerCase().contains(search) ||
-          item.category.toLowerCase().contains(search) ||
-          (item.relatedService ?? '').toLowerCase().contains(search) ||
-          item.tags.any((tag) => tag.toLowerCase().contains(search));
-    }).toList(growable: false);
+    final visible = galleryAssets
+        .where((item) {
+          if (_category != null && item.category != _category) return false;
+          if (_originFilter != 'ALL' && _originKey(item) != _originFilter) {
+            return false;
+          }
+          if (_stateFilter == 'PUBLISHED' && !_isPublishedState(item)) {
+            return false;
+          }
+          if (search.isEmpty) return true;
+          return item.fileName.toLowerCase().contains(search) ||
+              item.category.toLowerCase().contains(search) ||
+              (item.relatedService ?? '').toLowerCase().contains(search) ||
+              item.tags.any((tag) => tag.toLowerCase().contains(search));
+        })
+        .toList(growable: false);
 
     MarketingMediaAsset? selected;
     for (final item in visible) {
@@ -5907,7 +6074,9 @@ class _PickMediaAssetDialogState extends State<_PickMediaAssetDialog> {
                 children: [
                   Text(
                     'Seleccionar desde Galería de contenido',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                   const Spacer(),
                   IconButton(
@@ -5967,7 +6136,8 @@ class _PickMediaAssetDialogState extends State<_PickMediaAssetDialog> {
                     ChoiceChip(
                       label: const Text('Publicado'),
                       selected: _stateFilter == 'PUBLISHED',
-                      onSelected: (_) => setState(() => _stateFilter = 'PUBLISHED'),
+                      onSelected: (_) =>
+                          setState(() => _stateFilter = 'PUBLISHED'),
                     ),
                   ],
                 ),
@@ -6021,47 +6191,68 @@ class _PickMediaAssetDialogState extends State<_PickMediaAssetDialog> {
                               ),
                             )
                           : GridView.builder(
-                              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: 3,
-                                mainAxisSpacing: 10,
-                                crossAxisSpacing: 10,
-                                childAspectRatio: 0.78,
-                              ),
+                              gridDelegate:
+                                  const SliverGridDelegateWithFixedCrossAxisCount(
+                                    crossAxisCount: 3,
+                                    mainAxisSpacing: 10,
+                                    crossAxisSpacing: 10,
+                                    childAspectRatio: 0.78,
+                                  ),
                               itemCount: visible.length,
                               itemBuilder: (context, index) {
                                 final item = visible[index];
                                 final isSelected = item.id == _selectedId;
                                 return InkWell(
                                   borderRadius: BorderRadius.circular(12),
-                                  onTap: () => setState(() => _selectedId = item.id),
+                                  onTap: () =>
+                                      setState(() => _selectedId = item.id),
                                   child: Container(
                                     decoration: BoxDecoration(
                                       borderRadius: BorderRadius.circular(12),
                                       border: Border.all(
                                         color: isSelected
-                                            ? Theme.of(context).colorScheme.primary
-                                            : Theme.of(context).colorScheme.outlineVariant,
+                                            ? Theme.of(
+                                                context,
+                                              ).colorScheme.primary
+                                            : Theme.of(
+                                                context,
+                                              ).colorScheme.outlineVariant,
                                         width: isSelected ? 2 : 1,
                                       ),
                                     ),
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         Expanded(
                                           child: ClipRRect(
-                                            borderRadius: const BorderRadius.vertical(top: Radius.circular(11)),
-                                            child: SizedBox(width: double.infinity, child: _buildAssetPreview(item, BoxFit.cover)),
+                                            borderRadius:
+                                                const BorderRadius.vertical(
+                                                  top: Radius.circular(11),
+                                                ),
+                                            child: SizedBox(
+                                              width: double.infinity,
+                                              child: _buildAssetPreview(
+                                                item,
+                                                BoxFit.cover,
+                                              ),
+                                            ),
                                           ),
                                         ),
                                         Padding(
                                           padding: const EdgeInsets.all(8),
                                           child: Text(
-                                            item.relatedService?.trim().isNotEmpty == true
+                                            item.relatedService
+                                                        ?.trim()
+                                                        .isNotEmpty ==
+                                                    true
                                                 ? item.relatedService!.trim()
                                                 : item.fileName,
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(fontWeight: FontWeight.w700),
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w700,
+                                            ),
                                           ),
                                         ),
                                       ],
@@ -6078,10 +6269,16 @@ class _PickMediaAssetDialogState extends State<_PickMediaAssetDialog> {
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+                          border: Border.all(
+                            color: Theme.of(context).colorScheme.outlineVariant,
+                          ),
                         ),
                         child: selected == null
-                            ? const Center(child: Text('Selecciona una imagen para ver preview.'))
+                            ? const Center(
+                                child: Text(
+                                  'Selecciona una imagen para ver preview.',
+                                ),
+                              )
                             : Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
@@ -6090,12 +6287,19 @@ class _PickMediaAssetDialogState extends State<_PickMediaAssetDialog> {
                                       borderRadius: BorderRadius.circular(10),
                                       child: SizedBox(
                                         width: double.infinity,
-                                        child: _buildAssetPreview(selected, BoxFit.contain),
+                                        child: _buildAssetPreview(
+                                          selected,
+                                          BoxFit.contain,
+                                        ),
                                       ),
                                     ),
                                   ),
                                   const SizedBox(height: 10),
-                                  Text(selected.fileName, maxLines: 1, overflow: TextOverflow.ellipsis),
+                                  Text(
+                                    selected.fileName,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
                                   const SizedBox(height: 4),
                                   Text('Categoría: ${selected.category}'),
                                   const SizedBox(height: 2),
@@ -6122,7 +6326,9 @@ class _PickMediaAssetDialogState extends State<_PickMediaAssetDialog> {
                                   SizedBox(
                                     width: double.infinity,
                                     child: FilledButton.icon(
-                                      onPressed: () => Navigator.of(context).pop(selected!.id),
+                                      onPressed: () => Navigator.of(
+                                        context,
+                                      ).pop(selected!.id),
                                       icon: const Icon(Icons.check_rounded),
                                       label: const Text('Usar esta imagen'),
                                     ),
@@ -6190,7 +6396,9 @@ class _PickMediaAssetDialogState extends State<_PickMediaAssetDialog> {
     if (raw == 'FILE_EXPLORER') return 'FILE_EXPLORER';
     if (raw == 'GALLERY_IMAGE') return 'GALLERY_IMAGE';
 
-    final tags = item.tags.map((tag) => tag.toLowerCase()).toList(growable: false);
+    final tags = item.tags
+        .map((tag) => tag.toLowerCase())
+        .toList(growable: false);
     if (tags.contains('catalogo') || tags.contains('imagen-producto')) {
       return 'PRODUCT_IMAGE';
     }
@@ -6201,7 +6409,9 @@ class _PickMediaAssetDialogState extends State<_PickMediaAssetDialog> {
   }
 
   bool _isPublishedState(MarketingMediaAsset item) {
-    final tags = item.tags.map((tag) => tag.toLowerCase()).toList(growable: false);
+    final tags = item.tags
+        .map((tag) => tag.toLowerCase())
+        .toList(growable: false);
     if (tags.contains('estado-publicado')) return true;
     if (tags.contains('origen:estado_diario')) return true;
     if (tags.contains('usado-en:estados')) return true;
@@ -6225,10 +6435,12 @@ class _SelectGenerationImagesDialogState
 
   @override
   Widget build(BuildContext context) {
-    final visibleAssets = widget.assets.where((asset) {
-      final url = asset.fileUrl.trim();
-      return url.isNotEmpty;
-    }).toList(growable: false);
+    final visibleAssets = widget.assets
+        .where((asset) {
+          final url = asset.fileUrl.trim();
+          return url.isNotEmpty;
+        })
+        .toList(growable: false);
 
     return AlertDialog(
       title: const Text('Selecciona hasta 3 imágenes'),
@@ -6302,7 +6514,9 @@ class _SelectGenerationImagesDialogState
                                         asset.fileUrl,
                                         fit: BoxFit.cover,
                                         errorBuilder: (_, __, ___) =>
-                                            const Icon(Icons.image_not_supported_rounded),
+                                            const Icon(
+                                              Icons.image_not_supported_rounded,
+                                            ),
                                       ),
                                     ),
                                   ),
@@ -6313,7 +6527,10 @@ class _SelectGenerationImagesDialogState
                                           CrossAxisAlignment.start,
                                       children: [
                                         Text(
-                                          asset.relatedService?.trim().isNotEmpty == true
+                                          asset.relatedService
+                                                      ?.trim()
+                                                      .isNotEmpty ==
+                                                  true
                                               ? asset.relatedService!.trim()
                                               : asset.fileName,
                                           maxLines: 2,
@@ -6368,7 +6585,9 @@ class _SelectGenerationImagesDialogState
         FilledButton.icon(
           onPressed: _selected.isEmpty
               ? null
-              : () => Navigator.of(context).pop(_selected.toList(growable: false)),
+              : () => Navigator.of(
+                  context,
+                ).pop(_selected.toList(growable: false)),
           icon: const Icon(Icons.auto_fix_high_rounded),
           label: const Text('Generar'),
         ),
@@ -6454,9 +6673,9 @@ class _ConfigTabState extends State<_ConfigTab> {
   late final TextEditingController _priorityProducts = TextEditingController();
   late final TextEditingController _targetCity = TextEditingController();
   late final TextEditingController _brandTone = TextEditingController();
-  
+
   final _formKey = GlobalKey<FormState>();
-  
+
   bool _activeVal = false;
   bool _pausedVal = false;
   bool _autoRegenerateVal = false;
@@ -6499,7 +6718,7 @@ class _ConfigTabState extends State<_ConfigTab> {
         ),
       );
     }
-    
+
     return SingleChildScrollView(
       child: Form(
         key: _formKey,
@@ -6605,10 +6824,7 @@ class _ConfigTabState extends State<_ConfigTab> {
 }
 
 class _StoryFullscreenPreview extends StatelessWidget {
-  const _StoryFullscreenPreview({
-    required this.story,
-    required this.imageUrl,
-  });
+  const _StoryFullscreenPreview({required this.story, required this.imageUrl});
 
   final MarketingStory story;
   final String imageUrl;
@@ -6740,11 +6956,12 @@ class _PublishStatusPill extends StatelessWidget {
     final hasInstagram = hasInstagramPost || hasInstagramStory;
     final anyPublished =
         publishedChannels.isNotEmpty || hasFacebook || hasInstagram;
-    final effectiveStatus = anyPublished && status == MarketingPublishStatus.error
+    final effectiveStatus =
+        anyPublished && status == MarketingPublishStatus.error
         ? MarketingPublishStatus.partial
         : anyPublished && status == MarketingPublishStatus.pending
-            ? MarketingPublishStatus.partial
-            : status;
+        ? MarketingPublishStatus.partial
+        : status;
     final requestedInstagram =
         publishTargets.contains(MarketingPublishTarget.instagramPost) ||
         publishTargets.contains(MarketingPublishTarget.instagramStory);
@@ -6764,18 +6981,18 @@ class _PublishStatusPill extends StatelessWidget {
         const Color(0xFFD9FBE5),
         const Color(0xFF0E5F33),
         hasFacebookStory && hasInstagramStory
-          ? 'Stories OK'
-          : hasFacebookPost && hasInstagramPost
+            ? 'Stories OK'
+            : hasFacebookPost && hasInstagramPost
             ? 'Posts OK'
             : hasFacebook && hasInstagram
-              ? 'FB + IG'
-              : hasInstagramStory && !hasInstagramPost
-                ? 'IG Story'
-                : hasFacebookStory && !hasFacebookPost
-                  ? 'FB Story'
-                  : hasInstagram
-                    ? 'Instagram'
-                    : 'Facebook',
+            ? 'FB + IG'
+            : hasInstagramStory && !hasInstagramPost
+            ? 'IG Story'
+            : hasFacebookStory && !hasFacebookPost
+            ? 'FB Story'
+            : hasInstagram
+            ? 'Instagram'
+            : 'Facebook',
       ),
       MarketingPublishStatus.partial => (
         const Color(0xFFFFF3CD),
@@ -7030,7 +7247,9 @@ class _EditStoryDialogState extends State<_EditStoryDialog> {
                     if (widget.onUploadImage != null)
                       OutlinedButton.icon(
                         onPressed: () async {
-                          final uploadedUrl = await widget.onUploadImage!(context);
+                          final uploadedUrl = await widget.onUploadImage!(
+                            context,
+                          );
                           if (uploadedUrl != null && uploadedUrl.isNotEmpty) {
                             _imageUrl.text = uploadedUrl;
                             setState(() {});

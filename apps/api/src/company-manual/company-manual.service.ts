@@ -187,8 +187,12 @@ export class CompanyManualService {
     await this.prisma.$transaction(
       async (tx) => {
         const entries: Array<
-          Omit<Prisma.CompanyManualEntryCreateInput, 'normalizedTitle' | 'moduleScopeKey' | 'targetRolesKey' | 'contentHash'> & {
+          Omit<
+            Prisma.CompanyManualEntryCreateInput,
+            'normalizedTitle' | 'moduleScopeKey' | 'targetRolesKey' | 'contentHash' | 'targetRoles'
+          > & {
             starterKey: string;
+            targetRoles: Role[];
           }
         > = [
           {

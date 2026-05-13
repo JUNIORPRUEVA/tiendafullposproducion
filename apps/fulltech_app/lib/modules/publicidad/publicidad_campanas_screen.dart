@@ -118,7 +118,8 @@ class _PublicidadCampanasScreenState
     _primaryTextCtrl.text = campaign.primaryText ?? '';
     _descriptionCtrl.text = campaign.description ?? '';
 
-    final audience = campaign.finalAudience ?? campaign.recommendedAudience ?? {};
+    final audience =
+        campaign.finalAudience ?? campaign.recommendedAudience ?? {};
     _cityCtrl.text = '${audience['city'] ?? ''}';
     _radiusCtrl.text = '${audience['radiusKm'] ?? 15}';
     _ageMinCtrl.text = '${audience['ageMin'] ?? 24}';
@@ -137,14 +138,12 @@ class _PublicidadCampanasScreenState
       await action();
     } on ApiException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.message)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.message)));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$e')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -211,9 +210,9 @@ class _PublicidadCampanasScreenState
     final bytes = file.bytes;
     if (bytes == null || bytes.isEmpty) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Archivo inválido.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Archivo inválido.')));
       return;
     }
 
@@ -224,7 +223,9 @@ class _PublicidadCampanasScreenState
         bytes: bytes,
       );
 
-      await ref.read(marketingApiProvider).uploadCampaignDesign(
+      await ref
+          .read(marketingApiProvider)
+          .uploadCampaignDesign(
             campaign.id,
             finalDesignUrl: uploaded.url,
             fileName: file.name,
@@ -244,7 +245,9 @@ class _PublicidadCampanasScreenState
     final dailyBudget = double.tryParse(_dailyBudgetCtrl.text.trim()) ?? 0;
     if (dailyBudget <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('El presupuesto diario debe ser mayor a 0.')),
+        const SnackBar(
+          content: Text('El presupuesto diario debe ser mayor a 0.'),
+        ),
       );
       return;
     }
@@ -268,7 +271,9 @@ class _PublicidadCampanasScreenState
     };
 
     await _runBusy(() async {
-      final updated = await ref.read(marketingApiProvider).updateCampaign(
+      final updated = await ref
+          .read(marketingApiProvider)
+          .updateCampaign(
             campaign.id,
             headline: _headlineCtrl.text.trim(),
             primaryText: _primaryTextCtrl.text.trim(),
@@ -283,10 +288,11 @@ class _PublicidadCampanasScreenState
           );
       if (!mounted) return;
       await _load();
+      if (!mounted) return;
       _syncEditors(updated);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Borrador guardado.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Borrador guardado.')));
     });
   }
 
@@ -298,8 +304,11 @@ class _PublicidadCampanasScreenState
       await ref.read(marketingApiProvider).createMetaCampaign(campaign.id);
       if (!mounted) return;
       await _load();
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Campaña creada en Meta en estado PAUSED.')),
+        const SnackBar(
+          content: Text('Campaña creada en Meta en estado PAUSED.'),
+        ),
       );
     });
   }
@@ -328,8 +337,9 @@ class _PublicidadCampanasScreenState
     final campaign = _selectedCampaign;
     if (campaign == null) return;
     await _runBusy(() async {
-      final duplicate =
-          await ref.read(marketingApiProvider).duplicateCampaign(campaign.id);
+      final duplicate = await ref
+          .read(marketingApiProvider)
+          .duplicateCampaign(campaign.id);
       if (!mounted) return;
       await _load();
       setState(() => _selectedId = duplicate.id);
@@ -381,7 +391,8 @@ class _PublicidadCampanasScreenState
   Widget build(BuildContext context) {
     final user = ref.watch(authStateProvider).user;
     final canView =
-        user != null && hasPermission(user.appRole, AppPermission.viewPublicidad);
+        user != null &&
+        hasPermission(user.appRole, AppPermission.viewPublicidad);
 
     if (!canView) {
       return Scaffold(
@@ -405,47 +416,44 @@ class _PublicidadCampanasScreenState
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(
-                  child: Text(
-                    _error!.trim().isEmpty
-                        ? 'No se pudo cargar campañas. Intenta recargar.'
-                        : _error!,
-                  ),
-                )
-              : LayoutBuilder(
-                  builder: (context, constraints) {
-                    final isCompact = constraints.maxWidth < 900;
-                    final detail = selected == null
-                        ? const Center(
-                            child: Text('No hay campañas. Crea una para iniciar.'),
-                          )
-                        : _buildCampaignDetail(selected);
+          ? Center(
+              child: Text(
+                _error!.trim().isEmpty
+                    ? 'No se pudo cargar campañas. Intenta recargar.'
+                    : _error!,
+              ),
+            )
+          : LayoutBuilder(
+              builder: (context, constraints) {
+                final isCompact = constraints.maxWidth < 900;
+                final detail = selected == null
+                    ? const Center(
+                        child: Text('No hay campañas. Crea una para iniciar.'),
+                      )
+                    : _buildCampaignDetail(selected);
 
-                    if (isCompact) {
-                      return Column(
-                        children: [
-                          SizedBox(
-                            height: 240,
-                            child: _buildCampaignList(selected),
-                          ),
-                          const Divider(height: 1),
-                          Expanded(child: detail),
-                        ],
-                      );
-                    }
+                if (isCompact) {
+                  return Column(
+                    children: [
+                      SizedBox(
+                        height: 240,
+                        child: _buildCampaignList(selected),
+                      ),
+                      const Divider(height: 1),
+                      Expanded(child: detail),
+                    ],
+                  );
+                }
 
-                    return Row(
-                      children: [
-                        SizedBox(
-                          width: 340,
-                          child: _buildCampaignList(selected),
-                        ),
-                        const VerticalDivider(width: 1),
-                        Expanded(child: detail),
-                      ],
-                    );
-                  },
-                ),
+                return Row(
+                  children: [
+                    SizedBox(width: 340, child: _buildCampaignList(selected)),
+                    const VerticalDivider(width: 1),
+                    Expanded(child: detail),
+                  ],
+                );
+              },
+            ),
     );
   }
 
@@ -481,9 +489,9 @@ class _PublicidadCampanasScreenState
                   item.headline ?? 'Campaña sin headline',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
                 ),
                 const SizedBox(height: 6),
                 Text(_statusLabel(item.status)),
@@ -510,10 +518,12 @@ class _PublicidadCampanasScreenState
   Widget _buildCampaignDetail(MarketingCampaign campaign) {
     final metaConfig = _metaConfig;
     final isMetaIncomplete =
-        metaConfig != null && (!metaConfig.hasAdAccountId || !metaConfig.tokenValid);
-    final validGalleryAssetId = _assets.any((item) => item.id == campaign.galleryAssetId)
-      ? campaign.galleryAssetId
-      : null;
+        metaConfig != null &&
+        (!metaConfig.hasAdAccountId || !metaConfig.tokenValid);
+    final validGalleryAssetId =
+        _assets.any((item) => item.id == campaign.galleryAssetId)
+        ? campaign.galleryAssetId
+        : null;
 
     final prompt = _buildDesignPrompt(campaign);
 
@@ -551,7 +561,7 @@ class _PublicidadCampanasScreenState
                   ),
                 const SizedBox(height: 10),
                 DropdownButtonFormField<String>(
-                  value: validGalleryAssetId,
+                  initialValue: validGalleryAssetId,
                   isExpanded: true,
                   items: _assets
                       .map(
@@ -627,8 +637,10 @@ class _PublicidadCampanasScreenState
                     OutlinedButton.icon(
                       onPressed: _busy
                           ? null
-                          : () =>
-                                ref.read(marketingApiProvider).regenerateCampaignCopy(campaign.id).then((_) => _load()),
+                          : () => ref
+                                .read(marketingApiProvider)
+                                .regenerateCampaignCopy(campaign.id)
+                                .then((_) => _load()),
                       icon: const Icon(Icons.auto_fix_high_rounded),
                       label: const Text('Regenerar copy'),
                     ),
@@ -685,7 +697,9 @@ class _PublicidadCampanasScreenState
                     Expanded(
                       child: TextField(
                         controller: _dailyBudgetCtrl,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
                         decoration: const InputDecoration(
                           labelText: 'Presupuesto diario',
                         ),
@@ -695,7 +709,9 @@ class _PublicidadCampanasScreenState
                     Expanded(
                       child: TextField(
                         controller: _totalBudgetCtrl,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
                         decoration: const InputDecoration(
                           labelText: 'Presupuesto total opcional',
                         ),
@@ -731,7 +747,9 @@ class _PublicidadCampanasScreenState
                       child: TextField(
                         controller: _radiusCtrl,
                         keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(labelText: 'Radio (km)'),
+                        decoration: const InputDecoration(
+                          labelText: 'Radio (km)',
+                        ),
                       ),
                     ),
                   ],
@@ -743,7 +761,9 @@ class _PublicidadCampanasScreenState
                       child: TextField(
                         controller: _ageMinCtrl,
                         keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(labelText: 'Edad mínima'),
+                        decoration: const InputDecoration(
+                          labelText: 'Edad mínima',
+                        ),
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -751,7 +771,9 @@ class _PublicidadCampanasScreenState
                       child: TextField(
                         controller: _ageMaxCtrl,
                         keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(labelText: 'Edad máxima'),
+                        decoration: const InputDecoration(
+                          labelText: 'Edad máxima',
+                        ),
                       ),
                     ),
                   ],
@@ -830,7 +852,9 @@ class _PublicidadCampanasScreenState
       child: Row(
         children: [
           SizedBox(width: 140, child: Text(key)),
-          Expanded(child: SelectableText(value?.trim().isEmpty ?? true ? '-' : value!)),
+          Expanded(
+            child: SelectableText(value?.trim().isEmpty ?? true ? '-' : value!),
+          ),
         ],
       ),
     );
@@ -848,9 +872,9 @@ class _PublicidadCampanasScreenState
         children: [
           Text(
             title,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 10),
           child,

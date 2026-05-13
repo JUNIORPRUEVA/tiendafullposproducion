@@ -85,7 +85,9 @@ class _PublicidadMarketplaceScreenState
     );
     if (result == null) return;
     try {
-      await ref.read(marketingApiProvider).createSocialAccount(
+      await ref
+          .read(marketingApiProvider)
+          .createSocialAccount(
             type: result.type,
             accountName: result.accountName,
             username: result.username,
@@ -108,14 +110,14 @@ class _PublicidadMarketplaceScreenState
   Future<void> _openEditDialog(MarketingSocialAccount account) async {
     final result = await showDialog<_SocialAccountEditResult>(
       context: context,
-      builder: (context) => _SocialAccountEditorDialog(
-        type: account.type,
-        initial: account,
-      ),
+      builder: (context) =>
+          _SocialAccountEditorDialog(type: account.type, initial: account),
     );
     if (result == null) return;
     try {
-      await ref.read(marketingApiProvider).updateSocialAccount(
+      await ref
+          .read(marketingApiProvider)
+          .updateSocialAccount(
             account.id,
             type: result.type,
             accountName: result.accountName,
@@ -233,7 +235,9 @@ class _PublicidadMarketplaceScreenState
   }
 
   void _showMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   String _tabLabel(MarketingSocialAccountType type) {
@@ -273,7 +277,8 @@ class _PublicidadMarketplaceScreenState
     final auth = ref.watch(authStateProvider);
     final user = auth.user;
     final isAdmin =
-        user != null && hasPermission(user.appRole, AppPermission.viewPublicidad);
+        user != null &&
+        hasPermission(user.appRole, AppPermission.viewPublicidad);
     final scheme = Theme.of(context).colorScheme;
 
     if (!isAdmin) {
@@ -287,22 +292,26 @@ class _PublicidadMarketplaceScreenState
 
     final selectedType = _selectedType;
     final query = _searchCtrl.text.trim().toLowerCase();
-    final filtered = _accounts.where((item) {
-      if (item.type != selectedType) return false;
-      if (query.isEmpty) return true;
-      final haystack = [
-        item.accountName,
-        item.username ?? '',
-        item.whatsappNumber ?? '',
-        item.profileLink ?? '',
-        item.observations ?? '',
-      ].join(' ').toLowerCase();
-      return haystack.contains(query);
-    }).toList(growable: false);
+    final filtered = _accounts
+        .where((item) {
+          if (item.type != selectedType) return false;
+          if (query.isEmpty) return true;
+          final haystack = [
+            item.accountName,
+            item.username ?? '',
+            item.whatsappNumber ?? '',
+            item.profileLink ?? '',
+            item.observations ?? '',
+          ].join(' ').toLowerCase();
+          return haystack.contains(query);
+        })
+        .toList(growable: false);
 
     return Scaffold(
       drawer: buildAdaptiveDrawer(context, currentUser: user),
-      appBar: const CustomAppBar(title: 'Publicidad / Marketplace / Cuentas Empresariales'),
+      appBar: const CustomAppBar(
+        title: 'Publicidad / Marketplace / Cuentas Empresariales',
+      ),
       backgroundColor: scheme.surfaceContainerLowest,
       body: RefreshIndicator(
         onRefresh: _loadAccounts,
@@ -315,7 +324,9 @@ class _PublicidadMarketplaceScreenState
               decoration: BoxDecoration(
                 color: scheme.surface,
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.35)),
+                border: Border.all(
+                  color: scheme.outlineVariant.withValues(alpha: 0.35),
+                ),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -327,21 +338,24 @@ class _PublicidadMarketplaceScreenState
                     children: [
                       Text(
                         'Boveda de Cuentas Empresariales',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w800),
                       ),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 5,
+                        ),
                         decoration: BoxDecoration(
-                          color: scheme.primaryContainer.withValues(alpha: 0.75),
+                          color: scheme.primaryContainer.withValues(
+                            alpha: 0.75,
+                          ),
                           borderRadius: BorderRadius.circular(999),
                         ),
                         child: Text(
                           '${_accounts.length} cuentas',
-                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
+                          style: Theme.of(context).textTheme.labelSmall
+                              ?.copyWith(fontWeight: FontWeight.w700),
                         ),
                       ),
                     ],
@@ -372,8 +386,14 @@ class _PublicidadMarketplaceScreenState
                     tabAlignment: TabAlignment.start,
                     tabs: const [
                       Tab(icon: Icon(Icons.facebook_rounded), text: 'Facebook'),
-                      Tab(icon: Icon(Icons.photo_camera_back_rounded), text: 'Instagram'),
-                      Tab(icon: Icon(Icons.chat_bubble_rounded), text: 'WhatsApp'),
+                      Tab(
+                        icon: Icon(Icons.photo_camera_back_rounded),
+                        text: 'Instagram',
+                      ),
+                      Tab(
+                        icon: Icon(Icons.chat_bubble_rounded),
+                        text: 'WhatsApp',
+                      ),
                     ],
                   ),
                 ],
@@ -421,7 +441,9 @@ class _PublicidadMarketplaceScreenState
                 decoration: BoxDecoration(
                   color: scheme.surface,
                   borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.35)),
+                  border: Border.all(
+                    color: scheme.outlineVariant.withValues(alpha: 0.35),
+                  ),
                 ),
                 child: Text(
                   'No hay cuentas para ${_tabLabel(selectedType)} con el filtro actual.',
@@ -432,10 +454,13 @@ class _PublicidadMarketplaceScreenState
                 final showPassword = _visiblePasswords.contains(account.id);
                 final password = (account.password ?? '').trim();
                 final hasPassword = password.isNotEmpty;
-                final link = (account.type == MarketingSocialAccountType.whatsapp
-                        ? account.whatsappWaLink ?? account.profileLink ?? ''
-                        : account.profileLink ?? '')
-                    .trim();
+                final link =
+                    (account.type == MarketingSocialAccountType.whatsapp
+                            ? account.whatsappWaLink ??
+                                  account.profileLink ??
+                                  ''
+                            : account.profileLink ?? '')
+                        .trim();
 
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 10),
@@ -445,7 +470,9 @@ class _PublicidadMarketplaceScreenState
                     icon: _tabIcon(account.type),
                     createdLabel: _formatDate(account.createdAt),
                     updatedLabel: _formatDate(account.updatedAt),
-                    passwordText: showPassword ? password : (hasPassword ? '••••••••' : '-'),
+                    passwordText: showPassword
+                        ? password
+                        : (hasPassword ? '••••••••' : '-'),
                     onTogglePassword: hasPassword
                         ? () {
                             setState(() {
@@ -559,12 +586,19 @@ class _SocialAccountCardState extends State<_SocialAccountCard> {
               children: [
                 CircleAvatar(
                   radius: 18,
-                  backgroundColor: scheme.primaryContainer.withValues(alpha: 0.75),
-                  backgroundImage: (widget.account.avatarUrl ?? '').trim().isNotEmpty
+                  backgroundColor: scheme.primaryContainer.withValues(
+                    alpha: 0.75,
+                  ),
+                  backgroundImage:
+                      (widget.account.avatarUrl ?? '').trim().isNotEmpty
                       ? NetworkImage(widget.account.avatarUrl!.trim())
                       : null,
                   child: (widget.account.avatarUrl ?? '').trim().isEmpty
-                      ? Icon(widget.icon, size: 18, color: scheme.onPrimaryContainer)
+                      ? Icon(
+                          widget.icon,
+                          size: 18,
+                          color: scheme.onPrimaryContainer,
+                        )
                       : null,
                 ),
                 const SizedBox(width: 10),
@@ -577,21 +611,24 @@ class _SocialAccountCardState extends State<_SocialAccountCard> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w800,
-                            ),
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
                       const SizedBox(height: 2),
                       Text(
                         widget.titleLabel,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: scheme.onSurfaceVariant,
-                            ),
+                          color: scheme.onSurfaceVariant,
+                        ),
                       ),
                     ],
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: widget.account.isActive
                         ? const Color(0xFFDCFCE7)
@@ -617,20 +654,15 @@ class _SocialAccountCardState extends State<_SocialAccountCard> {
               runSpacing: 8,
               children: [
                 _InfoText(
-                  label: widget.account.type == MarketingSocialAccountType.whatsapp
+                  label:
+                      widget.account.type == MarketingSocialAccountType.whatsapp
                       ? 'Numero'
                       : 'Usuario',
                   value: widget.account.displayUserOrNumber,
                 ),
                 if (widget.account.type != MarketingSocialAccountType.whatsapp)
-                  _InfoText(
-                    label: 'Contrasena',
-                    value: widget.passwordText,
-                  ),
-                _InfoText(
-                  label: 'Creada',
-                  value: widget.createdLabel,
-                ),
+                  _InfoText(label: 'Contrasena', value: widget.passwordText),
+                _InfoText(label: 'Creada', value: widget.createdLabel),
                 _InfoText(
                   label: 'Ult. modificacion',
                   value: widget.updatedLabel,
@@ -774,7 +806,8 @@ class _SocialAccountEditorDialog extends StatefulWidget {
       _SocialAccountEditorDialogState();
 }
 
-class _SocialAccountEditorDialogState extends State<_SocialAccountEditorDialog> {
+class _SocialAccountEditorDialogState
+    extends State<_SocialAccountEditorDialog> {
   final _formKey = GlobalKey<FormState>();
   late MarketingSocialAccountType _type;
   late TextEditingController _nameCtrl;
@@ -830,8 +863,10 @@ class _SocialAccountEditorDialogState extends State<_SocialAccountEditorDialog> 
               mainAxisSize: MainAxisSize.min,
               children: [
                 DropdownButtonFormField<MarketingSocialAccountType>(
-                  value: _type,
-                  decoration: const InputDecoration(labelText: 'Tipo de cuenta'),
+                  initialValue: _type,
+                  decoration: const InputDecoration(
+                    labelText: 'Tipo de cuenta',
+                  ),
                   items: const [
                     DropdownMenuItem(
                       value: MarketingSocialAccountType.facebook,
@@ -865,7 +900,9 @@ class _SocialAccountEditorDialogState extends State<_SocialAccountEditorDialog> 
                 if (!isWhatsapp)
                   TextFormField(
                     controller: _userCtrl,
-                    decoration: const InputDecoration(labelText: 'Usuario o correo'),
+                    decoration: const InputDecoration(
+                      labelText: 'Usuario o correo',
+                    ),
                     validator: (value) => (value ?? '').trim().isEmpty
                         ? 'Debes indicar usuario o correo'
                         : null,
@@ -873,7 +910,9 @@ class _SocialAccountEditorDialogState extends State<_SocialAccountEditorDialog> 
                 else
                   TextFormField(
                     controller: _phoneCtrl,
-                    decoration: const InputDecoration(labelText: 'Numero WhatsApp'),
+                    decoration: const InputDecoration(
+                      labelText: 'Numero WhatsApp',
+                    ),
                     validator: (value) => (value ?? '').trim().isEmpty
                         ? 'Debes indicar el numero de WhatsApp'
                         : null,
@@ -888,13 +927,17 @@ class _SocialAccountEditorDialogState extends State<_SocialAccountEditorDialog> 
                 TextFormField(
                   controller: _linkCtrl,
                   decoration: InputDecoration(
-                    labelText: isWhatsapp ? 'Link wa.me o perfil' : 'Link perfil/pagina',
+                    labelText: isWhatsapp
+                        ? 'Link wa.me o perfil'
+                        : 'Link perfil/pagina',
                   ),
                 ),
                 const SizedBox(height: 10),
                 TextFormField(
                   controller: _avatarCtrl,
-                  decoration: const InputDecoration(labelText: 'Foto/avatar (URL opcional)'),
+                  decoration: const InputDecoration(
+                    labelText: 'Foto/avatar (URL opcional)',
+                  ),
                 ),
                 const SizedBox(height: 10),
                 TextFormField(
@@ -925,14 +968,24 @@ class _SocialAccountEditorDialogState extends State<_SocialAccountEditorDialog> 
             final result = _SocialAccountEditResult(
               type: _type,
               accountName: _nameCtrl.text.trim(),
-              username: _userCtrl.text.trim().isEmpty ? null : _userCtrl.text.trim(),
-              password: _passCtrl.text.trim().isEmpty ? null : _passCtrl.text.trim(),
-              profileLink: _linkCtrl.text.trim().isEmpty ? null : _linkCtrl.text.trim(),
+              username: _userCtrl.text.trim().isEmpty
+                  ? null
+                  : _userCtrl.text.trim(),
+              password: _passCtrl.text.trim().isEmpty
+                  ? null
+                  : _passCtrl.text.trim(),
+              profileLink: _linkCtrl.text.trim().isEmpty
+                  ? null
+                  : _linkCtrl.text.trim(),
               whatsappNumber: _phoneCtrl.text.trim().isEmpty
                   ? null
                   : _phoneCtrl.text.trim(),
-              observations: _obsCtrl.text.trim().isEmpty ? null : _obsCtrl.text.trim(),
-              avatarUrl: _avatarCtrl.text.trim().isEmpty ? null : _avatarCtrl.text.trim(),
+              observations: _obsCtrl.text.trim().isEmpty
+                  ? null
+                  : _obsCtrl.text.trim(),
+              avatarUrl: _avatarCtrl.text.trim().isEmpty
+                  ? null
+                  : _avatarCtrl.text.trim(),
               isActive: _isActive,
             );
             Navigator.pop(context, result);
@@ -940,12 +993,6 @@ class _SocialAccountEditorDialogState extends State<_SocialAccountEditorDialog> 
           child: const Text('Guardar'),
         ),
       ],
-    );
-              ),
-            ),
-          ),
-        ),
-      ),
     );
   }
 }

@@ -68,11 +68,23 @@ class _EstadosNuevoFlujoScreenState
                 scrollDirection: Axis.horizontal,
                 child: Row(
                   children: [
-                    _buildStoryTypeButton('sales', 'Ventas', Icons.shopping_cart_rounded),
+                    _buildStoryTypeButton(
+                      'sales',
+                      'Ventas',
+                      Icons.shopping_cart_rounded,
+                    ),
                     const SizedBox(width: 8),
-                    _buildStoryTypeButton('trust', 'Confianza', Icons.verified_rounded),
+                    _buildStoryTypeButton(
+                      'trust',
+                      'Confianza',
+                      Icons.verified_rounded,
+                    ),
                     const SizedBox(width: 8),
-                    _buildStoryTypeButton('educational', 'Educativo', Icons.school_rounded),
+                    _buildStoryTypeButton(
+                      'educational',
+                      'Educativo',
+                      Icons.school_rounded,
+                    ),
                   ],
                 ),
               ),
@@ -83,19 +95,13 @@ class _EstadosNuevoFlujoScreenState
               child: Row(
                 children: [
                   // LEFT: Gallery
-                  Expanded(
-                    flex: 60,
-                    child: _buildGalleryPanel(),
-                  ),
+                  Expanded(flex: 60, child: _buildGalleryPanel()),
                   Container(
                     width: 1,
                     color: scheme.outlineVariant.withValues(alpha: 0.2),
                   ),
                   // RIGHT: AI Analysis Panel
-                  Expanded(
-                    flex: 40,
-                    child: _buildAnalysisPanel(),
-                  ),
+                  Expanded(flex: 40, child: _buildAnalysisPanel()),
                 ],
               ),
             ),
@@ -114,13 +120,11 @@ class _EstadosNuevoFlujoScreenState
       onSelected: (_) => setState(() => _selectedStoryType = type),
       label: Row(
         mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 16),
-          const SizedBox(width: 6),
-          Text(label),
-        ],
+        children: [Icon(icon, size: 16), const SizedBox(width: 6), Text(label)],
       ),
-      backgroundColor: isSelected ? scheme.primaryContainer : scheme.surfaceVariant,
+      backgroundColor: isSelected
+          ? scheme.primaryContainer
+          : scheme.surfaceContainerHighest,
       selectedColor: scheme.primary,
       labelStyle: TextStyle(
         color: isSelected ? scheme.onPrimary : scheme.onSurface,
@@ -147,7 +151,10 @@ class _EstadosNuevoFlujoScreenState
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
                 ),
               ),
               const SizedBox(height: 12),
@@ -184,12 +191,8 @@ class _EstadosNuevoFlujoScreenState
               );
 
               return mediaAssets.when(
-                loading: () => const Center(
-                  child: CircularProgressIndicator(),
-                ),
-                error: (error, stack) => Center(
-                  child: Text('Error: $error'),
-                ),
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error: (error, stack) => Center(child: Text('Error: $error')),
                 data: (assets) {
                   if (assets.isEmpty) {
                     return Center(
@@ -202,12 +205,13 @@ class _EstadosNuevoFlujoScreenState
 
                   return GridView.builder(
                     padding: const EdgeInsets.all(12),
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
-                      childAspectRatio: 0.75,
-                      mainAxisSpacing: 12,
-                      crossAxisSpacing: 12,
-                    ),
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          childAspectRatio: 0.75,
+                          mainAxisSpacing: 12,
+                          crossAxisSpacing: 12,
+                        ),
                     itemCount: assets.length,
                     itemBuilder: (context, index) {
                       final asset = assets[index];
@@ -233,7 +237,7 @@ class _EstadosNuevoFlujoScreenState
       selected: isSelected,
       onSelected: (_) => setState(() => _filterCategory = value),
       label: Text(label),
-      backgroundColor: scheme.surfaceVariant,
+      backgroundColor: scheme.surfaceContainerHighest,
       selectedColor: scheme.primaryContainer,
       labelStyle: TextStyle(
         fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
@@ -253,7 +257,7 @@ class _EstadosNuevoFlujoScreenState
           ClipRRect(
             borderRadius: BorderRadius.circular(12),
             child: Container(
-              color: scheme.surfaceVariant,
+              color: scheme.surfaceContainerHighest,
               child: Image.network(
                 asset.fileUrl,
                 fit: BoxFit.cover,
@@ -272,10 +276,7 @@ class _EstadosNuevoFlujoScreenState
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(12),
                 color: scheme.primary.withValues(alpha: 0.2),
-                border: Border.all(
-                  color: scheme.primary,
-                  width: 3,
-                ),
+                border: Border.all(color: scheme.primary, width: 3),
               ),
               child: Center(
                 child: Icon(
@@ -345,9 +346,9 @@ class _EstadosNuevoFlujoScreenState
             Text(
               'Elige una imagen de la galería\npara ver recomendaciones IA',
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
             ),
           ],
         ),
@@ -383,10 +384,7 @@ class _EstadosNuevoFlujoScreenState
             borderRadius: BorderRadius.circular(12),
             child: AspectRatio(
               aspectRatio: 1,
-              child: Image.network(
-                analysis.fileUrl,
-                fit: BoxFit.cover,
-              ),
+              child: Image.network(analysis.fileUrl, fit: BoxFit.cover),
             ),
           ),
           const SizedBox(height: 16),
@@ -400,23 +398,24 @@ class _EstadosNuevoFlujoScreenState
           _buildSuggestedAngle(analysis),
           const SizedBox(height: 16),
           // Usage history
-          if (analysis.usageHistory.timesUsed > 0)
-            _buildUsageHistory(analysis),
+          if (analysis.usageHistory.timesUsed > 0) _buildUsageHistory(analysis),
           const SizedBox(height: 20),
           // Generate button
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
-              onPressed: _generating ? null : () => _onConfirmAndGenerate(analysis),
+              onPressed: _generating
+                  ? null
+                  : () => _onConfirmAndGenerate(analysis),
               icon: _generating
                   ? SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation(scheme.onPrimary),
-                    ),
-                  )
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation(scheme.onPrimary),
+                      ),
+                    )
                   : const Icon(Icons.auto_awesome_rounded),
               label: Text(_generating ? 'Generando...' : 'GENERAR CONTENIDO'),
             ),
@@ -433,7 +432,7 @@ class _EstadosNuevoFlujoScreenState
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: scheme.surfaceVariant,
+        color: scheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
@@ -466,9 +465,9 @@ class _EstadosNuevoFlujoScreenState
               ),
               Text(
                 analysis.visualQuality.toUpperCase(),
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: qualityColor,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.labelSmall?.copyWith(color: qualityColor),
               ),
             ],
           ),
@@ -485,51 +484,47 @@ class _EstadosNuevoFlujoScreenState
       decoration: BoxDecoration(
         color: scheme.primaryContainer.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: scheme.primary.withValues(alpha: 0.3),
-        ),
+        border: Border.all(color: scheme.primary.withValues(alpha: 0.3)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(
-                Icons.lightbulb_rounded,
-                color: scheme.primary,
-                size: 20,
-              ),
+              Icon(Icons.lightbulb_rounded, color: scheme.primary, size: 20),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   analysis.recommendation,
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 8),
-          ...analysis.recommendationReason.map((reason) => Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.check_circle_rounded,
-                  color: scheme.primary,
-                  size: 14,
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    reason,
-                    style: Theme.of(context).textTheme.bodySmall,
+          ...analysis.recommendationReason.map(
+            (reason) => Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.check_circle_rounded,
+                    color: scheme.primary,
+                    size: 14,
                   ),
-                ),
-              ],
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      reason,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          )),
+          ),
           const SizedBox(height: 8),
           if (analysis.estimatedConversionLift > 0)
             Container(
@@ -557,7 +552,7 @@ class _EstadosNuevoFlujoScreenState
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: scheme.surfaceVariant,
+        color: scheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
@@ -580,12 +575,14 @@ class _EstadosNuevoFlujoScreenState
   Widget _buildUsageHistory(ImageAnalysisResult analysis) {
     final scheme = Theme.of(context).colorScheme;
     final metrics = analysis.usageHistory.conversionMetrics;
-    final ctr = metrics.clicks > 0 ? (metrics.conversions / metrics.clicks * 100).toStringAsFixed(1) : 'N/A';
+    final ctr = metrics.clicks > 0
+        ? (metrics.conversions / metrics.clicks * 100).toStringAsFixed(1)
+        : 'N/A';
 
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: scheme.surfaceVariant,
+        color: scheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
@@ -616,16 +613,16 @@ class _EstadosNuevoFlujoScreenState
       children: [
         Text(
           value,
-          style: Theme.of(context).textTheme.labelLarge?.copyWith(
-            fontWeight: FontWeight.w700,
-          ),
+          style: Theme.of(
+            context,
+          ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: 2),
         Text(
           label,
-          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-            color: scheme.onSurfaceVariant,
-          ),
+          style: Theme.of(
+            context,
+          ).textTheme.labelSmall?.copyWith(color: scheme.onSurfaceVariant),
         ),
       ],
     );
@@ -651,10 +648,14 @@ class _EstadosNuevoFlujoScreenState
         storyType: _selectedStoryType,
       );
 
-      final ranked = (result['ranked'] as List?)
-          ?.whereType<Map>()
-          .map((item) => ImageAnalysisResult.fromJson(item.cast<String, dynamic>()))
-          .toList(growable: false) ??
+      final ranked =
+          (result['ranked'] as List?)
+              ?.whereType<Map>()
+              .map(
+                (item) =>
+                    ImageAnalysisResult.fromJson(item.cast<String, dynamic>()),
+              )
+              .toList(growable: false) ??
           const [];
 
       setState(() {
@@ -664,9 +665,9 @@ class _EstadosNuevoFlujoScreenState
     } catch (e) {
       setState(() => _analyzing = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al analizar imagen: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error al analizar imagen: $e')));
       }
     }
   }
@@ -683,9 +684,9 @@ class _EstadosNuevoFlujoScreenState
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     } finally {
       setState(() => _generating = false);
@@ -699,21 +700,22 @@ class _EstadosNuevoFlujoScreenState
 
 final _mediaAssetsFutureProvider =
     FutureProvider.family<List<MarketingMediaAsset>, Map<String, String?>>((
-  ref,
-  params,
-) async {
-  final api = ref.watch(marketingApiProvider);
-  final assets = await api.loadMediaAssets(
-    category: params['category'],
-  );
+      ref,
+      params,
+    ) async {
+      final api = ref.watch(marketingApiProvider);
+      final assets = await api.loadMediaAssets(category: params['category']);
 
-  // Filter by search query
-  final searchQuery = (params['searchQuery'] ?? '').toLowerCase();
-  if (searchQuery.isEmpty) return assets;
+      // Filter by search query
+      final searchQuery = (params['searchQuery'] ?? '').toLowerCase();
+      if (searchQuery.isEmpty) return assets;
 
-  return assets
-      .where((asset) =>
-          (asset.relatedService?.toLowerCase().contains(searchQuery) ?? false) ||
-          asset.category.toLowerCase().contains(searchQuery))
-      .toList();
-});
+      return assets
+          .where(
+            (asset) =>
+                (asset.relatedService?.toLowerCase().contains(searchQuery) ??
+                    false) ||
+                asset.category.toLowerCase().contains(searchQuery),
+          )
+          .toList();
+    });
