@@ -43,7 +43,6 @@ class _PublicidadCampanasScreenV2State
   final Map<String, _CampaignCopy> _copyByCampaignId =
       <String, _CampaignCopy>{};
 
-  final _phoneCtrl = TextEditingController();
   final _dailyBudgetCtrl = TextEditingController(text: '500');
   final _cityCtrl = TextEditingController(text: _defaultCity);
 
@@ -66,7 +65,6 @@ class _PublicidadCampanasScreenV2State
   @override
   void dispose() {
     _autosaveTimer?.cancel();
-    _phoneCtrl.dispose();
     _dailyBudgetCtrl.dispose();
     _cityCtrl.dispose();
     super.dispose();
@@ -122,11 +120,6 @@ class _PublicidadCampanasScreenV2State
   void _syncFormFromCampaign(MarketingCampaign campaign) {
     final audience =
         campaign.finalAudience ?? campaign.recommendedAudience ?? {};
-    final phones = _whatsappOptions(campaign);
-    final campaignPhone = (campaign.whatsappPhone ?? '').trim();
-    _phoneCtrl.text = campaignPhone.isNotEmpty
-        ? campaignPhone
-        : (phones.isNotEmpty ? phones.first : '');
     _dailyBudgetCtrl.text = (campaign.dailyBudget ?? 500).toStringAsFixed(0);
 
     final city = '${audience['city'] ?? ''}'.trim();
@@ -406,7 +399,6 @@ class _PublicidadCampanasScreenV2State
             campaignId,
             cta: 'WHATSAPP_MESSAGE',
             dailyBudget: _dailyBudget,
-            whatsappPhone: _phoneCtrl.text.trim(),
             finalAudience: _buildAudience(),
           );
 
@@ -435,13 +427,6 @@ class _PublicidadCampanasScreenV2State
   Future<void> _publishCampaign() async {
     final campaign = _selectedCampaign;
     if (campaign == null) return;
-    if (_phoneCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Selecciona un WhatsApp destino.')),
-      );
-      setState(() => _activeSessionIndex = 1);
-      return;
-    }
 
     await _runAction('Campana publicada', () async {
       await _saveDraftSilently(campaign.id);
@@ -486,6 +471,71 @@ class _PublicidadCampanasScreenV2State
       }
       rethrow;
     }
+  }
+
+  Future<void> _activateCampaign() async {
+    final campaign = _selectedCampaign;
+    if (campaign == null) return;
+    await _runAction('Campana activada', () async {
+      final updated = await ref
+          .read(marketingApiProvider)
+          .activateCampaign(campaign.id);
+      if (mounted) setState(() => _upsertCampaign(updated));
+    });
+  }
+
+  Future<void> _pauseCampaign() async {
+    final campaign = _selectedCampaign;
+    if (campaign == null) return;
+    await _runAction('Campana pausada', () async {
+      final updated = await ref
+          .read(marketingApiProvider)
+          .pauseCampaign(campaign.id);
+      if (mounted) setState(() => _upsertCampaign(updated));
+    });
+  }
+
+  void _showTechnicalDetails(MarketingCampaign campaign) {
+    final lines = <String>[
+      'Estado: ${campaign.metaStatus ?? marketingCampaignStatusApi(campaign.status)}',
+      'Campaign ID: ${campaign.metaCampaignId ?? '-'}',
+      'AdSet ID: ${campaign.metaAdSetId ?? '-'}',
+      'Creative ID: ${campaign.metaCreativeId ?? '-'}',
+      'Ad ID: ${campaign.metaAdId ?? '-'}',
+      'Image hash: ${campaign.metaImageHash ?? '-'}',
+      'Video ID: ${campaign.metaVideoId ?? '-'}',
+      'Media type: ${campaign.metaMediaType ?? '-'}',
+      'Media URL: ${campaign.metaMediaUrl ?? '-'}',
+      'Error: ${campaign.metaError ?? '-'}',
+      'Code: ${campaign.metaErrorCode ?? '-'}',
+      'Subcode: ${campaign.metaErrorSubcode ?? '-'}',
+      'fbtrace_id: ${campaign.fbtraceId ?? '-'}',
+    ];
+    final text = lines.join('\n');
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Detalles técnicos Meta Ads'),
+        content: SizedBox(
+          width: 520,
+          child: SingleChildScrollView(child: SelectableText(text)),
+        ),
+        actions: [
+          TextButton.icon(
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: text));
+              if (context.mounted) Navigator.of(context).pop();
+            },
+            icon: const Icon(Icons.copy_rounded),
+            label: const Text('Copiar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cerrar'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _upsertCampaign(
@@ -560,19 +610,6 @@ class _PublicidadCampanasScreenV2State
     final current = _cityCtrl.text.trim();
     if (current.isNotEmpty) options.add(current);
     return options.toList(growable: false)..sort();
-  }
-
-  List<String> _whatsappOptions(MarketingCampaign campaign) {
-    final options = <String>{};
-    final selected = (campaign.whatsappPhone ?? '').trim();
-    if (selected.isNotEmpty) options.add(selected);
-    for (final item in _campaigns) {
-      final phone = (item.whatsappPhone ?? '').trim();
-      if (phone.isNotEmpty) options.add(phone);
-    }
-    final current = _phoneCtrl.text.trim();
-    if (current.isNotEmpty) options.add(current);
-    return options.toList(growable: false);
   }
 
   @override
@@ -717,7 +754,6 @@ class _PublicidadCampanasScreenV2State
     bool includePreviewSession = true,
   }) {
     final cityOptions = _cityOptions(campaign);
-    final whatsappOptions = _whatsappOptions(campaign);
     final sessions =
         <({Widget child, IconData icon, String subtitle, String title})>[
           (
@@ -728,15 +764,11 @@ class _PublicidadCampanasScreenV2State
             child: _buildMediaStep(campaign),
           ),
           (
-            title: 'Presupuesto + WhatsApp',
+            title: 'Presupuesto + Destino',
             subtitle:
-                'Presupuesto, numero destino, Higüey 10 km y edades 25-50.',
+                'Presupuesto, destino WhatsApp FullTech, Higüey 10 km y edades 25-50.',
             icon: Icons.tune_rounded,
-            child: _buildSegmentationBudgetSession(
-              campaign,
-              cityOptions,
-              whatsappOptions,
-            ),
+            child: _buildSegmentationBudgetSession(campaign, cityOptions),
           ),
         ];
     if (includePreviewSession) {
@@ -1228,7 +1260,6 @@ class _PublicidadCampanasScreenV2State
   Widget _buildSegmentationBudgetSession(
     MarketingCampaign campaign,
     List<String> cityOptions,
-    List<String> whatsappOptions,
   ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1349,40 +1380,7 @@ class _PublicidadCampanasScreenV2State
           ),
         ),
         const SizedBox(height: 12),
-        whatsappOptions.isNotEmpty
-            ? DropdownButtonFormField<String>(
-                initialValue: _phoneCtrl.text.trim().isEmpty
-                    ? null
-                    : _phoneCtrl.text.trim(),
-                items: whatsappOptions
-                    .map(
-                      (phone) => DropdownMenuItem<String>(
-                        value: phone,
-                        child: Text(phone),
-                      ),
-                    )
-                    .toList(growable: false),
-                onChanged: _busyAction
-                    ? null
-                    : (value) {
-                        if (value == null) return;
-                        setState(() => _phoneCtrl.text = value);
-                        _scheduleAutosave();
-                      },
-                decoration: const InputDecoration(
-                  labelText: 'WhatsApp destino',
-                  border: OutlineInputBorder(),
-                ),
-              )
-            : TextField(
-                controller: _phoneCtrl,
-                keyboardType: TextInputType.phone,
-                decoration: const InputDecoration(
-                  labelText: 'WhatsApp destino',
-                  border: OutlineInputBorder(),
-                ),
-                onChanged: (_) => _scheduleAutosave(),
-              ),
+        _buildFixedWhatsappDestination(),
         const SizedBox(height: 10),
         const Wrap(
           spacing: 8,
@@ -1394,6 +1392,44 @@ class _PublicidadCampanasScreenV2State
           ],
         ),
       ],
+    );
+  }
+
+  Widget _buildFixedWhatsappDestination() {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: scheme.outlineVariant),
+        color: scheme.surfaceContainerHighest,
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.mark_unread_chat_alt_rounded, color: scheme.primary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Destino: WhatsApp FullTech',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '+1 829-534-4286',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ],
+            ),
+          ),
+          const _Pill(label: 'No editable'),
+        ],
+      ),
     );
   }
 
@@ -1416,7 +1452,7 @@ class _PublicidadCampanasScreenV2State
             label: Text(
               _busyAction
                   ? 'Publicando en Meta Ads...'
-                  : 'Publicar campaña de WhatsApp',
+                  : 'Crear campaña en Meta',
             ),
           ),
         ),
@@ -1497,6 +1533,11 @@ class _PublicidadCampanasScreenV2State
               style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
           ],
+          if ((campaign.metaCampaignId ?? '').isNotEmpty &&
+              campaign.status != MarketingCampaignStatus.error) ...[
+            const SizedBox(height: 8),
+            const _Pill(label: 'Estado: Pausada / Lista para activar'),
+          ],
           if (ids.values.any((value) => (value ?? '').trim().isNotEmpty)) ...[
             const SizedBox(height: 10),
             Wrap(
@@ -1509,6 +1550,30 @@ class _PublicidadCampanasScreenV2State
                         _MetaIdChip(label: entry.key, value: entry.value!),
                   )
                   .toList(growable: false),
+            ),
+          ],
+          if ((campaign.metaCampaignId ?? '').isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton.icon(
+                  onPressed: _busyAction ? null : _activateCampaign,
+                  icon: const Icon(Icons.play_arrow_rounded),
+                  label: const Text('Activar campaña'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _busyAction ? null : _pauseCampaign,
+                  icon: const Icon(Icons.pause_rounded),
+                  label: const Text('Pausar campaña'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () => _showTechnicalDetails(campaign),
+                  icon: const Icon(Icons.info_outline_rounded),
+                  label: const Text('Ver detalles técnicos'),
+                ),
+              ],
             ),
           ],
         ],

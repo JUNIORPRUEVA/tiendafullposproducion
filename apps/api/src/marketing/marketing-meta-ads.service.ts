@@ -31,8 +31,11 @@ export type MetaAdMediaType = 'IMAGE' | 'VIDEO';
 
 export type MetaPublishStepId =
   | 'VALIDATING_META'
+  | 'VALIDATING_AD_ACCOUNT'
   | 'VALIDATING_PAGE'
   | 'VALIDATING_INSTAGRAM'
+  | 'VALIDATING_WHATSAPP'
+  | 'VALIDATING_MEDIA'
   | 'UPLOADING_MEDIA'
   | 'CREATING_CAMPAIGN'
   | 'CREATING_ADSET'
@@ -52,15 +55,25 @@ export type MetaPublishStep = {
 };
 
 export type MetaAdsErrorDetails = {
+  stage?: string | null;
   message: string;
   code?: string | null;
   subcode?: string | null;
   fbtraceId?: string | null;
+  recommendation?: string | null;
 };
 
 export class MetaAdsException extends ServiceUnavailableException {
   constructor(public readonly metaDetails: MetaAdsErrorDetails) {
-    super(metaDetails.fbtraceId ? `${metaDetails.message} fbtrace_id=${metaDetails.fbtraceId}` : metaDetails.message);
+    const parts = [
+      metaDetails.stage ? `Etapa: ${metaDetails.stage}` : null,
+      metaDetails.message,
+      metaDetails.code ? `code=${metaDetails.code}` : null,
+      metaDetails.subcode ? `subcode=${metaDetails.subcode}` : null,
+      metaDetails.fbtraceId ? `fbtrace_id=${metaDetails.fbtraceId}` : null,
+      metaDetails.recommendation ? `Recomendacion: ${metaDetails.recommendation}` : null,
+    ].filter(Boolean);
+    super(parts.join(' · '));
   }
 }
 
@@ -74,7 +87,6 @@ type CreateFlowInput = {
   description?: string | null;
   cta: string;
   destinationUrl?: string | null;
-  whatsappPhone?: string | null;
   mediaUrl: string;
   mediaMimeType?: string | null;
   mediaFileName?: string | null;
@@ -85,10 +97,12 @@ type CreateFlowInput = {
 };
 
 type MetaApiError = {
+  stage?: string | null;
   message: string;
   code?: string | null;
   subcode?: string | null;
   fbtraceId?: string | null;
+  recommendation?: string | null;
 };
 
 @Injectable()
@@ -119,6 +133,10 @@ export class MarketingMetaAdsService {
 
   private get igBusinessId() {
     return (process.env.META_INSTAGRAM_BUSINESS_ID ?? '').trim();
+  }
+
+  private get whatsappPhoneNumberId() {
+    return (process.env.META_WHATSAPP_PHONE_NUMBER_ID ?? '').trim();
   }
 
   private get accessToken() {
@@ -163,6 +181,11 @@ export class MarketingMetaAdsService {
         'No se pudo crear la campaña porque falta META_INSTAGRAM_BUSINESS_ID.',
       );
     }
+    if (!this.whatsappPhoneNumberId) {
+      throw new ServiceUnavailableException(
+        'No se pudo crear la campaña porque falta META_WHATSAPP_PHONE_NUMBER_ID.',
+      );
+    }
   }
 
   async debugAdsConfig(): Promise<MetaAdsDebugConfig> {
@@ -192,8 +215,11 @@ export class MarketingMetaAdsService {
 
     await this.emitStep(input, 'VALIDATING_META', 'Validando token Meta', 'RUNNING');
     await this.validateAccessToken();
-    await this.validateAdAccount();
     await this.emitStep(input, 'VALIDATING_META', 'Validando token Meta', 'DONE');
+
+    await this.emitStep(input, 'VALIDATING_AD_ACCOUNT', 'Validando cuenta publicitaria', 'RUNNING');
+    await this.validateAdAccount();
+    await this.emitStep(input, 'VALIDATING_AD_ACCOUNT', 'Validando cuenta publicitaria', 'DONE');
 
     await this.emitStep(input, 'VALIDATING_PAGE', 'Validando pagina Facebook', 'RUNNING');
     await this.validateFacebookPage();
@@ -203,17 +229,30 @@ export class MarketingMetaAdsService {
     await this.validateInstagramBusiness();
     await this.emitStep(input, 'VALIDATING_INSTAGRAM', 'Validando Instagram Business', 'DONE');
 
+    await this.emitStep(input, 'VALIDATING_WHATSAPP', 'Validando WhatsApp FullTech', 'RUNNING');
+    await this.validateWhatsappPhoneNumber();
+    await this.emitStep(input, 'VALIDATING_WHATSAPP', 'Validando WhatsApp FullTech', 'DONE', this.whatsappPhoneNumberId);
+
+    await this.emitStep(input, 'VALIDATING_MEDIA', 'Validando media publica HTTPS', 'RUNNING');
+    await this.validatePublicMediaUrl(input.mediaUrl);
+    await this.emitStep(input, 'VALIDATING_MEDIA', 'Validando media publica HTTPS', 'DONE');
+
     await this.emitStep(input, 'UPLOADING_MEDIA', 'Subiendo media', 'RUNNING');
     const media = await this.uploadCreativeMedia(input);
     await this.emitStep(input, 'UPLOADING_MEDIA', 'Subiendo media', 'DONE', media.mediaType === 'IMAGE' ? media.imageHash : media.videoId);
 
     await this.emitStep(input, 'CREATING_CAMPAIGN', 'Creando campana', 'RUNNING');
-    const campaign = await this.postForm(`/${this.normalizeAccountId()}/campaigns`, {
-      name: input.name,
-      objective: input.objective,
-      status: 'PAUSED',
-      special_ad_categories: '[]',
-    });
+    const campaign = await this.postForm(
+      `/${this.normalizeAccountId()}/campaigns`,
+      {
+        name: input.name,
+        objective: input.objective,
+        status: 'PAUSED',
+        special_ad_categories: '[]',
+      },
+      'Creando Campaign',
+      'Verifica que OUTCOME_MESSAGES este disponible para la cuenta publicitaria y que el token tenga ads_management.',
+    );
 
     const campaignId = `${campaign.id ?? ''}`.trim();
     if (!campaignId) {
@@ -234,6 +273,7 @@ export class MarketingMetaAdsService {
       daily_budget: `${Math.max(1, Math.round(input.dailyBudget * 100))}`,
       promoted_object: JSON.stringify({
         page_id: this.pageId,
+        whatsapp_phone_number: this.whatsappPhoneNumberId,
       }),
       multi_advertiser_opt_out: '1',
     };
@@ -249,15 +289,20 @@ export class MarketingMetaAdsService {
       adsetPayload.end_time = input.endTime.toISOString();
     }
 
-    const adset = await this.postForm(`/${this.normalizeAccountId()}/adsets`, adsetPayload);
+    const adset = await this.postForm(
+      `/${this.normalizeAccountId()}/adsets`,
+      adsetPayload,
+      'Creando AdSet',
+      'Verifica que el WhatsApp Phone Number ID este autorizado para esta cuenta publicitaria y que destination_type=WHATSAPP este disponible.',
+    );
     const adSetId = `${adset.id ?? ''}`.trim();
     if (!adSetId) {
       throw new ServiceUnavailableException('Meta no devolvió adset_id al crear Ad Set.');
     }
     await this.emitStep(input, 'CREATING_ADSET', 'Creando segmentacion', 'DONE', adSetId);
 
-    const finalCta = this.resolveMetaCta(input.cta, input.whatsappPhone, input.destinationUrl);
-    const link = this.resolveDestination(input.destinationUrl, input.whatsappPhone);
+    const finalCta = this.resolveMetaCta(input.cta);
+    const link = this.resolveDestination(input.destinationUrl);
 
     await this.emitStep(input, 'CREATING_CREATIVE', 'Creando anuncio creativo', 'RUNNING');
 
@@ -284,6 +329,7 @@ export class MarketingMetaAdsService {
                   value: {
                     link,
                     app_destination: 'WHATSAPP',
+                    whatsapp_phone_number: this.whatsappPhoneNumberId,
                   },
                 },
               },
@@ -299,6 +345,7 @@ export class MarketingMetaAdsService {
                   value: {
                     link,
                     app_destination: 'WHATSAPP',
+                    whatsapp_phone_number: this.whatsappPhoneNumberId,
                   },
                 },
               },
@@ -306,7 +353,7 @@ export class MarketingMetaAdsService {
       }),
     };
 
-    const creative = await this.postForm(`/${this.normalizeAccountId()}/adcreatives`, creativePayload);
+    const creative = await this.createCreativeWithCtaFallback(creativePayload);
     const creativeId = `${creative.id ?? ''}`.trim();
     if (!creativeId) {
       throw new ServiceUnavailableException('Meta no devolvió creative_id al crear Creative.');
@@ -314,12 +361,17 @@ export class MarketingMetaAdsService {
     await this.emitStep(input, 'CREATING_CREATIVE', 'Creando anuncio creativo', 'DONE', creativeId);
 
     await this.emitStep(input, 'CREATING_AD', 'Creando anuncio', 'RUNNING');
-    const ad = await this.postForm(`/${this.normalizeAccountId()}/ads`, {
-      name: `${input.name} - Ad`,
-      adset_id: adSetId,
-      creative: JSON.stringify({ creative_id: creativeId }),
-      status: 'PAUSED',
-    });
+    const ad = await this.postForm(
+      `/${this.normalizeAccountId()}/ads`,
+      {
+        name: `${input.name} - Ad`,
+        adset_id: adSetId,
+        creative: JSON.stringify({ creative_id: creativeId }),
+        status: 'PAUSED',
+      },
+      'Creando Ad',
+      'Verifica que el AdSet y Creative hayan sido creados correctamente y sigan en estado PAUSED.',
+    );
     const adId = `${ad.id ?? ''}`.trim();
     if (!adId) {
       throw new ServiceUnavailableException('Meta no devolvió ad_id al crear Ad.');
@@ -353,20 +405,58 @@ export class MarketingMetaAdsService {
     if (adId) await this.updateEntityStatus(adId, 'PAUSED');
   }
 
-  private resolveMetaCta(rawCta: string, whatsappPhone?: string | null, destinationUrl?: string | null) {
+  private resolveMetaCta(rawCta: string) {
     const normalized = (rawCta ?? '').trim().toUpperCase();
-    if (normalized === 'WHATSAPP_MESSAGE' && whatsappPhone) return 'WHATSAPP_MESSAGE';
-    if (normalized === 'MESSAGE_PAGE') return 'MESSAGE_PAGE';
-    if (destinationUrl) return 'LEARN_MORE';
-    return whatsappPhone ? 'WHATSAPP_MESSAGE' : 'LEARN_MORE';
+    if (normalized === 'SEND_MESSAGE') return 'SEND_MESSAGE';
+    return 'WHATSAPP_MESSAGE';
   }
 
-  private resolveDestination(destinationUrl?: string | null, whatsappPhone?: string | null) {
+  private resolveDestination(destinationUrl?: string | null) {
     const cleanUrl = `${destinationUrl ?? ''}`.trim();
     if (cleanUrl) return cleanUrl;
-    const phone = `${whatsappPhone ?? ''}`.replace(/[^0-9]/g, '');
-    if (!phone) return 'https://facebook.com';
-    return `https://wa.me/${phone}`;
+    return `https://wa.me/18295344286`;
+  }
+
+  private async createCreativeWithCtaFallback(creativePayload: Record<string, unknown>) {
+    const primaryPayload = this.stringifyPayload(creativePayload);
+    try {
+      return await this.postForm(
+        `/${this.normalizeAccountId()}/adcreatives`,
+        primaryPayload,
+        'Creando Creative',
+        'Verifica que la pagina, Instagram Business y WhatsApp Phone Number ID esten conectados al mismo Business Manager.',
+      );
+    } catch (error) {
+      if (!(error instanceof MetaAdsException)) throw error;
+      const fallbackPayload = this.replaceCreativeCtaType(creativePayload, 'SEND_MESSAGE');
+      return this.postForm(
+        `/${this.normalizeAccountId()}/adcreatives`,
+        this.stringifyPayload(fallbackPayload),
+        'Creando Creative con CTA SEND_MESSAGE',
+        'Meta rechazo WHATSAPP_MESSAGE. Se intento SEND_MESSAGE como CTA permitido para mensajeria.',
+      );
+    }
+  }
+
+  private replaceCreativeCtaType(payload: Record<string, unknown>, ctaType: 'WHATSAPP_MESSAGE' | 'SEND_MESSAGE') {
+    const next = { ...payload };
+    const rawSpec = `${next.object_story_spec ?? '{}'}`;
+    const spec = JSON.parse(rawSpec) as Record<string, unknown>;
+    for (const key of ['link_data', 'video_data']) {
+      const data = spec[key] as Record<string, unknown> | undefined;
+      const cta = data?.call_to_action as Record<string, unknown> | undefined;
+      if (cta) cta.type = ctaType;
+    }
+    next.object_story_spec = JSON.stringify(spec);
+    return next;
+  }
+
+  private stringifyPayload(payload: Record<string, unknown>) {
+    const output: Record<string, string> = {};
+    for (const [key, value] of Object.entries(payload)) {
+      output[key] = typeof value === 'string' ? value : JSON.stringify(value);
+    }
+    return output;
   }
 
   private detectMediaType(input: CreateFlowInput): MetaAdMediaType {
@@ -387,7 +477,7 @@ export class MarketingMetaAdsService {
       const response = await this.postForm(`/${this.normalizeAccountId()}/advideos`, {
         file_url: mediaUrl,
         name: input.mediaFileName || `${input.name} video`,
-      });
+      }, 'Subiendo video', 'Verifica que el video sea publico, HTTPS y compatible con Meta Ads.');
       const videoId = `${response.id ?? ''}`.trim();
       if (!videoId) {
         throw new ServiceUnavailableException('Meta no devolvió video_id al subir el video.');
@@ -398,7 +488,7 @@ export class MarketingMetaAdsService {
     const response = await this.postForm(`/${this.normalizeAccountId()}/adimages`, {
       url: mediaUrl,
       name: input.mediaFileName || `${input.name} image`,
-    });
+    }, 'Subiendo imagen', 'Verifica que la imagen sea publica, HTTPS y accesible sin autenticacion.');
     const images = response.images && typeof response.images === 'object'
       ? response.images as Record<string, Record<string, unknown>>
       : {};
@@ -416,6 +506,13 @@ export class MarketingMetaAdsService {
       if (!inspected.tokenValid) {
         throw new ServiceUnavailableException('El token Meta configurado no es válido.');
       }
+      if (!inspected.scopes.includes('ads_management')) {
+        throw new MetaAdsException({
+          stage: 'Validando token Meta',
+          message: 'El token Meta no tiene el permiso ads_management.',
+          recommendation: 'Genera un token con ads_management para poder crear Campaign, AdSet, Creative y Ad.',
+        });
+      }
       return;
     }
 
@@ -426,7 +523,7 @@ export class MarketingMetaAdsService {
     const response = await fetch(`${this.graphUrl('/me')}?${query.toString()}`);
     if (!response.ok) {
       const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-      throw new MetaAdsException(this.extractMetaError(payload));
+      throw new MetaAdsException(this.extractMetaError(payload, 'Validando token Meta', 'Verifica META_ACCESS_TOKEN y permisos ads_management.'));
     }
   }
 
@@ -438,7 +535,7 @@ export class MarketingMetaAdsService {
     const response = await fetch(`${this.graphUrl(`/${this.normalizeAccountId()}`)}?${query.toString()}`);
     const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
     if (!response.ok) {
-      throw new MetaAdsException(this.extractMetaError(payload));
+      throw new MetaAdsException(this.extractMetaError(payload, 'Validando cuenta publicitaria', 'Verifica META_AD_ACCOUNT_ID y acceso del token a la cuenta publicitaria.'));
     }
   }
 
@@ -450,7 +547,7 @@ export class MarketingMetaAdsService {
     const response = await fetch(`${this.graphUrl(`/${this.pageId}`)}?${query.toString()}`);
     const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
     if (!response.ok) {
-      throw new MetaAdsException(this.extractMetaError(payload));
+      throw new MetaAdsException(this.extractMetaError(payload, 'Validando pagina Facebook', 'Verifica META_FACEBOOK_PAGE_ID y permisos pages_read_engagement/pages_show_list.'));
     }
   }
 
@@ -462,7 +559,43 @@ export class MarketingMetaAdsService {
     const response = await fetch(`${this.graphUrl(`/${this.igBusinessId}`)}?${query.toString()}`);
     const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
     if (!response.ok) {
-      throw new MetaAdsException(this.extractMetaError(payload));
+      throw new MetaAdsException(this.extractMetaError(payload, 'Validando Instagram Business', 'Verifica META_INSTAGRAM_BUSINESS_ID y que este conectado a la pagina.'));
+    }
+  }
+
+  private async validateWhatsappPhoneNumber() {
+    const query = new URLSearchParams({
+      fields: 'id,display_phone_number,verified_name',
+      access_token: this.accessToken,
+    });
+    const response = await fetch(`${this.graphUrl(`/${this.whatsappPhoneNumberId}`)}?${query.toString()}`);
+    const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!response.ok) {
+      throw new MetaAdsException(this.extractMetaError(
+        payload,
+        'Validando WhatsApp Phone Number ID',
+        'Verifica que META_WHATSAPP_PHONE_NUMBER_ID este autorizado para esta cuenta publicitaria y Business Manager.',
+      ));
+    }
+  }
+
+  private async validatePublicMediaUrl(mediaUrl: string) {
+    const cleanUrl = `${mediaUrl ?? ''}`.trim();
+    if (!cleanUrl.startsWith('https://')) {
+      throw new MetaAdsException({
+        stage: 'Validando media publica HTTPS',
+        message: 'La imagen o video debe tener una URL publica HTTPS antes de subirla a Meta Ads.',
+        recommendation: 'Publica el archivo en storage publico HTTPS o configura PUBLIC_BASE_URL/R2 publico.',
+      });
+    }
+
+    const response = await fetch(cleanUrl, { method: 'HEAD' }).catch(() => null);
+    if (!response || !response.ok) {
+      throw new MetaAdsException({
+        stage: 'Validando media publica HTTPS',
+        message: `Meta no podra leer la media porque la URL no responde correctamente: ${cleanUrl}`,
+        recommendation: 'Verifica que la URL sea publica, no requiera login y responda 200 por HTTPS.',
+      });
     }
   }
 
@@ -525,10 +658,15 @@ export class MarketingMetaAdsService {
 
   private async updateEntityStatus(id: string, status: 'ACTIVE' | 'PAUSED') {
     if (!id.trim()) return;
-    await this.postForm(`/${id}`, { status });
+    await this.postForm(`/${id}`, { status }, 'Actualizando estado Meta', 'Verifica que el objeto Meta exista y que el token tenga ads_management.');
   }
 
-  private async postForm(path: string, payload: Record<string, string>): Promise<Record<string, unknown>> {
+  private async postForm(
+    path: string,
+    payload: Record<string, string>,
+    stage?: string,
+    recommendation?: string,
+  ): Promise<Record<string, unknown>> {
     const params = new URLSearchParams();
     for (const [key, value] of Object.entries(payload)) {
       params.set(key, value);
@@ -548,17 +686,19 @@ export class MarketingMetaAdsService {
       return json;
     }
 
-    const details = this.extractMetaError(json);
+    const details = this.extractMetaError(json, stage, recommendation);
     throw new MetaAdsException(details);
   }
 
-  private extractMetaError(payload: Record<string, unknown>): MetaApiError {
+  private extractMetaError(payload: Record<string, unknown>, stage?: string | null, recommendation?: string | null): MetaApiError {
     const errorRaw = (payload?.error ?? {}) as Record<string, unknown>;
     return {
+      stage: stage ?? null,
       message: `${errorRaw.message ?? 'Error al conectar con Meta Ads'}`,
       code: errorRaw.code != null ? `${errorRaw.code}` : null,
       subcode: errorRaw.error_subcode != null ? `${errorRaw.error_subcode}` : null,
       fbtraceId: errorRaw.fbtrace_id != null ? `${errorRaw.fbtrace_id}` : null,
+      recommendation: recommendation ?? null,
     };
   }
 }

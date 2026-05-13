@@ -716,9 +716,6 @@ Devuelve exactamente este JSON:
     if (!(dailyBudget > 0)) {
       throw new BadRequestException('No se pudo crear el Ad Set porque el presupuesto es menor al mínimo.');
     }
-    if (!`${campaign.whatsappPhone ?? ''}`.trim()) {
-      throw new BadRequestException('Selecciona un WhatsApp destino antes de publicar.');
-    }
     const mediaUrl = this.resolveCampaignMediaUrl(campaign);
     if (!mediaUrl) {
       throw new BadRequestException('Selecciona una imagen o video antes de publicar en Meta Ads.');
@@ -755,7 +752,6 @@ Devuelve exactamente este JSON:
         description: campaign.description,
         cta: 'WHATSAPP_MESSAGE',
         destinationUrl: campaign.destinationUrl,
-        whatsappPhone: campaign.whatsappPhone,
         mediaUrl,
         mediaMimeType: campaign.mediaAsset?.mimeType ?? this.inferMime(this.extractName(mediaUrl)),
         mediaFileName: campaign.mediaAsset?.fileName ?? this.extractName(mediaUrl),
@@ -798,6 +794,7 @@ Devuelve exactamente este JSON:
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Error al crear campaña en Meta Ads';
       const metaDetails = error instanceof MetaAdsException ? error.metaDetails : null;
+      const errorStep = this.resolvePublishErrorStep(metaDetails?.stage ?? null);
       await this.prisma.marketingAdCampaign.update({
         where: { id },
         data: {
@@ -808,8 +805,8 @@ Devuelve exactamente este JSON:
           metaErrorSubcode: metaDetails?.subcode ?? null,
           fbtraceId: metaDetails?.fbtraceId ?? null,
           metaPublishProgressJson: this.buildPublishProgress({
-            id: 'PUBLISHING_META',
-            label: 'Publicando en Meta',
+            id: errorStep.id,
+            label: errorStep.label,
             status: 'ERROR',
             detail: message,
             at: new Date().toISOString(),
@@ -1029,8 +1026,11 @@ Devuelve exactamente este JSON:
     const now = new Date().toISOString();
     const steps: MetaPublishStep[] = [
       { id: 'VALIDATING_META', label: 'Validando token Meta', status: 'PENDING', at: now },
+      { id: 'VALIDATING_AD_ACCOUNT', label: 'Validando cuenta publicitaria', status: 'PENDING', at: now },
       { id: 'VALIDATING_PAGE', label: 'Validando pagina Facebook', status: 'PENDING', at: now },
       { id: 'VALIDATING_INSTAGRAM', label: 'Validando Instagram Business', status: 'PENDING', at: now },
+      { id: 'VALIDATING_WHATSAPP', label: 'Validando WhatsApp FullTech', status: 'PENDING', at: now },
+      { id: 'VALIDATING_MEDIA', label: 'Validando media publica HTTPS', status: 'PENDING', at: now },
       { id: 'UPLOADING_MEDIA', label: 'Subiendo media', status: 'PENDING', at: now },
       { id: 'CREATING_CAMPAIGN', label: 'Creando campana', status: 'PENDING', at: now },
       { id: 'CREATING_ADSET', label: 'Creando segmentacion', status: 'PENDING', at: now },
@@ -1040,6 +1040,22 @@ Devuelve exactamente este JSON:
     ];
     if (!activeStep) return steps as unknown as Prisma.InputJsonValue;
     return steps.map((step) => step.id === activeStep.id ? activeStep : step) as unknown as Prisma.InputJsonValue;
+  }
+
+  private resolvePublishErrorStep(stage: string | null) {
+    const normalized = `${stage ?? ''}`.toLowerCase();
+    if (normalized.includes('token')) return { id: 'VALIDATING_META' as const, label: 'Validando token Meta' };
+    if (normalized.includes('cuenta')) return { id: 'VALIDATING_AD_ACCOUNT' as const, label: 'Validando cuenta publicitaria' };
+    if (normalized.includes('pagina')) return { id: 'VALIDATING_PAGE' as const, label: 'Validando pagina Facebook' };
+    if (normalized.includes('instagram')) return { id: 'VALIDATING_INSTAGRAM' as const, label: 'Validando Instagram Business' };
+    if (normalized.includes('whatsapp')) return { id: 'VALIDATING_WHATSAPP' as const, label: 'Validando WhatsApp FullTech' };
+    if (normalized.includes('media')) return { id: 'VALIDATING_MEDIA' as const, label: 'Validando media publica HTTPS' };
+    if (normalized.includes('imagen') || normalized.includes('video')) return { id: 'UPLOADING_MEDIA' as const, label: 'Subiendo media' };
+    if (normalized.includes('campaign')) return { id: 'CREATING_CAMPAIGN' as const, label: 'Creando campana' };
+    if (normalized.includes('adset')) return { id: 'CREATING_ADSET' as const, label: 'Creando segmentacion' };
+    if (normalized.includes('creative')) return { id: 'CREATING_CREATIVE' as const, label: 'Creando anuncio creativo' };
+    if (normalized.includes('ad')) return { id: 'CREATING_AD' as const, label: 'Creando anuncio' };
+    return { id: 'PUBLISHING_META' as const, label: 'Publicando en Meta' };
   }
 
   private async persistPublishStep(id: string, activeStep: MetaPublishStep) {
