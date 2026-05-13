@@ -736,6 +736,7 @@ Devuelve exactamente este JSON:
         metaErrorCode: null,
         metaErrorSubcode: null,
         fbtraceId: null,
+        metaMediaUploadStatus: 'PENDING',
         metaPublishProgressJson: this.buildPublishProgress(null),
         updatedByUserId: userId || null,
       },
@@ -782,6 +783,7 @@ Devuelve exactamente este JSON:
           metaVideoId: ids.videoId,
           metaMediaType: ids.mediaType,
           metaMediaUrl: ids.mediaUrl,
+          metaMediaUploadStatus: 'UPLOADED',
           metaStatus: dto.activateAfterCreate ? 'ACTIVE' : 'PAUSED',
           metaError: null,
           metaErrorCode: null,
@@ -804,6 +806,7 @@ Devuelve exactamente este JSON:
           metaErrorCode: metaDetails?.code ?? null,
           metaErrorSubcode: metaDetails?.subcode ?? null,
           fbtraceId: metaDetails?.fbtraceId ?? null,
+          metaMediaUploadStatus: errorStep.id === 'UPLOADING_MEDIA' ? 'ERROR' : undefined,
           metaPublishProgressJson: this.buildPublishProgress({
             id: errorStep.id,
             label: errorStep.label,
@@ -1079,6 +1082,16 @@ Devuelve exactamente este JSON:
       data: {
         metaPublishProgressJson: updated as unknown as Prisma.InputJsonValue,
         metaStatus: activeStep.status === 'ERROR' ? 'ERROR' : 'PUBLISHING',
+        ...(activeStep.id === 'UPLOADING_MEDIA'
+          ? {
+              metaMediaUploadStatus:
+                activeStep.status === 'DONE'
+                  ? 'UPLOADED'
+                  : activeStep.status === 'ERROR'
+                    ? 'ERROR'
+                    : 'UPLOADING',
+            }
+          : {}),
       },
     });
   }

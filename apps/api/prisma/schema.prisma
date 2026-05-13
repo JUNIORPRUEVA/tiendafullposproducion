@@ -941,6 +941,7 @@ model MarketingAdCampaign {
   metaVideoId           String?                   @map("meta_video_id")
   metaMediaType         String?                   @map("meta_media_type")
   metaMediaUrl          String?                   @db.Text @map("meta_media_url")
+  metaMediaUploadStatus String?                   @map("meta_media_upload_status")
   metaPublishProgressJson Json?                   @map("meta_publish_progress_json")
   metaStatus            String?                   @map("meta_status")
   metaError             String?                   @db.Text @map("meta_error")

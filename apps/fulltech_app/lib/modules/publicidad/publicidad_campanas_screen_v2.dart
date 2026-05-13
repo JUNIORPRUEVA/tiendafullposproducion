@@ -505,6 +505,7 @@ class _PublicidadCampanasScreenV2State
       'Image hash: ${campaign.metaImageHash ?? '-'}',
       'Video ID: ${campaign.metaVideoId ?? '-'}',
       'Media type: ${campaign.metaMediaType ?? '-'}',
+      'Media upload status: ${campaign.metaMediaUploadStatus ?? '-'}',
       'Media URL: ${campaign.metaMediaUrl ?? '-'}',
       'Error: ${campaign.metaError ?? '-'}',
       'Code: ${campaign.metaErrorCode ?? '-'}',
@@ -1452,6 +1453,8 @@ class _PublicidadCampanasScreenV2State
             label: Text(
               _busyAction
                   ? 'Publicando en Meta Ads...'
+                  : campaign.status == MarketingCampaignStatus.error
+                  ? 'Reintentar campaña en Meta'
                   : 'Crear campaña en Meta',
             ),
           ),

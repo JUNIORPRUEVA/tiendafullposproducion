@@ -2,6 +2,7 @@ import {
   Injectable,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import sharp from 'sharp';
 
 export type MetaAdsDebugConfig = {
   hasAppId: boolean;
@@ -103,6 +104,16 @@ type MetaApiError = {
   subcode?: string | null;
   fbtraceId?: string | null;
   recommendation?: string | null;
+};
+
+type PreparedAdImage = {
+  buffer: Buffer;
+  fileName: string;
+  mimeType: 'image/jpeg' | 'image/png';
+  width: number;
+  height: number;
+  sizeBytes: number;
+  normalized: boolean;
 };
 
 @Injectable()
@@ -485,10 +496,20 @@ export class MarketingMetaAdsService {
       return { mediaType, imageHash: null, videoId, mediaUrl };
     }
 
-    const response = await this.postForm(`/${this.normalizeAccountId()}/adimages`, {
-      url: mediaUrl,
-      name: input.mediaFileName || `${input.name} image`,
-    }, 'Subiendo imagen', 'Verifica que la imagen sea publica, HTTPS y accesible sin autenticacion.');
+    const prepared = await this.downloadAndPrepareAdImage(input);
+    const response = await this.postMultipart(
+      `/${this.normalizeAccountId()}/adimages`,
+      {
+        name: input.mediaFileName || prepared.fileName,
+        filename: {
+          buffer: prepared.buffer,
+          fileName: prepared.fileName,
+          mimeType: prepared.mimeType,
+        },
+      },
+      'Subiendo imagen',
+      'La imagen se descarga desde backend, se normaliza a JPEG/PNG valido y se sube como Ad Image al Ad Account.',
+    );
     const images = response.images && typeof response.images === 'object'
       ? response.images as Record<string, Record<string, unknown>>
       : {};
@@ -498,6 +519,97 @@ export class MarketingMetaAdsService {
       throw new ServiceUnavailableException('Meta no devolvió image_hash al subir la imagen.');
     }
     return { mediaType, imageHash, videoId: null, mediaUrl };
+  }
+
+  private async downloadAndPrepareAdImage(input: CreateFlowInput): Promise<PreparedAdImage> {
+    const mediaUrl = `${input.mediaUrl ?? ''}`.trim();
+    const response = await fetch(mediaUrl, {
+      method: 'GET',
+      headers: { Accept: 'image/jpeg,image/png,image/webp,image/*;q=0.8,*/*;q=0.5' },
+    }).catch(() => null);
+
+    if (!response || !response.ok) {
+      throw new MetaAdsException({
+        stage: 'Subiendo imagen',
+        message: `No se pudo descargar la imagen seleccionada desde backend: ${mediaUrl}`,
+        recommendation: 'Verifica que la URL sea HTTPS publica, responda 200 y no requiera autenticacion.',
+      });
+    }
+
+    const contentType = `${response.headers.get('content-type') ?? ''}`.toLowerCase();
+    if (!contentType.includes('image/')) {
+      throw new MetaAdsException({
+        stage: 'Subiendo imagen',
+        message: `La URL seleccionada no devolvio una imagen valida. content-type=${contentType || 'desconocido'}`,
+        recommendation: 'Selecciona una imagen publica JPEG o PNG desde la galeria de campanas.',
+      });
+    }
+
+    const rawBuffer = Buffer.from(await response.arrayBuffer());
+    if (rawBuffer.length <= 0) {
+      throw new MetaAdsException({
+        stage: 'Subiendo imagen',
+        message: 'La imagen descargada esta vacia.',
+        recommendation: 'Vuelve a publicar el diseño o selecciona otra imagen de la galeria.',
+      });
+    }
+    if (rawBuffer.length > 30 * 1024 * 1024) {
+      throw new MetaAdsException({
+        stage: 'Subiendo imagen',
+        message: `La imagen pesa demasiado para subirla a Meta Ads (${Math.round(rawBuffer.length / 1024 / 1024)} MB).`,
+        recommendation: 'Usa una imagen menor de 30 MB o vuelve a exportarla desde el modulo de publicidad.',
+      });
+    }
+
+    let metadata: sharp.Metadata;
+    try {
+      metadata = await sharp(rawBuffer).metadata();
+    } catch {
+      throw new MetaAdsException({
+        stage: 'Subiendo imagen',
+        message: 'La imagen descargada no pudo ser leida como JPEG/PNG valido.',
+        recommendation: 'Selecciona otra imagen o regenera el diseño antes de publicar la campana.',
+      });
+    }
+
+    const width = metadata.width ?? 0;
+    const height = metadata.height ?? 0;
+    if (width < 100 || height < 100) {
+      throw new MetaAdsException({
+        stage: 'Subiendo imagen',
+        message: `La imagen tiene dimensiones invalidas para Meta Ads (${width}x${height}).`,
+        recommendation: 'Usa una imagen de al menos 1080x1080 o vuelve a generar el diseno.',
+      });
+    }
+
+    const isAlreadyJpegOrPng = metadata.format === 'jpeg' || metadata.format === 'png';
+    const shouldNormalize = !isAlreadyJpegOrPng || width > 1080 || height > 1350 || metadata.space !== 'srgb';
+    const normalizedBuffer = shouldNormalize
+      ? await sharp(rawBuffer)
+          .rotate()
+          .resize({ width: 1080, height: 1350, fit: 'inside', withoutEnlargement: false })
+          .flatten({ background: '#ffffff' })
+          .toColorspace('srgb')
+          .jpeg({ quality: 88, mozjpeg: true })
+          .toBuffer()
+      : rawBuffer;
+
+    const finalMetadata = await sharp(normalizedBuffer).metadata();
+    return {
+      buffer: normalizedBuffer,
+      fileName: this.normalizeAdImageFileName(input.mediaFileName),
+      mimeType: 'image/jpeg',
+      width: finalMetadata.width ?? width,
+      height: finalMetadata.height ?? height,
+      sizeBytes: normalizedBuffer.length,
+      normalized: shouldNormalize,
+    };
+  }
+
+  private normalizeAdImageFileName(raw?: string | null) {
+    const clean = `${raw ?? ''}`.trim().replace(/[^a-zA-Z0-9._-]/g, '-');
+    const base = clean.replace(/\.(jpeg|jpg|png|webp)$/i, '') || 'fulltech-campaign-image';
+    return `${base}.jpg`;
   }
 
   private async validateAccessToken() {
@@ -589,12 +701,13 @@ export class MarketingMetaAdsService {
       });
     }
 
-    const response = await fetch(cleanUrl, { method: 'HEAD' }).catch(() => null);
-    if (!response || !response.ok) {
+    try {
+      new URL(cleanUrl);
+    } catch {
       throw new MetaAdsException({
         stage: 'Validando media publica HTTPS',
-        message: `Meta no podra leer la media porque la URL no responde correctamente: ${cleanUrl}`,
-        recommendation: 'Verifica que la URL sea publica, no requiera login y responda 200 por HTTPS.',
+        message: `La URL de media no es valida: ${cleanUrl}`,
+        recommendation: 'Selecciona una imagen publicada con URL HTTPS valida.',
       });
     }
   }
@@ -679,6 +792,40 @@ export class MarketingMetaAdsService {
         'Content-Type': 'application/x-www-form-urlencoded',
       },
       body: params.toString(),
+    });
+
+    const json = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    if (response.ok) {
+      return json;
+    }
+
+    const details = this.extractMetaError(json, stage, recommendation);
+    throw new MetaAdsException(details);
+  }
+
+  private async postMultipart(
+    path: string,
+    payload: Record<string, string | { buffer: Buffer; fileName: string; mimeType: string }>,
+    stage?: string,
+    recommendation?: string,
+  ): Promise<Record<string, unknown>> {
+    const form = new FormData();
+    for (const [key, value] of Object.entries(payload)) {
+      if (typeof value === 'string') {
+        form.set(key, value);
+      } else {
+        form.set(
+          key,
+          new Blob([new Uint8Array(value.buffer)], { type: value.mimeType }),
+          value.fileName,
+        );
+      }
+    }
+    form.set('access_token', this.accessToken);
+
+    const response = await fetch(this.graphUrl(path), {
+      method: 'POST',
+      body: form,
     });
 
     const json = (await response.json().catch(() => ({}))) as Record<string, unknown>;

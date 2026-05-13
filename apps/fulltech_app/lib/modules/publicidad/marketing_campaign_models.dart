@@ -133,6 +133,7 @@ class MarketingCampaign {
     required this.metaVideoId,
     required this.metaMediaType,
     required this.metaMediaUrl,
+    required this.metaMediaUploadStatus,
     required this.metaPublishProgress,
     required this.metaStatus,
     required this.metaError,
@@ -174,6 +175,7 @@ class MarketingCampaign {
   final String? metaVideoId;
   final String? metaMediaType;
   final String? metaMediaUrl;
+  final String? metaMediaUploadStatus;
   final List<Map<String, dynamic>> metaPublishProgress;
   final String? metaStatus;
   final String? metaError;
@@ -268,6 +270,10 @@ class MarketingCampaign {
       metaMediaUrl: '${json['metaMediaUrl'] ?? ''}'.trim().isEmpty
           ? null
           : '${json['metaMediaUrl']}',
+      metaMediaUploadStatus:
+          '${json['metaMediaUploadStatus'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${json['metaMediaUploadStatus']}',
       metaPublishProgress: json['metaPublishProgressJson'] is List
           ? (json['metaPublishProgressJson'] as List)
                 .whereType<Map>()
