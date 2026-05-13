@@ -358,6 +358,24 @@ class _PublicidadCampanasScreenV2State
     });
   }
 
+  Future<void> _regenerateCopyOnly() async {
+    final campaign = _selectedCampaign;
+    if (campaign == null) return;
+
+    setState(() {
+      _copyByCampaignId[campaign.id] = _CampaignCopy.generating();
+    });
+
+    await _runAction('Copy regenerado', () async {
+      final generated = await ref
+          .read(marketingApiProvider)
+          .regenerateCampaignCopy(campaign.id);
+      if (mounted) {
+        setState(() => _upsertCampaign(generated));
+      }
+    });
+  }
+
   void _scheduleAutosave() {
     final campaign = _selectedCampaign;
     if (campaign == null) return;
@@ -1031,6 +1049,11 @@ class _PublicidadCampanasScreenV2State
             ],
           ),
         );
+        final regenerateButton = OutlinedButton.icon(
+          onPressed: _busyAction ? null : _regenerateCopyOnly,
+          icon: const Icon(Icons.refresh_rounded, size: 16),
+          label: const Text('Regenerar copy'),
+        );
         Widget copyField({
           required String label,
           required String value,
@@ -1127,6 +1150,8 @@ class _PublicidadCampanasScreenV2State
                         copyText,
                       ],
                     ),
+                    const SizedBox(height: 10),
+                    regenerateButton,
                     const SizedBox(height: 12),
                     copyDetails,
                   ],
@@ -1139,6 +1164,8 @@ class _PublicidadCampanasScreenV2State
                         statusIcon,
                         const SizedBox(width: 10),
                         copyText,
+                        const SizedBox(width: 10),
+                        regenerateButton,
                       ],
                     ),
                     const SizedBox(height: 12),

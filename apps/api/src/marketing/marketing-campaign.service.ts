@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -20,9 +21,18 @@ import { MarketingMediaAssetService } from './marketing-media-asset.service';
 import { MarketingMetaAdsService } from './marketing-meta-ads.service';
 import { MarketingStorageService } from './marketing-storage.service';
 
+type CampaignVisionCopy = {
+  detectedProduct: string;
+  headline: string;
+  primaryText: string;
+  description: string;
+  hashtags: string[];
+};
+
 @Injectable()
 export class MarketingCampaignService {
   private static readonly WHATSAPP_MESSAGES_OBJECTIVE = 'OUTCOME_ENGAGEMENT';
+  private readonly logger = new Logger(MarketingCampaignService.name);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -244,25 +254,49 @@ export class MarketingCampaignService {
     ]);
     const angle = researchAngle || 'Seguridad práctica y resultados reales.';
     const locationLabel = `${audience['city'] ?? 'Higuey'}, ${audience['region'] ?? 'La Altagracia'}`;
+    const imageUrl = `${campaign.finalDesignUrl ?? campaign.baseImageUrl ?? ''}`.trim();
+    const visionCopy = await this.generateCampaignVisionCopy({
+      imageUrl,
+      mediaCategory,
+      mediaDescription,
+      mediaFileName,
+      mediaTags,
+      researchAngle: angle,
+      locationLabel,
+    });
     const commercialIntent = this.detectCommercialIntent(
+      visionCopy?.detectedProduct || mediaCategory,
+      visionCopy?.description || mediaDescription,
+      visionCopy?.hashtags?.length ? visionCopy.hashtags : mediaTags,
+      angle,
+    );
+    const fallbackCommercialIntent = this.detectCommercialIntent(
       mediaCategory,
       mediaDescription,
       mediaTags,
       angle,
     );
     const salesStrategy = this.buildCampaignSalesStrategy(commercialIntent, angle, locationLabel);
-    const headline = this.buildCampaignHeadline(mediaCategory, commercialIntent, `${audience['city'] ?? 'Higuey'}`);
-    const primaryText = this.buildCampaignPrimaryText({
+    const fallbackHeadline = this.buildCampaignHeadline(mediaCategory, fallbackCommercialIntent, `${audience['city'] ?? 'Higuey'}`);
+    const fallbackPrimaryText = this.buildCampaignPrimaryText({
       category: mediaCategory,
-      commercialIntent,
+      commercialIntent: fallbackCommercialIntent,
       angle,
       salesStrategy,
       locationLabel,
       mediaDescription,
       mediaFileName,
     });
-    const description = this.buildCampaignDescription(mediaCategory, commercialIntent, locationLabel, salesStrategy);
-    const hashtags = this.buildCampaignHashtags(mediaCategory, `${audience['city'] ?? 'Higuey'}`, mediaTags);
+    const fallbackDescription = this.buildCampaignDescription(mediaCategory, fallbackCommercialIntent, locationLabel, salesStrategy);
+    const headline = visionCopy?.headline || fallbackHeadline;
+    const primaryText = visionCopy?.primaryText || fallbackPrimaryText;
+    const description = visionCopy?.description || fallbackDescription;
+    const hashtags = visionCopy?.hashtags?.length
+      ? this.normalizeHashtags(visionCopy.hashtags)
+      : this.buildCampaignHashtags(mediaCategory, `${audience['city'] ?? 'Higuey'}`, mediaTags);
+    const aiAngle = visionCopy?.detectedProduct
+      ? `${angle} Producto detectado en imagen: ${visionCopy.detectedProduct}`
+      : angle;
 
     return this.prisma.marketingAdCampaign.update({
       where: { id },
@@ -272,7 +306,7 @@ export class MarketingCampaignService {
         description,
         cta: 'WHATSAPP_MESSAGE',
         hashtags,
-        aiAngle: angle,
+        aiAngle,
         recommendedAudienceJson: audience as Prisma.InputJsonValue,
         phase: MarketingCampaignPhase.PUBLISH,
         status: MarketingCampaignStatus.READY,
@@ -294,6 +328,145 @@ export class MarketingCampaignService {
     return value
       .map((item) => `${item ?? ''}`.trim())
       .filter((item) => item.length > 0);
+  }
+
+  private async generateCampaignVisionCopy(input: {
+    imageUrl: string;
+    mediaCategory: string;
+    mediaDescription: string;
+    mediaFileName: string;
+    mediaTags: string[];
+    researchAngle: string;
+    locationLabel: string;
+  }): Promise<CampaignVisionCopy | null> {
+    if (!input.imageUrl) return null;
+
+    const envKey = (process.env.OPENAI_API_KEY ?? '').trim();
+    let apiKey = envKey;
+    let model = (process.env.OPENAI_MODEL ?? '').trim() || 'gpt-4o';
+    let companyName = 'FULLTECH';
+
+    if (!apiKey) {
+      try {
+        const appConfig = await this.prisma.appConfig.findUnique({
+          where: { id: 'global' },
+          select: { openAiApiKey: true, openAiModel: true, companyName: true },
+        });
+        apiKey = (appConfig?.openAiApiKey ?? '').trim();
+        model = (appConfig?.openAiModel ?? '').trim() || model;
+        companyName = (appConfig?.companyName ?? '').trim() || companyName;
+      } catch (error) {
+        this.logger.warn(
+          `[campaign-vision-copy] No se pudo leer appConfig: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+
+    if (!apiKey) {
+      this.logger.warn('[campaign-vision-copy] No OpenAI API key configured; using metadata fallback.');
+      return null;
+    }
+
+    const systemPrompt = `Eres un estratega senior de Meta Ads para ${companyName} en Higüey, República Dominicana. Analizas la imagen REAL seleccionada para una campaña de WhatsApp Messages y generas copy de venta SOLO para el producto o servicio que se ve en la imagen. Nunca uses un producto distinto al detectado visualmente. Responde solo JSON válido.`;
+    const userPrompt = `Analiza esta imagen seleccionada para la campaña: ${input.imageUrl}
+
+Contexto de investigación: ${input.researchAngle}
+Zona objetivo: ${input.locationLabel}
+Metadata disponible, solo como apoyo si coincide con la imagen:
+- categoría: ${input.mediaCategory}
+- descripción: ${input.mediaDescription}
+- archivo: ${input.mediaFileName}
+- tags: ${input.mediaTags.join(', ')}
+
+Genera copy profesional de venta para WhatsApp Messages. Debe ser llamativo, local, orientado a vender, con oferta/urgencia natural y CTA de mensaje. Si visualmente ves cámaras, habla de cámaras; si ves motor de portón, habla de motor; si ves alarma, habla de alarma.
+
+Devuelve exactamente este JSON:
+{
+  "detectedProduct": "producto o servicio visualmente detectado",
+  "headline": "titular vendedor de máximo 75 caracteres",
+  "primaryText": "texto principal de 2 a 3 frases para vender por WhatsApp, acorde a la imagen y la investigación",
+  "description": "descripción corta de máximo 120 caracteres",
+  "hashtags": ["#hashtag1", "#hashtag2", "#hashtag3", "#hashtag4"]
+}`;
+
+    const modelCandidates = [model, 'gpt-4o', 'gpt-4o-mini'].filter((value, index, values) => values.indexOf(value) === index);
+    for (const candidate of modelCandidates) {
+      try {
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: candidate,
+            temperature: 0.35,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              {
+                role: 'user',
+                content: [
+                  { type: 'image_url', image_url: { url: input.imageUrl, detail: 'high' } },
+                  { type: 'text', text: userPrompt },
+                ],
+              },
+            ],
+          }),
+        });
+
+        if (!response.ok) {
+          this.logger.warn(`[campaign-vision-copy] OpenAI HTTP ${response.status} with model ${candidate}`);
+          continue;
+        }
+
+        const payload = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
+        const raw = payload.choices?.[0]?.message?.content?.trim() ?? '';
+        const jsonMatch = raw.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) {
+          this.logger.warn(`[campaign-vision-copy] OpenAI response without JSON using ${candidate}`);
+          continue;
+        }
+
+        const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
+        const generated: CampaignVisionCopy = {
+          detectedProduct: this.cleanVisionString(parsed.detectedProduct),
+          headline: this.cleanVisionString(parsed.headline).substring(0, 90),
+          primaryText: this.cleanVisionString(parsed.primaryText),
+          description: this.cleanVisionString(parsed.description).substring(0, 140),
+          hashtags: Array.isArray(parsed.hashtags)
+            ? this.normalizeHashtags(parsed.hashtags.map((item) => `${item ?? ''}`))
+            : [],
+        };
+
+        if (generated.detectedProduct && generated.headline && generated.primaryText && generated.description) {
+          this.logger.log(
+            `[campaign-vision-copy] Copy generado desde imagen. Producto detectado: ${generated.detectedProduct}. Modelo: ${candidate}`,
+          );
+          return generated;
+        }
+      } catch (error) {
+        this.logger.warn(
+          `[campaign-vision-copy] Error con modelo ${candidate}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+
+    return null;
+  }
+
+  private cleanVisionString(value: unknown) {
+    return `${value ?? ''}`.replace(/\s+/g, ' ').trim();
+  }
+
+  private normalizeHashtags(values: string[]) {
+    return Array.from(
+      new Set(
+        values
+          .map((item) => `${item ?? ''}`.trim())
+          .filter((item) => item.length > 0)
+          .map((item) => (item.startsWith('#') ? item : `#${item}`)),
+      ),
+    ).slice(0, 6);
   }
 
   private detectCommercialIntent(
