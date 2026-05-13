@@ -26,7 +26,6 @@ import '../../modules/clientes/clientes_map_screen.dart';
 import '../../modules/clientes/cliente_form_screen.dart';
 import '../../modules/nomina/nomina_screen.dart';
 import '../../modules/publicidad/publicidad_hub_screen.dart';
-import '../../modules/publicidad/publicidad_campanas_screen.dart';
 import '../../modules/publicidad/publicidad_campanas_screen_v2.dart';
 import '../../modules/publicidad/publicidad_placeholder_screens.dart';
 import '../../modules/publicidad/publicidad_screen.dart';

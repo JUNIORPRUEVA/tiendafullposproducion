@@ -23,6 +23,9 @@ import { MarketingStorageService } from './marketing-storage.service';
 
 type CampaignVisionCopy = {
   detectedProduct: string;
+  visualCategory: string;
+  visibleElements: string[];
+  commercialIntent: string;
   headline: string;
   primaryText: string;
   description: string;
@@ -264,39 +267,42 @@ export class MarketingCampaignService {
       researchAngle: angle,
       locationLabel,
     });
-    const commercialIntent = this.detectCommercialIntent(
-      visionCopy?.detectedProduct || mediaCategory,
-      visionCopy?.description || mediaDescription,
-      visionCopy?.hashtags?.length ? visionCopy.hashtags : mediaTags,
-      angle,
-    );
-    const fallbackCommercialIntent = this.detectCommercialIntent(
-      mediaCategory,
-      mediaDescription,
-      mediaTags,
-      angle,
-    );
+
+    const commercialIntent = visionCopy?.commercialIntent || 'presentar el producto mostrado y generar conversaciones por WhatsApp';
+    const visualContext = visionCopy
+      ? [visionCopy.detectedProduct, visionCopy.visualCategory, ...visionCopy.visibleElements].filter((item) => item.trim().length > 0).join(' · ')
+      : 'producto mostrado en la imagen seleccionada';
     const salesStrategy = this.buildCampaignSalesStrategy(commercialIntent, angle, locationLabel);
-    const fallbackHeadline = this.buildCampaignHeadline(mediaCategory, fallbackCommercialIntent, `${audience['city'] ?? 'Higuey'}`);
+    const copyCategory = visionCopy?.detectedProduct || 'producto mostrado en la imagen';
+    const fallbackHeadline = this.buildCampaignHeadline(
+      copyCategory,
+      commercialIntent,
+      `${audience['city'] ?? 'Higuey'}`,
+    );
     const fallbackPrimaryText = this.buildCampaignPrimaryText({
-      category: mediaCategory,
-      commercialIntent: fallbackCommercialIntent,
+      category: copyCategory,
+      commercialIntent,
       angle,
       salesStrategy,
       locationLabel,
-      mediaDescription,
-      mediaFileName,
+      mediaDescription: copyCategory,
+      mediaFileName: visualContext || mediaFileName,
     });
-    const fallbackDescription = this.buildCampaignDescription(mediaCategory, fallbackCommercialIntent, locationLabel, salesStrategy);
+    const fallbackDescription = this.buildCampaignDescription(
+      copyCategory,
+      commercialIntent,
+      locationLabel,
+      salesStrategy,
+    );
     const headline = visionCopy?.headline || fallbackHeadline;
     const primaryText = visionCopy?.primaryText || fallbackPrimaryText;
     const description = visionCopy?.description || fallbackDescription;
     const hashtags = visionCopy?.hashtags?.length
       ? this.normalizeHashtags(visionCopy.hashtags)
-      : this.buildCampaignHashtags(mediaCategory, `${audience['city'] ?? 'Higuey'}`, mediaTags);
-    const aiAngle = visionCopy?.detectedProduct
-      ? `${angle} Producto detectado en imagen: ${visionCopy.detectedProduct}`
-      : angle;
+      : this.buildCampaignHashtags('Publicidad WhatsApp', `${audience['city'] ?? 'Higuey'}`, ['Fulltech', 'Oferta']);
+    const aiAngle = visionCopy
+      ? `${angle} Producto detectado en imagen: ${visionCopy.detectedProduct}. Categoria visual: ${visionCopy.visualCategory}. Elementos visibles: ${visionCopy.visibleElements.join(', ')}`
+      : `${angle} Pendiente de analisis visual: copy generico para evitar mezcla de productos.`;
 
     return this.prisma.marketingAdCampaign.update({
       where: { id },
@@ -367,7 +373,7 @@ export class MarketingCampaignService {
       return null;
     }
 
-    const systemPrompt = `Eres un estratega senior de Meta Ads para ${companyName} en Higüey, República Dominicana. Analizas la imagen REAL seleccionada para una campaña de WhatsApp Messages y generas copy de venta SOLO para el producto o servicio que se ve en la imagen. Nunca uses un producto distinto al detectado visualmente. Responde solo JSON válido.`;
+    const systemPrompt = `Eres un estratega senior de Meta Ads para ${companyName} en Higüey, República Dominicana. Tu regla absoluta: LA IMAGEN ES LA PRIORIDAD #1. Primero analizas visualmente la imagen real seleccionada, identificas el producto principal, categoria, elementos visibles e intencion comercial. Luego generas copy SOLO para ese producto visual. La investigacion y metadata son complemento, nunca pueden cambiar el producto detectado. Si la imagen muestra camaras/CCTV/DVR/seguridad, el copy debe hablar de seguridad, vigilancia, monitoreo, proteccion e instalacion de camaras. Si muestra motor de porton, habla de automatizacion de portones. Nunca mezcles productos. Responde solo JSON válido.`;
     const userPrompt = `Analiza esta imagen seleccionada para la campaña: ${input.imageUrl}
 
 Contexto de investigación: ${input.researchAngle}
@@ -380,9 +386,14 @@ Metadata disponible, solo como apoyo si coincide con la imagen:
 
 Genera copy profesional de venta para WhatsApp Messages. Debe ser llamativo, local, orientado a vender, con oferta/urgencia natural y CTA de mensaje. Si visualmente ves cámaras, habla de cámaras; si ves motor de portón, habla de motor; si ves alarma, habla de alarma.
 
+Validacion obligatoria antes de responder: confirma internamente que headline, primaryText, description y hashtags coinciden con detectedProduct, visualCategory y visibleElements. Si no coinciden, corrige el copy antes de devolver JSON.
+
 Devuelve exactamente este JSON:
 {
   "detectedProduct": "producto o servicio visualmente detectado",
+  "visualCategory": "categoria visual principal detectada",
+  "visibleElements": ["elemento visible 1", "elemento visible 2"],
+  "commercialIntent": "intencion comercial basada en la imagen",
   "headline": "titular vendedor de máximo 75 caracteres",
   "primaryText": "texto principal de 2 a 3 frases para vender por WhatsApp, acorde a la imagen y la investigación",
   "description": "descripción corta de máximo 120 caracteres",
@@ -401,6 +412,7 @@ Devuelve exactamente este JSON:
           body: JSON.stringify({
             model: candidate,
             temperature: 0.35,
+            response_format: { type: 'json_object' },
             messages: [
               { role: 'system', content: systemPrompt },
               {
@@ -430,6 +442,11 @@ Devuelve exactamente este JSON:
         const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
         const generated: CampaignVisionCopy = {
           detectedProduct: this.cleanVisionString(parsed.detectedProduct),
+          visualCategory: this.cleanVisionString(parsed.visualCategory),
+          visibleElements: Array.isArray(parsed.visibleElements)
+            ? parsed.visibleElements.map((item) => this.cleanVisionString(item)).filter((item) => item.length > 0)
+            : [],
+          commercialIntent: this.cleanVisionString(parsed.commercialIntent),
           headline: this.cleanVisionString(parsed.headline).substring(0, 90),
           primaryText: this.cleanVisionString(parsed.primaryText),
           description: this.cleanVisionString(parsed.description).substring(0, 140),
@@ -438,12 +455,22 @@ Devuelve exactamente este JSON:
             : [],
         };
 
-        if (generated.detectedProduct && generated.headline && generated.primaryText && generated.description) {
+        if (
+          generated.detectedProduct &&
+          generated.headline &&
+          generated.primaryText &&
+          generated.description &&
+          this.copyMatchesDetectedProduct(generated)
+        ) {
           this.logger.log(
             `[campaign-vision-copy] Copy generado desde imagen. Producto detectado: ${generated.detectedProduct}. Modelo: ${candidate}`,
           );
           return generated;
         }
+
+        this.logger.warn(
+          `[campaign-vision-copy] Copy rechazado por no coincidir con imagen. Producto detectado: ${generated.detectedProduct || 'desconocido'}. Modelo: ${candidate}`,
+        );
       } catch (error) {
         this.logger.warn(
           `[campaign-vision-copy] Error con modelo ${candidate}: ${error instanceof Error ? error.message : String(error)}`,
@@ -467,6 +494,73 @@ Devuelve exactamente este JSON:
           .map((item) => (item.startsWith('#') ? item : `#${item}`)),
       ),
     ).slice(0, 6);
+  }
+
+  private copyMatchesDetectedProduct(copy: CampaignVisionCopy) {
+    const detectedFamily = this.detectVisualProductFamily([
+      copy.detectedProduct,
+      copy.visualCategory,
+      copy.commercialIntent,
+      ...copy.visibleElements,
+    ].join(' '));
+    if (detectedFamily === 'unknown') return true;
+
+    const copyFamily = this.detectVisualProductFamily([
+      copy.headline,
+      copy.primaryText,
+      copy.description,
+      ...copy.hashtags,
+    ].join(' '));
+    return copyFamily === detectedFamily;
+  }
+
+  private detectVisualProductFamily(value: string) {
+    const source = this.normalizeForMatching(value);
+    const families = [
+      {
+        family: 'security-camera',
+        keywords: [
+          'camara',
+          'camaras',
+          'cctv',
+          'dvr',
+          'nvr',
+          'hikvision',
+          'vigilancia',
+          'monitoreo',
+          'seguridad',
+          'proteccion',
+        ],
+      },
+      {
+        family: 'gate-motor',
+        keywords: ['motor', 'porton', 'portones', 'entrada automatica', 'automatizacion de acceso'],
+      },
+      {
+        family: 'alarm',
+        keywords: ['alarma', 'sensor', 'sirena', 'intrusion', 'alerta'],
+      },
+      {
+        family: 'network',
+        keywords: ['wifi', 'internet', 'red', 'router', 'conectividad', 'cableado'],
+      },
+      {
+        family: 'access-control',
+        keywords: ['control de acceso', 'intercom', 'intercomunicador', 'biometrico', 'cerradura'],
+      },
+    ];
+
+    for (const item of families) {
+      if (item.keywords.some((keyword) => source.includes(keyword))) return item.family;
+    }
+    return 'unknown';
+  }
+
+  private normalizeForMatching(value: string) {
+    return `${value ?? ''}`
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
   }
 
   private detectCommercialIntent(

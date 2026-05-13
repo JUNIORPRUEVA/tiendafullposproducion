@@ -1,4 +1,6 @@
-﻿import 'dart:async';
+﻿// ignore_for_file: unused_element, unused_element_parameter
+
+import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as developer;
 
@@ -2216,8 +2218,10 @@ class _DailyStoriesTabState extends State<_DailyStoriesTab> {
                             : (ctx) async {
                                 final uploadedUrl =
                                     await widget.onUploadDesignImage!(ctx);
-                                if (uploadedUrl == null || uploadedUrl.isEmpty)
+                                if (uploadedUrl == null ||
+                                    uploadedUrl.isEmpty) {
                                   return;
+                                }
                                 // Save imageUrl to story
                                 await widget.onEdit(
                                   story,

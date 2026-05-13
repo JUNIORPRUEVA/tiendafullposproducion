@@ -1,3 +1,5 @@
+// ignore_for_file: unused_element
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -46,7 +48,8 @@ class CustomAppBar extends ConsumerWidget implements PreferredSizeWidget {
   });
 
   double get _resolvedToolbarHeight =>
-      toolbarHeight ?? ((showLogo || showDepartmentLabel) ? 70 : kToolbarHeight);
+      toolbarHeight ??
+      ((showLogo || showDepartmentLabel) ? 70 : kToolbarHeight);
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -100,7 +103,8 @@ class CustomAppBar extends ConsumerWidget implements PreferredSizeWidget {
               )
             : null);
 
-    final resolvedTitle = titleWidget ??
+    final resolvedTitle =
+        titleWidget ??
         (!(showLogo || showDepartmentLabel)
             ? Text(title, overflow: TextOverflow.ellipsis)
             : Row(
@@ -121,7 +125,10 @@ class CustomAppBar extends ConsumerWidget implements PreferredSizeWidget {
                         'assets/logoprincipal.png',
                         fit: BoxFit.contain,
                         errorBuilder: (context, error, stackTrace) {
-                          return const Icon(Icons.business, color: Colors.white);
+                          return const Icon(
+                            Icons.business,
+                            color: Colors.white,
+                          );
                         },
                       ),
                     ),
@@ -222,7 +229,9 @@ class CustomAppBar extends ConsumerWidget implements PreferredSizeWidget {
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.13),
                   borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.24)),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.24),
+                  ),
                   boxShadow: [
                     BoxShadow(
                       color: Colors.black.withValues(alpha: 0.12),
@@ -240,7 +249,10 @@ class CustomAppBar extends ConsumerWidget implements PreferredSizeWidget {
                       opacity: animation,
                       child: ScaleTransition(
                         scale: Tween<double>(begin: 0.94, end: 1).animate(
-                          CurvedAnimation(parent: animation, curve: Curves.easeOutBack),
+                          CurvedAnimation(
+                            parent: animation,
+                            curve: Curves.easeOutBack,
+                          ),
                         ),
                         child: child,
                       ),
@@ -315,9 +327,7 @@ class _PendingWarningsAction extends StatelessWidget {
               decoration: BoxDecoration(
                 color: Colors.white.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(999),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.20),
-                ),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.20)),
               ),
               child: const Icon(
                 Icons.notification_important_outlined,

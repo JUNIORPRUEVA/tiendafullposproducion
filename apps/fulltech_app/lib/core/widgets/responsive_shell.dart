@@ -249,8 +249,6 @@ class DesktopShellAppBar extends ConsumerWidget {
     final branding = resolveRoleBranding(
       currentUser?.appRole ?? AppRole.unknown,
     );
-    const showPendingWarningsIcon = false;
-
     return AnimatedContainer(
       duration: const Duration(milliseconds: 240),
       curve: Curves.easeOutCubic,
@@ -365,11 +363,7 @@ class DesktopShellAppBar extends ConsumerWidget {
               ],
               const SizedBox(width: 10),
               ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: showUserMeta
-                      ? 260
-                      : (showPendingWarningsIcon ? 100 : 56),
-                ),
+                constraints: BoxConstraints(maxWidth: showUserMeta ? 260 : 56),
                 child: Container(
                   padding: EdgeInsets.symmetric(
                     horizontal: collapsed ? 8 : 10,
@@ -382,14 +376,6 @@ class DesktopShellAppBar extends ConsumerWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      if (showPendingWarningsIcon) ...[
-                        _PendingWarningsIconButton(
-                          count: 0,
-                          onTap: () =>
-                              context.go(Routes.misAmonestacionesPendientes),
-                        ),
-                        const SizedBox(width: 8),
-                      ],
                       UserAvatar(
                         radius: 15,
                         backgroundColor: Colors.white.withValues(alpha: 0.14),
@@ -439,69 +425,6 @@ class DesktopShellAppBar extends ConsumerWidget {
             ],
           );
         },
-      ),
-    );
-  }
-}
-
-class _PendingWarningsIconButton extends StatelessWidget {
-  const _PendingWarningsIconButton({required this.count, required this.onTap});
-
-  final int count;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final shownCount = count > 99 ? '99+' : '$count';
-
-    return Tooltip(
-      message: 'Tienes $count pendientes de firma',
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          InkWell(
-            onTap: onTap,
-            borderRadius: BorderRadius.circular(10),
-            child: Container(
-              width: 34,
-              height: 34,
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
-              ),
-              child: const Icon(
-                Icons.notification_important_outlined,
-                size: 18,
-                color: Colors.white,
-              ),
-            ),
-          ),
-          Positioned(
-            top: -6,
-            right: -6,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFF5A5F),
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(color: Colors.white, width: 1.2),
-              ),
-              constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
-              child: Center(
-                child: Text(
-                  shownCount,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w800,
-                    height: 1,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }
