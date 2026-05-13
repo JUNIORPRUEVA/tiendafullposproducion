@@ -1768,6 +1768,9 @@ model Close {
   @@index([createdById])
   @@index([reviewedById])
   @@index([correctionOfCloseId])
+  @@index([date, type]) // Índice compuesto para filtros de date + type
+  @@index([createdById, date]) // Índice compuesto para queries de usuario + fecha
+  @@index([date, createdById, type]) // Índice para query completa
 }
 
 model CloseTransfer {

@@ -121,14 +121,29 @@ class ContabilidadRepository {
     CloseType? type,
   }) async {
     try {
-      final res = await _dio.get(
-        ApiRoutes.contabilidadCloses,
-        queryParameters: {
-          'from': _dateOnly(from),
-          'to': _dateOnly(to),
-          if (type != null) 'type': type.apiValue,
-        },
-      );
+      final res = await _dio
+          .get(
+            ApiRoutes.contabilidadCloses,
+            queryParameters: {
+              'from': _dateOnly(from),
+              'to': _dateOnly(to),
+              if (type != null) 'type': type.apiValue,
+            },
+            options: Options(
+              receiveTimeout: const Duration(seconds: 30),
+              sendTimeout: const Duration(seconds: 10),
+            ),
+          )
+          .timeout(
+            const Duration(seconds: 35),
+            onTimeout: () => throw DioException(
+              requestOptions: RequestOptions(
+                path: ApiRoutes.contabilidadCloses,
+              ),
+              error: 'Tiempo agotado al cargar los cierres (>35s)',
+              type: DioExceptionType.receiveTimeout,
+            ),
+          );
 
       final rows = res.data is List ? (res.data as List) : const [];
       try {
@@ -147,7 +162,11 @@ class ContabilidadRepository {
       }
     } on DioException catch (e) {
       throw ApiException(
-        _extractMessage(e.response?.data, 'No se pudieron cargar los cierres'),
+        _extractMessage(
+          e.response?.data,
+          e.error?.toString() ??
+              'No se pudieron cargar los cierres',
+        ),
         e.response?.statusCode,
       );
     }
@@ -160,15 +179,30 @@ class ContabilidadRepository {
     String? companyId,
   }) async {
     try {
-      final res = await _dio.get(
-        ApiRoutes.contabilidadCloseFinancialSummary,
-        queryParameters: {
-          'fromDate': _dateOnly(fromDate),
-          'toDate': _dateOnly(toDate),
-          if (businessType != null) 'businessType': businessType.apiValue,
-          if ((companyId ?? '').trim().isNotEmpty) 'companyId': companyId,
-        },
-      );
+      final res = await _dio
+          .get(
+            ApiRoutes.contabilidadCloseFinancialSummary,
+            queryParameters: {
+              'fromDate': _dateOnly(fromDate),
+              'toDate': _dateOnly(toDate),
+              if (businessType != null) 'businessType': businessType.apiValue,
+              if ((companyId ?? '').trim().isNotEmpty) 'companyId': companyId,
+            },
+            options: Options(
+              receiveTimeout: const Duration(seconds: 30),
+              sendTimeout: const Duration(seconds: 10),
+            ),
+          )
+          .timeout(
+            const Duration(seconds: 35),
+            onTimeout: () => throw DioException(
+              requestOptions: RequestOptions(
+                path: ApiRoutes.contabilidadCloseFinancialSummary,
+              ),
+              error: 'Tiempo agotado al cargar el resumen financiero (>35s)',
+              type: DioExceptionType.receiveTimeout,
+            ),
+          );
 
       if (res.data is! Map) {
         throw ApiException(
@@ -183,7 +217,8 @@ class ContabilidadRepository {
       throw ApiException(
         _extractMessage(
           e.response?.data,
-          'No se pudo cargar el resumen financiero de cierres',
+          e.error?.toString() ??
+              'No se pudo cargar el resumen financiero de cierres',
         ),
         e.response?.statusCode,
       );

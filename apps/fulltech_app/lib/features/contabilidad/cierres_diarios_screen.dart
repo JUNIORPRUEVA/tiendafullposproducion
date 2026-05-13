@@ -206,6 +206,7 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
   ProviderSubscription<CierresDiariosState>? _cierresStateSubscription;
   String? _lastLoadedUserId;
   bool _assistantEmptyReloadRequested = false;
+  int _assistantEmptyReloadAttempts = 0; // Limitar reintentos
 
   @override
   void initState() {
@@ -261,18 +262,22 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
     if (currentUserId != _lastLoadedUserId) {
       _lastLoadedUserId = currentUserId;
       _assistantEmptyReloadRequested = false;
+      _assistantEmptyReloadAttempts = 0; // Resetear contador de reintentos
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || (currentUserId ?? '').isEmpty) return;
         controller.refresh();
       });
     }
 
+    // Solo reintentar UNA VEZ si la lista está vacía (máximo 1 intento)
     if (isAssistant &&
         !state.loading &&
         state.error == null &&
         state.closes.isEmpty &&
-        !_assistantEmptyReloadRequested) {
+        !_assistantEmptyReloadRequested &&
+        _assistantEmptyReloadAttempts < 1) {
       _assistantEmptyReloadRequested = true;
+      _assistantEmptyReloadAttempts++;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         controller.refresh();
@@ -2485,12 +2490,14 @@ class _HistoryFullScreenPageState
     final from = _summaryFromDate ?? DateTime.now();
     final to = _summaryToDate ?? from;
 
+    print('[CierresDiariosScreen._fetchSummary] iniciando from=$from to=$to business=$_summaryBusinessType');
     setState(() {
       _summaryLoading = true;
       _summaryError = null;
     });
 
     try {
+      final start = DateTime.now();
       final summary = await ref
           .read(contabilidadRepositoryProvider)
           .getCloseFinancialSummary(
@@ -2498,11 +2505,15 @@ class _HistoryFullScreenPageState
             toDate: to,
             businessType: _summaryBusinessType,
           );
+      final duration = DateTime.now().difference(start);
+      print('[CierresDiariosScreen._fetchSummary] completado en ${duration.inMilliseconds}ms');
       if (!mounted) return;
       setState(() {
         _summary = summary;
       });
-    } catch (e) {
+    } catch (e, st) {
+      print('[CierresDiariosScreen._fetchSummary] ERROR: $e');
+      print(st);
       if (!mounted) return;
       setState(() {
         _summaryError = e.toString();

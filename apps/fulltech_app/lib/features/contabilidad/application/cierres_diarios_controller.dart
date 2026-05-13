@@ -93,14 +93,20 @@ class CierresDiariosController extends StateNotifier<CierresDiariosState> {
   }
 
   Future<void> load() async {
+    print('[CierresDiariosController] iniciando load() from=${state.from} to=${state.to}');
     state = state.copyWith(loading: true, clearError: true);
     try {
+      final start = DateTime.now();
       final rows = await ref
           .read(contabilidadRepositoryProvider)
           .listCloses(from: state.from, to: state.to, type: null);
+      final duration = DateTime.now().difference(start);
+      print('[CierresDiariosController] load() completado en ${duration.inMilliseconds}ms con ${rows.length} cierres');
 
       state = state.copyWith(loading: false, closes: rows);
-    } catch (e) {
+    } catch (e, st) {
+      print('[CierresDiariosController] load() ERROR: $e');
+      print(st);
       final message = e is ApiException
           ? e.message
           : 'No se pudieron cargar los cierres';
