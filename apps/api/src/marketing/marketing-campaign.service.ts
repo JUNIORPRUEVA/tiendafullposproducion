@@ -395,7 +395,7 @@ export class MarketingCampaignService {
       ...(dto.headline !== undefined ? { headline: dto.headline?.trim() || null } : {}),
       ...(dto.primaryText !== undefined ? { primaryText: dto.primaryText?.trim() || null } : {}),
       ...(dto.description !== undefined ? { description: dto.description?.trim() || null } : {}),
-      ...(dto.cta !== undefined ? { cta: dto.cta?.trim() || null } : {}),
+      cta: 'WHATSAPP_MESSAGE',
       ...(dto.hashtags !== undefined
         ? {
             hashtags: dto.hashtags
@@ -445,6 +445,9 @@ export class MarketingCampaignService {
     if (!(dailyBudget > 0)) {
       throw new BadRequestException('No se pudo crear el Ad Set porque el presupuesto es menor al mínimo.');
     }
+    if (!`${campaign.whatsappPhone ?? ''}`.trim()) {
+      throw new BadRequestException('Selecciona un WhatsApp destino antes de publicar.');
+    }
 
     const audience = this.asRecord(campaign.finalAudienceJson) ??
       this.asRecord(campaign.recommendedAudienceJson) ??
@@ -455,15 +458,13 @@ export class MarketingCampaignService {
     try {
       const ids = await this.metaAds.createCampaignFlow({
         name: `${campaign.headline ?? 'Campaña'} ${new Date().toISOString().substring(0, 10)}`,
-        objective:
-          (dto.objective ?? MarketingCampaignService.WHATSAPP_MESSAGES_OBJECTIVE)
-            .trim() || MarketingCampaignService.WHATSAPP_MESSAGES_OBJECTIVE,
+        objective: MarketingCampaignService.WHATSAPP_MESSAGES_OBJECTIVE,
         dailyBudget,
         totalBudget: campaign.totalBudget ? Number(campaign.totalBudget) : null,
         headline: campaign.headline ?? 'Campaña Fulltech',
         primaryText: campaign.primaryText ?? 'Conoce nuestra solución ahora mismo.',
         description: campaign.description,
-        cta: campaign.cta ?? 'WHATSAPP_MESSAGE',
+        cta: 'WHATSAPP_MESSAGE',
         destinationUrl: campaign.destinationUrl,
         whatsappPhone: campaign.whatsappPhone,
         startTime: campaign.startTime,
@@ -628,7 +629,7 @@ export class MarketingCampaignService {
         region,
         radiusKm: 15,
         ageMin: 25,
-        ageMax: 50,
+        ageMax: 60,
         gender: 'ALL',
         interests: [
           'seguridad del hogar',
@@ -654,7 +655,7 @@ export class MarketingCampaignService {
         region,
         radiusKm: 20,
         ageMin: 30,
-        ageMax: 50,
+        ageMax: 60,
         gender: 'ALL',
         interests: [
           'automatización',
@@ -673,7 +674,7 @@ export class MarketingCampaignService {
       region,
       radiusKm: 10,
       ageMin: 25,
-      ageMax: 50,
+      ageMax: 60,
       gender: 'ALL',
       interests: ['tecnología', 'servicios', 'seguridad', 'hogar'],
       audience: ['personas con intención de compra'],
@@ -683,7 +684,7 @@ export class MarketingCampaignService {
 
   private mapAudienceToMetaTargeting(audience: Record<string, unknown>) {
     const ageMin = Number(audience.ageMin ?? 24);
-    const ageMax = Number(audience.ageMax ?? 50);
+    const ageMax = Number(audience.ageMax ?? 60);
     const city = `${audience.city ?? 'Higuey'}`.trim() || 'Higuey';
     const region = `${audience.region ?? 'La Altagracia'}`.trim() || 'La Altagracia';
 

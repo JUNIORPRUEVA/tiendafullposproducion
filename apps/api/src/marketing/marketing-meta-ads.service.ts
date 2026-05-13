@@ -156,7 +156,7 @@ export class MarketingMetaAdsService {
       campaign_id: campaignId,
       name: `${input.name} - Ad Set`,
       billing_event: 'IMPRESSIONS',
-      optimization_goal: input.whatsappPhone ? 'CONVERSATIONS' : 'LINK_CLICKS',
+      optimization_goal: 'CONVERSATIONS',
       bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
       status: 'PAUSED',
       targeting: JSON.stringify(input.targeting),
@@ -193,6 +193,11 @@ export class MarketingMetaAdsService {
 
     const creativePayload = {
       name: `${input.name} - Creative`,
+      degrees_of_freedom_spec: JSON.stringify({
+        creative_features_spec: {
+          standard_enhancements: { enroll_status: 'OPT_OUT' },
+        },
+      }),
       object_story_spec: JSON.stringify({
         page_id: this.pageId,
         ...(this.igBusinessId ? { instagram_actor_id: this.igBusinessId } : {}),

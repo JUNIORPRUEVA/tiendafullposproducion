@@ -28,7 +28,7 @@ class _PublicidadCampanasScreenV2State
   static const String _defaultCity = 'Higüey, La Altagracia';
   static const int _defaultRadiusKm = 10;
   static const double _defaultMinAge = 25;
-  static const double _defaultMaxAge = 50;
+  static const double _defaultMaxAge = 60;
   static const String _fixedObjective = 'OUTCOME_ENGAGEMENT';
 
   bool _loading = true;
@@ -358,43 +358,6 @@ class _PublicidadCampanasScreenV2State
     });
   }
 
-  Future<void> _regenerateCopyOnly() async {
-    final campaign = _selectedCampaign;
-    if (campaign == null) return;
-
-    setState(() {
-      _copyByCampaignId[campaign.id] = _CampaignCopy.generating();
-    });
-
-    await _runAction('Copys regenerados', () async {
-      final generated = await ref
-          .read(marketingApiProvider)
-          .regenerateCampaignCopy(campaign.id);
-      if (mounted) {
-        setState(() => _upsertCampaign(generated));
-      }
-    });
-  }
-
-  void _autoGenerateInterests(MarketingCampaign campaign) {
-    final generated = <String>{..._extractSuggestedInterests(campaign)};
-    final media = _selectedMediaAsset(campaign);
-    final category = (media?.category ?? '').trim();
-    if (category.isNotEmpty) generated.add(category);
-    for (final tag in media?.tags ?? const <String>[]) {
-      final clean = tag.replaceFirst('#', '').trim();
-      if (clean.isNotEmpty) generated.add(clean);
-    }
-    generated.addAll(const ['WhatsApp', 'servicios locales']);
-
-    setState(() {
-      _selectedInterests
-        ..clear()
-        ..addAll(generated.take(8));
-    });
-    _scheduleAutosave();
-  }
-
   void _scheduleAutosave() {
     final campaign = _selectedCampaign;
     if (campaign == null) return;
@@ -454,6 +417,13 @@ class _PublicidadCampanasScreenV2State
   Future<void> _publishCampaign() async {
     final campaign = _selectedCampaign;
     if (campaign == null) return;
+    if (_phoneCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Selecciona un WhatsApp destino.')),
+      );
+      setState(() => _activeSessionIndex = 1);
+      return;
+    }
 
     await _runAction('Campana publicada', () async {
       await _saveDraftSilently(campaign.id);
@@ -515,7 +485,7 @@ class _PublicidadCampanasScreenV2State
 
   String _detectMediaType(MarketingCampaign campaign) {
     final selected = _assets.where(
-      (item) => item.id == campaign.galleryAssetId,
+      (item) => _campaignMediaAssetId(item) == campaign.galleryAssetId,
     );
     if (selected.isEmpty) return 'Media';
     return selected.first.mimeType.toLowerCase().contains('video')
@@ -637,56 +607,103 @@ class _PublicidadCampanasScreenV2State
   }
 
   Widget _buildResponsiveBody(MarketingCampaign campaign) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(12),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 980),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Align(
-                alignment: Alignment.centerRight,
-                child: AutosaveStatusIndicator(state: _autosaveState),
-              ),
-              const SizedBox(height: 8),
-              _buildSimplifiedForm(campaign),
-            ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth >= 1120;
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(12),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: isWide ? 1320 : 980),
+              child: isWide
+                  ? Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          flex: 6,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: AutosaveStatusIndicator(
+                                  state: _autosaveState,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              _buildSimplifiedForm(
+                                campaign,
+                                includePreviewSession: false,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(flex: 4, child: _buildPreviewRail(campaign)),
+                      ],
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: AutosaveStatusIndicator(state: _autosaveState),
+                        ),
+                        const SizedBox(height: 8),
+                        _buildSimplifiedForm(campaign),
+                      ],
+                    ),
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
-  Widget _buildSimplifiedForm(MarketingCampaign campaign) {
+  Widget _buildSimplifiedForm(
+    MarketingCampaign campaign, {
+    bool includePreviewSession = true,
+  }) {
     final cityOptions = _cityOptions(campaign);
     final whatsappOptions = _whatsappOptions(campaign);
-    final sessions = [
-      (
-        title: 'Media + IA Copy',
-        subtitle:
-            'Imagen/video seleccionado y copys generados automaticamente.',
-        icon: Icons.perm_media_rounded,
-        child: _buildMediaStep(campaign),
-      ),
-      (
-        title: 'Segmentacion + Presupuesto',
-        subtitle: 'Ciudad, radio, edades, intereses, presupuesto y WhatsApp.',
-        icon: Icons.tune_rounded,
-        child: _buildSegmentationBudgetSession(
-          campaign,
-          cityOptions,
-          whatsappOptions,
-        ),
-      ),
-      (
+    final sessions =
+        <({Widget child, IconData icon, String subtitle, String title})>[
+          (
+            title: 'Imagen + Copy IA',
+            subtitle:
+                'Elige media publicada. La IA genera copys y preview sola.',
+            icon: Icons.perm_media_rounded,
+            child: _buildMediaStep(campaign),
+          ),
+          (
+            title: 'Presupuesto + WhatsApp',
+            subtitle:
+                'Presupuesto, numero destino, Higüey 10 km y edades 25-60.',
+            icon: Icons.tune_rounded,
+            child: _buildSegmentationBudgetSession(
+              campaign,
+              cityOptions,
+              whatsappOptions,
+            ),
+          ),
+        ];
+    if (includePreviewSession) {
+      sessions.add((
         title: 'Preview + Publicar',
         subtitle: 'Facebook Feed, Instagram Feed, Story y publicacion final.',
         icon: Icons.preview_rounded,
         child: _buildPreviewPublishSession(campaign),
-      ),
-    ];
-    final activeSession = sessions[_activeSessionIndex.clamp(0, 2)];
+      ));
+    } else {
+      sessions.add((
+        title: 'Publicar',
+        subtitle: 'Crea la campana WhatsApp Messages en Meta.',
+        icon: Icons.send_rounded,
+        child: _buildPublishPanel(),
+      ));
+    }
+    final activeIndex = _activeSessionIndex.clamp(0, sessions.length - 1);
+    final activeSession = sessions[activeIndex];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -694,7 +711,7 @@ class _PublicidadCampanasScreenV2State
         _buildSessionSelector(),
         const SizedBox(height: 12),
         _StepCard(
-          title: '${_activeSessionIndex + 1}. ${activeSession.title}',
+          title: '${activeIndex + 1}. ${activeSession.title}',
           subtitle: activeSession.subtitle,
           child: activeSession.child,
         ),
@@ -704,9 +721,9 @@ class _PublicidadCampanasScreenV2State
 
   Widget _buildSessionSelector() {
     final items = const [
-      (label: 'Media + IA', icon: Icons.perm_media_rounded),
-      (label: 'Segmentacion', icon: Icons.tune_rounded),
-      (label: 'Preview/Publicar', icon: Icons.send_rounded),
+      (label: 'Imagen + IA', icon: Icons.perm_media_rounded),
+      (label: 'Presupuesto', icon: Icons.payments_rounded),
+      (label: 'Publicar', icon: Icons.send_rounded),
     ];
     final scheme = Theme.of(context).colorScheme;
 
@@ -1014,11 +1031,6 @@ class _PublicidadCampanasScreenV2State
             ],
           ),
         );
-        final regenerateButton = OutlinedButton.icon(
-          onPressed: _busyAction ? null : _regenerateCopyOnly,
-          icon: const Icon(Icons.refresh_rounded, size: 16),
-          label: const Text('Regenerar copys'),
-        );
         Widget copyField({
           required String label,
           required String value,
@@ -1115,8 +1127,6 @@ class _PublicidadCampanasScreenV2State
                         copyText,
                       ],
                     ),
-                    const SizedBox(height: 10),
-                    regenerateButton,
                     const SizedBox(height: 12),
                     copyDetails,
                   ],
@@ -1129,8 +1139,6 @@ class _PublicidadCampanasScreenV2State
                         statusIcon,
                         const SizedBox(width: 10),
                         copyText,
-                        const SizedBox(width: 10),
-                        regenerateButton,
                       ],
                     ),
                     const SizedBox(height: 12),
@@ -1229,26 +1237,6 @@ class _PublicidadCampanasScreenV2State
                 },
         ),
         const SizedBox(height: 4),
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                'Intereses',
-                style: Theme.of(context).textTheme.labelMedium,
-              ),
-            ),
-            OutlinedButton.icon(
-              onPressed: _busyAction
-                  ? null
-                  : () => _autoGenerateInterests(campaign),
-              icon: const Icon(Icons.auto_awesome_rounded, size: 16),
-              label: const Text('Auto generar intereses'),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        _buildInterestChips(),
-        const SizedBox(height: 12),
         TextField(
           controller: _dailyBudgetCtrl,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
@@ -1341,39 +1329,22 @@ class _PublicidadCampanasScreenV2State
           children: [
             _Pill(label: 'Objetivo: Mensajes WhatsApp'),
             _Pill(label: 'CTA: Enviar mensaje'),
-            _Pill(label: 'Default: Higüey · 10 km · 25-50'),
+            _Pill(label: 'Default: Higüey · 10 km · 25-60'),
           ],
         ),
       ],
     );
   }
 
-  Widget _buildInterestChips() {
-    if (_selectedInterests.isEmpty) {
-      return Text(
-        'Sin intereses todavia. Usa el boton para generarlos automaticamente.',
-        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-        ),
-      );
-    }
-
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: _selectedInterests
-          .map(
-            (interest) => InputChip(
-              label: Text(interest),
-              onDeleted: _busyAction
-                  ? null
-                  : () {
-                      setState(() => _selectedInterests.remove(interest));
-                      _scheduleAutosave();
-                    },
-            ),
-          )
-          .toList(growable: false),
+  Widget _buildPublishPanel() {
+    return SizedBox(
+      width: double.infinity,
+      height: 48,
+      child: FilledButton.icon(
+        onPressed: _busyAction ? null : _publishCampaign,
+        icon: const Icon(Icons.send_rounded),
+        label: const Text('Publicar campaña de WhatsApp'),
+      ),
     );
   }
 
@@ -1383,20 +1354,30 @@ class _PublicidadCampanasScreenV2State
       children: [
         _buildLargePreview(campaign),
         const SizedBox(height: 12),
-        SizedBox(
-          width: double.infinity,
-          height: 48,
-          child: FilledButton.icon(
-            onPressed: _busyAction ? null : _publishCampaign,
-            icon: const Icon(Icons.send_rounded),
-            label: const Text('Publicar campana'),
-          ),
-        ),
+        _buildPublishPanel(),
       ],
     );
   }
 
-  Widget _buildLargePreview(MarketingCampaign campaign) {
+  Widget _buildPreviewRail(MarketingCampaign campaign) {
+    return _StepCard(
+      title: 'Preview Meta Ads',
+      subtitle: 'WhatsApp Messages fijo: Feed, Instagram y Story.',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildLargePreview(campaign, showHeader: false),
+          const SizedBox(height: 12),
+          _buildPublishPanel(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLargePreview(
+    MarketingCampaign campaign, {
+    bool showHeader = true,
+  }) {
     final image = campaign.finalDesignUrl ?? campaign.baseImageUrl ?? '';
     final mediaType = _detectMediaType(campaign);
     final copy = _copyFor(campaign);
@@ -1527,7 +1508,7 @@ class _PublicidadCampanasScreenV2State
                   FilledButton.icon(
                     onPressed: null,
                     icon: const Icon(Icons.chat_bubble_rounded, size: 16),
-                    label: const Text('WhatsApp'),
+                    label: const Text('Enviar mensaje'),
                   ),
                 ],
               ),
@@ -1648,7 +1629,7 @@ class _PublicidadCampanasScreenV2State
               child: FilledButton.icon(
                 onPressed: null,
                 icon: const Icon(Icons.chat_bubble_rounded, size: 16),
-                label: const Text('Enviar mensaje por WhatsApp'),
+                label: const Text('Enviar mensaje'),
               ),
             ),
           ],
@@ -1659,28 +1640,30 @@ class _PublicidadCampanasScreenV2State
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                'Preview Meta Ads',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-              ),
-            ),
-            if (copy.isGenerating)
-              SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: Theme.of(context).colorScheme.primary,
+        if (showHeader) ...[
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Preview Meta Ads',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
-          ],
-        ),
-        const SizedBox(height: 8),
+              if (copy.isGenerating)
+                SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+        ],
         feedPreview('Facebook Feed', 240),
         feedPreview('Instagram Feed', 260),
         storyPreview(),
