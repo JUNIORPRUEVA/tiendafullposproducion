@@ -230,24 +230,46 @@ export class MarketingCampaignService {
       this.asRecord(campaign.recommendedAudienceJson) ??
       this.buildAudienceRecommendation('servicios de seguridad', 'Higuey', 'La Altagracia');
 
-    const angle = `${campaign.aiAngle ?? ''}`.trim() || 'Seguridad práctica y resultados reales.';
+    const mediaCategory = `${campaign.mediaAsset?.category ?? 'servicios de seguridad'}`.trim();
+    const mediaDescription = `${campaign.mediaAsset?.description ?? ''}`.trim();
+    const mediaFileName = `${campaign.mediaAsset?.fileName ?? ''}`.trim();
+    const mediaTags = this.jsonStrings(campaign.mediaAsset?.tags);
+    const research = campaign.research;
+    const researchAngle = this.firstText([
+      research?.mainFocus,
+      ...this.jsonStrings(research?.strongAngles),
+      research?.contentOpportunities,
+      research?.marketSummary,
+      campaign.aiAngle,
+    ]);
+    const angle = researchAngle || 'Seguridad práctica y resultados reales.';
     const locationLabel = `${audience['city'] ?? 'Higuey'}, ${audience['region'] ?? 'La Altagracia'}`;
+    const commercialIntent = this.detectCommercialIntent(
+      mediaCategory,
+      mediaDescription,
+      mediaTags,
+      angle,
+    );
+    const headline = this.buildCampaignHeadline(mediaCategory, commercialIntent, `${audience['city'] ?? 'Higuey'}`);
+    const primaryText = this.buildCampaignPrimaryText({
+      category: mediaCategory,
+      commercialIntent,
+      angle,
+      locationLabel,
+      mediaDescription,
+      mediaFileName,
+    });
+    const description = this.buildCampaignDescription(mediaCategory, commercialIntent, locationLabel);
+    const hashtags = this.buildCampaignHashtags(mediaCategory, `${audience['city'] ?? 'Higuey'}`, mediaTags);
 
     return this.prisma.marketingAdCampaign.update({
       where: { id },
       data: {
-        headline: campaign.headline || 'Protege tu hogar o negocio desde hoy',
-        primaryText:
-          campaign.primaryText ||
-          `Instalación profesional y rápida. ${angle} Atención directa por WhatsApp para cotizar hoy.`,
-        description:
-          campaign.description ||
-          `Campaña enfocada en ${locationLabel} con audiencia de alta intención de compra.`,
+        headline,
+        primaryText,
+        description,
         cta: campaign.cta || 'WHATSAPP_MESSAGE',
-        hashtags:
-          campaign.hashtags.length > 0
-            ? campaign.hashtags
-            : ['#Seguridad', '#Camaras', '#Higuey', '#Fulltech'],
+        hashtags,
         aiAngle: angle,
         recommendedAudienceJson: audience as Prisma.InputJsonValue,
         phase: MarketingCampaignPhase.PUBLISH,
@@ -255,6 +277,86 @@ export class MarketingCampaignService {
         updatedByUserId: userId || null,
       },
     });
+  }
+
+  private firstText(values: Array<string | null | undefined>) {
+    for (const value of values) {
+      const clean = `${value ?? ''}`.trim();
+      if (clean) return clean;
+    }
+    return '';
+  }
+
+  private jsonStrings(value: unknown) {
+    if (!Array.isArray(value)) return [];
+    return value
+      .map((item) => `${item ?? ''}`.trim())
+      .filter((item) => item.length > 0);
+  }
+
+  private detectCommercialIntent(
+    category: string,
+    description: string,
+    tags: string[],
+    researchAngle: string,
+  ) {
+    const source = [category, description, ...tags, researchAngle].join(' ').toLowerCase();
+    if (source.includes('camara') || source.includes('cámara') || source.includes('seguridad')) {
+      return 'proteger hogares y negocios';
+    }
+    if (source.includes('porton') || source.includes('portón') || source.includes('motor')) {
+      return 'automatizar accesos con seguridad';
+    }
+    if (source.includes('alarma')) {
+      return 'recibir alertas y prevenir riesgos';
+    }
+    if (source.includes('red') || source.includes('wifi') || source.includes('internet')) {
+      return 'mejorar conectividad y control';
+    }
+    return 'resolver necesidades tecnológicas con atención rápida';
+  }
+
+  private buildCampaignHeadline(category: string, commercialIntent: string, city: string) {
+    const cleanCity = `${city}`.trim() || 'Higuey';
+    const cleanCategory = `${category}`.trim() || 'soluciones Fulltech';
+    if (commercialIntent.includes('proteger')) {
+      return `Protege tu propiedad en ${cleanCity}`;
+    }
+    if (commercialIntent.includes('automatizar')) {
+      return `Automatiza tu entrada en ${cleanCity}`;
+    }
+    return `${cleanCategory} en ${cleanCity}`.substring(0, 80);
+  }
+
+  private buildCampaignPrimaryText(input: {
+    category: string;
+    commercialIntent: string;
+    angle: string;
+    locationLabel: string;
+    mediaDescription: string;
+    mediaFileName: string;
+  }) {
+    const visualContext = this.firstText([input.mediaDescription, input.mediaFileName, input.category]);
+    return [
+      `Instalación profesional para ${input.commercialIntent}.`,
+      `La pieza seleccionada muestra ${visualContext.toLowerCase()}, alineada con la investigación: ${input.angle}`,
+      `Atención directa por WhatsApp para cotizar en ${input.locationLabel}.`,
+    ].join(' ');
+  }
+
+  private buildCampaignDescription(category: string, commercialIntent: string, locationLabel: string) {
+    const cleanCategory = `${category}`.trim() || 'servicios Fulltech';
+    return `${cleanCategory} para ${commercialIntent} en ${locationLabel}.`;
+  }
+
+  private buildCampaignHashtags(category: string, city: string, tags: string[]) {
+    const base = [category, city, ...tags, 'Fulltech', 'WhatsApp']
+      .map((item) => `${item ?? ''}`.trim())
+      .filter((item) => item.length > 0)
+      .map((item) => item.replace(/^#/, '').replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ]/g, ''))
+      .filter((item) => item.length > 0)
+      .map((item) => `#${item}`);
+    return Array.from(new Set(base)).slice(0, 6);
   }
 
   async update(companyId: string, id: string, dto: UpdateMarketingCampaignDto, userId: string) {

@@ -38,6 +38,7 @@ class _PublicidadCampanasScreenV2State
   List<MarketingCampaign> _campaigns = const [];
   List<MarketingMediaAsset> _assets = const [];
   String? _selectedId;
+  final Set<String> _mediaChangeModeIds = <String>{};
   final Map<String, _CampaignCopy> _copyByCampaignId =
       <String, _CampaignCopy>{};
 
@@ -216,8 +217,17 @@ class _PublicidadCampanasScreenV2State
 
       final generated = await api.regenerateCampaignCopy(campaign.id);
       if (mounted) {
-        setState(() => _upsertCampaign(generated));
+        setState(() {
+          _mediaChangeModeIds.remove(campaign.id);
+          _upsertCampaign(generated);
+        });
       }
+    });
+  }
+
+  void _startChangingMedia(MarketingCampaign campaign) {
+    setState(() {
+      _mediaChangeModeIds.add(campaign.id);
     });
   }
 
@@ -559,6 +569,7 @@ class _PublicidadCampanasScreenV2State
 
   Widget _buildSimpleSteps(MarketingCampaign campaign) {
     final hasMedia = (campaign.baseImageUrl ?? '').isNotEmpty;
+    final hasCopy = _copyFor(campaign).hasRealCopy;
     final hasBudget = _dailyBudget > 0;
     final hasWhatsapp = _phoneCtrl.text.trim().isNotEmpty;
     final hasPreview = (campaign.baseImageUrl ?? campaign.finalDesignUrl ?? '')
@@ -590,6 +601,15 @@ class _PublicidadCampanasScreenV2State
           Expanded(
             child: _StepChip(
               index: 2,
+              label: 'IA copy',
+              icon: Icons.auto_fix_high_rounded,
+              isDone: hasCopy,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _StepChip(
+              index: 3,
               label: 'Presupuesto',
               icon: Icons.payments_rounded,
               isDone: hasBudget,
@@ -598,7 +618,7 @@ class _PublicidadCampanasScreenV2State
           const SizedBox(width: 8),
           Expanded(
             child: _StepChip(
-              index: 3,
+              index: 4,
               label: 'WhatsApp',
               icon: Icons.chat_rounded,
               isDone: hasWhatsapp,
@@ -607,7 +627,7 @@ class _PublicidadCampanasScreenV2State
           const SizedBox(width: 8),
           Expanded(
             child: _StepChip(
-              index: 4,
+              index: 5,
               label: 'Preview',
               icon: Icons.preview_rounded,
               isDone: hasPreview,
@@ -616,7 +636,7 @@ class _PublicidadCampanasScreenV2State
           const SizedBox(width: 8),
           Expanded(
             child: _StepChip(
-              index: 5,
+              index: 6,
               label: 'Publicar',
               icon: Icons.send_rounded,
               isDone:
@@ -657,31 +677,8 @@ class _PublicidadCampanasScreenV2State
       children: [
         _StepCard(
           title: '1. Imagen o video',
-          subtitle: 'Selecciona media y la IA actualiza el copy en el preview.',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Copys automaticos',
-                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: _busyAction ? null : _regenerateCopyOnly,
-                    icon: const Icon(Icons.auto_fix_high_rounded, size: 16),
-                    label: const Text('Regenerar copys'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              _buildMediaSelector(campaign),
-            ],
-          ),
+          subtitle: 'Selecciona la imagen o video de la campana.',
+          child: _buildMediaStep(campaign),
         ),
         const SizedBox(height: 12),
         _StepCard(
@@ -715,79 +712,299 @@ class _PublicidadCampanasScreenV2State
   }
 
   Widget _buildMediaSelector(MarketingCampaign campaign) {
+    final activeMediaId = _activeMediaAssetId(campaign);
     if (_assets.isEmpty) {
       return const Text('No hay media disponible en galeria.');
     }
-    return SizedBox(
-      height: 116,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: _assets.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 10),
-        itemBuilder: (context, index) {
-          final asset = _assets[index];
-          final selected = campaign.galleryAssetId == asset.id;
-          final thumb = (asset.thumbnailUrl ?? asset.imageUrl).trim();
-          final isVideo = asset.mimeType.toLowerCase().contains('video');
-          return GestureDetector(
-            onTap: _busyAction
-                ? null
-                : () => _applyMediaAndAutoGenerate(asset.id),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              width: 170,
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: selected
-                      ? Theme.of(context).colorScheme.primary
-                      : Theme.of(
-                          context,
-                        ).colorScheme.outlineVariant.withValues(alpha: 0.6),
-                  width: selected ? 2 : 1,
-                ),
-                color: selected
-                    ? Theme.of(
-                        context,
-                      ).colorScheme.primaryContainer.withValues(alpha: 0.35)
-                    : Theme.of(context).colorScheme.surface,
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = constraints.maxWidth >= 760 ? 3 : 2;
+        return GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: _assets.length,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            mainAxisSpacing: 10,
+            crossAxisSpacing: 10,
+            childAspectRatio: 1.05,
+          ),
+          itemBuilder: (context, index) {
+            final asset = _assets[index];
+            return _MediaAssetTile(
+              asset: asset,
+              isSelected: activeMediaId == asset.id,
+              isBusy: _busyAction,
+              onTap: () => _applyMediaAndAutoGenerate(asset.id),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildMediaStep(MarketingCampaign campaign) {
+    final activeMedia = _selectedMediaAsset(campaign);
+    final isChanging = _mediaChangeModeIds.contains(campaign.id);
+    final hasActiveMedia = activeMedia != null && !isChanging;
+    final copy = _copyFor(campaign);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildMediaStatusBanner(hasActiveMedia: hasActiveMedia),
+        if (activeMedia != null) ...[
+          const SizedBox(height: 10),
+          _buildSelectedMediaSummary(
+            asset: activeMedia,
+            isChanging: isChanging,
+            onChange: _busyAction ? null : () => _startChangingMedia(campaign),
+          ),
+        ],
+        const SizedBox(height: 14),
+        Text(
+          'Selecciona la imagen o video de la campana',
+          style: Theme.of(
+            context,
+          ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Al elegir una pieza, el preview se actualiza y la IA genera los copys con la investigacion publicitaria guardada.',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 10),
+        _buildMediaSelector(campaign),
+        const SizedBox(height: 14),
+        _buildAiCopyBlock(copy),
+      ],
+    );
+  }
+
+  Widget _buildMediaStatusBanner({required bool hasActiveMedia}) {
+    final scheme = Theme.of(context).colorScheme;
+    final color = hasActiveMedia ? scheme.primary : scheme.error;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.45)),
+        color: color.withValues(alpha: 0.08),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            hasActiveMedia
+                ? Icons.check_circle_rounded
+                : Icons.warning_amber_rounded,
+            color: color,
+            size: 20,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              hasActiveMedia
+                  ? 'Imagen seleccionada correctamente'
+                  : 'Selecciona una imagen para continuar',
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: color,
+                fontWeight: FontWeight.w800,
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSelectedMediaSummary({
+    required MarketingMediaAsset asset,
+    required bool isChanging,
+    required VoidCallback? onChange,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    final thumb = (asset.thumbnailUrl ?? asset.imageUrl).trim();
+    final isVideo = asset.mimeType.toLowerCase().contains('video');
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 520;
+        final mediaInfo = Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: SizedBox(
+                width: 74,
+                height: 58,
+                child: thumb.isEmpty
+                    ? ColoredBox(color: scheme.surfaceContainerHighest)
+                    : Image.network(thumb, fit: BoxFit.cover),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: thumb.isEmpty
-                          ? Container(
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.surfaceContainer,
-                            )
-                          : Image.network(
-                              thumb,
-                              fit: BoxFit.cover,
-                              width: double.infinity,
-                            ),
+                  Text(
+                    isChanging ? 'Elige una nueva imagen' : 'Imagen activa',
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: scheme.onSurfaceVariant,
                     ),
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 2),
                   Text(
                     asset.fileName,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.labelMedium,
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 5),
                   _Pill(label: isVideo ? 'Video' : 'Imagen'),
                 ],
               ),
             ),
-          );
-        },
-      ),
+          ],
+        );
+        final changeButton = OutlinedButton.icon(
+          onPressed: onChange,
+          icon: const Icon(Icons.swap_horiz_rounded, size: 16),
+          label: const Text('Cambiar imagen'),
+        );
+
+        return Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            color: scheme.surfaceContainer.withValues(alpha: 0.5),
+          ),
+          child: compact
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    mediaInfo,
+                    const SizedBox(height: 10),
+                    changeButton,
+                  ],
+                )
+              : Row(
+                  children: [
+                    Expanded(child: mediaInfo),
+                    const SizedBox(width: 10),
+                    changeButton,
+                  ],
+                ),
+        );
+      },
     );
+  }
+
+  Widget _buildAiCopyBlock(_CampaignCopy copy) {
+    final scheme = Theme.of(context).colorScheme;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 560;
+        final statusIcon = Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            color: scheme.primaryContainer.withValues(alpha: 0.65),
+          ),
+          child: copy.isGenerating
+              ? Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: scheme.primary,
+                  ),
+                )
+              : Icon(Icons.auto_fix_high_rounded, color: scheme.primary),
+        );
+        final copyText = Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                copy.isGenerating
+                    ? 'IA generando copys automaticamente'
+                    : 'Copys IA listos',
+                style: Theme.of(
+                  context,
+                ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'Usa imagen seleccionada, investigacion, ciudad, categoria e intencion comercial.',
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+              ),
+            ],
+          ),
+        );
+        final regenerateButton = OutlinedButton.icon(
+          onPressed: _busyAction ? null : _regenerateCopyOnly,
+          icon: const Icon(Icons.refresh_rounded, size: 16),
+          label: const Text('Regenerar copys'),
+        );
+
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: scheme.outlineVariant.withValues(alpha: 0.5),
+            ),
+            color: scheme.surface,
+          ),
+          child: compact
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        statusIcon,
+                        const SizedBox(width: 10),
+                        copyText,
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    regenerateButton,
+                  ],
+                )
+              : Row(
+                  children: [
+                    statusIcon,
+                    const SizedBox(width: 10),
+                    copyText,
+                    const SizedBox(width: 10),
+                    regenerateButton,
+                  ],
+                ),
+        );
+      },
+    );
+  }
+
+  String? _activeMediaAssetId(MarketingCampaign campaign) {
+    if (_mediaChangeModeIds.contains(campaign.id)) return null;
+    return campaign.galleryAssetId;
+  }
+
+  MarketingMediaAsset? _selectedMediaAsset(MarketingCampaign campaign) {
+    final id = campaign.galleryAssetId;
+    if (id == null) return null;
+    for (final asset in _assets) {
+      if (asset.id == id) return asset;
+    }
+    return null;
   }
 
   Widget _buildBudgetAndTargeting(List<String> cityOptions) {
@@ -1320,6 +1537,10 @@ class _CampaignCopy {
   String get headlineText => _realText(headline);
   String get primaryTextValue => _realText(primaryText);
   String get descriptionText => _realText(description);
+  bool get hasRealCopy =>
+      headline.trim().isNotEmpty &&
+      primaryText.trim().isNotEmpty &&
+      description.trim().isNotEmpty;
   String get hashtagsText => hashtags
       .map((tag) => tag.trim())
       .where((tag) => tag.isNotEmpty)
@@ -1329,6 +1550,139 @@ class _CampaignCopy {
   static String _realText(String value) {
     final clean = value.trim();
     return clean.isEmpty ? 'Generando copy...' : clean;
+  }
+}
+
+class _MediaAssetTile extends StatefulWidget {
+  const _MediaAssetTile({
+    required this.asset,
+    required this.isSelected,
+    required this.isBusy,
+    required this.onTap,
+  });
+
+  final MarketingMediaAsset asset;
+  final bool isSelected;
+  final bool isBusy;
+  final VoidCallback onTap;
+
+  @override
+  State<_MediaAssetTile> createState() => _MediaAssetTileState();
+}
+
+class _MediaAssetTileState extends State<_MediaAssetTile> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final thumb = (widget.asset.thumbnailUrl ?? widget.asset.imageUrl).trim();
+    final isVideo = widget.asset.mimeType.toLowerCase().contains('video');
+    final borderColor = widget.isSelected
+        ? scheme.primary
+        : (_hovered
+              ? scheme.primary.withValues(alpha: 0.55)
+              : scheme.outlineVariant.withValues(alpha: 0.55));
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: InkWell(
+        onTap: widget.isBusy ? null : widget.onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: borderColor,
+              width: widget.isSelected ? 2.4 : 1.2,
+            ),
+            color: widget.isSelected
+                ? scheme.primaryContainer.withValues(alpha: 0.32)
+                : (_hovered ? scheme.surfaceContainer : scheme.surface),
+            boxShadow: _hovered || widget.isSelected
+                ? [
+                    BoxShadow(
+                      color: scheme.primary.withValues(alpha: 0.12),
+                      blurRadius: 16,
+                      offset: const Offset(0, 6),
+                    ),
+                  ]
+                : const [],
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Stack(
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: thumb.isEmpty
+                          ? ColoredBox(color: scheme.surfaceContainerHighest)
+                          : Image.network(thumb, fit: BoxFit.cover),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.all(10),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.asset.fileName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.labelLarge
+                              ?.copyWith(fontWeight: FontWeight.w800),
+                        ),
+                        const SizedBox(height: 5),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: [
+                            _Pill(label: isVideo ? 'Video' : 'Imagen'),
+                            if (widget.asset.category.trim().isNotEmpty)
+                              _Pill(label: widget.asset.category.trim()),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              if (widget.isSelected)
+                Positioned(
+                  top: 10,
+                  right: 10,
+                  child: Container(
+                    width: 30,
+                    height: 30,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: scheme.primary,
+                      border: Border.all(color: scheme.surface, width: 2),
+                    ),
+                    child: Icon(
+                      Icons.check_rounded,
+                      size: 19,
+                      color: scheme.onPrimary,
+                    ),
+                  ),
+                ),
+              if (widget.isBusy)
+                Positioned.fill(
+                  child: ColoredBox(
+                    color: scheme.surface.withValues(alpha: 0.52),
+                    child: const Center(child: CircularProgressIndicator()),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 
