@@ -8,11 +8,7 @@ enum MarketingCampaignStatus {
   rejected,
 }
 
-enum MarketingCampaignPhase {
-  design,
-  copySegmentation,
-  publish,
-}
+enum MarketingCampaignPhase { design, copySegmentation, publish }
 
 enum MarketingCampaignCurrency { dop, usd }
 
@@ -133,6 +129,11 @@ class MarketingCampaign {
     required this.metaAdSetId,
     required this.metaCreativeId,
     required this.metaAdId,
+    required this.metaImageHash,
+    required this.metaVideoId,
+    required this.metaMediaType,
+    required this.metaMediaUrl,
+    required this.metaPublishProgress,
     required this.metaStatus,
     required this.metaError,
     required this.metaErrorCode,
@@ -169,6 +170,11 @@ class MarketingCampaign {
   final String? metaAdSetId;
   final String? metaCreativeId;
   final String? metaAdId;
+  final String? metaImageHash;
+  final String? metaVideoId;
+  final String? metaMediaType;
+  final String? metaMediaUrl;
+  final List<Map<String, dynamic>> metaPublishProgress;
   final String? metaStatus;
   final String? metaError;
   final String? metaErrorCode;
@@ -250,6 +256,24 @@ class MarketingCampaign {
       metaAdId: '${json['metaAdId'] ?? ''}'.trim().isEmpty
           ? null
           : '${json['metaAdId']}',
+      metaImageHash: '${json['metaImageHash'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${json['metaImageHash']}',
+      metaVideoId: '${json['metaVideoId'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${json['metaVideoId']}',
+      metaMediaType: '${json['metaMediaType'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${json['metaMediaType']}',
+      metaMediaUrl: '${json['metaMediaUrl'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${json['metaMediaUrl']}',
+      metaPublishProgress: json['metaPublishProgressJson'] is List
+          ? (json['metaPublishProgressJson'] as List)
+                .whereType<Map>()
+                .map((item) => item.cast<String, dynamic>())
+                .toList(growable: false)
+          : const <Map<String, dynamic>>[],
       metaStatus: '${json['metaStatus'] ?? ''}'.trim().isEmpty
           ? null
           : '${json['metaStatus']}',

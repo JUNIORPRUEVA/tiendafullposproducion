@@ -21,7 +21,48 @@ type MetaAdsIds = {
   adSetId: string;
   creativeId: string;
   adId: string;
+  imageHash: string | null;
+  videoId: string | null;
+  mediaType: MetaAdMediaType;
+  mediaUrl: string;
 };
+
+export type MetaAdMediaType = 'IMAGE' | 'VIDEO';
+
+export type MetaPublishStepId =
+  | 'VALIDATING_META'
+  | 'VALIDATING_PAGE'
+  | 'VALIDATING_INSTAGRAM'
+  | 'UPLOADING_MEDIA'
+  | 'CREATING_CAMPAIGN'
+  | 'CREATING_ADSET'
+  | 'CREATING_CREATIVE'
+  | 'CREATING_AD'
+  | 'PUBLISHING_META'
+  | 'DONE';
+
+export type MetaPublishStepStatus = 'PENDING' | 'RUNNING' | 'DONE' | 'ERROR';
+
+export type MetaPublishStep = {
+  id: MetaPublishStepId;
+  label: string;
+  status: MetaPublishStepStatus;
+  detail?: string | null;
+  at: string;
+};
+
+export type MetaAdsErrorDetails = {
+  message: string;
+  code?: string | null;
+  subcode?: string | null;
+  fbtraceId?: string | null;
+};
+
+export class MetaAdsException extends ServiceUnavailableException {
+  constructor(public readonly metaDetails: MetaAdsErrorDetails) {
+    super(metaDetails.fbtraceId ? `${metaDetails.message} fbtrace_id=${metaDetails.fbtraceId}` : metaDetails.message);
+  }
+}
 
 type CreateFlowInput = {
   name: string;
@@ -34,9 +75,13 @@ type CreateFlowInput = {
   cta: string;
   destinationUrl?: string | null;
   whatsappPhone?: string | null;
+  mediaUrl: string;
+  mediaMimeType?: string | null;
+  mediaFileName?: string | null;
   startTime?: Date | null;
   endTime?: Date | null;
   targeting: Record<string, unknown>;
+  onStep?: (step: MetaPublishStep) => Promise<void> | void;
 };
 
 type MetaApiError = {
@@ -98,19 +143,24 @@ export class MarketingMetaAdsService {
   }
 
   ensureAdsConfigured() {
-    if (!this.normalizeAccountId()) {
-      throw new ServiceUnavailableException(
-        'No se pudo crear la campaña porque falta META_AD_ACCOUNT_ID.',
-      );
-    }
     if (!this.accessToken) {
       throw new ServiceUnavailableException(
         'No se pudo crear la campaña porque falta META_ACCESS_TOKEN.',
       );
     }
+    if (!this.normalizeAccountId()) {
+      throw new ServiceUnavailableException(
+        'No se pudo crear la campaña porque falta META_AD_ACCOUNT_ID.',
+      );
+    }
     if (!this.pageId) {
       throw new ServiceUnavailableException(
         'No se pudo crear la campaña porque falta META_FACEBOOK_PAGE_ID.',
+      );
+    }
+    if (!this.igBusinessId) {
+      throw new ServiceUnavailableException(
+        'No se pudo crear la campaña porque falta META_INSTAGRAM_BUSINESS_ID.',
       );
     }
   }
@@ -140,6 +190,24 @@ export class MarketingMetaAdsService {
   async createCampaignFlow(input: CreateFlowInput): Promise<MetaAdsIds> {
     this.ensureAdsConfigured();
 
+    await this.emitStep(input, 'VALIDATING_META', 'Validando token Meta', 'RUNNING');
+    await this.validateAccessToken();
+    await this.validateAdAccount();
+    await this.emitStep(input, 'VALIDATING_META', 'Validando token Meta', 'DONE');
+
+    await this.emitStep(input, 'VALIDATING_PAGE', 'Validando pagina Facebook', 'RUNNING');
+    await this.validateFacebookPage();
+    await this.emitStep(input, 'VALIDATING_PAGE', 'Validando pagina Facebook', 'DONE');
+
+    await this.emitStep(input, 'VALIDATING_INSTAGRAM', 'Validando Instagram Business', 'RUNNING');
+    await this.validateInstagramBusiness();
+    await this.emitStep(input, 'VALIDATING_INSTAGRAM', 'Validando Instagram Business', 'DONE');
+
+    await this.emitStep(input, 'UPLOADING_MEDIA', 'Subiendo media', 'RUNNING');
+    const media = await this.uploadCreativeMedia(input);
+    await this.emitStep(input, 'UPLOADING_MEDIA', 'Subiendo media', 'DONE', media.mediaType === 'IMAGE' ? media.imageHash : media.videoId);
+
+    await this.emitStep(input, 'CREATING_CAMPAIGN', 'Creando campana', 'RUNNING');
     const campaign = await this.postForm(`/${this.normalizeAccountId()}/campaigns`, {
       name: input.name,
       objective: input.objective,
@@ -151,25 +219,24 @@ export class MarketingMetaAdsService {
     if (!campaignId) {
       throw new ServiceUnavailableException('Meta no devolvió campaign_id al crear Campaign.');
     }
+    await this.emitStep(input, 'CREATING_CAMPAIGN', 'Creando campana', 'DONE', campaignId);
 
+    await this.emitStep(input, 'CREATING_ADSET', 'Creando segmentacion', 'RUNNING');
     const adsetPayload: Record<string, string> = {
       campaign_id: campaignId,
       name: `${input.name} - Ad Set`,
       billing_event: 'IMPRESSIONS',
       optimization_goal: 'CONVERSATIONS',
+      destination_type: 'WHATSAPP',
       bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
       status: 'PAUSED',
       targeting: JSON.stringify(input.targeting),
       daily_budget: `${Math.max(1, Math.round(input.dailyBudget * 100))}`,
-    };
-
-    if (input.whatsappPhone) {
-      adsetPayload.promoted_object = JSON.stringify({
+      promoted_object: JSON.stringify({
         page_id: this.pageId,
-      });
-      // Explicit opt-out to avoid Advantage+ multi advertiser delivery.
-      adsetPayload.multi_advertiser_opt_out = '1';
-    }
+      }),
+      multi_advertiser_opt_out: '1',
+    };
 
     if (input.totalBudget != null && input.totalBudget > 0) {
       adsetPayload.lifetime_budget = `${Math.round(input.totalBudget * 100)}`;
@@ -187,9 +254,12 @@ export class MarketingMetaAdsService {
     if (!adSetId) {
       throw new ServiceUnavailableException('Meta no devolvió adset_id al crear Ad Set.');
     }
+    await this.emitStep(input, 'CREATING_ADSET', 'Creando segmentacion', 'DONE', adSetId);
 
     const finalCta = this.resolveMetaCta(input.cta, input.whatsappPhone, input.destinationUrl);
     const link = this.resolveDestination(input.destinationUrl, input.whatsappPhone);
+
+    await this.emitStep(input, 'CREATING_CREATIVE', 'Creando anuncio creativo', 'RUNNING');
 
     const creativePayload = {
       name: `${input.name} - Creative`,
@@ -201,16 +271,38 @@ export class MarketingMetaAdsService {
       object_story_spec: JSON.stringify({
         page_id: this.pageId,
         ...(this.igBusinessId ? { instagram_actor_id: this.igBusinessId } : {}),
-        link_data: {
-          link,
-          message: input.primaryText,
-          name: input.headline,
-          description: input.description ?? '',
-          call_to_action: {
-            type: finalCta,
-            value: { link },
-          },
-        },
+        ...(media.mediaType === 'IMAGE'
+          ? {
+              link_data: {
+                link,
+                image_hash: media.imageHash,
+                message: input.primaryText,
+                name: input.headline,
+                description: input.description ?? '',
+                call_to_action: {
+                  type: finalCta,
+                  value: {
+                    link,
+                    app_destination: 'WHATSAPP',
+                  },
+                },
+              },
+            }
+          : {
+              video_data: {
+                video_id: media.videoId,
+                message: input.primaryText,
+                title: input.headline,
+                link_description: input.description ?? '',
+                call_to_action: {
+                  type: finalCta,
+                  value: {
+                    link,
+                    app_destination: 'WHATSAPP',
+                  },
+                },
+              },
+            }),
       }),
     };
 
@@ -219,7 +311,9 @@ export class MarketingMetaAdsService {
     if (!creativeId) {
       throw new ServiceUnavailableException('Meta no devolvió creative_id al crear Creative.');
     }
+    await this.emitStep(input, 'CREATING_CREATIVE', 'Creando anuncio creativo', 'DONE', creativeId);
 
+    await this.emitStep(input, 'CREATING_AD', 'Creando anuncio', 'RUNNING');
     const ad = await this.postForm(`/${this.normalizeAccountId()}/ads`, {
       name: `${input.name} - Ad`,
       adset_id: adSetId,
@@ -230,8 +324,21 @@ export class MarketingMetaAdsService {
     if (!adId) {
       throw new ServiceUnavailableException('Meta no devolvió ad_id al crear Ad.');
     }
+    await this.emitStep(input, 'CREATING_AD', 'Creando anuncio', 'DONE', adId);
 
-    return { campaignId, adSetId, creativeId, adId };
+    await this.emitStep(input, 'PUBLISHING_META', 'Publicando en Meta', 'DONE');
+    await this.emitStep(input, 'DONE', 'Campana creada en Meta Ads', 'DONE');
+
+    return {
+      campaignId,
+      adSetId,
+      creativeId,
+      adId,
+      imageHash: media.imageHash,
+      videoId: media.videoId,
+      mediaType: media.mediaType,
+      mediaUrl: media.mediaUrl,
+    };
   }
 
   async activateCampaign(campaignId: string, adSetId?: string | null, adId?: string | null) {
@@ -260,6 +367,119 @@ export class MarketingMetaAdsService {
     const phone = `${whatsappPhone ?? ''}`.replace(/[^0-9]/g, '');
     if (!phone) return 'https://facebook.com';
     return `https://wa.me/${phone}`;
+  }
+
+  private detectMediaType(input: CreateFlowInput): MetaAdMediaType {
+    const value = [input.mediaMimeType ?? '', input.mediaFileName ?? '', input.mediaUrl ?? '']
+      .join(' ')
+      .toLowerCase();
+    return value.includes('video') || /\.(mp4|mov|m4v|webm)(\?|$)/i.test(value) ? 'VIDEO' : 'IMAGE';
+  }
+
+  private async uploadCreativeMedia(input: CreateFlowInput) {
+    const mediaUrl = `${input.mediaUrl ?? ''}`.trim();
+    if (!mediaUrl) {
+      throw new ServiceUnavailableException('No hay imagen o video seleccionado para subir a Meta Ads.');
+    }
+
+    const mediaType = this.detectMediaType(input);
+    if (mediaType === 'VIDEO') {
+      const response = await this.postForm(`/${this.normalizeAccountId()}/advideos`, {
+        file_url: mediaUrl,
+        name: input.mediaFileName || `${input.name} video`,
+      });
+      const videoId = `${response.id ?? ''}`.trim();
+      if (!videoId) {
+        throw new ServiceUnavailableException('Meta no devolvió video_id al subir el video.');
+      }
+      return { mediaType, imageHash: null, videoId, mediaUrl };
+    }
+
+    const response = await this.postForm(`/${this.normalizeAccountId()}/adimages`, {
+      url: mediaUrl,
+      name: input.mediaFileName || `${input.name} image`,
+    });
+    const images = response.images && typeof response.images === 'object'
+      ? response.images as Record<string, Record<string, unknown>>
+      : {};
+    const firstImage = Object.values(images)[0] ?? {};
+    const imageHash = `${firstImage.hash ?? response.hash ?? ''}`.trim();
+    if (!imageHash) {
+      throw new ServiceUnavailableException('Meta no devolvió image_hash al subir la imagen.');
+    }
+    return { mediaType, imageHash, videoId: null, mediaUrl };
+  }
+
+  private async validateAccessToken() {
+    if (this.appId && this.appSecret) {
+      const inspected = await this.inspectToken();
+      if (!inspected.tokenValid) {
+        throw new ServiceUnavailableException('El token Meta configurado no es válido.');
+      }
+      return;
+    }
+
+    const query = new URLSearchParams({
+      fields: 'id,name',
+      access_token: this.accessToken,
+    });
+    const response = await fetch(`${this.graphUrl('/me')}?${query.toString()}`);
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      throw new MetaAdsException(this.extractMetaError(payload));
+    }
+  }
+
+  private async validateAdAccount() {
+    const query = new URLSearchParams({
+      fields: 'id,account_status,name',
+      access_token: this.accessToken,
+    });
+    const response = await fetch(`${this.graphUrl(`/${this.normalizeAccountId()}`)}?${query.toString()}`);
+    const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!response.ok) {
+      throw new MetaAdsException(this.extractMetaError(payload));
+    }
+  }
+
+  private async validateFacebookPage() {
+    const query = new URLSearchParams({
+      fields: 'id,name,instagram_business_account{id,username}',
+      access_token: this.accessToken,
+    });
+    const response = await fetch(`${this.graphUrl(`/${this.pageId}`)}?${query.toString()}`);
+    const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!response.ok) {
+      throw new MetaAdsException(this.extractMetaError(payload));
+    }
+  }
+
+  private async validateInstagramBusiness() {
+    const query = new URLSearchParams({
+      fields: 'id,username',
+      access_token: this.accessToken,
+    });
+    const response = await fetch(`${this.graphUrl(`/${this.igBusinessId}`)}?${query.toString()}`);
+    const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!response.ok) {
+      throw new MetaAdsException(this.extractMetaError(payload));
+    }
+  }
+
+  private async emitStep(
+    input: CreateFlowInput,
+    id: MetaPublishStepId,
+    label: string,
+    status: MetaPublishStepStatus,
+    detail?: string | null,
+  ) {
+    await input.onStep?.({
+      id,
+      label,
+      status,
+      detail: detail ?? null,
+      at: new Date().toISOString(),
+    });
   }
 
   private async inspectToken() {
@@ -329,10 +549,7 @@ export class MarketingMetaAdsService {
     }
 
     const details = this.extractMetaError(json);
-    const suffix = details.fbtraceId ? ` fbtrace_id=${details.fbtraceId}` : '';
-    throw new ServiceUnavailableException(
-      `${details.message}${suffix}`,
-    );
+    throw new MetaAdsException(details);
   }
 
   private extractMetaError(payload: Record<string, unknown>): MetaApiError {

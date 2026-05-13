@@ -18,7 +18,11 @@ import {
   UploadCampaignDesignDto,
 } from './dto/marketing-campaign.dto';
 import { MarketingMediaAssetService } from './marketing-media-asset.service';
-import { MarketingMetaAdsService } from './marketing-meta-ads.service';
+import {
+  MetaAdsException,
+  MetaPublishStep,
+  MarketingMetaAdsService,
+} from './marketing-meta-ads.service';
 import { MarketingStorageService } from './marketing-storage.service';
 
 type CampaignVisionCopy = {
@@ -34,7 +38,7 @@ type CampaignVisionCopy = {
 
 @Injectable()
 export class MarketingCampaignService {
-  private static readonly WHATSAPP_MESSAGES_OBJECTIVE = 'OUTCOME_ENGAGEMENT';
+  private static readonly WHATSAPP_MESSAGES_OBJECTIVE = 'OUTCOME_MESSAGES';
   private readonly logger = new Logger(MarketingCampaignService.name);
 
   constructor(
@@ -715,12 +719,30 @@ Devuelve exactamente este JSON:
     if (!`${campaign.whatsappPhone ?? ''}`.trim()) {
       throw new BadRequestException('Selecciona un WhatsApp destino antes de publicar.');
     }
+    const mediaUrl = this.resolveCampaignMediaUrl(campaign);
+    if (!mediaUrl) {
+      throw new BadRequestException('Selecciona una imagen o video antes de publicar en Meta Ads.');
+    }
 
     const audience = this.asRecord(campaign.finalAudienceJson) ??
       this.asRecord(campaign.recommendedAudienceJson) ??
-      this.buildAudienceRecommendation('servicios', 'Higuey', 'La Altagracia');
+      this.buildAudienceRecommendation('servicios', 'Higüey', 'La Altagracia');
 
     const targeting = this.mapAudienceToMetaTargeting(audience);
+    await this.prisma.marketingAdCampaign.update({
+      where: { id },
+      data: {
+        status: MarketingCampaignStatus.PUBLISHING,
+        phase: MarketingCampaignPhase.PUBLISH,
+        metaStatus: 'PUBLISHING',
+        metaError: null,
+        metaErrorCode: null,
+        metaErrorSubcode: null,
+        fbtraceId: null,
+        metaPublishProgressJson: this.buildPublishProgress(null),
+        updatedByUserId: userId || null,
+      },
+    });
 
     try {
       const ids = await this.metaAds.createCampaignFlow({
@@ -734,9 +756,15 @@ Devuelve exactamente este JSON:
         cta: 'WHATSAPP_MESSAGE',
         destinationUrl: campaign.destinationUrl,
         whatsappPhone: campaign.whatsappPhone,
+        mediaUrl,
+        mediaMimeType: campaign.mediaAsset?.mimeType ?? this.inferMime(this.extractName(mediaUrl)),
+        mediaFileName: campaign.mediaAsset?.fileName ?? this.extractName(mediaUrl),
         startTime: campaign.startTime,
         endTime: campaign.endTime,
         targeting,
+        onStep: async (step) => {
+          await this.persistPublishStep(id, step);
+        },
       });
 
       const status = dto.activateAfterCreate ? MarketingCampaignStatus.ACTIVE : MarketingCampaignStatus.PAUSED;
@@ -754,6 +782,10 @@ Devuelve exactamente este JSON:
           metaAdSetId: ids.adSetId,
           metaCreativeId: ids.creativeId,
           metaAdId: ids.adId,
+          metaImageHash: ids.imageHash,
+          metaVideoId: ids.videoId,
+          metaMediaType: ids.mediaType,
+          metaMediaUrl: ids.mediaUrl,
           metaStatus: dto.activateAfterCreate ? 'ACTIVE' : 'PAUSED',
           metaError: null,
           metaErrorCode: null,
@@ -765,15 +797,27 @@ Devuelve exactamente este JSON:
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Error al crear campaña en Meta Ads';
-      return this.prisma.marketingAdCampaign.update({
+      const metaDetails = error instanceof MetaAdsException ? error.metaDetails : null;
+      await this.prisma.marketingAdCampaign.update({
         where: { id },
         data: {
           status: MarketingCampaignStatus.ERROR,
           metaStatus: 'ERROR',
           metaError: message,
+          metaErrorCode: metaDetails?.code ?? null,
+          metaErrorSubcode: metaDetails?.subcode ?? null,
+          fbtraceId: metaDetails?.fbtraceId ?? null,
+          metaPublishProgressJson: this.buildPublishProgress({
+            id: 'PUBLISHING_META',
+            label: 'Publicando en Meta',
+            status: 'ERROR',
+            detail: message,
+            at: new Date().toISOString(),
+          }),
           updatedByUserId: userId || null,
         },
       });
+      throw error;
     }
   }
 
@@ -894,9 +938,9 @@ Devuelve exactamente este JSON:
       return {
         city,
         region,
-        radiusKm: 15,
+        radiusKm: 10,
         ageMin: 25,
-        ageMax: 60,
+        ageMax: 50,
         gender: 'ALL',
         interests: [
           'seguridad del hogar',
@@ -920,9 +964,9 @@ Devuelve exactamente este JSON:
       return {
         city,
         region,
-        radiusKm: 20,
-        ageMin: 30,
-        ageMax: 60,
+        radiusKm: 10,
+        ageMin: 25,
+        ageMax: 50,
         gender: 'ALL',
         interests: [
           'automatización',
@@ -941,7 +985,7 @@ Devuelve exactamente este JSON:
       region,
       radiusKm: 10,
       ageMin: 25,
-      ageMax: 60,
+      ageMax: 50,
       gender: 'ALL',
       interests: ['tecnología', 'servicios', 'seguridad', 'hogar'],
       audience: ['personas con intención de compra'],
@@ -950,28 +994,77 @@ Devuelve exactamente este JSON:
   }
 
   private mapAudienceToMetaTargeting(audience: Record<string, unknown>) {
-    const ageMin = Number(audience.ageMin ?? 24);
-    const ageMax = Number(audience.ageMax ?? 60);
-    const city = `${audience.city ?? 'Higuey'}`.trim() || 'Higuey';
-    const region = `${audience.region ?? 'La Altagracia'}`.trim() || 'La Altagracia';
+    const ageMin = Number(audience.ageMin ?? 25);
+    const ageMax = Number(audience.ageMax ?? 50);
 
     return {
-      age_min: Math.max(18, ageMin),
-      age_max: Math.max(Math.max(18, ageMin), ageMax),
+      age_min: Math.max(18, Math.round(ageMin)),
+      age_max: Math.max(Math.max(18, Math.round(ageMin)), Math.round(ageMax)),
       geo_locations: {
-        cities: [
+        custom_locations: [
           {
-            key: city,
-            radius: Number(audience.radiusKm ?? 15),
+            latitude: 18.615,
+            longitude: -68.708,
+            radius: Number(audience.radiusKm ?? 10),
             distance_unit: 'kilometer',
           },
         ],
-        regions: [{ key: region }],
       },
       publisher_platforms: ['facebook', 'instagram'],
-      facebook_positions: ['feed', 'story'],
-      instagram_positions: ['stream', 'story'],
+      facebook_positions: ['feed', 'story', 'facebook_reels'],
+      instagram_positions: ['stream', 'story', 'reels'],
     };
+  }
+
+  private resolveCampaignMediaUrl(campaign: {
+    finalDesignUrl?: string | null;
+    baseImageUrl?: string | null;
+    mediaAsset?: { fileUrl?: string | null } | null;
+  }) {
+    const raw = `${campaign.finalDesignUrl || campaign.baseImageUrl || campaign.mediaAsset?.fileUrl || ''}`.trim();
+    return raw ? this.storage.getPublicUrl(raw) : '';
+  }
+
+  private buildPublishProgress(activeStep: MetaPublishStep | null) {
+    const now = new Date().toISOString();
+    const steps: MetaPublishStep[] = [
+      { id: 'VALIDATING_META', label: 'Validando token Meta', status: 'PENDING', at: now },
+      { id: 'VALIDATING_PAGE', label: 'Validando pagina Facebook', status: 'PENDING', at: now },
+      { id: 'VALIDATING_INSTAGRAM', label: 'Validando Instagram Business', status: 'PENDING', at: now },
+      { id: 'UPLOADING_MEDIA', label: 'Subiendo media', status: 'PENDING', at: now },
+      { id: 'CREATING_CAMPAIGN', label: 'Creando campana', status: 'PENDING', at: now },
+      { id: 'CREATING_ADSET', label: 'Creando segmentacion', status: 'PENDING', at: now },
+      { id: 'CREATING_CREATIVE', label: 'Creando anuncio creativo', status: 'PENDING', at: now },
+      { id: 'CREATING_AD', label: 'Creando anuncio', status: 'PENDING', at: now },
+      { id: 'PUBLISHING_META', label: 'Publicando en Meta', status: 'PENDING', at: now },
+    ];
+    if (!activeStep) return steps as unknown as Prisma.InputJsonValue;
+    return steps.map((step) => step.id === activeStep.id ? activeStep : step) as unknown as Prisma.InputJsonValue;
+  }
+
+  private async persistPublishStep(id: string, activeStep: MetaPublishStep) {
+    const current = await this.prisma.marketingAdCampaign.findUnique({
+      where: { id },
+      select: { metaPublishProgressJson: true },
+    });
+    const existing = Array.isArray(current?.metaPublishProgressJson)
+      ? current.metaPublishProgressJson as unknown as MetaPublishStep[]
+      : this.buildPublishProgress(null) as unknown as MetaPublishStep[];
+    const activeIndex = existing.findIndex((step) => step.id === activeStep.id);
+    const updated = existing.map((step, index) => {
+      if (step.id === activeStep.id) return activeStep;
+      if (activeStep.status === 'RUNNING' && activeIndex >= 0 && index < activeIndex && step.status !== 'ERROR') {
+        return { ...step, status: 'DONE' as const };
+      }
+      return step;
+    });
+    await this.prisma.marketingAdCampaign.update({
+      where: { id },
+      data: {
+        metaPublishProgressJson: updated as unknown as Prisma.InputJsonValue,
+        metaStatus: activeStep.status === 'ERROR' ? 'ERROR' : 'PUBLISHING',
+      },
+    });
   }
 
   private asRecord(value: unknown): Record<string, unknown> | null {

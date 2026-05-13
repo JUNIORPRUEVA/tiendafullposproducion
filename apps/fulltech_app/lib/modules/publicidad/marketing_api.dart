@@ -126,7 +126,9 @@ class MarketingApi {
     }
   }
 
-  Future<MarketingRepairIncompleteSummary> repairIncomplete(DateTime date) async {
+  Future<MarketingRepairIncompleteSummary> repairIncomplete(
+    DateTime date,
+  ) async {
     try {
       final res = await _dio.post(
         ApiRoutes.marketingStoriesRepairIncomplete,
@@ -230,7 +232,9 @@ class MarketingApi {
 
   Future<void> confirmBaseImage(String storyId) async {
     try {
-      await _dio.post('${ApiRoutes.marketingStories}/$storyId/confirm-base-image');
+      await _dio.post(
+        '${ApiRoutes.marketingStories}/$storyId/confirm-base-image',
+      );
     } on DioException catch (error) {
       _rethrow(error, 'No se pudo confirmar la imagen base');
     }
@@ -395,9 +399,8 @@ class MarketingApi {
       return rows
           .whereType<Map>()
           .map(
-            (item) => MarketingMediaAsset.fromJson(
-              item.cast<String, dynamic>(),
-            ),
+            (item) =>
+                MarketingMediaAsset.fromJson(item.cast<String, dynamic>()),
           )
           .toList(growable: false);
     } on DioException catch (error) {
@@ -418,9 +421,8 @@ class MarketingApi {
       return rows
           .whereType<Map>()
           .map(
-            (item) => MarketingMediaAsset.fromJson(
-              item.cast<String, dynamic>(),
-            ),
+            (item) =>
+                MarketingMediaAsset.fromJson(item.cast<String, dynamic>()),
           )
           .toList(growable: false);
     } on DioException catch (error) {
@@ -439,10 +441,7 @@ class MarketingApi {
     try {
       final res = await _dio.post(
         '${ApiRoutes.marketingMediaAssets}/analyze',
-        data: {
-          'mediaAssetIds': mediaAssetIds,
-          'storyType': storyType,
-        },
+        data: {'mediaAssetIds': mediaAssetIds, 'storyType': storyType},
         options: _backgroundOptions,
       );
       return (res.data as Map?)?.cast<String, dynamic>() ??
@@ -550,9 +549,8 @@ class MarketingApi {
       return rows
           .whereType<Map>()
           .map(
-            (item) => MarketingResearchDetail.fromJson(
-              item.cast<String, dynamic>(),
-            ),
+            (item) =>
+                MarketingResearchDetail.fromJson(item.cast<String, dynamic>()),
           )
           .toList(growable: false);
     } on DioException catch (error) {
@@ -596,9 +594,8 @@ class MarketingApi {
       return rows
           .whereType<Map>()
           .map(
-            (item) => MarketingPublishedAsset.fromJson(
-              item.cast<String, dynamic>(),
-            ),
+            (item) =>
+                MarketingPublishedAsset.fromJson(item.cast<String, dynamic>()),
           )
           .toList(growable: false);
     } on DioException catch (error) {
@@ -628,9 +625,8 @@ class MarketingApi {
       return rows
           .whereType<Map>()
           .map(
-            (item) => MarketingSocialAccount.fromJson(
-              item.cast<String, dynamic>(),
-            ),
+            (item) =>
+                MarketingSocialAccount.fromJson(item.cast<String, dynamic>()),
           )
           .toList(growable: false);
     } on DioException catch (error) {
@@ -663,7 +659,8 @@ class MarketingApi {
             'whatsappNumber': whatsappNumber!.trim(),
           if ((observations ?? '').trim().isNotEmpty)
             'observations': observations!.trim(),
-          if ((avatarUrl ?? '').trim().isNotEmpty) 'avatarUrl': avatarUrl!.trim(),
+          if ((avatarUrl ?? '').trim().isNotEmpty)
+            'avatarUrl': avatarUrl!.trim(),
           'isActive': isActive,
         },
       );
@@ -726,9 +723,7 @@ class MarketingApi {
     try {
       final res = await _dio.get(
         ApiRoutes.marketingCampaigns,
-        queryParameters: {
-          if (date != null) 'date': _dateOnly(date),
-        },
+        queryParameters: {if (date != null) 'date': _dateOnly(date)},
         options: _backgroundOptions,
       );
       final raw =
@@ -738,9 +733,7 @@ class MarketingApi {
       final items = rows
           .whereType<Map>()
           .map(
-            (item) => MarketingCampaign.fromJson(
-              item.cast<String, dynamic>(),
-            ),
+            (item) => MarketingCampaign.fromJson(item.cast<String, dynamic>()),
           )
           .toList(growable: false);
       final configRaw = (raw['config'] is Map)
@@ -756,9 +749,7 @@ class MarketingApi {
     try {
       final res = await _dio.post(
         ApiRoutes.marketingCampaignsGenerateMissing,
-        data: {
-          if (date != null) 'date': _dateOnly(date),
-        },
+        data: {if (date != null) 'date': _dateOnly(date)},
       );
       final raw =
           (res.data as Map?)?.cast<String, dynamic>() ??
@@ -771,7 +762,9 @@ class MarketingApi {
 
   Future<MarketingCampaign> confirmCampaignBaseImage(String id) async {
     try {
-      final res = await _dio.post(ApiRoutes.marketingCampaignConfirmBaseImage(id));
+      final res = await _dio.post(
+        ApiRoutes.marketingCampaignConfirmBaseImage(id),
+      );
       final raw =
           (res.data as Map?)?.cast<String, dynamic>() ??
           const <String, dynamic>{};
@@ -824,7 +817,9 @@ class MarketingApi {
 
   Future<MarketingCampaign> regenerateCampaignCopy(String id) async {
     try {
-      final res = await _dio.post(ApiRoutes.marketingCampaignRegenerateCopy(id));
+      final res = await _dio.post(
+        ApiRoutes.marketingCampaignRegenerateCopy(id),
+      );
       final raw =
           (res.data as Map?)?.cast<String, dynamic>() ??
           const <String, dynamic>{};
@@ -869,7 +864,8 @@ class MarketingApi {
           if (finalAudience != null) 'finalAudienceJson': finalAudience,
           if (dailyBudget != null) 'dailyBudget': dailyBudget,
           if (totalBudget != null) 'totalBudget': totalBudget,
-          if (currency != null) 'currency': marketingCampaignCurrencyApi(currency),
+          if (currency != null)
+            'currency': marketingCampaignCurrencyApi(currency),
           if (whatsappPhone != null) 'whatsappPhone': whatsappPhone,
           if (whatsappMessageTemplate != null)
             'whatsappMessageTemplate': whatsappMessageTemplate,
@@ -891,7 +887,7 @@ class MarketingApi {
 
   Future<MarketingCampaign> createMetaCampaign(
     String id, {
-    String objective = 'OUTCOME_TRAFFIC',
+    String objective = 'OUTCOME_MESSAGES',
     bool activateAfterCreate = false,
   }) async {
     try {

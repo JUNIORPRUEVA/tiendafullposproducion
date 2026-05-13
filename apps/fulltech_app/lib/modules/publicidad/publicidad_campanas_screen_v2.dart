@@ -28,8 +28,8 @@ class _PublicidadCampanasScreenV2State
   static const String _defaultCity = 'Higüey, La Altagracia';
   static const int _defaultRadiusKm = 10;
   static const double _defaultMinAge = 25;
-  static const double _defaultMaxAge = 60;
-  static const String _fixedObjective = 'OUTCOME_ENGAGEMENT';
+  static const double _defaultMaxAge = 50;
+  static const String _fixedObjective = 'OUTCOME_MESSAGES';
 
   bool _loading = true;
   bool _busyAction = false;
@@ -445,13 +445,47 @@ class _PublicidadCampanasScreenV2State
 
     await _runAction('Campana publicada', () async {
       await _saveDraftSilently(campaign.id);
-      final published = await ref
-          .read(marketingApiProvider)
-          .createMetaCampaign(campaign.id, objective: _fixedObjective);
+      final published = await _createMetaCampaignWithProgress(campaign.id);
       if (mounted) {
         setState(() => _upsertCampaign(published));
       }
     });
+  }
+
+  Future<MarketingCampaign> _createMetaCampaignWithProgress(
+    String campaignId,
+  ) async {
+    final api = ref.read(marketingApiProvider);
+    var completed = false;
+    final publishFuture = api
+        .createMetaCampaign(campaignId, objective: _fixedObjective)
+        .whenComplete(() => completed = true);
+
+    while (!completed && mounted) {
+      await Future<void>.delayed(const Duration(milliseconds: 800));
+      if (!mounted || completed) break;
+      try {
+        final latest = await api.loadCampaignDetails(campaignId);
+        if (!mounted) break;
+        setState(() => _upsertCampaign(latest));
+      } catch (error, stackTrace) {
+        debugPrint('Error leyendo progreso Meta Ads: $error');
+        debugPrint('$stackTrace');
+      }
+    }
+
+    try {
+      return await publishFuture;
+    } catch (_) {
+      try {
+        final latest = await api.loadCampaignDetails(campaignId);
+        if (mounted) setState(() => _upsertCampaign(latest));
+      } catch (error, stackTrace) {
+        debugPrint('Error leyendo error Meta Ads final: $error');
+        debugPrint('$stackTrace');
+      }
+      rethrow;
+    }
   }
 
   void _upsertCampaign(
@@ -696,7 +730,7 @@ class _PublicidadCampanasScreenV2State
           (
             title: 'Presupuesto + WhatsApp',
             subtitle:
-                'Presupuesto, numero destino, Higüey 10 km y edades 25-60.',
+                'Presupuesto, numero destino, Higüey 10 km y edades 25-50.',
             icon: Icons.tune_rounded,
             child: _buildSegmentationBudgetSession(
               campaign,
@@ -717,7 +751,7 @@ class _PublicidadCampanasScreenV2State
         title: 'Publicar',
         subtitle: 'Crea la campana WhatsApp Messages en Meta.',
         icon: Icons.send_rounded,
-        child: _buildPublishPanel(),
+        child: _buildPublishPanel(campaign),
       ));
     }
     final activeIndex = _activeSessionIndex.clamp(0, sessions.length - 1);
@@ -1356,21 +1390,173 @@ class _PublicidadCampanasScreenV2State
           children: [
             _Pill(label: 'Objetivo: Mensajes WhatsApp'),
             _Pill(label: 'CTA: Enviar mensaje'),
-            _Pill(label: 'Default: Higüey · 10 km · 25-60'),
+            _Pill(label: 'Default: Higüey · 10 km · 25-50'),
           ],
         ),
       ],
     );
   }
 
-  Widget _buildPublishPanel() {
-    return SizedBox(
-      width: double.infinity,
-      height: 48,
-      child: FilledButton.icon(
-        onPressed: _busyAction ? null : _publishCampaign,
-        icon: const Icon(Icons.send_rounded),
-        label: const Text('Publicar campaña de WhatsApp'),
+  Widget _buildPublishPanel(MarketingCampaign campaign) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          width: double.infinity,
+          height: 48,
+          child: FilledButton.icon(
+            onPressed: _busyAction ? null : _publishCampaign,
+            icon: _busyAction
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.send_rounded),
+            label: Text(
+              _busyAction
+                  ? 'Publicando en Meta Ads...'
+                  : 'Publicar campaña de WhatsApp',
+            ),
+          ),
+        ),
+        if (_shouldShowPublishProgress(campaign)) ...[
+          const SizedBox(height: 12),
+          _buildPublishProgress(campaign),
+        ],
+      ],
+    );
+  }
+
+  bool _shouldShowPublishProgress(MarketingCampaign campaign) {
+    return _busyAction ||
+        campaign.metaPublishProgress.isNotEmpty ||
+        (campaign.metaCampaignId ?? '').isNotEmpty ||
+        (campaign.metaError ?? '').isNotEmpty;
+  }
+
+  Widget _buildPublishProgress(MarketingCampaign campaign) {
+    final progress = campaign.metaPublishProgress;
+    final ids = <String, String?>{
+      'Campaign ID': campaign.metaCampaignId,
+      'AdSet ID': campaign.metaAdSetId,
+      'Creative ID': campaign.metaCreativeId,
+      'Ad ID': campaign.metaAdId,
+      'Image hash': campaign.metaImageHash,
+      'Video ID': campaign.metaVideoId,
+    };
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Theme.of(context).dividerColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                campaign.status == MarketingCampaignStatus.error
+                    ? Icons.error_rounded
+                    : Icons.ads_click_rounded,
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  campaign.status == MarketingCampaignStatus.error
+                      ? 'Error Meta Ads'
+                      : 'Progreso Meta Ads',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                ),
+              ),
+              if ((campaign.metaStatus ?? '').isNotEmpty)
+                _Pill(label: campaign.metaStatus!),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (progress.isNotEmpty)
+            ...progress.map(_buildPublishStep).toList(growable: false),
+          if ((campaign.metaError ?? '').isNotEmpty) ...[
+            const SizedBox(height: 8),
+            SelectableText(
+              [
+                campaign.metaError,
+                if ((campaign.metaErrorCode ?? '').isNotEmpty)
+                  'code=${campaign.metaErrorCode}',
+                if ((campaign.metaErrorSubcode ?? '').isNotEmpty)
+                  'subcode=${campaign.metaErrorSubcode}',
+                if ((campaign.fbtraceId ?? '').isNotEmpty)
+                  'fbtrace_id=${campaign.fbtraceId}',
+              ].whereType<String>().join(' · '),
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ],
+          if (ids.values.any((value) => (value ?? '').trim().isNotEmpty)) ...[
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: ids.entries
+                  .where((entry) => (entry.value ?? '').trim().isNotEmpty)
+                  .map(
+                    (entry) =>
+                        _MetaIdChip(label: entry.key, value: entry.value!),
+                  )
+                  .toList(growable: false),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPublishStep(Map<String, dynamic> step) {
+    final status = '${step['status'] ?? 'PENDING'}'.toUpperCase();
+    final label = '${step['label'] ?? ''}'.trim();
+    final detail = '${step['detail'] ?? ''}'.trim();
+    final colorScheme = Theme.of(context).colorScheme;
+    final icon = switch (status) {
+      'DONE' => Icons.check_circle_rounded,
+      'RUNNING' => Icons.sync_rounded,
+      'ERROR' => Icons.error_rounded,
+      _ => Icons.radio_button_unchecked_rounded,
+    };
+    final color = switch (status) {
+      'DONE' => Colors.green.shade700,
+      'RUNNING' => colorScheme.primary,
+      'ERROR' => colorScheme.error,
+      _ => colorScheme.outline,
+    };
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 7),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: color),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                if (detail.isNotEmpty)
+                  SelectableText(
+                    detail,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1381,7 +1567,7 @@ class _PublicidadCampanasScreenV2State
       children: [
         _buildLargePreview(campaign),
         const SizedBox(height: 12),
-        _buildPublishPanel(),
+        _buildPublishPanel(campaign),
       ],
     );
   }
@@ -1395,7 +1581,7 @@ class _PublicidadCampanasScreenV2State
         children: [
           _buildLargePreview(campaign, showHeader: false),
           const SizedBox(height: 12),
-          _buildPublishPanel(),
+          _buildPublishPanel(campaign),
         ],
       ),
     );
@@ -1750,6 +1936,47 @@ class _CampaignCopy {
   static String _realText(String value) {
     final clean = value.trim();
     return clean.isEmpty ? 'Generando copy...' : clean;
+  }
+}
+
+class _MetaIdChip extends StatelessWidget {
+  const _MetaIdChip({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 260),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: Theme.of(
+              context,
+            ).textTheme.labelSmall?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+          const SizedBox(height: 2),
+          SelectableText(
+            value,
+            maxLines: 1,
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
+    );
   }
 }
 
