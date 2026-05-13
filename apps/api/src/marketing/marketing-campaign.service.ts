@@ -22,6 +22,8 @@ import { MarketingStorageService } from './marketing-storage.service';
 
 @Injectable()
 export class MarketingCampaignService {
+  private static readonly WHATSAPP_MESSAGES_OBJECTIVE = 'OUTCOME_ENGAGEMENT';
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly mediaAssets: MarketingMediaAssetService,
@@ -324,13 +326,15 @@ export class MarketingCampaignService {
     try {
       const ids = await this.metaAds.createCampaignFlow({
         name: `${campaign.headline ?? 'Campaña'} ${new Date().toISOString().substring(0, 10)}`,
-        objective: (dto.objective ?? 'OUTCOME_TRAFFIC').trim() || 'OUTCOME_TRAFFIC',
+        objective:
+          (dto.objective ?? MarketingCampaignService.WHATSAPP_MESSAGES_OBJECTIVE)
+            .trim() || MarketingCampaignService.WHATSAPP_MESSAGES_OBJECTIVE,
         dailyBudget,
         totalBudget: campaign.totalBudget ? Number(campaign.totalBudget) : null,
         headline: campaign.headline ?? 'Campaña Fulltech',
         primaryText: campaign.primaryText ?? 'Conoce nuestra solución ahora mismo.',
         description: campaign.description,
-        cta: campaign.cta ?? 'LEARN_MORE',
+        cta: campaign.cta ?? 'WHATSAPP_MESSAGE',
         destinationUrl: campaign.destinationUrl,
         whatsappPhone: campaign.whatsappPhone,
         startTime: campaign.startTime,
@@ -511,7 +515,7 @@ export class MarketingCampaignService {
           'oficinas',
           'residenciales',
         ],
-        objective: 'OUTCOME_TRAFFIC',
+        objective: MarketingCampaignService.WHATSAPP_MESSAGES_OBJECTIVE,
       };
     }
 
@@ -531,20 +535,20 @@ export class MarketingCampaignService {
           'ferretería',
         ],
         audience: ['propietarios residenciales', 'constructores', 'comunidades cerradas'],
-        objective: 'OUTCOME_TRAFFIC',
+        objective: MarketingCampaignService.WHATSAPP_MESSAGES_OBJECTIVE,
       };
     }
 
     return {
       city,
       region,
-      radiusKm: 20,
-      ageMin: 24,
+      radiusKm: 10,
+      ageMin: 25,
       ageMax: 60,
       gender: 'ALL',
       interests: ['tecnología', 'servicios', 'seguridad', 'hogar'],
       audience: ['personas con intención de compra'],
-      objective: 'OUTCOME_TRAFFIC',
+      objective: MarketingCampaignService.WHATSAPP_MESSAGES_OBJECTIVE,
     };
   }
 

@@ -156,12 +156,20 @@ export class MarketingMetaAdsService {
       campaign_id: campaignId,
       name: `${input.name} - Ad Set`,
       billing_event: 'IMPRESSIONS',
-      optimization_goal: 'LINK_CLICKS',
+      optimization_goal: input.whatsappPhone ? 'CONVERSATIONS' : 'LINK_CLICKS',
       bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
       status: 'PAUSED',
       targeting: JSON.stringify(input.targeting),
       daily_budget: `${Math.max(1, Math.round(input.dailyBudget * 100))}`,
     };
+
+    if (input.whatsappPhone) {
+      adsetPayload.promoted_object = JSON.stringify({
+        page_id: this.pageId,
+      });
+      // Explicit opt-out to avoid Advantage+ multi advertiser delivery.
+      adsetPayload.multi_advertiser_opt_out = '1';
+    }
 
     if (input.totalBudget != null && input.totalBudget > 0) {
       adsetPayload.lifetime_budget = `${Math.round(input.totalBudget * 100)}`;

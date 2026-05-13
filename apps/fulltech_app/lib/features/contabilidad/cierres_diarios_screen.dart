@@ -561,6 +561,7 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                     _cashCtrl,
                     'Efectivo declarado',
                     required: true,
+                    mustBeGreaterThanZero: true,
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -568,7 +569,12 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
               ],
             )
           else
-            _moneyField(_cashCtrl, 'Efectivo declarado', required: true),
+            _moneyField(
+              _cashCtrl,
+              'Efectivo declarado',
+              required: true,
+              mustBeGreaterThanZero: true,
+            ),
           const SizedBox(height: 10),
           _buildTransferSection(money),
           if (!assistantMode) ...[
@@ -580,7 +586,12 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
           const SizedBox(height: 10),
           _buildExpensesSection(money),
           const SizedBox(height: 10),
-          _moneyField(_cashDeliveredCtrl, 'Efectivo entregado', required: true),
+          _moneyField(
+            _cashDeliveredCtrl,
+            'Efectivo entregado',
+            required: true,
+            mustBeGreaterThanZero: true,
+          ),
           const SizedBox(height: 10),
           TextFormField(
             controller: _notesCtrl,
@@ -611,6 +622,16 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
                   ? null
                   : () async {
                       if (!_formKey.currentState!.validate()) return;
+                      if (_posVoucher == null) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'El boucher del cierre es obligatorio para guardar o enviar el cierre.',
+                            ),
+                          ),
+                        );
+                        return;
+                      }
                       for (final entry in _transferEntries) {
                         if (entry.bankCtrl.text.trim().isEmpty ||
                             _toMoney(entry.amountCtrl.text) <= 0 ||
@@ -749,6 +770,7 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
     TextEditingController controller,
     String label, {
     bool required = false,
+    bool mustBeGreaterThanZero = false,
     void Function(String)? onChanged,
   }) {
     return TextFormField(
@@ -770,6 +792,9 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
         }
         final amount = _toMoney(value);
         if (amount < 0) return 'No puede ser negativo';
+        if (mustBeGreaterThanZero && amount <= 0) {
+          return 'Debe ser mayor a cero';
+        }
         return null;
       },
     );
@@ -1170,7 +1195,7 @@ class _CierresDiariosScreenState extends ConsumerState<CierresDiariosScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const SectionTitle(title: 'Boucher cierre POS (opcional)'),
+        const SectionTitle(title: 'Boucher cierre POS *'),
         if (voucher != null) ...[
           ListTile(
             contentPadding: EdgeInsets.zero,
@@ -2233,6 +2258,107 @@ class _RawHistoryField extends StatelessWidget {
   }
 }
 
+class _DetailAmountLine extends StatelessWidget {
+  const _DetailAmountLine({
+    required this.label,
+    required this.value,
+    this.emphasize = false,
+    this.showDivider = true,
+  });
+
+  final String label;
+  final String value;
+  final bool emphasize;
+  final bool showDivider;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 9),
+      decoration: BoxDecoration(
+        border: showDivider
+            ? Border(bottom: BorderSide(color: colorScheme.outlineVariant))
+            : null,
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: colorScheme.onSurfaceVariant,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              color: emphasize ? colorScheme.error : colorScheme.onSurface,
+              fontSize: 13,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RightTotalLine extends StatelessWidget {
+  const _RightTotalLine({
+    required this.label,
+    required this.value,
+    this.emphasize = false,
+    this.showDivider = true,
+  });
+
+  final String label;
+  final String value;
+  final bool emphasize;
+  final bool showDivider;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      decoration: BoxDecoration(
+        border: showDivider
+            ? Border(bottom: BorderSide(color: colorScheme.outlineVariant))
+            : null,
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: colorScheme.onSurfaceVariant,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            value,
+            textAlign: TextAlign.right,
+            style: TextStyle(
+              color: emphasize ? colorScheme.error : colorScheme.onSurface,
+              fontSize: 13,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _HistoryFullScreenPage extends ConsumerStatefulWidget {
   final CloseType initialType;
 
@@ -2490,7 +2616,9 @@ class _HistoryFullScreenPageState
     final from = _summaryFromDate ?? DateTime.now();
     final to = _summaryToDate ?? from;
 
-    print('[CierresDiariosScreen._fetchSummary] iniciando from=$from to=$to business=$_summaryBusinessType');
+    print(
+      '[CierresDiariosScreen._fetchSummary] iniciando from=$from to=$to business=$_summaryBusinessType',
+    );
     setState(() {
       _summaryLoading = true;
       _summaryError = null;
@@ -2506,7 +2634,9 @@ class _HistoryFullScreenPageState
             businessType: _summaryBusinessType,
           );
       final duration = DateTime.now().difference(start);
-      print('[CierresDiariosScreen._fetchSummary] completado en ${duration.inMilliseconds}ms');
+      print(
+        '[CierresDiariosScreen._fetchSummary] completado en ${duration.inMilliseconds}ms',
+      );
       if (!mounted) return;
       setState(() {
         _summary = summary;
@@ -4244,6 +4374,601 @@ class _CloseDetailFullScreenPageState
                         const SizedBox(height: 14),
                       ],
                       const SizedBox(height: 24),
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            const Text(
+                              'Desglose del cierre',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w900,
+                                fontSize: 13,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            _DetailAmountLine(
+                              label: 'Efectivo declarado',
+                              value: _money(currentClose.cash),
+                            ),
+                            _DetailAmountLine(
+                              label: 'Total transferido',
+                              value: _money(currentClose.transfer),
+                            ),
+                            _DetailAmountLine(
+                              label: 'Tarjeta',
+                              value: _money(currentClose.card),
+                            ),
+                            _DetailAmountLine(
+                              label: 'Otros ingresos',
+                              value: _money(currentClose.otherIncome),
+                            ),
+                            _DetailAmountLine(
+                              label: 'Gastos detallados',
+                              value: _money(currentClose.expenses),
+                            ),
+                            _DetailAmountLine(
+                              label: 'Efectivo entregado',
+                              value: _money(currentClose.cashDelivered),
+                            ),
+                            _DetailAmountLine(
+                              label: 'Total ingresos',
+                              value: _money(currentClose.incomeTotal),
+                            ),
+                            _DetailAmountLine(
+                              label: 'Total neto',
+                              value: _money(currentClose.netTotal),
+                            ),
+                            _DetailAmountLine(
+                              label: 'Diferencia',
+                              value: _money(currentClose.difference),
+                              emphasize: currentClose.difference != 0,
+                              showDivider: false,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      // Voucher POS
+                      if (currentClose.evidenceUrl != null &&
+                          currentClose.evidenceFileName != null) ...[
+                        Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              const Text(
+                                'Voucher POS',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              Container(
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: const Color(0xFFE2E8F0),
+                                  ),
+                                  color: Theme.of(context).colorScheme.surface,
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.center,
+                                    children: [
+                                      if (posVoucherIsImage)
+                                        InkWell(
+                                          onTap: () =>
+                                              _showVoucherPreviewDialog(
+                                                context,
+                                                posVoucher,
+                                              ),
+                                          borderRadius: BorderRadius.circular(
+                                            10,
+                                          ),
+                                          child: ClipRRect(
+                                            borderRadius: BorderRadius.circular(
+                                              10,
+                                            ),
+                                            child: SizedBox(
+                                              width: 88,
+                                              height: 68,
+                                              child: Image.network(
+                                                _normalizeAssetUrl(
+                                                  currentClose.evidenceUrl!,
+                                                ),
+                                                fit: BoxFit.cover,
+                                                errorBuilder: (_, __, ___) =>
+                                                    Container(
+                                                      color: Theme.of(context)
+                                                          .colorScheme
+                                                          .surfaceContainerHighest,
+                                                      alignment:
+                                                          Alignment.center,
+                                                      child: const Icon(
+                                                        Icons
+                                                            .broken_image_outlined,
+                                                      ),
+                                                    ),
+                                              ),
+                                            ),
+                                          ),
+                                        )
+                                      else
+                                        Container(
+                                          width: 56,
+                                          height: 56,
+                                          decoration: BoxDecoration(
+                                            borderRadius: BorderRadius.circular(
+                                              10,
+                                            ),
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .surfaceContainerHighest,
+                                          ),
+                                          alignment: Alignment.center,
+                                          child: const Icon(
+                                            Icons.picture_as_pdf_outlined,
+                                          ),
+                                        ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              currentClose.evidenceFileName!,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.w700,
+                                                fontSize: 11,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              posVoucherIsImage
+                                                  ? 'Vista previa.'
+                                                  : 'Archivo adjunto.',
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .bodySmall
+                                                  ?.copyWith(
+                                                    fontSize: 10,
+                                                    color: Theme.of(context)
+                                                        .colorScheme
+                                                        .onSurfaceVariant,
+                                                  ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      OutlinedButton.icon(
+                                        onPressed: () =>
+                                            _showVoucherPreviewDialog(
+                                              context,
+                                              posVoucher,
+                                            ),
+                                        icon: const Icon(
+                                          Icons.fullscreen_outlined,
+                                          size: 16,
+                                        ),
+                                        style: OutlinedButton.styleFrom(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 10,
+                                            vertical: 10,
+                                          ),
+                                          visualDensity: VisualDensity.compact,
+                                        ),
+                                        label: const Text('Ver'),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                      ],
+                      // Gastos
+                      if (currentClose.expenseDetails.isNotEmpty) ...[
+                        Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              const Text(
+                                'Gastos',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              ...currentClose.expenseDetails.asMap().entries.map((
+                                entry,
+                              ) {
+                                final idx = entry.key;
+                                final row = entry.value;
+                                final concept = (row['concept'] as String?)
+                                    ?.trim();
+                                final amount =
+                                    (row['amount'] as num?)?.toDouble() ?? 0;
+                                final vouchers =
+                                    ((row['vouchers'] as List?) ?? const [])
+                                        .whereType<Map>()
+                                        .map(
+                                          (v) =>
+                                              CloseTransferVoucherModel.fromJson(
+                                                v.cast<String, dynamic>(),
+                                              ),
+                                        )
+                                        .map(
+                                          (v) => CloseTransferVoucherModel(
+                                            storageKey: v.storageKey,
+                                            fileUrl: _normalizeAssetUrl(
+                                              v.fileUrl,
+                                            ),
+                                            fileName: v.fileName,
+                                            mimeType: v.mimeType,
+                                          ),
+                                        )
+                                        .toList();
+                                return Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    if (idx > 0) const Divider(height: 1),
+                                    ListTile(
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                            vertical: 8,
+                                          ),
+                                      title: Text(
+                                        concept?.isNotEmpty == true
+                                            ? concept!
+                                            : 'Sin concepto',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                      trailing: Text(
+                                        _money(amount),
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                    ),
+                                    if (vouchers.isNotEmpty)
+                                      Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                        ),
+                                        child: Wrap(
+                                          spacing: 6,
+                                          runSpacing: 6,
+                                          children: vouchers
+                                              .map(
+                                                (v) => InkWell(
+                                                  onTap: () =>
+                                                      _showVoucherPreviewDialog(
+                                                        context,
+                                                        v,
+                                                      ),
+                                                  child: ClipRRect(
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          6,
+                                                        ),
+                                                    child: SizedBox(
+                                                      width: 56,
+                                                      height: 56,
+                                                      child:
+                                                          v.mimeType.startsWith(
+                                                            'image/',
+                                                          )
+                                                          ? Image.network(
+                                                              v.fileUrl,
+                                                              fit: BoxFit.cover,
+                                                              errorBuilder: (_, __, ___) => Container(
+                                                                color: Theme.of(context)
+                                                                    .colorScheme
+                                                                    .surfaceContainerHighest,
+                                                                alignment:
+                                                                    Alignment
+                                                                        .center,
+                                                                child: const Icon(
+                                                                  Icons
+                                                                      .picture_as_pdf_outlined,
+                                                                  size: 20,
+                                                                ),
+                                                              ),
+                                                            )
+                                                          : Container(
+                                                              color: Theme.of(context)
+                                                                  .colorScheme
+                                                                  .surfaceContainerHighest,
+                                                              alignment:
+                                                                  Alignment
+                                                                      .center,
+                                                              child: const Icon(
+                                                                Icons
+                                                                    .picture_as_pdf_outlined,
+                                                                size: 20,
+                                                              ),
+                                                            ),
+                                                    ),
+                                                  ),
+                                                ),
+                                              )
+                                              .toList(),
+                                        ),
+                                      ),
+                                  ],
+                                );
+                              }),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                      ],
+                      // Transferencias
+                      if (currentClose.transfers.isNotEmpty) ...[
+                        Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              const Text(
+                                'Transferencias',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              ...currentClose.transfers.asMap().entries.map((
+                                entry,
+                              ) {
+                                final transfer = entry.value;
+                                final imageVouchers = transfer.vouchers
+                                    .where(_isImageVoucher)
+                                    .map(
+                                      (v) => CloseTransferVoucherModel(
+                                        storageKey: v.storageKey,
+                                        fileUrl: _normalizeAssetUrl(v.fileUrl),
+                                        fileName: v.fileName,
+                                        mimeType: v.mimeType,
+                                      ),
+                                    )
+                                    .toList();
+                                final fileVouchers = transfer.vouchers
+                                    .where((v) => !_isImageVoucher(v))
+                                    .map(
+                                      (v) => CloseTransferVoucherModel(
+                                        storageKey: v.storageKey,
+                                        fileUrl: _normalizeAssetUrl(v.fileUrl),
+                                        fileName: v.fileName,
+                                        mimeType: v.mimeType,
+                                      ),
+                                    )
+                                    .toList();
+                                return ExpansionTile(
+                                  initiallyExpanded: true,
+                                  tilePadding: const EdgeInsets.symmetric(
+                                    horizontal: 0,
+                                    vertical: 4,
+                                  ),
+                                  title: Text(
+                                    '${entry.key + 1}. ${transfer.bankName} · ${_money(transfer.amount)}',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                  subtitle:
+                                      [
+                                        if ((transfer.referenceNumber ?? '')
+                                            .trim()
+                                            .isNotEmpty)
+                                          'Ref: ${transfer.referenceNumber}',
+                                        if ((transfer.note ?? '')
+                                            .trim()
+                                            .isNotEmpty)
+                                          transfer.note!.trim(),
+                                      ].join(' · ').isEmpty
+                                      ? null
+                                      : Text(
+                                          [
+                                            if ((transfer.referenceNumber ?? '')
+                                                .trim()
+                                                .isNotEmpty)
+                                              'Ref: ${transfer.referenceNumber}',
+                                            if ((transfer.note ?? '')
+                                                .trim()
+                                                .isNotEmpty)
+                                              transfer.note!.trim(),
+                                          ].join(' · '),
+                                          style: const TextStyle(fontSize: 10),
+                                        ),
+                                  children: [
+                                    if (fileVouchers.isNotEmpty)
+                                      ...fileVouchers.map(
+                                        (v) => ListTile(
+                                          dense: true,
+                                          contentPadding:
+                                              const EdgeInsets.symmetric(
+                                                horizontal: 8,
+                                              ),
+                                          leading: const Icon(
+                                            Icons.picture_as_pdf_outlined,
+                                            size: 18,
+                                          ),
+                                          title: Text(
+                                            v.fileName,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              fontSize: 10,
+                                            ),
+                                          ),
+                                          trailing: SizedBox(
+                                            width: 50,
+                                            child: OutlinedButton(
+                                              onPressed: () =>
+                                                  _showVoucherPreviewDialog(
+                                                    context,
+                                                    v,
+                                                  ),
+                                              style: OutlinedButton.styleFrom(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 4,
+                                                      vertical: 2,
+                                                    ),
+                                                visualDensity:
+                                                    VisualDensity.compact,
+                                              ),
+                                              child: const Text(
+                                                'Ver',
+                                                style: TextStyle(fontSize: 9),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    if (imageVouchers.isNotEmpty)
+                                      Padding(
+                                        padding: const EdgeInsets.all(8),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              imageVouchers.length == 1
+                                                  ? '1 comprobante visual'
+                                                  : '${imageVouchers.length} comprobantes visuales',
+                                              style: const TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 6),
+                                            Wrap(
+                                              spacing: 6,
+                                              runSpacing: 6,
+                                              children: imageVouchers
+                                                  .map(
+                                                    (v) => InkWell(
+                                                      onTap: () =>
+                                                          _showVoucherPreviewDialog(
+                                                            context,
+                                                            v,
+                                                          ),
+                                                      child: ClipRRect(
+                                                        borderRadius:
+                                                            BorderRadius.circular(
+                                                              6,
+                                                            ),
+                                                        child: SizedBox(
+                                                          width: 50,
+                                                          height: 50,
+                                                          child: Image.network(
+                                                            v.fileUrl,
+                                                            fit: BoxFit.cover,
+                                                            errorBuilder:
+                                                                (
+                                                                  _,
+                                                                  __,
+                                                                  ___,
+                                                                ) => Container(
+                                                                  color: Theme.of(
+                                                                    context,
+                                                                  ).colorScheme.surfaceContainerHighest,
+                                                                  alignment:
+                                                                      Alignment
+                                                                          .center,
+                                                                  child: const Icon(
+                                                                    Icons
+                                                                        .broken_image_outlined,
+                                                                    size: 16,
+                                                                  ),
+                                                                ),
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  )
+                                                  .toList(),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                  ],
+                                );
+                              }),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                      ],
+                      // Notas
+                      if ((currentClose.notes ?? '').trim().isNotEmpty) ...[
+                        Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Notas',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              Text(
+                                currentClose.notes!.trim(),
+                                style: const TextStyle(fontSize: 11),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                      ],
                     ],
                   ),
                 ),
@@ -4268,48 +4993,51 @@ class _CloseDetailFullScreenPageState
                             children: [
                               const Text(
                                 'Montos del cierre',
-                                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 14,
+                                ),
                               ),
                               const SizedBox(height: 10),
-                              Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
+                              Column(
                                 children: [
-                                  _MoneyPill(
+                                  _RightTotalLine(
                                     label: 'Total ingresos',
                                     value: _money(currentClose.incomeTotal),
                                   ),
-                                  _MoneyPill(
+                                  _RightTotalLine(
                                     label: 'Total neto',
                                     value: _money(currentClose.netTotal),
                                   ),
-                                  _MoneyPill(
+                                  _RightTotalLine(
                                     label: 'Diferencia',
                                     value: _money(currentClose.difference),
+                                    emphasize: currentClose.difference != 0,
                                   ),
-                                  _MoneyPill(
-                                    label: 'Efectivo',
+                                  _RightTotalLine(
+                                    label: 'Efectivo declarado',
                                     value: _money(currentClose.cash),
                                   ),
-                                  _MoneyPill(
-                                    label: 'Transferencia',
+                                  _RightTotalLine(
+                                    label: 'Total transferido',
                                     value: _money(currentClose.transfer),
                                   ),
-                                  _MoneyPill(
+                                  _RightTotalLine(
                                     label: 'Tarjeta',
                                     value: _money(currentClose.card),
                                   ),
-                                  _MoneyPill(
+                                  _RightTotalLine(
                                     label: 'Otros ingresos',
                                     value: _money(currentClose.otherIncome),
                                   ),
-                                  _MoneyPill(
+                                  _RightTotalLine(
                                     label: 'Gastos',
                                     value: _money(currentClose.expenses),
                                   ),
-                                  _MoneyPill(
+                                  _RightTotalLine(
                                     label: 'Efectivo entregado',
                                     value: _money(currentClose.cashDelivered),
+                                    showDivider: false,
                                   ),
                                 ],
                               ),
@@ -4330,13 +5058,22 @@ class _CloseDetailFullScreenPageState
                             children: [
                               const Text(
                                 'Historial del cierre',
-                                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 12,
+                                ),
                               ),
                               const SizedBox(height: 10),
                               ListTile(
                                 contentPadding: EdgeInsets.zero,
-                                leading: const Icon(Icons.add_task_outlined, size: 18),
-                                title: const Text('Creación del cierre', style: TextStyle(fontSize: 11)),
+                                leading: const Icon(
+                                  Icons.add_task_outlined,
+                                  size: 18,
+                                ),
+                                title: const Text(
+                                  'Creación del cierre',
+                                  style: TextStyle(fontSize: 11),
+                                ),
                                 subtitle: Text(
                                   '${DateFormat('dd/MM/yyyy h:mm a', 'es_DO').format(currentClose.createdAt)} · ${currentClose.createdByName ?? currentClose.createdById ?? 'N/D'}',
                                   style: const TextStyle(fontSize: 10),
@@ -4345,28 +5082,51 @@ class _CloseDetailFullScreenPageState
                               if (currentClose.aiGeneratedAt != null)
                                 ListTile(
                                   contentPadding: EdgeInsets.zero,
-                                  leading: const Icon(Icons.auto_awesome_outlined, size: 18),
-                                  title: const Text('Informe IA generado', style: TextStyle(fontSize: 11)),
+                                  leading: const Icon(
+                                    Icons.auto_awesome_outlined,
+                                    size: 18,
+                                  ),
+                                  title: const Text(
+                                    'Informe IA generado',
+                                    style: TextStyle(fontSize: 11),
+                                  ),
                                   subtitle: Text(
-                                    DateFormat('dd/MM/yyyy h:mm a', 'es_DO').format(currentClose.aiGeneratedAt!),
+                                    DateFormat(
+                                      'dd/MM/yyyy h:mm a',
+                                      'es_DO',
+                                    ).format(currentClose.aiGeneratedAt!),
                                     style: const TextStyle(fontSize: 10),
                                   ),
                                 ),
                               if (currentClose.reviewedAt != null)
                                 ListTile(
                                   contentPadding: EdgeInsets.zero,
-                                  leading: const Icon(Icons.verified_outlined, size: 18),
-                                  title: Text('Revisión: $statusLabel', style: const TextStyle(fontSize: 11)),
+                                  leading: const Icon(
+                                    Icons.verified_outlined,
+                                    size: 18,
+                                  ),
+                                  title: Text(
+                                    'Revisión: $statusLabel',
+                                    style: const TextStyle(fontSize: 11),
+                                  ),
                                   subtitle: Text(
                                     '${DateFormat('dd/MM/yyyy h:mm a', 'es_DO').format(currentClose.reviewedAt!)} · ${currentClose.reviewedByName ?? currentClose.reviewedById ?? 'N/D'}',
                                     style: const TextStyle(fontSize: 10),
                                   ),
                                 ),
-                              if ((currentClose.notificationStatus ?? '').trim().isNotEmpty)
+                              if ((currentClose.notificationStatus ?? '')
+                                  .trim()
+                                  .isNotEmpty)
                                 ListTile(
                                   contentPadding: EdgeInsets.zero,
-                                  leading: const Icon(Icons.notifications_active_outlined, size: 18),
-                                  title: const Text('Notificación a admins', style: TextStyle(fontSize: 11)),
+                                  leading: const Icon(
+                                    Icons.notifications_active_outlined,
+                                    size: 18,
+                                  ),
+                                  title: const Text(
+                                    'Notificación a admins',
+                                    style: TextStyle(fontSize: 11),
+                                  ),
                                   subtitle: Text(
                                     'Estado: ${currentClose.notificationStatus} ${((currentClose.notificationError ?? '').trim().isNotEmpty) ? '· ${currentClose.notificationError}' : ''}',
                                     style: const TextStyle(fontSize: 10),
@@ -4389,14 +5149,21 @@ class _CloseDetailFullScreenPageState
                             children: [
                               const Text(
                                 'PDF del cierre',
-                                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 12,
+                                ),
                               ),
                               const SizedBox(height: 10),
                               ListTile(
                                 contentPadding: EdgeInsets.zero,
-                                leading: const Icon(Icons.picture_as_pdf_outlined),
+                                leading: const Icon(
+                                  Icons.picture_as_pdf_outlined,
+                                ),
                                 title: Text(
-                                  (currentClose.pdfFileName ?? '').trim().isNotEmpty
+                                  (currentClose.pdfFileName ?? '')
+                                          .trim()
+                                          .isNotEmpty
                                       ? currentClose.pdfFileName!
                                       : 'PDF de cierre',
                                   style: const TextStyle(fontSize: 11),
@@ -4408,12 +5175,16 @@ class _CloseDetailFullScreenPageState
                                   style: const TextStyle(fontSize: 10),
                                 ),
                                 trailing: FilledButton.icon(
-                                  onPressed: _exportingPdf ? null : () => _exportPdf(currentClose),
+                                  onPressed: _exportingPdf
+                                      ? null
+                                      : () => _exportPdf(currentClose),
                                   icon: _exportingPdf
                                       ? const SizedBox(
                                           width: 16,
                                           height: 16,
-                                          child: CircularProgressIndicator(strokeWidth: 2),
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
                                         )
                                       : const Icon(Icons.download_outlined),
                                   label: const Text('Exportar'),
@@ -4423,279 +5194,6 @@ class _CloseDetailFullScreenPageState
                           ),
                         ),
                         const SizedBox(height: 14),
-                        // Voucher POS
-                        if (currentClose.evidenceUrl != null &&
-                            currentClose.evidenceFileName != null) ...[
-                          Container(
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: const Color(0xFFE2E8F0)),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                const Text(
-                                  'Voucher POS',
-                                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
-                                ),
-                                const SizedBox(height: 10),
-                                Container(
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                                    color: Theme.of(context).colorScheme.surface,
-                                  ),
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(12),
-                                    child: Row(
-                                      crossAxisAlignment: CrossAxisAlignment.center,
-                                      children: [
-                                        if (posVoucherIsImage)
-                                          InkWell(
-                                            onTap: () => _showVoucherPreviewDialog(
-                                              context,
-                                              posVoucher,
-                                            ),
-                                            borderRadius: BorderRadius.circular(10),
-                                            child: ClipRRect(
-                                              borderRadius: BorderRadius.circular(10),
-                                              child: SizedBox(
-                                                width: 88,
-                                                height: 68,
-                                                child: Image.network(
-                                                  _normalizeAssetUrl(
-                                                    currentClose.evidenceUrl!,
-                                                  ),
-                                                  fit: BoxFit.cover,
-                                                  errorBuilder: (_, __, ___) =>
-                                                      Container(
-                                                        color: Theme.of(context)
-                                                            .colorScheme
-                                                            .surfaceContainerHighest,
-                                                        alignment: Alignment.center,
-                                                        child: const Icon(
-                                                          Icons.broken_image_outlined,
-                                                        ),
-                                                      ),
-                                                ),
-                                              ),
-                                            ),
-                                          )
-                                        else
-                                          Container(
-                                            width: 56,
-                                            height: 56,
-                                            decoration: BoxDecoration(
-                                              borderRadius: BorderRadius.circular(10),
-                                              color: Theme.of(
-                                                context,
-                                              ).colorScheme.surfaceContainerHighest,
-                                            ),
-                                            alignment: Alignment.center,
-                                            child: const Icon(
-                                              Icons.picture_as_pdf_outlined,
-                                            ),
-                                          ),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                currentClose.evidenceFileName!,
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: const TextStyle(
-                                                  fontWeight: FontWeight.w700,
-                                                  fontSize: 11,
-                                                ),
-                                              ),
-                                              const SizedBox(height: 4),
-                                              Text(
-                                                posVoucherIsImage
-                                                    ? 'Vista previa.'
-                                                    : 'Archivo adjunto.',
-                                                style: Theme.of(context)
-                                                    .textTheme
-                                                    .bodySmall
-                                                    ?.copyWith(
-                                                      fontSize: 10,
-                                                      color: Theme.of(
-                                                        context,
-                                                      ).colorScheme.onSurfaceVariant,
-                                                    ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                        const SizedBox(width: 12),
-                                        OutlinedButton.icon(
-                                          onPressed: () => _showVoucherPreviewDialog(
-                                            context,
-                                            posVoucher,
-                                          ),
-                                          icon: const Icon(
-                                            Icons.fullscreen_outlined,
-                                            size: 16,
-                                          ),
-                                          style: OutlinedButton.styleFrom(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 10,
-                                              vertical: 10,
-                                            ),
-                                            visualDensity: VisualDensity.compact,
-                                          ),
-                                          label: const Text('Ver'),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 14),
-                        ],
-                        // Gastos
-                        if (currentClose.expenseDetails.isNotEmpty) ...[
-                          Container(
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: const Color(0xFFE2E8F0)),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                const Text(
-                                  'Gastos',
-                                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
-                                ),
-                                const SizedBox(height: 10),
-                                ...currentClose.expenseDetails.asMap().entries.map((entry) {
-                                  final idx = entry.key;
-                                  final row = entry.value;
-                                  final concept = (row['concept'] as String?)?.trim();
-                                  final amount = (row['amount'] as num?)?.toDouble() ?? 0;
-                                  final vouchers = ((row['vouchers'] as List?) ?? const [])
-                                      .whereType<Map>()
-                                      .map((v) => CloseTransferVoucherModel.fromJson(v.cast<String, dynamic>()))
-                                      .map((v) => CloseTransferVoucherModel(
-                                        storageKey: v.storageKey,
-                                        fileUrl: _normalizeAssetUrl(v.fileUrl),
-                                        fileName: v.fileName,
-                                        mimeType: v.mimeType,
-                                      ))
-                                      .toList();
-                                  return Column(
-                                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                                    children: [
-                                      if (idx > 0) const Divider(height: 1),
-                                      ListTile(
-                                        contentPadding: const EdgeInsets.symmetric(vertical: 8),
-                                        title: Text(concept?.isNotEmpty == true ? concept! : 'Sin concepto', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 11)),
-                                        trailing: Text(_money(amount), style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11)),
-                                      ),
-                                      if (vouchers.isNotEmpty)
-                                        Padding(
-                                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                                          child: Wrap(
-                                            spacing: 6,
-                                            runSpacing: 6,
-                                            children: vouchers.map((v) => InkWell(
-                                              onTap: () => _showVoucherPreviewDialog(context, v),
-                                              child: ClipRRect(
-                                                borderRadius: BorderRadius.circular(6),
-                                                child: SizedBox(
-                                                  width: 56,
-                                                  height: 56,
-                                                  child: v.mimeType.startsWith('image/')
-                                                      ? Image.network(v.fileUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => Container(color: Theme.of(context).colorScheme.surfaceContainerHighest, alignment: Alignment.center, child: const Icon(Icons.picture_as_pdf_outlined, size: 20)))
-                                                      : Container(color: Theme.of(context).colorScheme.surfaceContainerHighest, alignment: Alignment.center, child: const Icon(Icons.picture_as_pdf_outlined, size: 20)),
-                                                ),
-                                              ),
-                                            )).toList(),
-                                          ),
-                                        ),
-                                    ],
-                                  );
-                                }),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 14),
-                        ],
-                        // Transferencias
-                        if (currentClose.transfers.isNotEmpty) ...[
-                          Container(
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: const Color(0xFFE2E8F0)),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                const Text(
-                                  'Transferencias',
-                                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
-                                ),
-                                const SizedBox(height: 10),
-                                ...currentClose.transfers.asMap().entries.map((entry) {
-                                  final transfer = entry.value;
-                                  final imageVouchers = transfer.vouchers.where(_isImageVoucher).map((v) => CloseTransferVoucherModel(storageKey: v.storageKey, fileUrl: _normalizeAssetUrl(v.fileUrl), fileName: v.fileName, mimeType: v.mimeType)).toList();
-                                  final fileVouchers = transfer.vouchers.where((v) => !_isImageVoucher(v)).map((v) => CloseTransferVoucherModel(storageKey: v.storageKey, fileUrl: _normalizeAssetUrl(v.fileUrl), fileName: v.fileName, mimeType: v.mimeType)).toList();
-                                  return ExpansionTile(
-                                    tilePadding: const EdgeInsets.symmetric(horizontal: 0, vertical: 4),
-                                    title: Text('${entry.key + 1}. ${transfer.bankName} · ${_money(transfer.amount)}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11)),
-                                    subtitle: [if ((transfer.referenceNumber ?? '').trim().isNotEmpty) 'Ref: ${transfer.referenceNumber}', if ((transfer.note ?? '').trim().isNotEmpty) transfer.note!.trim()].join(' · ').isEmpty ? null : Text([if ((transfer.referenceNumber ?? '').trim().isNotEmpty) 'Ref: ${transfer.referenceNumber}', if ((transfer.note ?? '').trim().isNotEmpty) transfer.note!.trim()].join(' · '), style: const TextStyle(fontSize: 10)),
-                                    children: [
-                                      if (fileVouchers.isNotEmpty)
-                                        ...fileVouchers.map((v) => ListTile(dense: true, contentPadding: const EdgeInsets.symmetric(horizontal: 8), leading: const Icon(Icons.picture_as_pdf_outlined, size: 18), title: Text(v.fileName, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10)), trailing: SizedBox(width: 50, child: OutlinedButton(onPressed: () => _showVoucherPreviewDialog(context, v), style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2), visualDensity: VisualDensity.compact), child: const Text('Ver', style: TextStyle(fontSize: 9)))))),
-                                      if (imageVouchers.isNotEmpty)
-                                        Padding(
-                                          padding: const EdgeInsets.all(8),
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              Text(imageVouchers.length == 1 ? '1 comprobante visual' : '${imageVouchers.length} comprobantes visuales', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600)),
-                                              const SizedBox(height: 6),
-                                              Wrap(spacing: 6, runSpacing: 6, children: imageVouchers.map((v) => InkWell(onTap: () => _showVoucherPreviewDialog(context, v), child: ClipRRect(borderRadius: BorderRadius.circular(6), child: SizedBox(width: 50, height: 50, child: Image.network(v.fileUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => Container(color: Theme.of(context).colorScheme.surfaceContainerHighest, alignment: Alignment.center, child: const Icon(Icons.broken_image_outlined, size: 16))))))).toList()),
-                                            ],
-                                          ),
-                                        ),
-                                    ],
-                                  );
-                                }),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 14),
-                        ],
-                        // Notas
-                        if ((currentClose.notes ?? '').trim().isNotEmpty) ...[
-                          Container(
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: const Color(0xFFE2E8F0)),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text('Notas', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
-                                const SizedBox(height: 10),
-                                Text(currentClose.notes!.trim(), style: const TextStyle(fontSize: 11)),
-                              ],
-                            ),
-                          ),
-                        ],
                       ],
                     ),
                   ),

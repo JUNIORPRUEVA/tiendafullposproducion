@@ -86,7 +86,6 @@ class CampaignAutosaveController extends StateNotifier<AutosaveState> {
         whatsappPhone: _pendingChanges!.whatsappPhone,
         destinationUrl: _pendingChanges!.destinationUrl,
         finalAudience: _pendingChanges!.finalAudience,
-        keepRunningUntilPaused: _pendingChanges!.keepRunningUntilPaused ?? true,
       );
 
       _currentCampaign = _pendingChanges;
