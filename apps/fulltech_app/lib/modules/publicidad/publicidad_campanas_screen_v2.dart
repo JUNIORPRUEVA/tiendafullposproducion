@@ -25,7 +25,7 @@ class PublicidadCampanasScreenV2 extends ConsumerStatefulWidget {
 
 class _PublicidadCampanasScreenV2State
     extends ConsumerState<PublicidadCampanasScreenV2> {
-  static const String _defaultCity = 'Higuey, La Altagracia';
+  static const String _defaultCity = 'Higüey, La Altagracia';
   static const int _defaultRadiusKm = 10;
   static const double _defaultMinAge = 25;
   static const double _defaultMaxAge = 50;
@@ -34,6 +34,7 @@ class _PublicidadCampanasScreenV2State
   bool _loading = true;
   bool _busyAction = false;
   String? _error;
+  int _activeSessionIndex = 0;
 
   List<MarketingCampaign> _campaigns = const [];
   List<MarketingMediaAsset> _assets = const [];
@@ -88,7 +89,7 @@ class _PublicidadCampanasScreenV2State
     try {
       final api = ref.read(marketingApiProvider);
       final tuple = await api.loadCampaigns();
-      final assets = await api.loadContentGallery();
+      final assets = _publishedCampaignAssets(await api.loadContentGallery());
       final selected = tuple.$1.any((item) => item.id == _selectedId)
           ? _selectedId
           : (tuple.$1.isNotEmpty ? tuple.$1.first.id : null);
@@ -107,6 +108,7 @@ class _PublicidadCampanasScreenV2State
       if (selected != null) {
         final campaign = _campaigns.firstWhere((item) => item.id == selected);
         _syncFormFromCampaign(campaign);
+        await _autoSelectInitialMediaIfNeeded(campaign);
       }
     } catch (error) {
       if (!mounted) return;
@@ -192,9 +194,20 @@ class _PublicidadCampanasScreenV2State
     });
   }
 
-  Future<void> _applyMediaAndAutoGenerate(String mediaAssetId) async {
+  Future<void> _applyMediaAndAutoGenerate(MarketingMediaAsset asset) async {
     final campaign = _selectedCampaign;
     if (campaign == null) return;
+    final mediaAssetId = _campaignMediaAssetId(asset);
+    if (mediaAssetId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Esta imagen publicada no esta disponible para campanas.',
+          ),
+        ),
+      );
+      return;
+    }
 
     setState(() {
       _copyByCampaignId[campaign.id] = _CampaignCopy.generating();
@@ -225,6 +238,120 @@ class _PublicidadCampanasScreenV2State
     });
   }
 
+  Future<void> _autoSelectInitialMediaIfNeeded(
+    MarketingCampaign campaign,
+  ) async {
+    final hasMedia =
+        (campaign.galleryAssetId ?? '').trim().isNotEmpty ||
+        (campaign.baseImageUrl ?? '').trim().isNotEmpty ||
+        (campaign.finalDesignUrl ?? '').trim().isNotEmpty;
+    if (_busyAction) return;
+
+    if (hasMedia) {
+      if (_copyFor(campaign).hasRealCopy) return;
+      setState(() {
+        _copyByCampaignId[campaign.id] = _CampaignCopy.generating();
+      });
+      try {
+        final generated = await ref
+            .read(marketingApiProvider)
+            .regenerateCampaignCopy(campaign.id);
+        if (mounted) {
+          setState(() => _upsertCampaign(generated));
+        }
+      } catch (error, stackTrace) {
+        debugPrint('Error generando copys iniciales: $error');
+        debugPrint('$stackTrace');
+      }
+      return;
+    }
+
+    if (_assets.isEmpty) return;
+
+    final asset = _preferredInitialAsset();
+    if (asset == null) return;
+
+    setState(() {
+      _copyByCampaignId[campaign.id] = _CampaignCopy.generating();
+    });
+
+    try {
+      final api = ref.read(marketingApiProvider);
+      final mediaAssetId = _campaignMediaAssetId(asset);
+      if (mediaAssetId == null) return;
+
+      final changed = await api.changeCampaignBaseImage(
+        campaign.id,
+        mediaAssetId,
+      );
+      if (mounted) {
+        setState(() => _upsertCampaign(changed, keepGeneratingCopy: true));
+      }
+
+      final confirmed = await api.confirmCampaignBaseImage(campaign.id);
+      if (mounted) {
+        setState(() => _upsertCampaign(confirmed, keepGeneratingCopy: true));
+      }
+
+      final generated = await api.regenerateCampaignCopy(campaign.id);
+      if (mounted) {
+        setState(() => _upsertCampaign(generated));
+      }
+    } catch (error, stackTrace) {
+      debugPrint('Error auto seleccionando media: $error');
+      debugPrint('$stackTrace');
+    }
+  }
+
+  MarketingMediaAsset? _preferredInitialAsset() {
+    if (_assets.isEmpty) return null;
+    final sorted = [..._assets];
+    sorted.sort((a, b) {
+      final aDate = a.lastUsedAt ?? a.latestStoryDate ?? DateTime(1970);
+      final bDate = b.lastUsedAt ?? b.latestStoryDate ?? DateTime(1970);
+      final dateCompare = bDate.compareTo(aDate);
+      if (dateCompare != 0) return dateCompare;
+      if (a.isFeatured != b.isFeatured) return a.isFeatured ? -1 : 1;
+      return b.useCount.compareTo(a.useCount);
+    });
+    return sorted.first;
+  }
+
+  List<MarketingMediaAsset> _publishedCampaignAssets(
+    List<MarketingMediaAsset> assets,
+  ) {
+    return assets.where(_isPublishedCampaignAsset).toList(growable: false);
+  }
+
+  bool _isPublishedCampaignAsset(MarketingMediaAsset asset) {
+    if (_campaignMediaAssetId(asset) == null) return false;
+    final source = [
+      asset.category,
+      asset.relatedService ?? '',
+      asset.origin ?? '',
+      asset.sourceType ?? '',
+      ...asset.tags,
+    ].join(' ').toLowerCase();
+    return source.contains('estado') ||
+        source.contains('publicado') ||
+        source.contains('published') ||
+        source.contains('marketing_published_design') ||
+        source.contains('origen:estado_diario') ||
+        source.contains('source:marketing_published_design');
+  }
+
+  String? _campaignMediaAssetId(MarketingMediaAsset asset) {
+    final mediaAssetId = (asset.mediaAssetId ?? '').trim();
+    if (mediaAssetId.isNotEmpty) return mediaAssetId;
+    final sourceType = (asset.sourceType ?? '').trim().toLowerCase();
+    final origin = (asset.origin ?? '').trim().toLowerCase();
+    if (sourceType == 'gallery' || origin == 'estado_diario') {
+      final id = asset.id.trim();
+      if (id.isNotEmpty && !id.contains(':')) return id;
+    }
+    return null;
+  }
+
   void _startChangingMedia(MarketingCampaign campaign) {
     setState(() {
       _mediaChangeModeIds.add(campaign.id);
@@ -247,6 +374,25 @@ class _PublicidadCampanasScreenV2State
         setState(() => _upsertCampaign(generated));
       }
     });
+  }
+
+  void _autoGenerateInterests(MarketingCampaign campaign) {
+    final generated = <String>{..._extractSuggestedInterests(campaign)};
+    final media = _selectedMediaAsset(campaign);
+    final category = (media?.category ?? '').trim();
+    if (category.isNotEmpty) generated.add(category);
+    for (final tag in media?.tags ?? const <String>[]) {
+      final clean = tag.replaceFirst('#', '').trim();
+      if (clean.isNotEmpty) generated.add(clean);
+    }
+    generated.addAll(const ['WhatsApp', 'servicios locales']);
+
+    setState(() {
+      _selectedInterests
+        ..clear()
+        ..addAll(generated.take(8));
+    });
+    _scheduleAutosave();
   }
 
   void _scheduleAutosave() {
@@ -439,34 +585,7 @@ class _PublicidadCampanasScreenV2State
           ? _buildErrorState()
           : campaign == null
           ? _buildEmptyState()
-          : Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
-                  child: _buildSimpleSteps(campaign),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          'WhatsApp Messages: media, presupuesto, numero, preview y publicar.',
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurfaceVariant,
-                              ),
-                        ),
-                      ),
-                      AutosaveStatusIndicator(state: _autosaveState),
-                    ],
-                  ),
-                ),
-                Expanded(child: _buildResponsiveBody(campaign)),
-              ],
-            ),
+          : _buildResponsiveBody(campaign),
     );
   }
 
@@ -518,203 +637,148 @@ class _PublicidadCampanasScreenV2State
   }
 
   Widget _buildResponsiveBody(MarketingCampaign campaign) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isWide = constraints.maxWidth >= 1180;
-        if (isWide) {
-          return Row(
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(12),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 980),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              SizedBox(width: 290, child: _buildCampaignList(campaign)),
-              const VerticalDivider(width: 1),
-              Expanded(
-                flex: 3,
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(12),
-                  child: _buildSimplifiedForm(campaign),
-                ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: AutosaveStatusIndicator(state: _autosaveState),
               ),
-              const VerticalDivider(width: 1),
-              Expanded(
-                flex: 2,
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(12),
-                  child: _buildLargePreview(campaign),
-                ),
-              ),
+              const SizedBox(height: 8),
+              _buildSimplifiedForm(campaign),
             ],
-          );
-        }
-
-        return Column(
-          children: [
-            SizedBox(height: 160, child: _buildCampaignList(campaign)),
-            const Divider(height: 1),
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  children: [
-                    _buildLargePreview(campaign),
-                    const SizedBox(height: 12),
-                    _buildSimplifiedForm(campaign),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _buildSimpleSteps(MarketingCampaign campaign) {
-    final hasMedia = (campaign.baseImageUrl ?? '').isNotEmpty;
-    final hasCopy = _copyFor(campaign).hasRealCopy;
-    final hasBudget = _dailyBudget > 0;
-    final hasWhatsapp = _phoneCtrl.text.trim().isNotEmpty;
-    final hasPreview = (campaign.baseImageUrl ?? campaign.finalDesignUrl ?? '')
-        .trim()
-        .isNotEmpty;
-
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: Theme.of(
-            context,
-          ).colorScheme.outlineVariant.withValues(alpha: 0.5),
+          ),
         ),
-        color: Theme.of(context).colorScheme.surface,
       ),
-      child: Row(
-        children: [
-          Expanded(
-            child: _StepChip(
-              index: 1,
-              label: 'Media',
-              icon: Icons.perm_media_rounded,
-              isDone: hasMedia,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _StepChip(
-              index: 2,
-              label: 'IA copy',
-              icon: Icons.auto_fix_high_rounded,
-              isDone: hasCopy,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _StepChip(
-              index: 3,
-              label: 'Presupuesto',
-              icon: Icons.payments_rounded,
-              isDone: hasBudget,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _StepChip(
-              index: 4,
-              label: 'WhatsApp',
-              icon: Icons.chat_rounded,
-              isDone: hasWhatsapp,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _StepChip(
-              index: 5,
-              label: 'Preview',
-              icon: Icons.preview_rounded,
-              isDone: hasPreview,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _StepChip(
-              index: 6,
-              label: 'Publicar',
-              icon: Icons.send_rounded,
-              isDone:
-                  campaign.status == MarketingCampaignStatus.active ||
-                  campaign.status == MarketingCampaignStatus.publishing,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCampaignList(MarketingCampaign selected) {
-    return ListView.separated(
-      padding: const EdgeInsets.all(8),
-      itemCount: _campaigns.length,
-      separatorBuilder: (_, _) => const SizedBox(height: 6),
-      itemBuilder: (context, index) {
-        final item = _campaigns[index];
-        return _CampaignListItem(
-          campaign: item,
-          isActive: selected.id == item.id,
-          onTap: () {
-            setState(() => _selectedId = item.id);
-            _syncFormFromCampaign(item);
-          },
-        );
-      },
     );
   }
 
   Widget _buildSimplifiedForm(MarketingCampaign campaign) {
     final cityOptions = _cityOptions(campaign);
     final whatsappOptions = _whatsappOptions(campaign);
+    final sessions = [
+      (
+        title: 'Media + IA Copy',
+        subtitle:
+            'Imagen/video seleccionado y copys generados automaticamente.',
+        icon: Icons.perm_media_rounded,
+        child: _buildMediaStep(campaign),
+      ),
+      (
+        title: 'Segmentacion + Presupuesto',
+        subtitle: 'Ciudad, radio, edades, intereses, presupuesto y WhatsApp.',
+        icon: Icons.tune_rounded,
+        child: _buildSegmentationBudgetSession(
+          campaign,
+          cityOptions,
+          whatsappOptions,
+        ),
+      ),
+      (
+        title: 'Preview + Publicar',
+        subtitle: 'Facebook Feed, Instagram Feed, Story y publicacion final.',
+        icon: Icons.preview_rounded,
+        child: _buildPreviewPublishSession(campaign),
+      ),
+    ];
+    final activeSession = sessions[_activeSessionIndex.clamp(0, 2)];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _StepCard(
-          title: '1. Imagen o video',
-          subtitle: 'Selecciona la imagen o video de la campana.',
-          child: _buildMediaStep(campaign),
-        ),
+        _buildSessionSelector(),
         const SizedBox(height: 12),
         _StepCard(
-          title: '2. Presupuesto',
-          subtitle: 'Segmentacion base: Higuey, 10 km, 25-50.',
-          child: _buildBudgetAndTargeting(cityOptions),
-        ),
-        const SizedBox(height: 12),
-        _StepCard(
-          title: '3. WhatsApp destino',
-          subtitle: 'Objetivo fijo: mensajes. CTA fijo: enviar mensaje.',
-          child: _buildWhatsappSelector(whatsappOptions),
-        ),
-        const SizedBox(height: 12),
-        _StepCard(
-          title: '5. Publicar',
-          subtitle:
-              'Guarda, crea la campana Meta y mantiene el preview actualizado.',
-          child: SizedBox(
-            width: double.infinity,
-            height: 46,
-            child: FilledButton.icon(
-              onPressed: _busyAction ? null : _publishCampaign,
-              icon: const Icon(Icons.send_rounded),
-              label: const Text('Publicar campana'),
-            ),
-          ),
+          title: '${_activeSessionIndex + 1}. ${activeSession.title}',
+          subtitle: activeSession.subtitle,
+          child: activeSession.child,
         ),
       ],
+    );
+  }
+
+  Widget _buildSessionSelector() {
+    final items = const [
+      (label: 'Media + IA', icon: Icons.perm_media_rounded),
+      (label: 'Segmentacion', icon: Icons.tune_rounded),
+      (label: 'Preview/Publicar', icon: Icons.send_rounded),
+    ];
+    final scheme = Theme.of(context).colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.7)),
+        color: scheme.surfaceContainerLowest,
+      ),
+      child: Row(
+        children: List.generate(items.length, (index) {
+          final item = items[index];
+          final selected = _activeSessionIndex == index;
+          return Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(
+                right: index == items.length - 1 ? 0 : 4,
+              ),
+              child: InkWell(
+                onTap: () => setState(() => _activeSessionIndex = index),
+                borderRadius: BorderRadius.circular(9),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 160),
+                  height: 42,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(9),
+                    color: selected ? scheme.primary : Colors.transparent,
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        item.icon,
+                        size: 17,
+                        color: selected
+                            ? scheme.onPrimary
+                            : scheme.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          item.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.labelMedium
+                              ?.copyWith(
+                                color: selected
+                                    ? scheme.onPrimary
+                                    : scheme.onSurface,
+                                fontWeight: FontWeight.w800,
+                              ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        }),
+      ),
     );
   }
 
   Widget _buildMediaSelector(MarketingCampaign campaign) {
     final activeMediaId = _activeMediaAssetId(campaign);
     if (_assets.isEmpty) {
-      return const Text('No hay media disponible en galeria.');
+      return const Text(
+        'No hay imagenes publicadas disponibles para campanas.',
+      );
     }
 
     return LayoutBuilder(
@@ -734,9 +798,9 @@ class _PublicidadCampanasScreenV2State
             final asset = _assets[index];
             return _MediaAssetTile(
               asset: asset,
-              isSelected: activeMediaId == asset.id,
+              isSelected: activeMediaId == _campaignMediaAssetId(asset),
               isBusy: _busyAction,
-              onTap: () => _applyMediaAndAutoGenerate(asset.id),
+              onTap: () => _applyMediaAndAutoGenerate(asset),
             );
           },
         );
@@ -762,22 +826,24 @@ class _PublicidadCampanasScreenV2State
             onChange: _busyAction ? null : () => _startChangingMedia(campaign),
           ),
         ],
-        const SizedBox(height: 14),
-        Text(
-          'Selecciona la imagen o video de la campana',
-          style: Theme.of(
-            context,
-          ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          'Al elegir una pieza, el preview se actualiza y la IA genera los copys con la investigacion publicitaria guardada.',
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
+        if (isChanging || activeMedia == null) ...[
+          const SizedBox(height: 14),
+          Text(
+            'Galeria',
+            style: Theme.of(
+              context,
+            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
           ),
-        ),
-        const SizedBox(height: 10),
-        _buildMediaSelector(campaign),
+          const SizedBox(height: 4),
+          Text(
+            'Elige una pieza. El preview se actualiza y la IA regenera copys con investigacion publicitaria.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 10),
+          _buildMediaSelector(campaign),
+        ],
         const SizedBox(height: 14),
         _buildAiCopyBlock(copy),
       ],
@@ -808,7 +874,7 @@ class _PublicidadCampanasScreenV2State
           Expanded(
             child: Text(
               hasActiveMedia
-                  ? 'Imagen seleccionada correctamente'
+                  ? 'Imagen seleccionada'
                   : 'Selecciona una imagen para continuar',
               style: Theme.of(context).textTheme.labelLarge?.copyWith(
                 color: color,
@@ -953,6 +1019,80 @@ class _PublicidadCampanasScreenV2State
           icon: const Icon(Icons.refresh_rounded, size: 16),
           label: const Text('Regenerar copys'),
         );
+        Widget copyField({
+          required String label,
+          required String value,
+          required IconData icon,
+        }) {
+          return Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              color: scheme.surfaceContainerLowest,
+              border: Border.all(
+                color: scheme.outlineVariant.withValues(alpha: 0.45),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(icon, size: 15, color: scheme.primary),
+                    const SizedBox(width: 6),
+                    Text(
+                      label,
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: scheme.primary,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                SelectableText(
+                  value,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    height: 1.35,
+                    fontWeight: label == 'Titulo' ? FontWeight.w800 : null,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
+        final copyDetails = Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            copyField(
+              label: 'Titulo',
+              value: copy.headlineText,
+              icon: Icons.title_rounded,
+            ),
+            const SizedBox(height: 8),
+            copyField(
+              label: 'Texto principal',
+              value: copy.primaryTextValue,
+              icon: Icons.notes_rounded,
+            ),
+            const SizedBox(height: 8),
+            copyField(
+              label: 'Descripcion',
+              value: copy.descriptionText,
+              icon: Icons.short_text_rounded,
+            ),
+            if (copy.hashtagsText.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              copyField(
+                label: 'Hashtags',
+                value: copy.hashtagsText,
+                icon: Icons.tag_rounded,
+              ),
+            ],
+          ],
+        );
 
         return Container(
           width: double.infinity,
@@ -977,15 +1117,24 @@ class _PublicidadCampanasScreenV2State
                     ),
                     const SizedBox(height: 10),
                     regenerateButton,
+                    const SizedBox(height: 12),
+                    copyDetails,
                   ],
                 )
-              : Row(
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    statusIcon,
-                    const SizedBox(width: 10),
-                    copyText,
-                    const SizedBox(width: 10),
-                    regenerateButton,
+                    Row(
+                      children: [
+                        statusIcon,
+                        const SizedBox(width: 10),
+                        copyText,
+                        const SizedBox(width: 10),
+                        regenerateButton,
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    copyDetails,
                   ],
                 ),
         );
@@ -1002,15 +1151,104 @@ class _PublicidadCampanasScreenV2State
     final id = campaign.galleryAssetId;
     if (id == null) return null;
     for (final asset in _assets) {
-      if (asset.id == id) return asset;
+      if (_campaignMediaAssetId(asset) == id) return asset;
     }
     return null;
   }
 
-  Widget _buildBudgetAndTargeting(List<String> cityOptions) {
+  Widget _buildSegmentationBudgetSession(
+    MarketingCampaign campaign,
+    List<String> cityOptions,
+    List<String> whatsappOptions,
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        DropdownButtonFormField<String>(
+          initialValue: _cityCtrl.text.trim().isEmpty
+              ? null
+              : _cityCtrl.text.trim(),
+          items: cityOptions
+              .map(
+                (city) =>
+                    DropdownMenuItem<String>(value: city, child: Text(city)),
+              )
+              .toList(growable: false),
+          onChanged: _busyAction
+              ? null
+              : (value) {
+                  if (value == null) return;
+                  setState(() => _cityCtrl.text = value);
+                  _scheduleAutosave();
+                },
+          decoration: const InputDecoration(
+            labelText: 'Ciudad',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Text('Radio', style: Theme.of(context).textTheme.labelMedium),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: _radiusPresets
+              .map(
+                (preset) => ChoiceChip(
+                  selected: _radiusKm == preset,
+                  label: Text('$preset km'),
+                  onSelected: _busyAction
+                      ? null
+                      : (_) {
+                          setState(() => _radiusKm = preset);
+                          _scheduleAutosave();
+                        },
+                ),
+              )
+              .toList(growable: false),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'Edades: ${_ageRange.start.round()} - ${_ageRange.end.round()}',
+          style: Theme.of(context).textTheme.labelMedium,
+        ),
+        RangeSlider(
+          min: 18,
+          max: 65,
+          divisions: 47,
+          labels: RangeLabels(
+            _ageRange.start.round().toString(),
+            _ageRange.end.round().toString(),
+          ),
+          values: _ageRange,
+          onChanged: _busyAction
+              ? null
+              : (value) {
+                  setState(() => _ageRange = value);
+                  _scheduleAutosave();
+                },
+        ),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Intereses',
+                style: Theme.of(context).textTheme.labelMedium,
+              ),
+            ),
+            OutlinedButton.icon(
+              onPressed: _busyAction
+                  ? null
+                  : () => _autoGenerateInterests(campaign),
+              icon: const Icon(Icons.auto_awesome_rounded, size: 16),
+              label: const Text('Auto generar intereses'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        _buildInterestChips(),
+        const SizedBox(height: 12),
         TextField(
           controller: _dailyBudgetCtrl,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
@@ -1062,145 +1300,97 @@ class _PublicidadCampanasScreenV2State
           ),
         ),
         const SizedBox(height: 12),
-        ExpansionTile(
-          tilePadding: EdgeInsets.zero,
-          childrenPadding: const EdgeInsets.only(bottom: 4),
-          title: Text(
-            'Ajustar ubicacion y edades (opcional)',
-            style: Theme.of(context).textTheme.labelMedium,
-          ),
-          subtitle: Text(
-            'Default activo: Higuey, La Altagracia · 10 km · 25-50',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
+        whatsappOptions.isNotEmpty
+            ? DropdownButtonFormField<String>(
+                initialValue: _phoneCtrl.text.trim().isEmpty
+                    ? null
+                    : _phoneCtrl.text.trim(),
+                items: whatsappOptions
+                    .map(
+                      (phone) => DropdownMenuItem<String>(
+                        value: phone,
+                        child: Text(phone),
+                      ),
+                    )
+                    .toList(growable: false),
+                onChanged: _busyAction
+                    ? null
+                    : (value) {
+                        if (value == null) return;
+                        setState(() => _phoneCtrl.text = value);
+                        _scheduleAutosave();
+                      },
+                decoration: const InputDecoration(
+                  labelText: 'WhatsApp destino',
+                  border: OutlineInputBorder(),
+                ),
+              )
+            : TextField(
+                controller: _phoneCtrl,
+                keyboardType: TextInputType.phone,
+                decoration: const InputDecoration(
+                  labelText: 'WhatsApp destino',
+                  border: OutlineInputBorder(),
+                ),
+                onChanged: (_) => _scheduleAutosave(),
+              ),
+        const SizedBox(height: 10),
+        const Wrap(
+          spacing: 8,
+          runSpacing: 8,
           children: [
-            DropdownButtonFormField<String>(
-              initialValue: _cityCtrl.text.trim().isEmpty
-                  ? null
-                  : _cityCtrl.text.trim(),
-              items: cityOptions
-                  .map(
-                    (city) => DropdownMenuItem<String>(
-                      value: city,
-                      child: Text(city),
-                    ),
-                  )
-                  .toList(growable: false),
-              onChanged: _busyAction
-                  ? null
-                  : (value) {
-                      if (value == null) return;
-                      setState(() => _cityCtrl.text = value);
-                      _scheduleAutosave();
-                    },
-              decoration: const InputDecoration(
-                labelText: 'Ciudad',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 10),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Radio',
-                style: Theme.of(context).textTheme.labelMedium,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: _radiusPresets
-                  .map(
-                    (preset) => ChoiceChip(
-                      selected: _radiusKm == preset,
-                      label: Text('$preset km'),
-                      onSelected: _busyAction
-                          ? null
-                          : (_) {
-                              setState(() => _radiusKm = preset);
-                              _scheduleAutosave();
-                            },
-                    ),
-                  )
-                  .toList(growable: false),
-            ),
-            const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Edades: ${_ageRange.start.round()} - ${_ageRange.end.round()}',
-                style: Theme.of(context).textTheme.labelMedium,
-              ),
-            ),
-            RangeSlider(
-              min: 18,
-              max: 65,
-              divisions: 47,
-              labels: RangeLabels(
-                _ageRange.start.round().toString(),
-                _ageRange.end.round().toString(),
-              ),
-              values: _ageRange,
-              onChanged: _busyAction
-                  ? null
-                  : (value) {
-                      setState(() => _ageRange = value);
-                      _scheduleAutosave();
-                    },
-            ),
+            _Pill(label: 'Objetivo: Mensajes WhatsApp'),
+            _Pill(label: 'CTA: Enviar mensaje'),
+            _Pill(label: 'Default: Higüey · 10 km · 25-50'),
           ],
         ),
       ],
     );
   }
 
-  Widget _buildWhatsappSelector(List<String> whatsappOptions) {
+  Widget _buildInterestChips() {
+    if (_selectedInterests.isEmpty) {
+      return Text(
+        'Sin intereses todavia. Usa el boton para generarlos automaticamente.',
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+      );
+    }
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: _selectedInterests
+          .map(
+            (interest) => InputChip(
+              label: Text(interest),
+              onDeleted: _busyAction
+                  ? null
+                  : () {
+                      setState(() => _selectedInterests.remove(interest));
+                      _scheduleAutosave();
+                    },
+            ),
+          )
+          .toList(growable: false),
+    );
+  }
+
+  Widget _buildPreviewPublishSession(MarketingCampaign campaign) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        DropdownButtonFormField<String>(
-          initialValue: _phoneCtrl.text.trim().isEmpty
-              ? null
-              : _phoneCtrl.text.trim(),
-          items: whatsappOptions
-              .map(
-                (phone) =>
-                    DropdownMenuItem<String>(value: phone, child: Text(phone)),
-              )
-              .toList(growable: false),
-          onChanged: _busyAction
-              ? null
-              : (value) {
-                  if (value == null) return;
-                  setState(() => _phoneCtrl.text = value);
-                  _scheduleAutosave();
-                },
-          decoration: const InputDecoration(
-            labelText: 'Numero WhatsApp',
-            border: OutlineInputBorder(),
+        _buildLargePreview(campaign),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          height: 48,
+          child: FilledButton.icon(
+            onPressed: _busyAction ? null : _publishCampaign,
+            icon: const Icon(Icons.send_rounded),
+            label: const Text('Publicar campana'),
           ),
-        ),
-        if (whatsappOptions.isEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Text(
-              'No hay numeros disponibles aun. Configura uno en una campana y luego selecciona aqui.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-        const SizedBox(height: 10),
-        const Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            _Pill(label: 'Objetivo: Mensajes/Interaccion'),
-            _Pill(label: 'Destino: WhatsApp'),
-            _Pill(label: 'CTA: Enviar mensaje'),
-            _Pill(label: 'Advantage+ Multi Advertiser: Off'),
-          ],
         ),
       ],
     );
@@ -1473,7 +1663,7 @@ class _PublicidadCampanasScreenV2State
           children: [
             Expanded(
               child: Text(
-                '4. Preview Meta Ads',
+                'Preview Meta Ads',
                 style: Theme.of(
                   context,
                 ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
@@ -1686,58 +1876,6 @@ class _MediaAssetTileState extends State<_MediaAssetTile> {
   }
 }
 
-class _StepChip extends StatelessWidget {
-  const _StepChip({
-    required this.index,
-    required this.label,
-    required this.icon,
-    required this.isDone,
-  });
-
-  final int index;
-  final String label;
-  final IconData icon;
-  final bool isDone;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(10),
-        color: isDone
-            ? scheme.primaryContainer.withValues(alpha: 0.55)
-            : scheme.surface,
-        border: Border.all(
-          color: isDone ? scheme.primary : scheme.outlineVariant,
-        ),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            isDone ? Icons.check_circle_rounded : icon,
-            size: 14,
-            color: isDone ? scheme.primary : scheme.onSurfaceVariant,
-          ),
-          const SizedBox(width: 6),
-          Flexible(
-            child: Text(
-              '$index. $label',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(
-                context,
-              ).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _StepCard extends StatelessWidget {
   const _StepCard({
     required this.title,
@@ -1802,118 +1940,5 @@ class _Pill extends StatelessWidget {
       ),
       child: Text(label, style: Theme.of(context).textTheme.labelSmall),
     );
-  }
-}
-
-class _CampaignListItem extends StatefulWidget {
-  const _CampaignListItem({
-    required this.campaign,
-    required this.isActive,
-    required this.onTap,
-  });
-
-  final MarketingCampaign campaign;
-  final bool isActive;
-  final VoidCallback onTap;
-
-  @override
-  State<_CampaignListItem> createState() => _CampaignListItemState();
-}
-
-class _CampaignListItemState extends State<_CampaignListItem> {
-  bool _hovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: InkWell(
-        onTap: widget.onTap,
-        borderRadius: BorderRadius.circular(10),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: widget.isActive
-                  ? scheme.primary
-                  : (_hovered
-                        ? scheme.primary.withValues(alpha: 0.3)
-                        : scheme.outlineVariant.withValues(alpha: 0.4)),
-              width: widget.isActive ? 1.6 : 1,
-            ),
-            color: widget.isActive
-                ? scheme.primaryContainer.withValues(alpha: 0.3)
-                : (_hovered ? scheme.surfaceContainer : Colors.transparent),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                widget.campaign.headline ?? 'Generando copy...',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(
-                  context,
-                ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                _statusLabel(widget.campaign.status),
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: _statusColor(context, widget.campaign.status),
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                '${widget.campaign.dailyBudget?.toStringAsFixed(0) ?? '-'} DOP/dia',
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  String _statusLabel(MarketingCampaignStatus status) {
-    switch (status) {
-      case MarketingCampaignStatus.draft:
-        return 'Borrador';
-      case MarketingCampaignStatus.ready:
-        return 'Lista';
-      case MarketingCampaignStatus.publishing:
-        return 'Publicando';
-      case MarketingCampaignStatus.active:
-        return 'Activa';
-      case MarketingCampaignStatus.paused:
-        return 'Pausada';
-      case MarketingCampaignStatus.error:
-        return 'Error';
-      case MarketingCampaignStatus.rejected:
-        return 'Rechazada';
-    }
-  }
-
-  Color _statusColor(BuildContext context, MarketingCampaignStatus status) {
-    final scheme = Theme.of(context).colorScheme;
-    switch (status) {
-      case MarketingCampaignStatus.active:
-        return scheme.tertiary;
-      case MarketingCampaignStatus.publishing:
-      case MarketingCampaignStatus.ready:
-        return scheme.primary;
-      case MarketingCampaignStatus.error:
-      case MarketingCampaignStatus.rejected:
-        return scheme.error;
-      case MarketingCampaignStatus.paused:
-      case MarketingCampaignStatus.draft:
-        return scheme.onSurfaceVariant;
-    }
   }
 }

@@ -250,16 +250,18 @@ export class MarketingCampaignService {
       mediaTags,
       angle,
     );
+    const salesStrategy = this.buildCampaignSalesStrategy(commercialIntent, angle, locationLabel);
     const headline = this.buildCampaignHeadline(mediaCategory, commercialIntent, `${audience['city'] ?? 'Higuey'}`);
     const primaryText = this.buildCampaignPrimaryText({
       category: mediaCategory,
       commercialIntent,
       angle,
+      salesStrategy,
       locationLabel,
       mediaDescription,
       mediaFileName,
     });
-    const description = this.buildCampaignDescription(mediaCategory, commercialIntent, locationLabel);
+    const description = this.buildCampaignDescription(mediaCategory, commercialIntent, locationLabel, salesStrategy);
     const hashtags = this.buildCampaignHashtags(mediaCategory, `${audience['city'] ?? 'Higuey'}`, mediaTags);
 
     return this.prisma.marketingAdCampaign.update({
@@ -268,7 +270,7 @@ export class MarketingCampaignService {
         headline,
         primaryText,
         description,
-        cta: campaign.cta || 'WHATSAPP_MESSAGE',
+        cta: 'WHATSAPP_MESSAGE',
         hashtags,
         aiAngle: angle,
         recommendedAudienceJson: audience as Prisma.InputJsonValue,
@@ -320,33 +322,58 @@ export class MarketingCampaignService {
     const cleanCity = `${city}`.trim() || 'Higuey';
     const cleanCategory = `${category}`.trim() || 'soluciones Fulltech';
     if (commercialIntent.includes('proteger')) {
-      return `Protege tu propiedad en ${cleanCity}`;
+      return `Oferta especial en ${cleanCity}: protege tu propiedad`;
     }
     if (commercialIntent.includes('automatizar')) {
-      return `Automatiza tu entrada en ${cleanCity}`;
+      return `Oferta especial en ${cleanCity}: automatiza tu entrada`;
     }
-    return `${cleanCategory} en ${cleanCity}`.substring(0, 80);
+    if (commercialIntent.includes('alertas')) {
+      return `Solo por hoy en ${cleanCity}: instala tu alarma`;
+    }
+    if (commercialIntent.includes('conectividad')) {
+      return `Mejora tu red en ${cleanCity} con oferta especial`;
+    }
+    return `Oferta especial en ${cleanCity}: ${cleanCategory}`.substring(0, 80);
+  }
+
+  private buildCampaignSalesStrategy(commercialIntent: string, researchAngle: string, locationLabel: string) {
+    const angle = `${researchAngle}`.trim();
+    const shortAngle = angle.length > 150 ? `${angle.substring(0, 147).trim()}...` : angle;
+    return [
+      `captar clientes con una oferta local de alta urgencia en ${locationLabel}`,
+      `resaltar ${commercialIntent}`,
+      shortAngle ? `apoyado por la investigacion: ${shortAngle}` : '',
+    ]
+      .filter((item) => item.length > 0)
+      .join('; ');
   }
 
   private buildCampaignPrimaryText(input: {
     category: string;
     commercialIntent: string;
     angle: string;
+    salesStrategy: string;
     locationLabel: string;
     mediaDescription: string;
     mediaFileName: string;
   }) {
     const visualContext = this.firstText([input.mediaDescription, input.mediaFileName, input.category]);
     return [
-      `Instalación profesional para ${input.commercialIntent}.`,
-      `La pieza seleccionada muestra ${visualContext.toLowerCase()}, alineada con la investigación: ${input.angle}`,
-      `Atención directa por WhatsApp para cotizar en ${input.locationLabel}.`,
+      `Oferta especial solo por hoy en ${input.locationLabel}: aprovecha instalación profesional para ${input.commercialIntent}.`,
+      `Servicio mostrado: ${visualContext.toLowerCase()}. Ideal para hogares y negocios que necesitan una solución confiable, rápida y bien instalada.`,
+      `Agenda ya por WhatsApp, recibe orientación directa y asegura tu cotización antes de que termine la oferta.`,
     ].join(' ');
   }
 
-  private buildCampaignDescription(category: string, commercialIntent: string, locationLabel: string) {
+  private buildCampaignDescription(
+    category: string,
+    commercialIntent: string,
+    locationLabel: string,
+    salesStrategy: string,
+  ) {
     const cleanCategory = `${category}`.trim() || 'servicios Fulltech';
-    return `${cleanCategory} para ${commercialIntent} en ${locationLabel}.`;
+    const base = `${cleanCategory} para ${commercialIntent} en ${locationLabel}. Oferta especial, agenda hoy por WhatsApp.`;
+    return `${base} ${salesStrategy ? 'Solo por hoy.' : ''}`.substring(0, 180).trim();
   }
 
   private buildCampaignHashtags(category: string, city: string, tags: string[]) {
