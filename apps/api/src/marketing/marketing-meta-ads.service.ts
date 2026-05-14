@@ -181,8 +181,8 @@ export class MarketingMetaAdsService {
 
   private tokenPreview(token: string) {
     if (!token) return '';
-    if (token.length <= 10) return `${token.substring(0, 2)}***`;
-    return `${token.substring(0, 6)}...${token.substring(token.length - 4)}`;
+    if (token.length <= 14) return `${token.substring(0, 4)}***`;
+    return `${token.substring(0, 8)}...${token.substring(token.length - 6)}`;
   }
 
   private graphUrl(path: string) {
@@ -866,6 +866,8 @@ export class MarketingMetaAdsService {
     const hasAdsManagement = scopes.includes('ads_management');
     const hasAdsRead = scopes.includes('ads_read');
     const hasBusinessManagement = scopes.includes('business_management');
+    const hasPagesManageAds = scopes.includes('pages_manage_ads');
+    const hasPagesManagePosts = scopes.includes('pages_manage_posts');
     const adAccountAccessible = adAccount !== null;
     const canReadAdImages = adImages !== null;
     const assignedUsersAccessible = assignedUsers !== null;
@@ -876,9 +878,12 @@ export class MarketingMetaAdsService {
 
     const recommendedFixes = this.buildPermissionRecommendations({
       tokenValid: tokenInspection.tokenValid,
+      tokenType: tokenInspection.tokenType,
       hasAdsManagement,
       hasAdsRead,
       hasBusinessManagement,
+      hasPagesManageAds,
+      hasPagesManagePosts,
       adAccountAccessible,
       adAccountStatus: this.asNumber(adAccount?.account_status),
       adAccountDisableReason: this.asString(adAccount?.disable_reason),
@@ -976,9 +981,12 @@ export class MarketingMetaAdsService {
 
   private buildPermissionRecommendations(input: {
     tokenValid: boolean;
+    tokenType: string | null;
     hasAdsManagement: boolean;
     hasAdsRead: boolean;
     hasBusinessManagement: boolean;
+    hasPagesManageAds: boolean;
+    hasPagesManagePosts: boolean;
     adAccountAccessible: boolean;
     adAccountStatus: number | null;
     adAccountDisableReason: string | null;
@@ -995,9 +1003,12 @@ export class MarketingMetaAdsService {
 
     if (!this.accessToken) fixes.add('Configura META_ACCESS_TOKEN con un token de system user válido.');
     if (!input.tokenValid) fixes.add('Regenera el token y reinicia el backend si cambió recientemente.');
+    if (input.tokenType && input.tokenType !== 'SYSTEM_USER') fixes.add(`El token no es de system user. type=${input.tokenType}.`);
     if (!input.hasAdsManagement) fixes.add('El token debe incluir ads_management real para el Ad Account.');
     if (!input.hasAdsRead) fixes.add('Agrega ads_read al token para poder diagnosticar y leer objetos de Ads.');
     if (!input.hasBusinessManagement) fixes.add('Agrega business_management si el acceso depende de Business Manager.');
+    if (!input.hasPagesManageAds) fixes.add('Agrega pages_manage_ads si la app necesita operar sobre recursos de páginas vinculados a Ads.');
+    if (!input.hasPagesManagePosts) fixes.add('Agrega pages_manage_posts si el flujo depende de publicación vinculada a páginas.');
     if (input.scopes.length === 0) fixes.add('No se pudieron leer scopes desde debug_token; valida que el token pertenezca a la app correcta.');
     if (!input.adAccountAccessible) fixes.add(`Verifica que META_AD_ACCOUNT_ID sea correcto y corresponda a la cuenta ${input.accountId || 'publicitaria'}.`);
     if (!input.assignedUsersAccessible) fixes.add('Confirma que el system user esté asignado al Ad Account con acceso total.');
