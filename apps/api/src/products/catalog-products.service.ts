@@ -775,40 +775,65 @@ export class CatalogProductsService {
 
   private async validateFullposImageUrl(url: string | null): Promise<string | null> {
     const candidate = (url ?? '').trim();
-    if (!candidate || !/^https?:\/\//i.test(candidate)) {
-      return candidate || null;
+    
+    // Empty URL → null
+    if (!candidate) {
+      return null;
     }
 
+    // If URL is not absolute (no protocol), return it as-is
+    // The app or proxy will handle relative paths or the browser will use it as-is
+    if (!/^https?:\/\//i.test(candidate)) {
+      this.logger.debug(`[catalog-products][image] returning relative/partial url: ${candidate}`);
+      return candidate;
+    }
+
+    // Remote validation disabled → return as-is
     if (!this.fullposValidateImages) {
       return candidate;
     }
 
+    // Parse URLs for validation
     let parsedUrl: URL;
     let fullposUrl: URL;
     try {
       parsedUrl = new URL(candidate);
       fullposUrl = new URL(this.fullposBaseUrl);
     } catch {
+      // Invalid URL format → return anyway (let downstream handle it)
+      this.logger.debug(`[catalog-products][image] url parse failed but returning: ${candidate}`);
       return candidate;
     }
 
     const sameFullposHost = parsedUrl.host.toLowerCase() === fullposUrl.host.toLowerCase();
     const looksLikeUpload = parsedUrl.pathname.toLowerCase().includes('/uploads/');
+    
+    // If not from same FULLPOS host or not an upload path, return anyway
+    // (might be external CDN or different structure)
     if (!sameFullposHost || !looksLikeUpload) {
+      this.logger.debug(
+        `[catalog-products][image] url not from FULLPOS uploads but keeping: ${candidate}`,
+      );
       return candidate;
     }
 
+    // Now do remote validation only for FULLPOS upload URLs
     const cached = this.remoteImageValidationCache.get(candidate);
     const now = Date.now();
     if (cached) {
-      const ttlMs = cached.isValid ? 30 * 60 * 1000 : 5 * 60 * 1000;
+      const ttlMs = cached.isValid ? 30 * 60 * 1000 : 5 * 60 * 1000; // 30min valid, 5min invalid
       if (now - cached.checkedAt < ttlMs) {
-        return cached.isValid ? candidate : null;
+        // Return cached result (but ALWAYS return the URL, never null)
+        return candidate;
       }
     }
 
+    // Remote check with timeout
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), Math.min(this.fullposTimeoutMs, 3000));
+    const timeout = setTimeout(
+      () => controller.abort(),
+      Math.min(this.fullposTimeoutMs, 3000),
+    );
 
     try {
       let response = await fetch(candidate, {
@@ -817,6 +842,7 @@ export class CatalogProductsService {
         signal: controller.signal,
       });
 
+      // If HEAD not allowed, try GET
       if (response.status === 405 || response.status === 501) {
         response = await fetch(candidate, {
           method: 'GET',
@@ -827,25 +853,32 @@ export class CatalogProductsService {
 
       const contentType = (response.headers.get('content-type') ?? '').toLowerCase();
       const isValid = response.ok && contentType.startsWith('image/');
+      
+      // Cache result
       this.remoteImageValidationCache.set(candidate, {
         isValid,
         checkedAt: now,
       });
+      
+      // Always return the URL (even if validation failed)
       if (!isValid) {
         this.logger.warn(
-          `[catalog-products] image validation failed but keeping url status=${response.status} contentType=${contentType || 'n/a'} url=${candidate}`,
+          `[catalog-products][image] validation issue status=${response.status} type=${contentType || 'unknown'} but keeping url: ${candidate}`,
         );
       }
       return candidate;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      this.logger.warn(
-        `[catalog-products] image validation failed but keeping url url=${candidate} error=${message}`,
-      );
+      
+      // Cache as invalid but STILL RETURN THE URL
       this.remoteImageValidationCache.set(candidate, {
         isValid: false,
         checkedAt: now,
       });
+      
+      this.logger.warn(
+        `[catalog-products][image] validation error but keeping url error=${message} url=${candidate}`,
+      );
       return candidate;
     } finally {
       clearTimeout(timeout);
