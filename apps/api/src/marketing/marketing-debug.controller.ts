@@ -46,6 +46,11 @@ export class MarketingDebugController {
     return this.metaAds.debugAdsConfig();
   }
 
+  @Get('meta-ads-permissions')
+  async metaAdsPermissions() {
+    return this.metaAds.debugMetaAdsPermissions();
+  }
+
   @Post('test-meta-publish')
   async testMetaPublish(
     @Body() body: { imageUrl?: string; caption?: string; dryRun?: boolean },

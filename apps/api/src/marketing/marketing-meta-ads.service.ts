@@ -1,5 +1,7 @@
 import {
+  Logger,
   Injectable,
+  UnprocessableEntityException,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import sharp from 'sharp';
@@ -15,6 +17,27 @@ export type MetaAdsDebugConfig = {
   tokenValid: boolean;
   scopes: string[];
   adAccountAccessible: boolean;
+};
+
+export type MetaAdsPermissionsDebugReport = {
+  tokenValid: boolean;
+  appId: string;
+  tokenPreview: string;
+  adAccountId: string;
+  adAccountAccessible: boolean;
+  adAccountStatus: number | null;
+  adAccountDisableReason: string | null;
+  hasAdsManagement: boolean;
+  hasAdsRead: boolean;
+  hasBusinessManagement: boolean;
+  canReadAdImages: boolean;
+  canUploadAdImage: boolean;
+  assignedUsersAccessible: boolean;
+  assignedUsersCount: number | null;
+  pageAccessible: boolean;
+  instagramAccessible: boolean;
+  whatsappPhoneAccessible: boolean;
+  recommendedFixes: string[];
 };
 
 type MetaAdsIds = {
@@ -64,7 +87,7 @@ export type MetaAdsErrorDetails = {
   recommendation?: string | null;
 };
 
-export class MetaAdsException extends ServiceUnavailableException {
+export class MetaAdsException extends UnprocessableEntityException {
   constructor(public readonly metaDetails: MetaAdsErrorDetails) {
     const parts = [
       metaDetails.stage ? `Etapa: ${metaDetails.stage}` : null,
@@ -118,6 +141,8 @@ type PreparedAdImage = {
 
 @Injectable()
 export class MarketingMetaAdsService {
+  private readonly logger = new Logger(MarketingMetaAdsService.name);
+
   private get graphVersion() {
     return (process.env.META_GRAPH_VERSION ?? 'v23.0').trim() || 'v23.0';
   }
@@ -221,6 +246,10 @@ export class MarketingMetaAdsService {
     };
   }
 
+  async debugMetaAdsPermissions(): Promise<MetaAdsPermissionsDebugReport> {
+    return this.inspectMetaAdsPermissions();
+  }
+
   async createCampaignFlow(input: CreateFlowInput): Promise<MetaAdsIds> {
     this.ensureAdsConfigured();
 
@@ -248,9 +277,10 @@ export class MarketingMetaAdsService {
     await this.validatePublicMediaUrl(input.mediaUrl);
     await this.emitStep(input, 'VALIDATING_MEDIA', 'Validando media publica HTTPS', 'DONE');
 
-    await this.emitStep(input, 'UPLOADING_MEDIA', 'Subiendo media', 'RUNNING');
+    await this.emitStep(input, 'UPLOADING_MEDIA', 'Subiendo imagen', 'RUNNING');
+    await this.validateAdImageUploadPermissions();
     const media = await this.uploadCreativeMedia(input);
-    await this.emitStep(input, 'UPLOADING_MEDIA', 'Subiendo media', 'DONE', media.mediaType === 'IMAGE' ? media.imageHash : media.videoId);
+    await this.emitStep(input, 'UPLOADING_MEDIA', 'Subiendo imagen', 'DONE', media.mediaType === 'IMAGE' ? media.imageHash : media.videoId);
 
     await this.emitStep(input, 'CREATING_CAMPAIGN', 'Creando campana', 'RUNNING');
     const campaign = await this.postForm(
@@ -640,14 +670,20 @@ export class MarketingMetaAdsService {
   }
 
   private async validateAdAccount() {
-    const query = new URLSearchParams({
-      fields: 'id,account_status,name',
-      access_token: this.accessToken,
-    });
-    const response = await fetch(`${this.graphUrl(`/${this.normalizeAccountId()}`)}?${query.toString()}`);
-    const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-    if (!response.ok) {
-      throw new MetaAdsException(this.extractMetaError(payload, 'Validando cuenta publicitaria', 'Verifica META_AD_ACCOUNT_ID y acceso del token a la cuenta publicitaria.'));
+    const report = await this.inspectMetaAdsPermissions();
+    if (!report.adAccountAccessible) {
+      throw new MetaAdsException({
+        stage: 'Validando cuenta publicitaria',
+        message: 'No se pudo acceder a la cuenta publicitaria de Meta Ads.',
+        recommendation: 'Verifica META_AD_ACCOUNT_ID, el system user asignado y que la app tenga acceso aprobado al Ad Account.',
+      });
+    }
+    if (!report.hasAdsManagement) {
+      throw new MetaAdsException({
+        stage: 'Validando cuenta publicitaria',
+        message: 'El token Meta no tiene el permiso ads_management real sobre esta cuenta publicitaria.',
+        recommendation: 'Usa un token de system user con ads_management y acceso real al Ad Account.',
+      });
     }
   }
 
@@ -712,6 +748,20 @@ export class MarketingMetaAdsService {
     }
   }
 
+  private async validateAdImageUploadPermissions() {
+    const report = await this.inspectMetaAdsPermissions();
+    if (report.canUploadAdImage) return;
+
+    throw new MetaAdsException({
+      stage: 'Subiendo imagen',
+      message: 'No se pudo subir la imagen al Ad Account. El token/app no tiene permiso ads_management real sobre esta cuenta publicitaria o la app no tiene acceso aprobado para esta operación.',
+      code: '200',
+      subcode: '1815066',
+      fbtraceId: null,
+      recommendation: report.recommendedFixes[0] ?? 'Verifica permisos de Meta Ads sobre el Ad Account.',
+    });
+  }
+
   private async emitStep(
     input: CreateFlowInput,
     id: MetaPublishStepId,
@@ -754,6 +804,232 @@ export class MarketingMetaAdsService {
       tokenValid: data.is_valid === true,
       scopes,
     };
+  }
+
+  private async inspectMetaAdsPermissions(): Promise<MetaAdsPermissionsDebugReport> {
+    this.logMetaAdsContext('inspect-permissions');
+
+    const tokenInspection = await this.inspectTokenDetails();
+    const accountId = this.normalizeAccountId();
+
+    const adAccount = accountId
+      ? await this.fetchGraphObject<Record<string, unknown>>(
+          accountId,
+          'id,name,account_status,disable_reason,currency,business,capabilities',
+          this.accessToken,
+        )
+      : null;
+
+    const assignedUsers = accountId
+      ? await this.fetchGraphObject<{ data?: Array<Record<string, unknown>> }>(
+          `${accountId}/assigned_users`,
+          'id,name,role',
+          this.accessToken,
+          { limit: '1' },
+        )
+      : null;
+
+    const adImages = accountId
+      ? await this.fetchGraphObject<Record<string, unknown>>(
+          `${accountId}/adimages`,
+          'id,hash',
+          this.accessToken,
+          { limit: '1' },
+        )
+      : null;
+
+    const pageAccessible = this.pageId
+      ? await this.fetchGraphObject<Record<string, unknown>>(
+          this.pageId,
+          'id,name,instagram_business_account{id,username}',
+          this.accessToken,
+        ).then(() => true)
+      : false;
+
+    const instagramAccessible = this.igBusinessId
+      ? await this.fetchGraphObject<Record<string, unknown>>(
+          this.igBusinessId,
+          'id,username',
+          this.accessToken,
+        ).then(() => true)
+      : false;
+
+    const whatsappPhoneAccessible = this.whatsappPhoneNumberId
+      ? await this.fetchGraphObject<Record<string, unknown>>(
+          this.whatsappPhoneNumberId,
+          'id,display_phone_number,verified_name',
+          this.accessToken,
+        ).then(() => true)
+      : false;
+
+    const scopes = tokenInspection.scopes;
+    const hasAdsManagement = scopes.includes('ads_management');
+    const hasAdsRead = scopes.includes('ads_read');
+    const hasBusinessManagement = scopes.includes('business_management');
+    const adAccountAccessible = adAccount !== null;
+    const canReadAdImages = adImages !== null;
+    const assignedUsersAccessible = assignedUsers !== null;
+    const assignedUsersCount = Array.isArray(assignedUsers?.data) ? assignedUsers.data.length : null;
+    const capabilities = Array.isArray(adAccount?.capabilities)
+      ? adAccount.capabilities.map((item) => `${item}`.trim()).filter((item) => item.length > 0)
+      : [];
+
+    const recommendedFixes = this.buildPermissionRecommendations({
+      tokenValid: tokenInspection.tokenValid,
+      hasAdsManagement,
+      hasAdsRead,
+      hasBusinessManagement,
+      adAccountAccessible,
+      adAccountStatus: this.asNumber(adAccount?.account_status),
+      adAccountDisableReason: this.asString(adAccount?.disable_reason),
+      canReadAdImages,
+      assignedUsersAccessible,
+      pageAccessible,
+      instagramAccessible,
+      whatsappPhoneAccessible,
+      accountId,
+      scopes,
+      capabilities,
+    });
+
+    return {
+      tokenValid: tokenInspection.tokenValid,
+      appId: this.appId,
+      tokenPreview: this.tokenPreview(this.accessToken),
+      adAccountId: accountId,
+      adAccountAccessible,
+      adAccountStatus: this.asNumber(adAccount?.account_status),
+      adAccountDisableReason: this.asString(adAccount?.disable_reason),
+      hasAdsManagement,
+      hasAdsRead,
+      hasBusinessManagement,
+      canReadAdImages,
+      canUploadAdImage:
+        tokenInspection.tokenValid &&
+        hasAdsManagement &&
+        adAccountAccessible &&
+        assignedUsersAccessible &&
+        canReadAdImages,
+      assignedUsersAccessible,
+      assignedUsersCount,
+      pageAccessible,
+      instagramAccessible,
+      whatsappPhoneAccessible,
+      recommendedFixes,
+    };
+  }
+
+  private async fetchGraphObject<T>(
+    path: string,
+    fields: string,
+    accessToken: string,
+    extraParams?: Record<string, string>,
+  ): Promise<T | null> {
+    const query = new URLSearchParams({
+      fields,
+      access_token: accessToken,
+      ...(extraParams ?? {}),
+    });
+
+    const response = await fetch(`${this.graphUrl(`/${path}`)}?${query.toString()}`);
+    if (!response.ok) {
+      return null;
+    }
+
+    return (await response.json().catch(() => ({}))) as T;
+  }
+
+  private async inspectTokenDetails() {
+    if (!this.accessToken || !this.appId || !this.appSecret) {
+      return { tokenValid: false, scopes: [] as string[], tokenType: null as string | null };
+    }
+
+    const appToken = `${this.appId}|${this.appSecret}`;
+    const query = new URLSearchParams({
+      input_token: this.accessToken,
+      access_token: appToken,
+    });
+
+    const response = await fetch(`${this.graphUrl('/debug_token')}?${query.toString()}`);
+    const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!response.ok) {
+      return { tokenValid: false, scopes: [] as string[], tokenType: null as string | null };
+    }
+
+    const data = (payload?.data ?? {}) as Record<string, unknown>;
+    const scopes = Array.isArray(data.scopes)
+      ? data.scopes.map((item: unknown) => `${item}`.trim()).filter((item: string) => item.length > 0)
+      : [];
+
+    return {
+      tokenValid: data.is_valid === true,
+      scopes,
+      tokenType: `${data.type ?? ''}`.trim() || null,
+    };
+  }
+
+  private logMetaAdsContext(context: string) {
+    this.logger.log(
+      `[meta-ads] ${context} tokenPreview=${this.tokenPreview(this.accessToken)} adAccountId=${this.normalizeAccountId() || 'missing'} appId=${this.appId || 'missing'} pageId=${this.pageId || 'missing'}`,
+    );
+  }
+
+  private buildPermissionRecommendations(input: {
+    tokenValid: boolean;
+    hasAdsManagement: boolean;
+    hasAdsRead: boolean;
+    hasBusinessManagement: boolean;
+    adAccountAccessible: boolean;
+    adAccountStatus: number | null;
+    adAccountDisableReason: string | null;
+    canReadAdImages: boolean;
+    assignedUsersAccessible: boolean;
+    pageAccessible: boolean;
+    instagramAccessible: boolean;
+    whatsappPhoneAccessible: boolean;
+    accountId: string;
+    scopes: string[];
+    capabilities: string[];
+  }) {
+    const fixes = new Set<string>();
+
+    if (!this.accessToken) fixes.add('Configura META_ACCESS_TOKEN con un token de system user válido.');
+    if (!input.tokenValid) fixes.add('Regenera el token y reinicia el backend si cambió recientemente.');
+    if (!input.hasAdsManagement) fixes.add('El token debe incluir ads_management real para el Ad Account.');
+    if (!input.hasAdsRead) fixes.add('Agrega ads_read al token para poder diagnosticar y leer objetos de Ads.');
+    if (!input.hasBusinessManagement) fixes.add('Agrega business_management si el acceso depende de Business Manager.');
+    if (input.scopes.length === 0) fixes.add('No se pudieron leer scopes desde debug_token; valida que el token pertenezca a la app correcta.');
+    if (!input.adAccountAccessible) fixes.add(`Verifica que META_AD_ACCOUNT_ID sea correcto y corresponda a la cuenta ${input.accountId || 'publicitaria'}.`);
+    if (!input.assignedUsersAccessible) fixes.add('Confirma que el system user esté asignado al Ad Account con acceso total.');
+    if (!input.canReadAdImages) fixes.add('El token no puede leer adimages; el acceso real a Ads no está resuelto todavía.');
+    if (!input.pageAccessible) fixes.add('Verifica acceso a META_FACEBOOK_PAGE_ID con el mismo token.');
+    if (!input.instagramAccessible) fixes.add('Verifica acceso a META_INSTAGRAM_BUSINESS_ID y que esté conectado a la página.');
+    if (!input.whatsappPhoneAccessible) fixes.add('Verifica acceso a META_WHATSAPP_PHONE_NUMBER_ID en el mismo Business Manager.');
+    if (input.adAccountStatus != null && input.adAccountStatus !== 1) {
+      fixes.add(`La cuenta publicitaria no está activa. account_status=${input.adAccountStatus}.`);
+    }
+    if (input.adAccountDisableReason) {
+      fixes.add(`La cuenta publicitaria tiene disable_reason=${input.adAccountDisableReason}.`);
+    }
+    if (input.capabilities.length === 0) {
+      fixes.add('La cuenta no expone capabilities; revisa si la app tiene acceso aprobado a Marketing API.');
+    }
+
+    if (fixes.size === 0) {
+      fixes.add('La configuración parece correcta para subir Ad Images. Si persiste 1815066, el token pertenece a otra app o Business Manager.');
+    }
+
+    return Array.from(fixes);
+  }
+
+  private asString(value: unknown) {
+    const clean = `${value ?? ''}`.trim();
+    return clean.length > 0 ? clean : null;
+  }
+
+  private asNumber(value: unknown) {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
   }
 
   private async checkAdAccountAccess() {
@@ -839,13 +1115,20 @@ export class MarketingMetaAdsService {
 
   private extractMetaError(payload: Record<string, unknown>, stage?: string | null, recommendation?: string | null): MetaApiError {
     const errorRaw = (payload?.error ?? {}) as Record<string, unknown>;
+    const code = errorRaw.code != null ? `${errorRaw.code}` : null;
+    const subcode = errorRaw.error_subcode != null ? `${errorRaw.error_subcode}` : null;
+    const isAdImagePermissionError = code === '200' && subcode === '1815066';
     return {
       stage: stage ?? null,
-      message: `${errorRaw.message ?? 'Error al conectar con Meta Ads'}`,
-      code: errorRaw.code != null ? `${errorRaw.code}` : null,
-      subcode: errorRaw.error_subcode != null ? `${errorRaw.error_subcode}` : null,
+      message: isAdImagePermissionError
+        ? 'No se pudo subir la imagen al Ad Account. El token/app no tiene permiso ads_management real sobre esta cuenta publicitaria o la app no tiene acceso aprobado para esta operación.'
+        : `${errorRaw.message ?? 'Error al conectar con Meta Ads'}`,
+      code,
+      subcode,
       fbtraceId: errorRaw.fbtrace_id != null ? `${errorRaw.fbtrace_id}` : null,
-      recommendation: recommendation ?? null,
+      recommendation: isAdImagePermissionError
+        ? 'Verifica que META_ACCESS_TOKEN pertenezca a un system user con acceso real al Ad Account, que la app tenga Marketing API aprobada y que META_AD_ACCOUNT_ID sea la cuenta correcta.'
+        : recommendation ?? null,
     };
   }
 }
