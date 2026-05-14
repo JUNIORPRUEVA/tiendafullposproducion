@@ -53,6 +53,18 @@ type GetClosesQuery = {
   type?: string;
 };
 
+type CloseAiEvidence = {
+  label: string;
+  source: 'pos' | 'transfer' | 'expense';
+  fileName: string | null;
+  mimeType: string | null;
+  fileUrl: string | null;
+  storageKey: string | null;
+  imageUrl: string | null;
+  includedInVision: boolean;
+  note?: string;
+};
+
 @Injectable()
 export class ContabilidadService {
   constructor(
@@ -1449,6 +1461,147 @@ export class ContabilidadService {
     }
   }
 
+  private isSupportedAiImage(
+    mimeType?: string | null,
+    fileName?: string | null,
+    fileUrl?: string | null,
+  ) {
+    const mime = (mimeType ?? '').toLowerCase().trim();
+    const name = (fileName ?? '').toLowerCase().trim();
+    const url = (fileUrl ?? '').toLowerCase().trim();
+    return (
+      /^image\/(jpeg|jpg|png|webp)$/i.test(mime) ||
+      name.endsWith('.jpg') ||
+      name.endsWith('.jpeg') ||
+      name.endsWith('.png') ||
+      name.endsWith('.webp') ||
+      url.includes('.jpg') ||
+      url.includes('.jpeg') ||
+      url.includes('.png') ||
+      url.includes('.webp')
+    );
+  }
+
+  private inferAiImageMime(
+    mimeType?: string | null,
+    fileName?: string | null,
+    fileUrl?: string | null,
+  ) {
+    const mime = (mimeType ?? '').toLowerCase().trim();
+    if (/^image\/(jpeg|jpg|png|webp)$/i.test(mime)) {
+      return mime === 'image/jpg' ? 'image/jpeg' : mime;
+    }
+    const value = `${fileName ?? ''} ${fileUrl ?? ''}`.toLowerCase();
+    if (value.includes('.png')) return 'image/png';
+    if (value.includes('.webp')) return 'image/webp';
+    return 'image/jpeg';
+  }
+
+  private async buildCloseAiEvidence(
+    close: Awaited<ReturnType<ContabilidadService['findCloseOrThrow']>>,
+  ): Promise<CloseAiEvidence[]> {
+    const rawItems: Array<Omit<CloseAiEvidence, 'imageUrl' | 'includedInVision'>> = [];
+
+    if (close.evidenceUrl || close.evidenceStorageKey || close.evidenceFileName) {
+      rawItems.push({
+        label: 'Boucher POS del cierre',
+        source: 'pos',
+        fileName: close.evidenceFileName ?? null,
+        mimeType: close.evidenceMimeType ?? null,
+        fileUrl: close.evidenceUrl ?? null,
+        storageKey: close.evidenceStorageKey ?? null,
+      });
+    }
+
+    for (const [transferIndex, transfer] of close.transfers.entries()) {
+      for (const [voucherIndex, voucher] of transfer.vouchers.entries()) {
+        rawItems.push({
+          label: `Transferencia ${transferIndex + 1} (${transfer.bankName}) - voucher ${voucherIndex + 1}`,
+          source: 'transfer',
+          fileName: voucher.fileName ?? null,
+          mimeType: voucher.mimeType ?? null,
+          fileUrl: voucher.fileUrl ?? null,
+          storageKey: voucher.storageKey ?? null,
+        });
+      }
+    }
+
+    const expenseDetails = Array.isArray(close.expenseDetails)
+      ? close.expenseDetails
+      : [];
+    for (const [expenseIndex, row] of expenseDetails.entries()) {
+      if (!row || typeof row !== 'object') continue;
+      const concept =
+        typeof (row as { concept?: unknown }).concept === 'string'
+          ? (row as { concept: string }).concept.trim()
+          : `Gasto ${expenseIndex + 1}`;
+      const vouchers = Array.isArray((row as { vouchers?: unknown[] }).vouchers)
+        ? ((row as { vouchers: unknown[] }).vouchers ?? [])
+        : [];
+      for (const [voucherIndex, voucherRaw] of vouchers.entries()) {
+        if (!voucherRaw || typeof voucherRaw !== 'object') continue;
+        const voucher = voucherRaw as {
+          fileName?: unknown;
+          mimeType?: unknown;
+          fileUrl?: unknown;
+          storageKey?: unknown;
+        };
+        rawItems.push({
+          label: `${concept || `Gasto ${expenseIndex + 1}`} - comprobante ${voucherIndex + 1}`,
+          source: 'expense',
+          fileName:
+            typeof voucher.fileName === 'string' ? voucher.fileName.trim() : null,
+          mimeType:
+            typeof voucher.mimeType === 'string' ? voucher.mimeType.trim() : null,
+          fileUrl:
+            typeof voucher.fileUrl === 'string' ? voucher.fileUrl.trim() : null,
+          storageKey:
+            typeof voucher.storageKey === 'string'
+              ? voucher.storageKey.trim()
+              : null,
+        });
+      }
+    }
+
+    const evidence: CloseAiEvidence[] = [];
+    for (const item of rawItems) {
+      const supportedImage = this.isSupportedAiImage(
+        item.mimeType,
+        item.fileName,
+        item.fileUrl,
+      );
+      let imageUrl: string | null = null;
+      let note: string | undefined;
+
+      if (supportedImage && item.storageKey) {
+        const buffer = await this.tryFetchImageBuffer(item.storageKey);
+        if (buffer) {
+          const mime = this.inferAiImageMime(
+            item.mimeType,
+            item.fileName,
+            item.fileUrl,
+          );
+          imageUrl = `data:${mime};base64,${buffer.toString('base64')}`;
+        } else {
+          note = 'No se pudo leer la imagen desde almacenamiento.';
+        }
+      }
+
+      if (!imageUrl && supportedImage && item.fileUrl && /^https?:\/\//i.test(item.fileUrl)) {
+        imageUrl = item.fileUrl;
+      }
+
+      evidence.push({
+        ...item,
+        imageUrl,
+        includedInVision: imageUrl != null,
+        ...(note ? { note } : {}),
+      });
+    }
+
+    return evidence;
+  }
+
   private async generateClosePdf(
     close: Awaited<ReturnType<ContabilidadService['findCloseOrThrow']>>,
   ) {
@@ -1782,27 +1935,18 @@ export class ContabilidadService {
       (appConfig?.openAiModel ?? '').trim() ||
       'gpt-4o-mini';
 
-    const evidenceUrls = [
-      ...(close.evidenceUrl ? [close.evidenceUrl] : []),
-      ...close.transfers.flatMap((transfer) =>
-        transfer.vouchers.map((voucher) => voucher.fileUrl),
-      ),
-      ...(Array.isArray(close.expenseDetails)
-        ? close.expenseDetails.flatMap((row) => {
-            if (!row || typeof row !== 'object') return [] as string[];
-            const vouchers = Array.isArray((row as { vouchers?: unknown[] }).vouchers)
-              ? ((row as { vouchers: Array<{ fileUrl?: unknown }> }).vouchers ?? [])
-              : [];
-            return vouchers
-              .map((voucher) =>
-                typeof voucher.fileUrl === 'string'
-                  ? voucher.fileUrl.trim()
-                  : '',
-              )
-              .filter((url) => url.length > 0);
-          })
-        : []),
-    ];
+    const aiEvidence = await this.buildCloseAiEvidence(close);
+    const evidenceReviewed = aiEvidence.map((evidence) => ({
+      label: evidence.label,
+      source: evidence.source,
+      fileName: evidence.fileName,
+      mimeType: evidence.mimeType,
+      fileUrl: evidence.fileUrl,
+      storageKey: evidence.storageKey,
+      includedInVision: evidence.includedInVision,
+      note: evidence.note ?? null,
+    }));
+    const visionEvidence = aiEvidence.filter((evidence) => evidence.imageUrl);
     const expectedDifference = Number(close.cash) - Number(close.cashDelivered);
     const normalizedDifference = Number(close.difference);
     const expenseDetails = Array.isArray(close.expenseDetails)
@@ -1816,10 +1960,15 @@ export class ContabilidadService {
         expenseDetails,
       },
       analysisFocus: {
+        mustReadUploadedImagesBeforeReport: true,
+        mustPrioritizePosClosingVoucherImage: true,
+        imageEvidenceCount: visionEvidence.length,
+        uploadedEvidenceCount: aiEvidence.length,
         mustEvaluateDifferenceAgainstExpenses: true,
         differenceCanBeJustifiedByDocumentedExpenses: true,
         prioritizeFraudSignalsOnlyWhenUnsupportedByEvidence: true,
       },
+      evidenceReviewed,
       previousClosings: previous.map((item) => ({
         id: item.id,
         date: item.date,
@@ -1838,26 +1987,27 @@ export class ContabilidadService {
         summary:
           'No hay API key de OpenAI configurada. Se guardo una revision basica del sistema.',
         detectedIssues:
-          evidenceUrls.length === 0 ? ['No hay vouchers visibles.'] : [],
+          aiEvidence.length === 0 ? ['No hay vouchers visibles.'] : [],
         suggestedAdminActions: [
           'Configurar OpenAI para analisis completo con imagenes.',
           'Revisar vouchers manualmente.',
         ],
         confidenceLevel: 'low',
-        evidenceReviewed: evidenceUrls,
+        evidenceReviewed,
+        visionEvidenceCount: 0,
       };
     } else {
       const content: Array<Record<string, unknown>> = [
         {
           type: 'text',
           text:
-            'Analiza este cierre diario contable y sus evidencias. Devuelve SOLO JSON con: riskLevel(low|medium|high), summary, detectedIssues[], suggestedAdminActions[], confidenceLevel, evidenceReviewed[], financialBreakdown{difference,expenses,isDifferenceReasonable,reasoning}, fraudSignals[], and auditorNotes[]. Regla critica: evalua si la diferencia se explica por gastos registrados y soportes (voucher/evidencia); no elevar riesgo sin justificar contradiccion. ' +
+            'Analiza este cierre diario contable y sus evidencias. Antes de emitir el reporte debes revisar TODAS las imagenes adjuntas en este mensaje, dando prioridad al boucher POS del cierre del punto de venta. Devuelve SOLO JSON con: riskLevel(low|medium|high), summary, detectedIssues[], suggestedAdminActions[], confidenceLevel, evidenceReviewed[], financialBreakdown{difference,expenses,isDifferenceReasonable,reasoning}, fraudSignals[], and auditorNotes[]. Regla critica: evalua si la diferencia se explica por gastos registrados y soportes (voucher/evidencia); no elevar riesgo sin justificar contradiccion. En evidenceReviewed indica cada archivo revisado y si fue leido visualmente. ' +
             JSON.stringify(context),
         },
-        ...evidenceUrls
-          .filter((url) => /^https?:\/\//i.test(url))
-          .slice(0, 8)
-          .map((url) => ({ type: 'image_url', image_url: { url } })),
+        ...visionEvidence.map((evidence) => ({
+          type: 'image_url',
+          image_url: { url: evidence.imageUrl },
+        })),
       ];
       const res = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',

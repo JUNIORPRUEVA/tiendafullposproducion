@@ -1906,18 +1906,15 @@ class _AssistantCloseTile extends StatelessWidget {
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Row(
                 children: [
                   Expanded(
                     child: Text(
-                      DateFormat('dd/MM/yyyy').format(close.date),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                      _category,
                       style: theme.textTheme.labelLarge?.copyWith(
                         fontWeight: FontWeight.w900,
-                        height: 1,
                       ),
                     ),
                   ),
@@ -1927,45 +1924,38 @@ class _AssistantCloseTile extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 5),
-              Text(
-                _category,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.labelMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                  fontWeight: FontWeight.w800,
-                ),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      DateFormat('dd/MM/yyyy').format(close.date),
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ),
+                  Text(
+                    money(close.netTotal),
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 2),
-              Text(
-                money(close.netTotal),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               Wrap(
-                spacing: 5,
-                runSpacing: 4,
+                spacing: 6,
+                runSpacing: 6,
                 children: [
                   _MiniCloseTag(
-                    label: close.isCorrection ? 'Corregido' : 'Normal',
-                    color: close.isCorrection
-                        ? const Color(0xFF7C3AED)
-                        : theme.colorScheme.primary,
+                    label: close.isCorrection
+                        ? 'Correccion #$referenceLabel'
+                        : 'Normal',
+                    color: theme.colorScheme.primary,
                   ),
                   if (wasEdited)
-                    const _MiniCloseTag(
-                      label: 'Editado',
-                      color: Color(0xFF0369A1),
-                    ),
-                  if (close.isCorrection)
                     _MiniCloseTag(
-                      label: '#$referenceLabel',
-                      color: const Color(0xFF7C3AED),
+                      label: 'Editado',
+                      color: theme.colorScheme.tertiary,
                     ),
                 ],
               ),
@@ -4980,71 +4970,6 @@ class _CloseDetailFullScreenPageState
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        // Montos
-                        Container(
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF8FAFC),
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: const Color(0xFFE2E8F0)),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Montos del cierre',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w900,
-                                  fontSize: 14,
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-                              Column(
-                                children: [
-                                  _RightTotalLine(
-                                    label: 'Total ingresos',
-                                    value: _money(currentClose.incomeTotal),
-                                  ),
-                                  _RightTotalLine(
-                                    label: 'Total neto',
-                                    value: _money(currentClose.netTotal),
-                                  ),
-                                  _RightTotalLine(
-                                    label: 'Diferencia',
-                                    value: _money(currentClose.difference),
-                                    emphasize: currentClose.difference != 0,
-                                  ),
-                                  _RightTotalLine(
-                                    label: 'Efectivo declarado',
-                                    value: _money(currentClose.cash),
-                                  ),
-                                  _RightTotalLine(
-                                    label: 'Total transferido',
-                                    value: _money(currentClose.transfer),
-                                  ),
-                                  _RightTotalLine(
-                                    label: 'Tarjeta',
-                                    value: _money(currentClose.card),
-                                  ),
-                                  _RightTotalLine(
-                                    label: 'Otros ingresos',
-                                    value: _money(currentClose.otherIncome),
-                                  ),
-                                  _RightTotalLine(
-                                    label: 'Gastos',
-                                    value: _money(currentClose.expenses),
-                                  ),
-                                  _RightTotalLine(
-                                    label: 'Efectivo entregado',
-                                    value: _money(currentClose.cashDelivered),
-                                    showDivider: false,
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 14),
                         // Historial / Movimientos
                         Container(
                           padding: const EdgeInsets.all(14),

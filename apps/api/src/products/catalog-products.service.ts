@@ -71,6 +71,7 @@ type CatalogProductView = {
   categoriaNombre: string | null;
   imagen: string | null;
   fotoUrl: string | null;
+  originalFotoUrl: string | null;
   activo: boolean;
   estado: string;
   createdAt: string | null;
@@ -267,6 +268,7 @@ export class CatalogProductsService {
         categoriaNombre: categoria,
         imagen: imageUrl,
         fotoUrl: imageUrl,
+        originalFotoUrl: imageUrl,
         activo,
         estado: activo ? 'ACTIVO' : 'INACTIVO',
         createdAt: this.pickString(row.createdAt),
@@ -688,6 +690,7 @@ export class CatalogProductsService {
       categoriaNombre: categoria,
       imagen: imageUrl,
       fotoUrl: imageUrl,
+      originalFotoUrl: imageUrl,
       activo,
       estado,
       createdAt: this.pickString(item.created_at, item.createdAt),
@@ -829,17 +832,21 @@ export class CatalogProductsService {
         checkedAt: now,
       });
       if (!isValid) {
-        this.logger.warn(`[catalog-products] omitting dead image status=${response.status} url=${candidate}`);
+        this.logger.warn(
+          `[catalog-products] image validation failed but keeping url status=${response.status} contentType=${contentType || 'n/a'} url=${candidate}`,
+        );
       }
-      return isValid ? candidate : null;
+      return candidate;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      this.logger.warn(`[catalog-products] image validation failed url=${candidate} error=${message}`);
+      this.logger.warn(
+        `[catalog-products] image validation failed but keeping url url=${candidate} error=${message}`,
+      );
       this.remoteImageValidationCache.set(candidate, {
         isValid: false,
         checkedAt: now,
       });
-      return null;
+      return candidate;
     } finally {
       clearTimeout(timeout);
     }
