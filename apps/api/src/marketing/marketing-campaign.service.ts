@@ -38,7 +38,7 @@ type CampaignVisionCopy = {
 
 @Injectable()
 export class MarketingCampaignService {
-  private static readonly WHATSAPP_MESSAGES_OBJECTIVE = 'OUTCOME_MESSAGES';
+  private static readonly WHATSAPP_MESSAGES_OBJECTIVE = 'OUTCOME_ENGAGEMENT';
   private readonly logger = new Logger(MarketingCampaignService.name);
 
   constructor(
@@ -1003,8 +1003,8 @@ Devuelve exactamente este JSON:
       geo_locations: {
         custom_locations: [
           {
-            latitude: 18.615,
-            longitude: -68.708,
+            latitude: 18.6156,
+            longitude: -68.7079,
             radius: Number(audience.radiusKm ?? 10),
             distance_unit: 'kilometer',
           },

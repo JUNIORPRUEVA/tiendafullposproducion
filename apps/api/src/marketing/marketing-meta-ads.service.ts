@@ -40,6 +40,19 @@ export type MetaAdsPermissionsDebugReport = {
   recommendedFixes: string[];
 };
 
+export type MetaAdAccountDebugProbe = {
+  adAccountId: string;
+  canCreateCampaign: boolean;
+  canCreateAdset: boolean;
+  canCreateCreative: boolean;
+  canUploadImage: boolean;
+  campaignError: string | null;
+  adsetError: string | null;
+  creativeError: string | null;
+  uploadImageError: string | null;
+  recommendedFixes: string[];
+};
+
 type MetaAdsIds = {
   campaignId: string;
   adSetId: string;
@@ -137,6 +150,14 @@ type PreparedAdImage = {
   height: number;
   sizeBytes: number;
   normalized: boolean;
+};
+
+type PreparedCreativeMedia = {
+  mediaType: MetaAdMediaType;
+  mediaUrl: string;
+  imageHash: string | null;
+  videoId: string | null;
+  mode: 'DIRECT_PICTURE_URL' | 'DIRECT_VIDEO_URL' | 'UPLOADED_IMAGE_HASH';
 };
 
 @Injectable()
@@ -250,6 +271,24 @@ export class MarketingMetaAdsService {
     return this.inspectMetaAdsPermissions();
   }
 
+  async debugMetaAdAccounts() {
+    const candidates = Array.from(new Set([
+      this.normalizeAccountId(),
+      this.normalizeProvidedAccountId('act_1425678481793809'),
+      this.normalizeProvidedAccountId('act_596898948022113'),
+    ].filter((value) => value.length > 0)));
+
+    const accounts = await Promise.all(candidates.map(async (adAccountId) => {
+      const report = await this.inspectMetaAdsPermissions(adAccountId);
+      return this.buildMetaAdAccountProbe(report);
+    }));
+
+    return {
+      activeAdAccountId: this.normalizeAccountId(),
+      accounts,
+    };
+  }
+
   async createCampaignFlow(input: CreateFlowInput): Promise<MetaAdsIds> {
     this.ensureAdsConfigured();
 
@@ -277,10 +316,14 @@ export class MarketingMetaAdsService {
     await this.validatePublicMediaUrl(input.mediaUrl);
     await this.emitStep(input, 'VALIDATING_MEDIA', 'Validando media publica HTTPS', 'DONE');
 
-    await this.emitStep(input, 'UPLOADING_MEDIA', 'Subiendo imagen', 'RUNNING');
-    await this.validateAdImageUploadPermissions();
-    const media = await this.uploadCreativeMedia(input);
-    await this.emitStep(input, 'UPLOADING_MEDIA', 'Subiendo imagen', 'DONE', media.mediaType === 'IMAGE' ? media.imageHash : media.videoId);
+    let media = this.prepareCreativeMedia(input);
+    await this.emitStep(
+      input,
+      'UPLOADING_MEDIA',
+      'Subiendo imagen',
+      'DONE',
+      media.mode === 'DIRECT_VIDEO_URL' ? 'Usando video_url directo' : 'Usando picture URL directa',
+    );
 
     await this.emitStep(input, 'CREATING_CAMPAIGN', 'Creando campana', 'RUNNING');
     const campaign = await this.postForm(
@@ -288,11 +331,12 @@ export class MarketingMetaAdsService {
       {
         name: input.name,
         objective: input.objective,
+        buying_type: 'AUCTION',
         status: 'PAUSED',
         special_ad_categories: '[]',
       },
       'Creando Campaign',
-      'Verifica que OUTCOME_MESSAGES este disponible para la cuenta publicitaria y que el token tenga ads_management.',
+      'Verifica que OUTCOME_ENGAGEMENT este disponible para la cuenta publicitaria y que el token tenga ads_management.',
     );
 
     const campaignId = `${campaign.id ?? ''}`.trim();
@@ -306,17 +350,11 @@ export class MarketingMetaAdsService {
       campaign_id: campaignId,
       name: `${input.name} - Ad Set`,
       billing_event: 'IMPRESSIONS',
-      optimization_goal: 'CONVERSATIONS',
-      destination_type: 'WHATSAPP',
-      bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
+      optimization_goal: 'REACH',
       status: 'PAUSED',
       targeting: JSON.stringify(input.targeting),
       daily_budget: `${Math.max(1, Math.round(input.dailyBudget * 100))}`,
-      promoted_object: JSON.stringify({
-        page_id: this.pageId,
-        whatsapp_phone_number: this.whatsappPhoneNumberId,
-      }),
-      multi_advertiser_opt_out: '1',
+      promoted_object: JSON.stringify(this.buildPromotedObject()),
     };
 
     if (input.totalBudget != null && input.totalBudget > 0) {
@@ -347,54 +385,27 @@ export class MarketingMetaAdsService {
 
     await this.emitStep(input, 'CREATING_CREATIVE', 'Creando anuncio creativo', 'RUNNING');
 
-    const creativePayload = {
-      name: `${input.name} - Creative`,
-      degrees_of_freedom_spec: JSON.stringify({
-        creative_features_spec: {
-          standard_enhancements: { enroll_status: 'OPT_OUT' },
-        },
-      }),
-      object_story_spec: JSON.stringify({
-        page_id: this.pageId,
-        ...(this.igBusinessId ? { instagram_actor_id: this.igBusinessId } : {}),
-        ...(media.mediaType === 'IMAGE'
-          ? {
-              link_data: {
-                link,
-                image_hash: media.imageHash,
-                message: input.primaryText,
-                name: input.headline,
-                description: input.description ?? '',
-                call_to_action: {
-                  type: finalCta,
-                  value: {
-                    link,
-                    app_destination: 'WHATSAPP',
-                    whatsapp_phone_number: this.whatsappPhoneNumberId,
-                  },
-                },
-              },
-            }
-          : {
-              video_data: {
-                video_id: media.videoId,
-                message: input.primaryText,
-                title: input.headline,
-                link_description: input.description ?? '',
-                call_to_action: {
-                  type: finalCta,
-                  value: {
-                    link,
-                    app_destination: 'WHATSAPP',
-                    whatsapp_phone_number: this.whatsappPhoneNumberId,
-                  },
-                },
-              },
-            }),
-      }),
-    };
-
-    const creative = await this.createCreativeWithCtaFallback(creativePayload);
+    let creativePayload = this.buildCreativePayload(input, media, finalCta, link);
+    let creative: Record<string, unknown>;
+    try {
+      creative = await this.createCreativeWithCtaFallback(creativePayload);
+    } catch (error) {
+      if (
+        error instanceof MetaAdsException &&
+        media.mediaType === 'IMAGE' &&
+        media.mode === 'DIRECT_PICTURE_URL' &&
+        this.shouldFallbackToImageHash(error)
+      ) {
+        await this.emitStep(input, 'UPLOADING_MEDIA', 'Subiendo imagen', 'RUNNING', 'Meta exige image_hash; intentando /adimages');
+        await this.validateAdImageUploadPermissions();
+        media = await this.uploadImageHashToAdAccount(input);
+        await this.emitStep(input, 'UPLOADING_MEDIA', 'Subiendo imagen', 'DONE', media.imageHash);
+        creativePayload = this.buildCreativePayload(input, media, finalCta, link);
+        creative = await this.createCreativeWithCtaFallback(creativePayload);
+      } else {
+        throw error;
+      }
+    }
     const creativeId = `${creative.id ?? ''}`.trim();
     if (!creativeId) {
       throw new ServiceUnavailableException('Meta no devolvió creative_id al crear Creative.');
@@ -458,6 +469,69 @@ export class MarketingMetaAdsService {
     return `https://wa.me/18295344286`;
   }
 
+  private buildPromotedObject() {
+    return {
+      page_id: this.pageId,
+      ...(this.whatsappPhoneNumberId
+        ? { whatsapp_phone_number: this.whatsappPhoneNumberId }
+        : {}),
+    };
+  }
+
+  private buildCreativePayload(
+    input: CreateFlowInput,
+    media: PreparedCreativeMedia,
+    finalCta: string,
+    link: string,
+  ) {
+    return {
+      name: `${input.name} - Creative`,
+      degrees_of_freedom_spec: JSON.stringify({
+        creative_features_spec: {
+          standard_enhancements: { enroll_status: 'OPT_OUT' },
+        },
+      }),
+      object_story_spec: JSON.stringify({
+        page_id: this.pageId,
+        ...(this.igBusinessId ? { instagram_actor_id: this.igBusinessId } : {}),
+        ...(media.mediaType === 'IMAGE'
+          ? {
+              link_data: {
+                link,
+                ...(media.imageHash ? { image_hash: media.imageHash } : { picture: media.mediaUrl }),
+                message: input.primaryText,
+                name: input.headline,
+                description: input.description ?? '',
+                call_to_action: {
+                  type: finalCta,
+                  value: {
+                    link,
+                    app_destination: 'WHATSAPP',
+                    whatsapp_phone_number: this.whatsappPhoneNumberId,
+                  },
+                },
+              },
+            }
+          : {
+              video_data: {
+                video_url: media.mediaUrl,
+                message: input.primaryText,
+                title: input.headline,
+                link_description: input.description ?? '',
+                call_to_action: {
+                  type: finalCta,
+                  value: {
+                    link,
+                    app_destination: 'WHATSAPP',
+                    whatsapp_phone_number: this.whatsappPhoneNumberId,
+                  },
+                },
+              },
+            }),
+      }),
+    };
+  }
+
   private async createCreativeWithCtaFallback(creativePayload: Record<string, unknown>) {
     const primaryPayload = this.stringifyPayload(creativePayload);
     try {
@@ -507,7 +581,7 @@ export class MarketingMetaAdsService {
     return value.includes('video') || /\.(mp4|mov|m4v|webm)(\?|$)/i.test(value) ? 'VIDEO' : 'IMAGE';
   }
 
-  private async uploadCreativeMedia(input: CreateFlowInput) {
+  private prepareCreativeMedia(input: CreateFlowInput): PreparedCreativeMedia {
     const mediaUrl = `${input.mediaUrl ?? ''}`.trim();
     if (!mediaUrl) {
       throw new ServiceUnavailableException('No hay imagen o video seleccionado para subir a Meta Ads.');
@@ -515,17 +589,13 @@ export class MarketingMetaAdsService {
 
     const mediaType = this.detectMediaType(input);
     if (mediaType === 'VIDEO') {
-      const response = await this.postForm(`/${this.normalizeAccountId()}/advideos`, {
-        file_url: mediaUrl,
-        name: input.mediaFileName || `${input.name} video`,
-      }, 'Subiendo video', 'Verifica que el video sea publico, HTTPS y compatible con Meta Ads.');
-      const videoId = `${response.id ?? ''}`.trim();
-      if (!videoId) {
-        throw new ServiceUnavailableException('Meta no devolvió video_id al subir el video.');
-      }
-      return { mediaType, imageHash: null, videoId, mediaUrl };
+      return { mediaType, imageHash: null, videoId: null, mediaUrl, mode: 'DIRECT_VIDEO_URL' };
     }
 
+    return { mediaType, imageHash: null, videoId: null, mediaUrl, mode: 'DIRECT_PICTURE_URL' };
+  }
+
+  private async uploadImageHashToAdAccount(input: CreateFlowInput): Promise<PreparedCreativeMedia> {
     const prepared = await this.downloadAndPrepareAdImage(input);
     const response = await this.postMultipart(
       `/${this.normalizeAccountId()}/adimages`,
@@ -548,7 +618,25 @@ export class MarketingMetaAdsService {
     if (!imageHash) {
       throw new ServiceUnavailableException('Meta no devolvió image_hash al subir la imagen.');
     }
-    return { mediaType, imageHash, videoId: null, mediaUrl };
+    return {
+      mediaType: 'IMAGE',
+      imageHash,
+      videoId: null,
+      mediaUrl: `${input.mediaUrl ?? ''}`.trim(),
+      mode: 'UPLOADED_IMAGE_HASH',
+    };
+  }
+
+  private shouldFallbackToImageHash(error: MetaAdsException) {
+    const normalized = `${error.metaDetails.message ?? ''}`.toLowerCase();
+    return [
+      'image_hash',
+      'picture',
+      'image url',
+      'invalid image',
+      'object_story_spec',
+      'link_data',
+    ].some((fragment) => normalized.includes(fragment));
   }
 
   private async downloadAndPrepareAdImage(input: CreateFlowInput): Promise<PreparedAdImage> {
@@ -806,11 +894,11 @@ export class MarketingMetaAdsService {
     };
   }
 
-  private async inspectMetaAdsPermissions(): Promise<MetaAdsPermissionsDebugReport> {
+  private async inspectMetaAdsPermissions(accountIdOverride?: string): Promise<MetaAdsPermissionsDebugReport> {
     this.logMetaAdsContext('inspect-permissions');
 
     const tokenInspection = await this.inspectTokenDetails();
-    const accountId = this.normalizeAccountId();
+    const accountId = this.normalizeProvidedAccountId(accountIdOverride || this.normalizeAccountId());
 
     const adAccount = accountId
       ? await this.fetchGraphObject<Record<string, unknown>>(
@@ -979,6 +1067,51 @@ export class MarketingMetaAdsService {
     );
   }
 
+  private normalizeProvidedAccountId(raw: string) {
+    const clean = `${raw ?? ''}`.trim();
+    if (!clean) return '';
+    return clean.startsWith('act_') ? clean : `act_${clean}`;
+  }
+
+  private buildMetaAdAccountProbe(report: MetaAdsPermissionsDebugReport): MetaAdAccountDebugProbe {
+    return {
+      adAccountId: report.adAccountId,
+      canCreateCampaign: report.tokenValid && report.hasAdsManagement && report.adAccountAccessible,
+      canCreateAdset:
+        report.tokenValid &&
+        report.hasAdsManagement &&
+        report.adAccountAccessible &&
+        report.pageAccessible,
+      canCreateCreative:
+        report.tokenValid &&
+        report.hasAdsManagement &&
+        report.adAccountAccessible &&
+        report.pageAccessible &&
+        report.instagramAccessible,
+      canUploadImage: report.canUploadAdImage,
+      campaignError: this.resolveDebugAccountError('campaign', report),
+      adsetError: this.resolveDebugAccountError('adset', report),
+      creativeError: this.resolveDebugAccountError('creative', report),
+      uploadImageError: this.resolveDebugAccountError('upload', report),
+      recommendedFixes: report.recommendedFixes,
+    };
+  }
+
+  private resolveDebugAccountError(
+    stage: 'campaign' | 'adset' | 'creative' | 'upload',
+    report: MetaAdsPermissionsDebugReport,
+  ) {
+    if (!report.tokenValid) return 'META_ACCESS_TOKEN inválido o no corresponde a la app actual.';
+    if (!report.adAccountAccessible) return `No hay acceso al Ad Account ${report.adAccountId}.`;
+    if (!report.hasAdsManagement) return 'Falta ads_management real sobre esta cuenta publicitaria.';
+    if (stage === 'adset' && !report.pageAccessible) return 'La página configurada no es accesible con este token.';
+    if (stage === 'creative' && !report.instagramAccessible) return 'El instagram_actor_id configurado no es accesible con este token.';
+    if (stage === 'upload' && !report.canUploadAdImage) {
+      return 'No se puede subir imagen por /adimages con este Ad Account; usa picture URL directa, video_url directo o cambia de cuenta.';
+    }
+    return null;
+  }
+
   private buildPermissionRecommendations(input: {
     tokenValid: boolean;
     tokenType: string | null;
@@ -1138,7 +1271,7 @@ export class MarketingMetaAdsService {
       subcode,
       fbtraceId: errorRaw.fbtrace_id != null ? `${errorRaw.fbtrace_id}` : null,
       recommendation: isAdImagePermissionError
-        ? 'Verifica que META_ACCESS_TOKEN pertenezca a un system user con acceso real al Ad Account, que la app tenga Marketing API aprobada y que META_AD_ACCOUNT_ID sea la cuenta correcta.'
+        ? 'Verifica que META_ACCESS_TOKEN pertenezca a un system user con acceso real al Ad Account, que la app tenga Marketing API aprobada y que META_AD_ACCOUNT_ID sea la cuenta correcta. Si necesitas compatibilidad inmediata, usa video_url directo o cambia a un Ad Account con permisos de adimages.'
         : recommendation ?? null,
     };
   }
