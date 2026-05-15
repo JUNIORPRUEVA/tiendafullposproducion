@@ -17,6 +17,12 @@ class MarketingApi {
 
   final Dio _dio;
   static final _backgroundOptions = Options(extra: {'skipLoader': true});
+  static final _publishOptions = Options(
+    // Meta publishing may take longer than the default API timeout.
+    connectTimeout: const Duration(seconds: 20),
+    sendTimeout: const Duration(seconds: 30),
+    receiveTimeout: const Duration(minutes: 3),
+  );
 
   Never _rethrow(DioException error, String fallback) {
     throw ApiErrorMapper.fromDio(error, fallbackMessage: fallback, dio: _dio);
@@ -163,6 +169,7 @@ class MarketingApi {
           'publishFacebookPost': targetSet.contains('facebook_post'),
           'publishInstagramPost': targetSet.contains('instagram_post'),
         },
+        options: _publishOptions,
       );
     } on DioException catch (error) {
       _rethrow(error, 'No se pudo aprobar el contenido');
@@ -171,7 +178,10 @@ class MarketingApi {
 
   Future<void> retryPublish(String storyId) async {
     try {
-      await _dio.post(ApiRoutes.marketingStoryRetryPublish(storyId));
+      await _dio.post(
+        ApiRoutes.marketingStoryRetryPublish(storyId),
+        options: _publishOptions,
+      );
     } on DioException catch (error) {
       _rethrow(error, 'No se pudo reintentar la publicación');
     }

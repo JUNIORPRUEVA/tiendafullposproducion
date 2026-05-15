@@ -211,18 +211,71 @@ class PublicidadController extends StateNotifier<PublicidadState> {
     String storyId,
     List<MarketingPublishTarget> publishTargets,
   ) async {
-    await _runBusy(() async {
+    await _runBusyValue(() async {
       final legacyContentType =
           publishTargets.length == 1 &&
               publishTargets.contains(MarketingPublishTarget.instagramStory)
           ? 'story'
           : 'post';
-      await _api.approve(
-        storyId,
-        contentType: legacyContentType,
-        publishTargets: publishTargets,
-      );
+      try {
+        await _api.approve(
+          storyId,
+          contentType: legacyContentType,
+          publishTargets: publishTargets,
+        );
+      } on ApiException catch (error) {
+        final normalized = error.message.trim().toLowerCase();
+        final isAlreadyPublished =
+            error.code == 409 &&
+            (normalized.contains('ya está publicado') ||
+                normalized.contains('ya esta publicado') ||
+                normalized.contains('already published'));
+        if (!isAlreadyPublished) {
+          rethrow;
+        }
+      }
       await _refresh(keepLoading: false);
+
+      MarketingStory? refreshedStory;
+      for (final item in state.dailyStories) {
+        if (item.id == storyId) {
+          refreshedStory = item;
+          break;
+        }
+      }
+
+      if (refreshedStory == null) {
+        throw ApiException(
+          'No se pudo verificar el estado final de la publicación. Recarga e intenta nuevamente.',
+        );
+      }
+
+      final publishError = (refreshedStory.publishError ?? '').trim();
+      final defaultError = publishError.isNotEmpty
+          ? publishError
+          : 'Meta no confirmó la publicación en los canales seleccionados.';
+
+      switch (refreshedStory.publishStatus) {
+        case MarketingPublishStatus.published:
+          return;
+        case MarketingPublishStatus.partial:
+          throw ApiException(
+            publishError.isNotEmpty
+                ? 'Publicación parcial: $publishError'
+                : 'Publicación parcial: algunos canales no se publicaron. Revisa historial y reintenta.',
+          );
+        case MarketingPublishStatus.error:
+          throw ApiException(defaultError);
+        case MarketingPublishStatus.publishing:
+          throw ApiException(
+            'La solicitud fue aceptada pero sigue en proceso. Revisa historial y usa Reintentar publicación si no aparece en Meta.',
+          );
+        case MarketingPublishStatus.pending:
+          throw ApiException(
+            'No se registró publicación en Meta. Verifica conexión de cuentas/token y vuelve a intentar.',
+          );
+      }
+      return null;
     });
   }
 
@@ -2089,6 +2142,7 @@ class _DailyStoriesTabState extends State<_DailyStoriesTab> {
           stories: widget.stories,
           busy: widget.busy,
           onApprove: widget.onApprove,
+          onRetryPublish: widget.onRetryPublish,
           onRegenerateCopyFromDesign: widget.onRegenerateCopyFromDesign,
           onEdit: widget.onEdit,
           onUploadDesignImage: widget.onUploadDesignImage,
@@ -2372,6 +2426,7 @@ class _EstadoRapidoScreen extends StatefulWidget {
     required this.stories,
     required this.busy,
     required this.onApprove,
+    required this.onRetryPublish,
     required this.onRegenerateCopyFromDesign,
     required this.onEdit,
     required this.onUploadDesignImage,
@@ -2384,6 +2439,7 @@ class _EstadoRapidoScreen extends StatefulWidget {
     List<MarketingPublishTarget> publishTargets,
   )
   onApprove;
+  final Future<void> Function(String storyId) onRetryPublish;
   final Future<void> Function(String storyId) onRegenerateCopyFromDesign;
   final Future<void> Function(MarketingStory story, _EditStoryPayload payload)
   onEdit;
@@ -2428,6 +2484,34 @@ class _EstadoRapidoScreenState extends State<_EstadoRapidoScreen> {
     final text = (value ?? '').trim();
     if (text.isEmpty) return '';
     return text;
+  }
+
+  bool _isRecoverablePublishError(ApiException error) {
+    final message = error.message.trim().toLowerCase();
+    return message.contains('timeout') ||
+        message.contains('tard') ||
+        message.contains('en proceso') ||
+        message.contains('publicacion en proceso') ||
+        message.contains('network_timeout') ||
+        message.contains('socket') ||
+        message.contains('reintentar');
+  }
+
+  Future<void> _publishWithRecovery(
+    String storyId,
+    List<MarketingPublishTarget> selectedTargets,
+  ) async {
+    try {
+      await widget.onApprove(storyId, selectedTargets);
+    } on ApiException catch (error) {
+      if (!_isRecoverablePublishError(error)) {
+        rethrow;
+      }
+      if (mounted) {
+        setState(() => _status = 'Detectado envío parcial, reintentando faltantes...');
+      }
+      await widget.onRetryPublish(storyId);
+    }
   }
 
   Widget _buildGeneratedCopyPanel(BuildContext context, MarketingStory story) {
@@ -2555,7 +2639,7 @@ class _EstadoRapidoScreenState extends State<_EstadoRapidoScreen> {
       await widget.onRegenerateCopyFromDesign(story.id);
 
       setState(() => _status = 'Publicando en los canales seleccionados...');
-      await widget.onApprove(story.id, _selectedPublishTargets.toList());
+      await _publishWithRecovery(story.id, _selectedPublishTargets.toList());
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -2630,7 +2714,7 @@ class _EstadoRapidoScreenState extends State<_EstadoRapidoScreen> {
       _status = 'Publicando en los canales seleccionados...';
     });
     try {
-      await widget.onApprove(story.id, _selectedPublishTargets.toList());
+      await _publishWithRecovery(story.id, _selectedPublishTargets.toList());
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Publicación enviada a los canales seleccionados.')),
@@ -3052,6 +3136,10 @@ class _StoryCardState extends State<_StoryCard> {
           MarketingPublishTarget.facebookStory,
         if (!published.contains(MarketingPublishTarget.instagramStory))
           MarketingPublishTarget.instagramStory,
+        if (!published.contains(MarketingPublishTarget.facebookPost))
+          MarketingPublishTarget.facebookPost,
+        if (!published.contains(MarketingPublishTarget.instagramPost))
+          MarketingPublishTarget.instagramPost,
       };
     }
 
