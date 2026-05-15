@@ -1,4 +1,4 @@
- import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 
 import '../auth/app_role.dart';
 
@@ -49,20 +49,14 @@ class RoleBranding {
     colors: [appBarStart, appBarEnd],
   );
 
-  Color get appBarStartDark => Color.alphaBlend(
-    tertiary.withValues(alpha: 0.34),
-    appBarStart,
-  );
+  Color get appBarStartDark =>
+      Color.alphaBlend(tertiary.withValues(alpha: 0.34), appBarStart);
 
-  Color get appBarEndDark => Color.alphaBlend(
-    tertiary.withValues(alpha: 0.26),
-    appBarEnd,
-  );
+  Color get appBarEndDark =>
+      Color.alphaBlend(tertiary.withValues(alpha: 0.26), appBarEnd);
 
-  Color get appBarSolidColor => Color.alphaBlend(
-    tertiary.withValues(alpha: 0.30),
-    appBarEnd,
-  );
+  Color get appBarSolidColor =>
+      Color.alphaBlend(tertiary.withValues(alpha: 0.30), appBarEnd);
 
   Color get drawerSolidColor => Color.lerp(drawerStart, drawerEnd, 0.68)!;
 

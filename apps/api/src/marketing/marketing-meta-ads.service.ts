@@ -53,6 +53,19 @@ export type MetaAdAccountDebugProbe = {
   recommendedFixes: string[];
 };
 
+export type MetaRuntimeConfigDebug = {
+  graphVersion: string;
+  appId: string;
+  appSecretConfigured: boolean;
+  adAccountId: string;
+  pageId: string;
+  instagramBusinessId: string;
+  whatsappPhoneNumberId: string;
+  businessId: string;
+  adsTokenPreview: string;
+  organicTokenPreview: string;
+};
+
 type MetaAdsIds = {
   campaignId: string;
   adSetId: string;
@@ -287,6 +300,57 @@ export class MarketingMetaAdsService {
       activeAdAccountId: this.normalizeAccountId(),
       accounts,
     };
+  }
+
+  getRuntimeMetaConfig(): MetaRuntimeConfigDebug {
+    const organicToken = (process.env.META_PAGE_ACCESS_TOKEN ?? '').trim();
+    return {
+      graphVersion: (process.env.META_GRAPH_VERSION ?? 'v23.0').trim() || 'v23.0',
+      appId: (process.env.META_APP_ID ?? '').trim(),
+      appSecretConfigured: (process.env.META_APP_SECRET ?? '').trim().length > 0,
+      adAccountId: this.normalizeAccountId(),
+      pageId: (process.env.META_FACEBOOK_PAGE_ID ?? '').trim(),
+      instagramBusinessId: (process.env.META_INSTAGRAM_BUSINESS_ID ?? '').trim(),
+      whatsappPhoneNumberId: (process.env.META_WHATSAPP_PHONE_NUMBER_ID ?? '').trim(),
+      businessId: (process.env.META_BUSINESS_ID ?? '').trim(),
+      adsTokenPreview: this.tokenPreview((process.env.META_ACCESS_TOKEN ?? '').trim()),
+      organicTokenPreview: this.tokenPreview(organicToken),
+    };
+  }
+
+  updateRuntimeMetaConfig(input: {
+    graphVersion?: string;
+    appId?: string;
+    appSecret?: string;
+    adAccountId?: string;
+    pageId?: string;
+    instagramBusinessId?: string;
+    whatsappPhoneNumberId?: string;
+    businessId?: string;
+    adsAccessToken?: string;
+    organicPageAccessToken?: string;
+  }) {
+    const assign = (key: string, value: string | undefined) => {
+      if (value == null) return;
+      process.env[key] = value.trim();
+    };
+
+    assign('META_GRAPH_VERSION', input.graphVersion);
+    assign('META_APP_ID', input.appId);
+    assign('META_APP_SECRET', input.appSecret);
+    assign('META_AD_ACCOUNT_ID', input.adAccountId);
+    assign('META_FACEBOOK_PAGE_ID', input.pageId);
+    assign('META_INSTAGRAM_BUSINESS_ID', input.instagramBusinessId);
+    assign('META_WHATSAPP_PHONE_NUMBER_ID', input.whatsappPhoneNumberId);
+    assign('META_BUSINESS_ID', input.businessId);
+    assign('META_ACCESS_TOKEN', input.adsAccessToken);
+    assign('META_PAGE_ACCESS_TOKEN', input.organicPageAccessToken);
+
+    this.logger.log(
+      `[meta-runtime-config] updated appId=${process.env.META_APP_ID ?? ''} adAccountId=${this.normalizeAccountId() || 'missing'} pageId=${process.env.META_FACEBOOK_PAGE_ID ?? ''} adsToken=${this.tokenPreview(process.env.META_ACCESS_TOKEN ?? '')} organicToken=${this.tokenPreview(process.env.META_PAGE_ACCESS_TOKEN ?? '')}`,
+    );
+
+    return this.getRuntimeMetaConfig();
   }
 
   async createCampaignFlow(input: CreateFlowInput): Promise<MetaAdsIds> {

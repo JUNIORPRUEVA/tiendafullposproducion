@@ -61,6 +61,10 @@ class CloseModel {
   final double? persistedTotalIncome;
   final double? persistedNetTotal;
   final double? persistedDifference;
+  final bool cashDeposited;
+  final DateTime? cashDepositedAt;
+  final String? cashDepositedById;
+  final String? cashDepositedByName;
   final String? notes;
   final String? evidenceUrl;
   final String? evidenceFileName;
@@ -102,6 +106,10 @@ class CloseModel {
     this.persistedTotalIncome,
     this.persistedNetTotal,
     this.persistedDifference,
+    this.cashDeposited = false,
+    this.cashDepositedAt,
+    this.cashDepositedById,
+    this.cashDepositedByName,
     this.notes,
     this.evidenceUrl,
     this.evidenceFileName,
@@ -186,6 +194,10 @@ class CloseModel {
       persistedDifference: json['difference'] == null
           ? null
           : _asDouble(json['difference']),
+      cashDeposited: json['cashDeposited'] == true,
+      cashDepositedAt: _asNullableDate(json['cashDepositedAt']),
+      cashDepositedById: json['cashDepositedById'] as String?,
+      cashDepositedByName: json['cashDepositedByName'] as String?,
       notes: json['notes'] as String?,
       evidenceUrl: json['evidenceUrl'] as String?,
       evidenceFileName: json['evidenceFileName'] as String?,

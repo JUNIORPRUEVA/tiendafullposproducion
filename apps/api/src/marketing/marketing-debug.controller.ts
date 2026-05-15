@@ -56,6 +56,30 @@ export class MarketingDebugController {
     return this.metaAds.debugMetaAdAccounts();
   }
 
+  @Get('meta-runtime-config')
+  async metaRuntimeConfig() {
+    return this.metaAds.getRuntimeMetaConfig();
+  }
+
+  @Post('meta-runtime-config')
+  async updateMetaRuntimeConfig(
+    @Body()
+    body: {
+      graphVersion?: string;
+      appId?: string;
+      appSecret?: string;
+      adAccountId?: string;
+      pageId?: string;
+      instagramBusinessId?: string;
+      whatsappPhoneNumberId?: string;
+      businessId?: string;
+      adsAccessToken?: string;
+      organicPageAccessToken?: string;
+    },
+  ) {
+    return this.metaAds.updateRuntimeMetaConfig(body ?? {});
+  }
+
   @Post('test-meta-publish')
   async testMetaPublish(
     @Body() body: { imageUrl?: string; caption?: string; dryRun?: boolean },

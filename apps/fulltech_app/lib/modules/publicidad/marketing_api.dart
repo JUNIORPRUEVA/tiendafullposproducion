@@ -887,7 +887,7 @@ class MarketingApi {
 
   Future<MarketingCampaign> createMetaCampaign(
     String id, {
-    String objective = 'OUTCOME_MESSAGES',
+    String objective = 'OUTCOME_ENGAGEMENT',
     bool activateAfterCreate = false,
   }) async {
     try {
@@ -982,6 +982,76 @@ class MarketingApi {
       return MetaAdsConfigDebug.fromJson(raw);
     } on DioException catch (error) {
       _rethrow(error, 'No se pudo validar la configuración de Meta Ads');
+    }
+  }
+
+  Future<MetaRuntimeConfigDebug> loadMetaRuntimeConfig() async {
+    try {
+      final res = await _dio.get(
+        ApiRoutes.marketingDebugMetaRuntimeConfig,
+        options: _backgroundOptions,
+      );
+      final raw =
+          (res.data as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
+      return MetaRuntimeConfigDebug.fromJson(raw);
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo cargar la configuración de tokens Meta');
+    }
+  }
+
+  Future<MetaRuntimeConfigDebug> updateMetaRuntimeConfig({
+    String? graphVersion,
+    String? appId,
+    String? appSecret,
+    String? adAccountId,
+    String? pageId,
+    String? instagramBusinessId,
+    String? whatsappPhoneNumberId,
+    String? businessId,
+    String? adsAccessToken,
+    String? organicPageAccessToken,
+  }) async {
+    try {
+      final res = await _dio.post(
+        ApiRoutes.marketingDebugMetaRuntimeConfig,
+        data: {
+          if (graphVersion != null) 'graphVersion': graphVersion,
+          if (appId != null) 'appId': appId,
+          if (appSecret != null) 'appSecret': appSecret,
+          if (adAccountId != null) 'adAccountId': adAccountId,
+          if (pageId != null) 'pageId': pageId,
+          if (instagramBusinessId != null)
+            'instagramBusinessId': instagramBusinessId,
+          if (whatsappPhoneNumberId != null)
+            'whatsappPhoneNumberId': whatsappPhoneNumberId,
+          if (businessId != null) 'businessId': businessId,
+          if (adsAccessToken != null) 'adsAccessToken': adsAccessToken,
+          if (organicPageAccessToken != null)
+            'organicPageAccessToken': organicPageAccessToken,
+        },
+      );
+      final raw =
+          (res.data as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
+      return MetaRuntimeConfigDebug.fromJson(raw);
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo guardar la configuración de tokens Meta');
+    }
+  }
+
+  Future<MetaAdsPermissionsDebug> loadMetaAdsPermissionsDebug() async {
+    try {
+      final res = await _dio.get(
+        ApiRoutes.marketingDebugMetaAdsPermissions,
+        options: _backgroundOptions,
+      );
+      final raw =
+          (res.data as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
+      return MetaAdsPermissionsDebug.fromJson(raw);
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo validar permisos de Meta Ads');
     }
   }
 }

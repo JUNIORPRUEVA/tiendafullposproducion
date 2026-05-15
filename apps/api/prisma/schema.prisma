@@ -1777,6 +1777,10 @@ model Close {
   totalIncome   Decimal   @default(0) @db.Decimal(12, 2)
   netTotal      Decimal   @default(0) @db.Decimal(12, 2)
   difference    Decimal   @default(0) @db.Decimal(12, 2)
+  cashDeposited Boolean   @default(false)
+  cashDepositedAt DateTime?
+  cashDepositedById String? @db.Uuid
+  cashDepositedByName String?
   notes         String?
   evidenceUrl        String?
   evidenceFileName   String?
@@ -1811,6 +1815,7 @@ model Close {
   @@index([status])
   @@index([createdById])
   @@index([reviewedById])
+  @@index([cashDeposited])
   @@index([correctionOfCloseId])
   @@index([date, type]) // Índice compuesto para filtros de date + type
   @@index([createdById, date]) // Índice compuesto para queries de usuario + fecha

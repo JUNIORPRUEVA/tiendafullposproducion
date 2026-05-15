@@ -5,6 +5,7 @@ import {
   Delete,
   Get,
   Param,
+  Patch,
   Post,
   Put,
   Query,
@@ -33,6 +34,7 @@ import {
   CreateCloseDto,
   DeleteCloseDto,
   ReviewCloseDto,
+  ToggleCloseCashDepositDto,
   UpdateCloseDto,
 } from './close.dto';
 import {
@@ -191,6 +193,20 @@ export class ContabilidadController {
   async aiReport(@Param('id') id: string, @Req() req: Request) {
     return this.contabilidadService.generateAiReport(
       id,
+      (req.user ?? {}) as RequestActor,
+    );
+  }
+
+  @Patch('closes/:id/cash-deposit')
+  @Roles(Role.ADMIN)
+  async toggleCloseCashDeposit(
+    @Param('id') id: string,
+    @Body() dto: ToggleCloseCashDepositDto,
+    @Req() req: Request,
+  ) {
+    return this.contabilidadService.toggleCloseCashDeposit(
+      id,
+      dto.cashDeposited,
       (req.user ?? {}) as RequestActor,
     );
   }

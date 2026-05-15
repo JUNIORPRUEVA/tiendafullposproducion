@@ -1,5 +1,6 @@
 import {
   IsArray,
+  IsBoolean,
   IsDateString,
   IsEnum,
   IsNotEmpty,
@@ -226,6 +227,11 @@ export class ReviewCloseDto {
   @IsString()
   @IsOptional()
   reviewNote?: string;
+}
+
+export class ToggleCloseCashDepositDto {
+  @IsBoolean()
+  cashDeposited!: boolean;
 }
 
 export class DeleteCloseDto {

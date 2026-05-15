@@ -164,8 +164,7 @@ class ContabilidadRepository {
       throw ApiException(
         _extractMessage(
           e.response?.data,
-          e.error?.toString() ??
-              'No se pudieron cargar los cierres',
+          e.error?.toString() ?? 'No se pudieron cargar los cierres',
         ),
         e.response?.statusCode,
       );
@@ -510,6 +509,29 @@ class ContabilidadRepository {
     return CloseModel.fromJson(
       _normalizeCloseJson((res.data as Map).cast<String, dynamic>()),
     );
+  }
+
+  Future<CloseModel> toggleCloseCashDeposit({
+    required String id,
+    required bool cashDeposited,
+  }) async {
+    try {
+      final res = await _dio.patch(
+        ApiRoutes.contabilidadCloseCashDeposit(id),
+        data: {'cashDeposited': cashDeposited},
+      );
+      return CloseModel.fromJson(
+        _normalizeCloseJson((res.data as Map).cast<String, dynamic>()),
+      );
+    } on DioException catch (e) {
+      throw ApiException(
+        _extractMessage(
+          e.response?.data,
+          'No se pudo actualizar el estado de depósito del cierre',
+        ),
+        e.response?.statusCode,
+      );
+    }
   }
 
   Future<DepositOrderModel> createDepositOrder({

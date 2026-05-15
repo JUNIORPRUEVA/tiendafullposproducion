@@ -50,6 +50,8 @@ class ApiRoutes {
       '/contabilidad/closes/$id/reject';
   static String contabilidadCloseAiReport(String id) =>
       '/contabilidad/closes/$id/ai-report';
+  static String contabilidadCloseCashDeposit(String id) =>
+      '/contabilidad/closes/$id/cash-deposit';
   static const contabilidadCloseFinancialSummary =
       '/contabilidad/closes/financial-summary';
   static const contabilidadCloseVoucherUpload =
@@ -123,8 +125,7 @@ class ApiRoutes {
       '/crm-commercial/library/$id';
   static const crmCommercialOrthographySuggestion =
       '/crm-commercial/ai/orthography-suggestion';
-  static const crmCommercialAiSuggestReply =
-      '/crm-commercial/ai/suggest-reply';
+  static const crmCommercialAiSuggestReply = '/crm-commercial/ai/suggest-reply';
 
   // Productos
   static const products = '/products';
@@ -263,13 +264,16 @@ class ApiRoutes {
       '/marketing/campaigns/generate-missing';
   static String marketingCampaignConfirmBaseImage(String id) =>
       '/marketing/campaigns/$id/confirm-base-image';
-  static String marketingCampaignChangeBaseImage(String id, String mediaAssetId) =>
-      '/marketing/campaigns/$id/base-image/$mediaAssetId';
+  static String marketingCampaignChangeBaseImage(
+    String id,
+    String mediaAssetId,
+  ) => '/marketing/campaigns/$id/base-image/$mediaAssetId';
   static String marketingCampaignUploadDesign(String id) =>
       '/marketing/campaigns/$id/upload-design';
   static String marketingCampaignRegenerateCopy(String id) =>
       '/marketing/campaigns/$id/regenerate-copy';
-  static String marketingCampaignUpdate(String id) => '/marketing/campaigns/$id';
+  static String marketingCampaignUpdate(String id) =>
+      '/marketing/campaigns/$id';
   static String marketingCampaignCreateMeta(String id) =>
       '/marketing/campaigns/$id/create-meta-campaign';
   static String marketingCampaignActivate(String id) =>
@@ -283,12 +287,20 @@ class ApiRoutes {
   static String marketingCampaignDetails(String id) =>
       '/marketing/campaigns/$id/details';
   static const marketingDebugMetaAdsConfig = '/marketing/debug/meta-ads-config';
-    static const marketingContentGallery = '/marketing/content-gallery';
-    static const marketingMediaAssets = '/marketing/media-assets';
-    static const marketingPublishedAssets = '/marketing/published-assets';
-    static const marketingSocialAccounts = '/marketing/social-accounts';
-  static String marketingMediaAssetById(String id) => '/marketing/media-assets/$id';
-    static String marketingSocialAccountById(String id) => '/marketing/social-accounts/$id';
+  static const marketingDebugMetaRuntimeConfig =
+      '/marketing/debug/meta-runtime-config';
+  static const marketingDebugMetaAdsPermissions =
+      '/marketing/debug/meta-ads-permissions';
+  static const marketingDebugMetaAdAccounts =
+      '/marketing/debug/meta-adaccounts';
+  static const marketingContentGallery = '/marketing/content-gallery';
+  static const marketingMediaAssets = '/marketing/media-assets';
+  static const marketingPublishedAssets = '/marketing/published-assets';
+  static const marketingSocialAccounts = '/marketing/social-accounts';
+  static String marketingMediaAssetById(String id) =>
+      '/marketing/media-assets/$id';
+  static String marketingSocialAccountById(String id) =>
+      '/marketing/social-accounts/$id';
   static const marketingHistory = '/marketing/history';
   static const marketingConfig = '/marketing/config';
   static const marketingResearchConfig = '/marketing/research/config';
@@ -296,13 +308,16 @@ class ApiRoutes {
   static const marketingResearchList = '/marketing/research/list';
   static const marketingResearchGenerate = '/marketing/research/generate';
   static const marketingResearchForce = '/marketing/research/force';
-  static const marketingResearchLearningStats = '/marketing/research/learning-stats';
-  static String marketingResearchApprove(String id) => '/marketing/research/$id/approve';
-  static String marketingResearchReject(String id) => '/marketing/research/$id/reject';
+  static const marketingResearchLearningStats =
+      '/marketing/research/learning-stats';
+  static String marketingResearchApprove(String id) =>
+      '/marketing/research/$id/approve';
+  static String marketingResearchReject(String id) =>
+      '/marketing/research/$id/reject';
   static const marketingFlowActivate = '/marketing/flow/activate';
   static const marketingFlowPause = '/marketing/flow/pause';
   static const marketingFlowReset = '/marketing/flow/reset';
-    static const marketingResetClean = '/marketing/reset-clean';
+  static const marketingResetClean = '/marketing/reset-clean';
   static String serviceOrderDetail(String id) => '/service-orders/$id';
   static String serviceOrderUpdate(String id) => '/service-orders/$id';
   static String serviceOrderDelete(String id) => '/service-orders/$id';

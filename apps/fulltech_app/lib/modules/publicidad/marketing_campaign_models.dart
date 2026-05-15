@@ -345,3 +345,70 @@ class MetaAdsConfigDebug {
     );
   }
 }
+
+class MetaRuntimeConfigDebug {
+  const MetaRuntimeConfigDebug({
+    required this.graphVersion,
+    required this.appId,
+    required this.appSecretConfigured,
+    required this.adAccountId,
+    required this.pageId,
+    required this.instagramBusinessId,
+    required this.whatsappPhoneNumberId,
+    required this.businessId,
+    required this.adsTokenPreview,
+    required this.organicTokenPreview,
+  });
+
+  final String graphVersion;
+  final String appId;
+  final bool appSecretConfigured;
+  final String adAccountId;
+  final String pageId;
+  final String instagramBusinessId;
+  final String whatsappPhoneNumberId;
+  final String businessId;
+  final String adsTokenPreview;
+  final String organicTokenPreview;
+
+  factory MetaRuntimeConfigDebug.fromJson(Map<String, dynamic> json) {
+    return MetaRuntimeConfigDebug(
+      graphVersion: '${json['graphVersion'] ?? ''}',
+      appId: '${json['appId'] ?? ''}',
+      appSecretConfigured: json['appSecretConfigured'] == true,
+      adAccountId: '${json['adAccountId'] ?? ''}',
+      pageId: '${json['pageId'] ?? ''}',
+      instagramBusinessId: '${json['instagramBusinessId'] ?? ''}',
+      whatsappPhoneNumberId: '${json['whatsappPhoneNumberId'] ?? ''}',
+      businessId: '${json['businessId'] ?? ''}',
+      adsTokenPreview: '${json['adsTokenPreview'] ?? ''}',
+      organicTokenPreview: '${json['organicTokenPreview'] ?? ''}',
+    );
+  }
+}
+
+class MetaAdsPermissionsDebug {
+  const MetaAdsPermissionsDebug({
+    required this.tokenValid,
+    required this.adAccountAccessible,
+    required this.canUploadAdImage,
+    required this.recommendedFixes,
+  });
+
+  final bool tokenValid;
+  final bool adAccountAccessible;
+  final bool canUploadAdImage;
+  final List<String> recommendedFixes;
+
+  factory MetaAdsPermissionsDebug.fromJson(Map<String, dynamic> json) {
+    final fixesRaw = json['recommendedFixes'];
+    return MetaAdsPermissionsDebug(
+      tokenValid: json['tokenValid'] == true,
+      adAccountAccessible: json['adAccountAccessible'] == true,
+      canUploadAdImage: json['canUploadAdImage'] == true,
+      recommendedFixes: fixesRaw is List
+          ? fixesRaw.map((item) => '$item').toList(growable: false)
+          : const <String>[],
+    );
+  }
+}

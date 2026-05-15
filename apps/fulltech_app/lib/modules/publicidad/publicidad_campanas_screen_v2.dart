@@ -29,7 +29,7 @@ class _PublicidadCampanasScreenV2State
   static const int _defaultRadiusKm = 10;
   static const double _defaultMinAge = 25;
   static const double _defaultMaxAge = 50;
-  static const String _fixedObjective = 'OUTCOME_MESSAGES';
+  static const String _fixedObjective = 'OUTCOME_ENGAGEMENT';
 
   bool _loading = true;
   bool _busyAction = false;
@@ -170,6 +170,60 @@ class _PublicidadCampanasScreenV2State
       ).showSnackBar(SnackBar(content: Text('Error: $error')));
     } finally {
       if (mounted) setState(() => _busyAction = false);
+    }
+  }
+
+  Future<void> _openMetaTokenSettings() async {
+    final api = ref.read(marketingApiProvider);
+    try {
+      final currentConfig = await api.loadMetaRuntimeConfig();
+      if (!mounted) return;
+
+      final payload = await showDialog<_MetaRuntimeConfigPayload>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => _MetaRuntimeConfigDialog(initial: currentConfig),
+      );
+      if (payload == null) return;
+
+      await api.updateMetaRuntimeConfig(
+        graphVersion: payload.graphVersion,
+        appId: payload.appId,
+        appSecret: payload.appSecret,
+        adAccountId: payload.adAccountId,
+        pageId: payload.pageId,
+        instagramBusinessId: payload.instagramBusinessId,
+        whatsappPhoneNumberId: payload.whatsappPhoneNumberId,
+        businessId: payload.businessId,
+        adsAccessToken: payload.adsAccessToken,
+        organicPageAccessToken: payload.organicPageAccessToken,
+      );
+
+      final permissions = await api.loadMetaAdsPermissionsDebug();
+      if (!mounted) return;
+      final fixes = permissions.recommendedFixes;
+      final fixText = fixes.isEmpty ? '' : '\nSugerencia: ${fixes.first}';
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            permissions.canUploadAdImage
+                ? 'Configuración Meta actualizada. Permisos Ads listos.'
+                : 'Configuración guardada. Aún faltan permisos en Meta Ads.$fixText',
+          ),
+        ),
+      );
+      await _load();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error: ${error.message}')));
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error: $error')));
     }
   }
 
@@ -633,7 +687,16 @@ class _PublicidadCampanasScreenV2State
 
     return Scaffold(
       drawer: buildAdaptiveDrawer(context, currentUser: user),
-      appBar: const CustomAppBar(title: 'Publicidad / Campanas'),
+      appBar: CustomAppBar(
+        title: 'Publicidad / Campanas',
+        actions: [
+          IconButton(
+            tooltip: 'Configuración de tokens Meta',
+            onPressed: _openMetaTokenSettings,
+            icon: const Icon(Icons.settings_rounded),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _busyAction || _loading ? null : _createDraft,
         icon: const Icon(Icons.add_rounded),
@@ -2244,6 +2307,200 @@ class _Pill extends StatelessWidget {
         color: Theme.of(context).colorScheme.secondaryContainer,
       ),
       child: Text(label, style: Theme.of(context).textTheme.labelSmall),
+    );
+  }
+}
+
+class _MetaRuntimeConfigPayload {
+  const _MetaRuntimeConfigPayload({
+    required this.graphVersion,
+    required this.appId,
+    required this.appSecret,
+    required this.adAccountId,
+    required this.pageId,
+    required this.instagramBusinessId,
+    required this.whatsappPhoneNumberId,
+    required this.businessId,
+    required this.adsAccessToken,
+    required this.organicPageAccessToken,
+  });
+
+  final String graphVersion;
+  final String appId;
+  final String appSecret;
+  final String adAccountId;
+  final String pageId;
+  final String instagramBusinessId;
+  final String whatsappPhoneNumberId;
+  final String businessId;
+  final String adsAccessToken;
+  final String organicPageAccessToken;
+}
+
+class _MetaRuntimeConfigDialog extends StatefulWidget {
+  const _MetaRuntimeConfigDialog({required this.initial});
+
+  final MetaRuntimeConfigDebug initial;
+
+  @override
+  State<_MetaRuntimeConfigDialog> createState() =>
+      _MetaRuntimeConfigDialogState();
+}
+
+class _MetaRuntimeConfigDialogState extends State<_MetaRuntimeConfigDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _graphVersionCtrl;
+  late final TextEditingController _appIdCtrl;
+  late final TextEditingController _appSecretCtrl;
+  late final TextEditingController _adAccountCtrl;
+  late final TextEditingController _pageIdCtrl;
+  late final TextEditingController _instagramIdCtrl;
+  late final TextEditingController _whatsappIdCtrl;
+  late final TextEditingController _businessIdCtrl;
+  late final TextEditingController _adsTokenCtrl;
+  late final TextEditingController _organicTokenCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _graphVersionCtrl = TextEditingController(text: widget.initial.graphVersion);
+    _appIdCtrl = TextEditingController(text: widget.initial.appId);
+    _appSecretCtrl = TextEditingController();
+    _adAccountCtrl = TextEditingController(text: widget.initial.adAccountId);
+    _pageIdCtrl = TextEditingController(text: widget.initial.pageId);
+    _instagramIdCtrl = TextEditingController(text: widget.initial.instagramBusinessId);
+    _whatsappIdCtrl = TextEditingController(text: widget.initial.whatsappPhoneNumberId);
+    _businessIdCtrl = TextEditingController(text: widget.initial.businessId);
+    _adsTokenCtrl = TextEditingController();
+    _organicTokenCtrl = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _graphVersionCtrl.dispose();
+    _appIdCtrl.dispose();
+    _appSecretCtrl.dispose();
+    _adAccountCtrl.dispose();
+    _pageIdCtrl.dispose();
+    _instagramIdCtrl.dispose();
+    _whatsappIdCtrl.dispose();
+    _businessIdCtrl.dispose();
+    _adsTokenCtrl.dispose();
+    _organicTokenCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Configuración Meta (Tokens)'),
+      content: SizedBox(
+        width: 640,
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Separa token orgánico (página) y token Ads para evitar errores al publicar.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _graphVersionCtrl,
+                  decoration: const InputDecoration(labelText: 'Graph version'),
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _appIdCtrl,
+                  decoration: const InputDecoration(labelText: 'META_APP_ID'),
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _appSecretCtrl,
+                  obscureText: true,
+                  decoration: InputDecoration(
+                    labelText: 'META_APP_SECRET',
+                    helperText: widget.initial.appSecretConfigured
+                        ? 'Ya configurado. Déjalo vacío para no reemplazar.'
+                        : 'Obligatorio para validar debug_token.',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _adAccountCtrl,
+                  decoration: const InputDecoration(labelText: 'META_AD_ACCOUNT_ID'),
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _pageIdCtrl,
+                  decoration: const InputDecoration(labelText: 'META_FACEBOOK_PAGE_ID'),
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _instagramIdCtrl,
+                  decoration: const InputDecoration(labelText: 'META_INSTAGRAM_BUSINESS_ID'),
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _whatsappIdCtrl,
+                  decoration: const InputDecoration(labelText: 'META_WHATSAPP_PHONE_NUMBER_ID'),
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _businessIdCtrl,
+                  decoration: const InputDecoration(labelText: 'META_BUSINESS_ID'),
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _adsTokenCtrl,
+                  obscureText: true,
+                  decoration: InputDecoration(
+                    labelText: 'Token Ads (META_ACCESS_TOKEN)',
+                    helperText: 'Actual: ${widget.initial.adsTokenPreview.isEmpty ? '-' : widget.initial.adsTokenPreview}',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _organicTokenCtrl,
+                  obscureText: true,
+                  decoration: InputDecoration(
+                    labelText: 'Token Orgánico (META_PAGE_ACCESS_TOKEN)',
+                    helperText: 'Actual: ${widget.initial.organicTokenPreview.isEmpty ? '-' : widget.initial.organicTokenPreview}',
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          onPressed: () {
+            if (!_formKey.currentState!.validate()) return;
+            Navigator.of(context).pop(
+              _MetaRuntimeConfigPayload(
+                graphVersion: _graphVersionCtrl.text.trim(),
+                appId: _appIdCtrl.text.trim(),
+                appSecret: _appSecretCtrl.text.trim(),
+                adAccountId: _adAccountCtrl.text.trim(),
+                pageId: _pageIdCtrl.text.trim(),
+                instagramBusinessId: _instagramIdCtrl.text.trim(),
+                whatsappPhoneNumberId: _whatsappIdCtrl.text.trim(),
+                businessId: _businessIdCtrl.text.trim(),
+                adsAccessToken: _adsTokenCtrl.text.trim(),
+                organicPageAccessToken: _organicTokenCtrl.text.trim(),
+              ),
+            );
+          },
+          child: const Text('Guardar configuración'),
+        ),
+      ],
     );
   }
 }

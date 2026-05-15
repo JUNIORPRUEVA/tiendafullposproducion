@@ -93,7 +93,9 @@ class CierresDiariosController extends StateNotifier<CierresDiariosState> {
   }
 
   Future<void> load() async {
-    print('[CierresDiariosController] iniciando load() from=${state.from} to=${state.to}');
+    print(
+      '[CierresDiariosController] iniciando load() from=${state.from} to=${state.to}',
+    );
     state = state.copyWith(loading: true, clearError: true);
     try {
       final start = DateTime.now();
@@ -101,7 +103,9 @@ class CierresDiariosController extends StateNotifier<CierresDiariosState> {
           .read(contabilidadRepositoryProvider)
           .listCloses(from: state.from, to: state.to, type: null);
       final duration = DateTime.now().difference(start);
-      print('[CierresDiariosController] load() completado en ${duration.inMilliseconds}ms con ${rows.length} cierres');
+      print(
+        '[CierresDiariosController] load() completado en ${duration.inMilliseconds}ms con ${rows.length} cierres',
+      );
 
       state = state.copyWith(loading: false, closes: rows);
     } catch (e, st) {
@@ -349,6 +353,26 @@ class CierresDiariosController extends StateNotifier<CierresDiariosState> {
           ? e.message
           : 'No se pudo generar el informe IA';
       state = state.copyWith(saving: false, error: message);
+    }
+  }
+
+  Future<void> toggleCloseCashDeposited({
+    required String id,
+    required bool cashDeposited,
+  }) async {
+    state = state.copyWith(saving: true, clearError: true);
+    try {
+      final updated = await ref
+          .read(contabilidadRepositoryProvider)
+          .toggleCloseCashDeposit(id: id, cashDeposited: cashDeposited);
+      _replaceClose(updated);
+      state = state.copyWith(saving: false);
+    } catch (e) {
+      final message = e is ApiException
+          ? e.message
+          : 'No se pudo actualizar el estado de depósito';
+      state = state.copyWith(saving: false, error: message);
+      throw ApiException(message);
     }
   }
 }

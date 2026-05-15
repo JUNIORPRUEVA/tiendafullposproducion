@@ -176,7 +176,8 @@ class CustomAppBar extends ConsumerWidget implements PreferredSizeWidget {
       elevation: 0,
       flexibleSpace: DecoratedBox(
         decoration: BoxDecoration(
-          color: isMobileLayout ? appBarColor : appBarColor,
+          gradient: isMobileLayout ? null : branding.appBarDarkGradient,
+          color: isMobileLayout ? appBarColor : null,
           boxShadow: [
             BoxShadow(
               color: shadowColor,

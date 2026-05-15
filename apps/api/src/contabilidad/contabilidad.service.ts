@@ -1337,6 +1337,34 @@ export class ContabilidadService {
     return { deletedCount: foundIds.length, deletedIds: foundIds };
   }
 
+  async toggleCloseCashDeposit(id: string, cashDeposited: boolean, actor: Actor) {
+    this.ensureAdmin(actor);
+
+    const close = await this.prisma.close.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!close) throw new NotFoundException('Cierre no encontrado');
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: actor.id! },
+      select: { nombreCompleto: true },
+    });
+
+    return this.prisma.close.update({
+      where: { id },
+      data: {
+        cashDeposited,
+        cashDepositedAt: cashDeposited ? new Date() : null,
+        cashDepositedById: cashDeposited ? actor.id! : null,
+        cashDepositedByName: cashDeposited
+          ? user?.nombreCompleto ?? null
+          : null,
+      },
+      include: { transfers: { include: { vouchers: true } } },
+    });
+  }
+
   async reviewClose(id: string, status: CloseStatus, actor: Actor) {
     this.ensureReviewer(actor);
     if (status !== CloseStatus.APPROVED && status !== CloseStatus.REJECTED) {
