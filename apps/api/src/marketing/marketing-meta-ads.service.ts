@@ -32,6 +32,9 @@ export type MetaAdsPermissionsDebugReport = {
   hasBusinessManagement: boolean;
   canReadAdImages: boolean;
   canUploadAdImage: boolean;
+  canCreateCampaign: boolean;
+  canCreateAdset: boolean;
+  canCreateCreative: boolean;
   assignedUsersAccessible: boolean;
   assignedUsersCount: number | null;
   pageAccessible: boolean;
@@ -415,6 +418,8 @@ export class MarketingMetaAdsService {
   async createCampaignFlow(input: CreateFlowInput): Promise<MetaAdsIds> {
     this.ensureAdsConfigured();
 
+    let media = this.prepareCreativeMedia(input);
+
     await this.emitStep(input, 'VALIDATING_META', 'Validando token Meta', 'RUNNING');
     await this.validateAccessToken();
     await this.emitStep(input, 'VALIDATING_META', 'Validando token Meta', 'DONE');
@@ -443,11 +448,17 @@ export class MarketingMetaAdsService {
         : this.whatsappPhoneNumberId,
     );
 
+    // For image creatives, validate real Ad Account upload permissions before creating campaign/adset.
+    if (media.mediaType === 'IMAGE') {
+      await this.emitStep(input, 'UPLOADING_MEDIA', 'Subiendo imagen', 'RUNNING', 'Pre-validando permisos de subida /adimages');
+      await this.validateImageUploadPreflight();
+      await this.emitStep(input, 'UPLOADING_MEDIA', 'Subiendo imagen', 'DONE', 'Permisos de subida confirmados');
+    }
+
     await this.emitStep(input, 'VALIDATING_MEDIA', 'Validando media publica HTTPS', 'RUNNING');
     await this.validatePublicMediaUrl(input.mediaUrl);
     await this.emitStep(input, 'VALIDATING_MEDIA', 'Validando media publica HTTPS', 'DONE');
 
-    let media = this.prepareCreativeMedia(input);
     await this.emitStep(
       input,
       'UPLOADING_MEDIA',
@@ -1108,6 +1119,21 @@ export class MarketingMetaAdsService {
     });
   }
 
+  private async validateImageUploadPreflight() {
+    const report = await this.inspectMetaAdsPermissions();
+    if (report.canUploadAdImage) return;
+
+    throw new MetaAdsException({
+      stage: 'Subiendo imagen',
+      message:
+        'No se pudo subir la imagen al Ad Account. El token/app no tiene permiso ads_management real sobre esta cuenta publicitaria o la app no tiene acceso aprobado para esta operación.',
+      code: '200',
+      subcode: '1815066',
+      fbtraceId: null,
+      recommendation: report.recommendedFixes[0] ?? null,
+    });
+  }
+
   private async emitStep(
     input: CreateFlowInput,
     id: MetaPublishStepId,
@@ -1261,6 +1287,21 @@ export class MarketingMetaAdsService {
         adAccountAccessible &&
         assignedUsersAccessible &&
         canReadAdImages,
+      canCreateCampaign:
+        tokenInspection.tokenValid &&
+        hasAdsManagement &&
+        adAccountAccessible,
+      canCreateAdset:
+        tokenInspection.tokenValid &&
+        hasAdsManagement &&
+        adAccountAccessible &&
+        pageAccessible,
+      canCreateCreative:
+        tokenInspection.tokenValid &&
+        hasAdsManagement &&
+        adAccountAccessible &&
+        pageAccessible &&
+        instagramAccessible,
       assignedUsersAccessible,
       assignedUsersCount,
       pageAccessible,
