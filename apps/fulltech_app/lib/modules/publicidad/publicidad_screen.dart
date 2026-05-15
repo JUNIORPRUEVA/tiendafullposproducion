@@ -33,7 +33,7 @@ enum _PublicidadTab {
 
 enum _EstadosPhase { crearDiseno, copys, aprobarPublicar }
 
-enum _EstadosViewMode { normal, rapido }
+enum _EstadosViewMode { normal, rapido, video }
 
 class MarketingMediaAssetDraft {
   const MarketingMediaAssetDraft({
@@ -763,6 +763,13 @@ class PublicidadController extends StateNotifier<PublicidadState> {
         }
       }
 
+      final partitioned = _partitionStoriesForActiveAndHistory(
+        stories,
+        historyItems,
+      );
+      stories = partitioned.active;
+      historyItems = partitioned.history;
+
       try {
         latestResearch = await _api.loadLatestResearch();
       } catch (error) {
@@ -1164,6 +1171,15 @@ class PublicidadController extends StateNotifier<PublicidadState> {
         continue;
       }
 
+      final currentActive = !_isStoryFullyPublished(current);
+      final nextActive = !_isStoryFullyPublished(item);
+      if (currentActive != nextActive) {
+        if (nextActive) {
+          byType[item.type] = item;
+        }
+        continue;
+      }
+
       final currentStamp = current.updatedAt ?? current.date;
       final nextStamp = item.updatedAt ?? item.date;
       if (nextStamp.isAfter(currentStamp)) {
@@ -1181,6 +1197,52 @@ class PublicidadController extends StateNotifier<PublicidadState> {
         .map((type) => byType[type])
         .whereType<MarketingStory>()
         .toList(growable: false);
+  }
+
+  ({List<MarketingStory> active, List<MarketingStory> history})
+  _partitionStoriesForActiveAndHistory(
+    List<MarketingStory> daily,
+    List<MarketingStory> history,
+  ) {
+    final active = daily
+        .where((story) => !_isStoryFullyPublished(story))
+        .toList(growable: false);
+
+    final mergedById = <String, MarketingStory>{};
+    void addStory(MarketingStory item) {
+      final id = item.id.trim();
+      if (id.isEmpty) return;
+      final current = mergedById[id];
+      if (current == null) {
+        mergedById[id] = item;
+        return;
+      }
+      final currentStamp = current.updatedAt ?? current.date;
+      final nextStamp = item.updatedAt ?? item.date;
+      if (nextStamp.isAfter(currentStamp)) {
+        mergedById[id] = item;
+      }
+    }
+
+    for (final item in history) {
+      addStory(item);
+    }
+    for (final item in daily.where(_isStoryFullyPublished)) {
+      addStory(item);
+    }
+
+    final mergedHistory = mergedById.values.toList(growable: false)
+      ..sort((a, b) {
+        final bStamp = b.updatedAt ?? b.date;
+        final aStamp = a.updatedAt ?? a.date;
+        return bStamp.compareTo(aStamp);
+      });
+
+    return (active: active, history: mergedHistory);
+  }
+
+  bool _isStoryFullyPublished(MarketingStory story) {
+    return story.publishStatus == MarketingPublishStatus.published;
   }
 
   @override
@@ -1295,6 +1357,83 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('Error al subir la imagen: $e')));
+      }
+      return null;
+    }
+  }
+
+  Future<String?> _pickAndUploadDesignVideo(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
+    FilePickerResult? result;
+    try {
+      result = await FilePicker.platform.pickFiles(
+        type: FileType.video,
+        withData: true,
+        allowMultiple: false,
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('No se pudo abrir el explorador: $e')),
+        );
+      }
+      return null;
+    }
+
+    if (result == null || result.files.isEmpty) return null;
+
+    final file = result.files.first;
+    final bytes = file.bytes;
+    final fileName = file.name;
+
+    if (bytes == null || bytes.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No se pudo leer el video seleccionado.'),
+          ),
+        );
+      }
+      return null;
+    }
+
+    if (context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Subiendo video...')));
+    }
+
+    try {
+      final uploadRepo = ref.read(uploadRepositoryProvider);
+      final uploaded = await uploadRepo.uploadVideo(
+        fileName: fileName,
+        bytes: bytes,
+      );
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Video subido correctamente.')),
+        );
+      }
+      return uploaded.url;
+    } on ApiException catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              e.message.isNotEmpty ? e.message : 'Error al subir el video.',
+            ),
+          ),
+        );
+      }
+      return null;
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error al subir el video: $e')));
       }
       return null;
     }
@@ -1548,6 +1687,12 @@ class _PublicidadScreenState extends ConsumerState<PublicidadScreen> {
                                 },
                                 onUploadDesignImage: (context) async {
                                   return _pickAndUploadDesignImage(
+                                    context,
+                                    ref,
+                                  );
+                                },
+                                onUploadVideo: (context) async {
+                                  return _pickAndUploadDesignVideo(
                                     context,
                                     ref,
                                   );
@@ -2098,6 +2243,7 @@ class _DailyStoriesTab extends StatefulWidget {
     required this.onRetryPublish,
     required this.imageBusyStoryIds,
     this.onUploadDesignImage,
+    this.onUploadVideo,
     this.compactActions = false,
   });
 
@@ -2125,6 +2271,7 @@ class _DailyStoriesTab extends StatefulWidget {
   final Future<void> Function(String storyId) onRetryPublish;
   final Set<String> imageBusyStoryIds;
   final Future<String?> Function(BuildContext context)? onUploadDesignImage;
+  final Future<String?> Function(BuildContext context)? onUploadVideo;
   final bool compactActions;
 
   @override
@@ -2146,6 +2293,20 @@ class _DailyStoriesTabState extends State<_DailyStoriesTab> {
           onRegenerateCopyFromDesign: widget.onRegenerateCopyFromDesign,
           onEdit: widget.onEdit,
           onUploadDesignImage: widget.onUploadDesignImage,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openEstadoVideoScreen() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _EstadoVideoScreen(
+          stories: widget.stories,
+          busy: widget.busy,
+          onApprove: widget.onApprove,
+          onEdit: widget.onEdit,
+          onUploadVideo: widget.onUploadVideo,
         ),
       ),
     );
@@ -2188,6 +2349,11 @@ class _DailyStoriesTabState extends State<_DailyStoriesTab> {
                         icon: Icon(Icons.flash_on_rounded),
                         label: Text('Estado rápido'),
                       ),
+                      ButtonSegment<_EstadosViewMode>(
+                        value: _EstadosViewMode.video,
+                        icon: Icon(Icons.smart_display_rounded),
+                        label: Text('Estado video'),
+                      ),
                     ],
                     selected: {_viewMode},
                     onSelectionChanged: (next) {
@@ -2196,6 +2362,8 @@ class _DailyStoriesTabState extends State<_DailyStoriesTab> {
                       setState(() => _viewMode = selected);
                       if (selected == _EstadosViewMode.rapido) {
                         _openEstadoRapidoScreen();
+                      } else if (selected == _EstadosViewMode.video) {
+                        _openEstadoVideoScreen();
                       }
                     },
                   ),
@@ -2238,6 +2406,41 @@ class _DailyStoriesTabState extends State<_DailyStoriesTab> {
             ),
           ),
         if (!widget.compactActions && _viewMode == _EstadosViewMode.rapido)
+          const SizedBox(height: 10),
+        if (!widget.compactActions && _viewMode == _EstadosViewMode.video)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.35),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Modo video listo',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Sube video vertical, asígnalo al estado y publícalo en canales seleccionados.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 10),
+                FilledButton.icon(
+                  onPressed: _openEstadoVideoScreen,
+                  icon: const Icon(Icons.smart_display_rounded),
+                  label: const Text('Abrir Estado video'),
+                ),
+              ],
+            ),
+          ),
+        if (!widget.compactActions && _viewMode == _EstadosViewMode.video)
           const SizedBox(height: 10),
         if (widget.compactActions || _viewMode == _EstadosViewMode.normal)
           SegmentedButton<_EstadosPhase>(
@@ -3023,6 +3226,467 @@ class _EstadoRapidoScreenState extends State<_EstadoRapidoScreen> {
                   onPressed: _running || widget.busy ? null : _runFullQuickFlow,
                   icon: const Icon(Icons.flash_on_rounded),
                   label: const Text('Ejecutar flujo rápido completo'),
+                ),
+                if (_status.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(_status)),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+    );
+  }
+}
+
+class _EstadoVideoScreen extends StatefulWidget {
+  const _EstadoVideoScreen({
+    required this.stories,
+    required this.busy,
+    required this.onApprove,
+    required this.onEdit,
+    required this.onUploadVideo,
+  });
+
+  final List<MarketingStory> stories;
+  final bool busy;
+  final Future<void> Function(
+    String storyId,
+    List<MarketingPublishTarget> publishTargets,
+  )
+  onApprove;
+  final Future<void> Function(MarketingStory story, _EditStoryPayload payload)
+  onEdit;
+  final Future<String?> Function(BuildContext context)? onUploadVideo;
+
+  @override
+  State<_EstadoVideoScreen> createState() => _EstadoVideoScreenState();
+}
+
+class _EstadoVideoScreenState extends State<_EstadoVideoScreen> {
+  static const _defaultTargets = <MarketingPublishTarget>{
+    MarketingPublishTarget.facebookPost,
+    MarketingPublishTarget.instagramPost,
+    MarketingPublishTarget.instagramStory,
+  };
+
+  String? _selectedStoryId;
+  bool _running = false;
+  String _status = '';
+  late Set<MarketingPublishTarget> _selectedPublishTargets;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.stories.isNotEmpty) {
+      _selectedStoryId = widget.stories.first.id;
+    }
+    _selectedPublishTargets = {..._defaultTargets};
+  }
+
+  MarketingStory? get _selectedStory {
+    final id = (_selectedStoryId ?? '').trim();
+    if (id.isEmpty) return null;
+    for (final item in widget.stories) {
+      if (item.id == id) return item;
+    }
+    return null;
+  }
+
+  Future<String?> _uploadAndAssignVideo(MarketingStory story) async {
+    if (widget.onUploadVideo == null) {
+      throw Exception('No está disponible la subida de video en este modo.');
+    }
+    setState(() => _status = 'Subiendo video...');
+    final uploadedUrl = await widget.onUploadVideo!(context);
+    if (uploadedUrl == null || uploadedUrl.trim().isEmpty) {
+      return null;
+    }
+
+    setState(() => _status = 'Asignando video al estado...');
+    await widget.onEdit(
+      story,
+      _EditStoryPayload(
+        title: story.title,
+        shortText: story.shortText,
+        longText: story.longText,
+        hashtags: List<String>.from(story.hashtags),
+        imagePrompt: story.imagePrompt,
+        imageUrl: uploadedUrl.trim(),
+      ),
+    );
+    return uploadedUrl.trim();
+  }
+
+  Future<void> _uploadVideoOnly() async {
+    final story = _selectedStory;
+    if (story == null || _running || widget.busy) return;
+    setState(() {
+      _running = true;
+      _status = 'Preparando carga de video...';
+    });
+    try {
+      final uploaded = await _uploadAndAssignVideo(story);
+      if (!mounted) return;
+      if (uploaded == null || uploaded.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No se seleccionó video.')),
+        );
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Video asignado correctamente al estado.')),
+      );
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: ${error.message}')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _running = false;
+          _status = '';
+        });
+      }
+    }
+  }
+
+  Future<void> _publishVideoOnly() async {
+    final story = _selectedStory;
+    if (story == null || _running || widget.busy) return;
+    if (_selectedPublishTargets.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Selecciona al menos un canal para publicar.')),
+      );
+      return;
+    }
+    setState(() {
+      _running = true;
+      _status = 'Publicando video en canales seleccionados...';
+    });
+    try {
+      await widget.onApprove(story.id, _selectedPublishTargets.toList());
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Publicación de video enviada correctamente.')),
+      );
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: ${error.message}')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _running = false;
+          _status = '';
+        });
+      }
+    }
+  }
+
+  Future<void> _runVideoFlow() async {
+    final story = _selectedStory;
+    if (story == null || _running || widget.busy) return;
+    if (_selectedPublishTargets.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Selecciona al menos un canal para publicar.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _running = true;
+      _status = 'Iniciando flujo de video...';
+    });
+    try {
+      final uploaded = await _uploadAndAssignVideo(story);
+      if (!mounted) return;
+      if (uploaded == null || uploaded.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No se subió video. Flujo cancelado.')),
+        );
+        return;
+      }
+
+      setState(() => _status = 'Publicando video en canales seleccionados...');
+      await widget.onApprove(story.id, _selectedPublishTargets.toList());
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Flujo de video completado: video publicado en canales seleccionados.'),
+        ),
+      );
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: ${error.message}')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _running = false;
+          _status = '';
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final story = _selectedStory;
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Estado video')),
+      body: story == null
+          ? const Center(child: Text('No hay estados disponibles para hoy.'))
+          : ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                Text(
+                  'Flujo video: subir video vertical y publicar en Story/Post de redes seleccionadas.',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: _selectedStoryId,
+                  decoration: const InputDecoration(
+                    labelText: 'Selecciona el estado',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: widget.stories
+                      .map(
+                        (item) => DropdownMenuItem<String>(
+                          value: item.id,
+                          child: Text(_storyTypeLabel(item.type)),
+                        ),
+                      )
+                      .toList(growable: false),
+                  onChanged: _running || widget.busy
+                      ? null
+                      : (value) {
+                          if (value == null) return;
+                          setState(() => _selectedStoryId = value);
+                        },
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(10),
+                    color: Theme.of(context).colorScheme.surfaceContainerHighest
+                        .withValues(alpha: 0.35),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        story.title.trim().isEmpty
+                            ? _storyTypeLabel(story.type)
+                            : story.title.trim(),
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Copy actual para publicación:',
+                        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        story.shortText.trim().isEmpty
+                            ? 'Sin texto principal'
+                            : story.shortText.trim(),
+                      ),
+                      if (story.hashtags.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          story.hashtags
+                              .map((tag) => tag.startsWith('#') ? tag : '#$tag')
+                              .join(' '),
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                      const SizedBox(height: 8),
+                      Text(
+                        'Media actual:',
+                        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _resolveFinalImageUrl(story).trim().isEmpty
+                            ? 'Sin media asignada'
+                            : _resolveFinalImageUrl(story).trim(),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(10),
+                    color: Theme.of(context).colorScheme.surfaceContainerHighest
+                        .withValues(alpha: 0.35),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Canales de publicación',
+                        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      CheckboxListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Facebook Story'),
+                        value: _selectedPublishTargets.contains(
+                          MarketingPublishTarget.facebookStory,
+                        ),
+                        onChanged: _running || widget.busy
+                            ? null
+                            : (value) {
+                                setState(() {
+                                  if (value == true) {
+                                    _selectedPublishTargets.add(
+                                      MarketingPublishTarget.facebookStory,
+                                    );
+                                  } else {
+                                    _selectedPublishTargets.remove(
+                                      MarketingPublishTarget.facebookStory,
+                                    );
+                                  }
+                                });
+                              },
+                      ),
+                      CheckboxListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Instagram Story'),
+                        value: _selectedPublishTargets.contains(
+                          MarketingPublishTarget.instagramStory,
+                        ),
+                        onChanged: _running || widget.busy
+                            ? null
+                            : (value) {
+                                setState(() {
+                                  if (value == true) {
+                                    _selectedPublishTargets.add(
+                                      MarketingPublishTarget.instagramStory,
+                                    );
+                                  } else {
+                                    _selectedPublishTargets.remove(
+                                      MarketingPublishTarget.instagramStory,
+                                    );
+                                  }
+                                });
+                              },
+                      ),
+                      CheckboxListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Facebook Post'),
+                        value: _selectedPublishTargets.contains(
+                          MarketingPublishTarget.facebookPost,
+                        ),
+                        onChanged: _running || widget.busy
+                            ? null
+                            : (value) {
+                                setState(() {
+                                  if (value == true) {
+                                    _selectedPublishTargets.add(
+                                      MarketingPublishTarget.facebookPost,
+                                    );
+                                  } else {
+                                    _selectedPublishTargets.remove(
+                                      MarketingPublishTarget.facebookPost,
+                                    );
+                                  }
+                                });
+                              },
+                      ),
+                      CheckboxListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Instagram Post'),
+                        value: _selectedPublishTargets.contains(
+                          MarketingPublishTarget.instagramPost,
+                        ),
+                        onChanged: _running || widget.busy
+                            ? null
+                            : (value) {
+                                setState(() {
+                                  if (value == true) {
+                                    _selectedPublishTargets.add(
+                                      MarketingPublishTarget.instagramPost,
+                                    );
+                                  } else {
+                                    _selectedPublishTargets.remove(
+                                      MarketingPublishTarget.instagramPost,
+                                    );
+                                  }
+                                });
+                              },
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: _running || widget.busy ? null : _uploadVideoOnly,
+                      icon: const Icon(Icons.upload_file_rounded),
+                      label: const Text('Subir video'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: _running || widget.busy ? null : _publishVideoOnly,
+                      icon: const Icon(Icons.publish_rounded),
+                      label: const Text('Publicar video'),
+                    ),
+                    FilledButton.icon(
+                      onPressed: _running || widget.busy ? null : _runVideoFlow,
+                      icon: const Icon(Icons.smart_display_rounded),
+                      label: const Text('Subir y publicar'),
+                    ),
+                  ],
                 ),
                 if (_status.isNotEmpty) ...[
                   const SizedBox(height: 12),

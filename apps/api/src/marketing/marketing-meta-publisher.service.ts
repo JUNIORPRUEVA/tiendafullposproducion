@@ -154,7 +154,8 @@ type MetaPublishErrorDetails = {
   details: Record<string, unknown> | null;
 };
 
-type ImageValidationResult = {
+type MediaValidationResult = {
+  mediaKind: 'image' | 'video';
   url: string;
   httpStatus: number;
   contentType: string;
@@ -206,16 +207,18 @@ export class MarketingMetaPublisherService {
     });
     if (!story) throw new BadRequestException('Contenido no encontrado');
 
-    const imageUrl = this.resolveImageUrl(story as any);
-    if (!imageUrl) {
-      throw new BadRequestException('No hay imagen lista para publicar.');
+    const mediaUrl = this.resolveMediaUrl(story as any);
+    if (!mediaUrl) {
+      throw new BadRequestException('No hay media lista para publicar.');
     }
+    const mediaKind = this.inferMediaKind(story as any, mediaUrl);
 
     const caption = this.buildCaption(story as any);
 
     const rawConfig = this.resolveMetaConfigRaw();
     const instagramConfigured = rawConfig.instagramBusinessId.trim().length > 0;
-    this.logger.log(`[meta-publish] imageUrl=${imageUrl}`);
+    this.logger.log(`[meta-publish] mediaUrl=${mediaUrl}`);
+    this.logger.log(`[meta-publish] mediaKind=${mediaKind}`);
     this.logger.log(`[meta-publish] captionLength=${caption.trim().length}`);
     this.logger.log(`[meta-publish] pageId=${rawConfig.pageId || 'missing'}`);
     this.logger.log(`[meta-publish] instagramBusinessId=${rawConfig.instagramBusinessId || 'missing'}`);
@@ -260,7 +263,7 @@ export class MarketingMetaPublisherService {
       throw new ConflictException('Este anuncio ya está publicado en los canales seleccionados.');
     }
 
-    const normalizedImageUrl = this.marketingStorage.getPublicUrl(imageUrl);
+    const normalizedMediaUrl = this.marketingStorage.getPublicUrl(mediaUrl);
     let facebookStoryId = currentFacebookStoryId || null;
     let facebookPostId = currentFacebookPostId || null;
     let instagramPostId = currentInstagramPostId || null;
@@ -303,7 +306,7 @@ export class MarketingMetaPublisherService {
         ...(patch ?? {}),
       };
     };
-    let imageValidation: ImageValidationResult | null = null;
+    let mediaValidation: MediaValidationResult | null = null;
     let storyPreparedImage: StoryPreparedImage | null = null;
     let publishStatus = 'PUBLISHING';
     let publishedAt: Date | null = null;
@@ -341,7 +344,7 @@ export class MarketingMetaPublisherService {
       requested: selection.publishFacebookPost,
       status: facebookPostStatus,
       existingId: facebookPostId,
-      endpoint: `/${rawConfig.pageId}/photos`,
+      endpoint: mediaKind === 'video' ? `/${rawConfig.pageId}/videos` : `/${rawConfig.pageId}/photos`,
     });
     setChannelResult('instagram_post', {
       requested: selection.publishInstagramPost,
@@ -370,19 +373,20 @@ export class MarketingMetaPublisherService {
 
     try {
       const config = this.resolveMetaConfig(rawConfig);
-      this.assertPrePublishInputs(normalizedImageUrl, caption, captionRequired);
-      // Validate reachability/type first. Story compatibility is solved by prepareStoryImage
-      // when Story channels are requested.
-      imageValidation = await this.validateImageForMeta(normalizedImageUrl, {
-        requireStoryCompatibility: false,
-      });
+      this.assertPrePublishInputs(normalizedMediaUrl, caption, captionRequired, mediaKind);
+      mediaValidation =
+        mediaKind === 'video'
+          ? await this.validateVideoForMeta(normalizedMediaUrl)
+          : await this.validateImageForMeta(normalizedMediaUrl, {
+              requireStoryCompatibility: false,
+            });
       await this.validateMetaConnectivity(config);
       await this.validatePageTokenPermissions(config, selection);
 
       const requiresStoryImage = selection.publishFacebookStory || selection.publishInstagramStory;
-      if (requiresStoryImage) {
+      if (requiresStoryImage && mediaKind === 'image') {
         storyPreparedImage = await this.prepareStoryImage(
-          normalizedImageUrl,
+          normalizedMediaUrl,
           companyId,
           `${(story as any).type ?? 'story'}`,
         );
@@ -394,14 +398,26 @@ export class MarketingMetaPublisherService {
         });
       }
 
-      const storyImageUrl = storyPreparedImage?.url || normalizedImageUrl;
+      const storyMediaUrl = storyPreparedImage?.url || normalizedMediaUrl;
       const skipUnsupportedFacebookRetry =
         retryOnlyMissing &&
         selection.publishFacebookStory &&
         `${(story as any).facebookStoryStatus ?? ''}`.trim().toUpperCase() === 'UNSUPPORTED';
 
+      const supportsFacebookStory = mediaKind === 'image';
+      if (selection.publishFacebookStory && !supportsFacebookStory) {
+        facebookStoryStatus = 'UNSUPPORTED';
+        facebookStoryError = 'Facebook Story no soporta video en este flujo actual.';
+        setChannelResult('facebook_story', {
+          status: facebookStoryStatus,
+          skippedReason: 'video-not-supported',
+          message: facebookStoryError,
+        });
+      }
+
       const publishFacebookStoryNow =
         selection.publishFacebookStory &&
+        supportsFacebookStory &&
         !skipUnsupportedFacebookRetry &&
         (!retryOnlyMissing || !facebookStoryId);
       const publishInstagramStoryNow = selection.publishInstagramStory && (!retryOnlyMissing || !instagramStoryId);
@@ -416,7 +432,7 @@ export class MarketingMetaPublisherService {
             requested: true,
             startedAt: new Date().toISOString(),
           });
-          const facebookStoryResult = await this.publishFacebookStory(config, storyImageUrl);
+          const facebookStoryResult = await this.publishFacebookStory(config, storyMediaUrl);
           setChannelResult('facebook_story', {
             status: facebookStoryResult.supported
               ? facebookStoryResult.storyId
@@ -484,7 +500,10 @@ export class MarketingMetaPublisherService {
           this.logger.log(`[meta-facebook] publishing to pageId=${config.pageId}`);
           this.logger.log('[meta-facebook] endpoint=/{pageId}/photos');
           this.logger.log('[meta-facebook] never using publish_actions');
-          const facebookResult = await this.publishFacebookPhoto(config, normalizedImageUrl, caption);
+          const facebookResult =
+            mediaKind === 'video'
+              ? await this.publishFacebookVideo(config, normalizedMediaUrl, caption)
+              : await this.publishFacebookPhoto(config, normalizedMediaUrl, caption);
           facebookPostId = facebookResult;
           facebookPostStatus = 'PUBLISHED';
           setChannelResult('facebook_post', {
@@ -532,7 +551,10 @@ export class MarketingMetaPublisherService {
             requested: true,
             startedAt: new Date().toISOString(),
           });
-          const instagramResult = await this.publishInstagramFeedPost(config, normalizedImageUrl, caption);
+          const instagramResult =
+            mediaKind === 'video'
+              ? await this.publishInstagramFeedVideo(config, normalizedMediaUrl, caption)
+              : await this.publishInstagramFeedPost(config, normalizedMediaUrl, caption);
           instagramContainerId = instagramResult.creationId;
           instagramMediaId = instagramResult.mediaId;
           instagramPostId = instagramResult.mediaId;
@@ -564,7 +586,10 @@ export class MarketingMetaPublisherService {
             requested: true,
             startedAt: new Date().toISOString(),
           });
-          const instagramResult = await this.publishInstagramStory(config, storyImageUrl);
+          const instagramResult =
+            mediaKind === 'video'
+              ? await this.publishInstagramStoryVideo(config, storyMediaUrl)
+              : await this.publishInstagramStory(config, storyMediaUrl);
           instagramStoryContainerId = instagramResult.creationId;
           instagramStoryId = instagramResult.mediaId;
           instagramStoryStatus = instagramResult.verify.verificationStatus === 'UNKNOWN_VERIFY'
@@ -691,7 +716,7 @@ export class MarketingMetaPublisherService {
         endpoint: firstChannelError?.endpoint ?? null,
         requestedChannels,
         publishedChannels,
-        imageValidation,
+        mediaValidation,
         storyPreparedImage,
         channelResults,
         channelErrors: channelErrors.map((item) => this.toErrorDetailsJson(item)),
@@ -731,7 +756,7 @@ export class MarketingMetaPublisherService {
         ...parsedJson,
         requestedChannels,
         publishedChannels,
-        imageValidation,
+        mediaValidation,
         storyPreparedImage,
         channelResults,
       } as Prisma.InputJsonValue;
@@ -892,7 +917,7 @@ export class MarketingMetaPublisherService {
     const caption = `${input.caption ?? ''}`.trim();
     const dryRun = input.dryRun === true;
 
-    this.assertPrePublishInputs(imageUrl, caption, true);
+    this.assertPrePublishInputs(imageUrl, caption, true, 'image');
     await this.validateImageForMeta(imageUrl, { requireStoryCompatibility: false });
     await this.validateMetaConnectivity(config);
 
@@ -1467,6 +1492,50 @@ export class MarketingMetaPublisherService {
     return postId;
   }
 
+  private async publishFacebookVideo(config: MetaConfig, videoUrl: string, caption: string) {
+    const url = `https://graph.facebook.com/${config.graphVersion}/${config.pageId}/videos`;
+    this.logger.log(`[meta-facebook] publishing video to pageId=${config.pageId}`);
+    this.logger.log('[meta-facebook] endpoint=/{pageId}/videos');
+    const body = new URLSearchParams({
+      file_url: videoUrl,
+      description: caption,
+      access_token: config.accessToken,
+    });
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+    });
+    const payload = await response.json().catch(() => ({} as any));
+    this.logger.log(`[meta-publish-facebook-video] response=${this.safeJson(payload)}`);
+    if (!response.ok) {
+      const parsed = this.parseMetaErrorPayload(payload, {
+        channel: 'facebook',
+        stage: 'facebook-video-publish',
+        endpoint: `/${config.pageId}/videos`,
+        httpStatus: response.status,
+      });
+      this.logger.error(`[meta-publish-facebook-video] error=${parsed.message}`);
+      throw new MetaApiError(parsed);
+    }
+    const postId = `${payload.id ?? payload.post_id ?? ''}`.trim();
+    if (!postId) {
+      throw new MetaApiError({
+        channel: 'facebook',
+        stage: 'facebook-video-publish',
+        message: 'Facebook no devolvió ID de publicación de video.',
+        type: 'MALFORMED_RESPONSE',
+        code: null,
+        subcode: null,
+        fbtraceId: null,
+        httpStatus: response.status,
+        endpoint: `/${config.pageId}/videos`,
+        details: { payload },
+      });
+    }
+    return postId;
+  }
+
   private async publishInstagramFeedPost(
     config: MetaConfig,
     imageUrl: string,
@@ -1554,6 +1623,91 @@ export class MarketingMetaPublisherService {
     }
     const mediaId = `${publishPayload.id ?? creationId}`.trim();
     this.logger.log(`[meta-instagram] success mediaId=${mediaId}`);
+    return { creationId, mediaId };
+  }
+
+  private async publishInstagramFeedVideo(
+    config: MetaConfig,
+    videoUrl: string,
+    caption: string,
+  ): Promise<InstagramPublishResponse> {
+    if (!config.instagramBusinessId.trim()) {
+      throw new MetaApiError({
+        channel: 'validation',
+        stage: 'instagram-config',
+        message: 'Falta META_INSTAGRAM_BUSINESS_ID',
+        type: 'CONFIG_ERROR',
+        code: null,
+        subcode: null,
+        fbtraceId: null,
+        httpStatus: null,
+        endpoint: null,
+        details: { key: 'META_INSTAGRAM_BUSINESS_ID' },
+      });
+    }
+
+    const createUrl = `https://graph.facebook.com/${config.graphVersion}/${config.instagramBusinessId}/media`;
+    const createBody = new URLSearchParams({
+      media_type: 'REELS',
+      video_url: videoUrl,
+      caption,
+      share_to_feed: 'true',
+      access_token: config.accessToken,
+    });
+    const createResponse = await fetch(createUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: createBody,
+    });
+    const createPayload = await createResponse.json().catch(() => ({} as any));
+    if (!createResponse.ok) {
+      const parsed = this.parseMetaErrorPayload(createPayload, {
+        channel: 'instagram',
+        stage: 'instagram-video-container-create',
+        endpoint: `/${config.instagramBusinessId}/media`,
+        httpStatus: createResponse.status,
+      });
+      throw new MetaApiError(parsed);
+    }
+
+    const creationId = `${createPayload.id ?? ''}`.trim();
+    if (!creationId) {
+      throw new MetaApiError({
+        channel: 'instagram',
+        stage: 'instagram-video-container-create',
+        message: 'Instagram no devolvió creation_id para video.',
+        type: 'MALFORMED_RESPONSE',
+        code: null,
+        subcode: null,
+        fbtraceId: null,
+        httpStatus: createResponse.status,
+        endpoint: `/${config.instagramBusinessId}/media`,
+        details: { payload: createPayload },
+      });
+    }
+
+    const publishUrl = `https://graph.facebook.com/${config.graphVersion}/${config.instagramBusinessId}/media_publish`;
+    const publishBody = new URLSearchParams({
+      creation_id: creationId,
+      access_token: config.accessToken,
+    });
+    const publishResponse = await fetch(publishUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: publishBody,
+    });
+    const publishPayload = await publishResponse.json().catch(() => ({} as any));
+    if (!publishResponse.ok) {
+      const parsed = this.parseMetaErrorPayload(publishPayload, {
+        channel: 'instagram',
+        stage: 'instagram-video-publish',
+        endpoint: `/${config.instagramBusinessId}/media_publish`,
+        httpStatus: publishResponse.status,
+      });
+      throw new MetaApiError(parsed);
+    }
+
+    const mediaId = `${publishPayload.id ?? creationId}`.trim();
     return { creationId, mediaId };
   }
 
@@ -1655,6 +1809,95 @@ export class MarketingMetaPublisherService {
     };
   }
 
+  private async publishInstagramStoryVideo(
+    config: MetaConfig,
+    videoUrl: string,
+  ): Promise<InstagramStoryPublishResponse> {
+    if (!config.instagramBusinessId.trim()) {
+      throw new MetaApiError({
+        channel: 'validation',
+        stage: 'instagram-config',
+        message: 'Falta META_INSTAGRAM_BUSINESS_ID',
+        type: 'CONFIG_ERROR',
+        code: null,
+        subcode: null,
+        fbtraceId: null,
+        httpStatus: null,
+        endpoint: null,
+        details: { key: 'META_INSTAGRAM_BUSINESS_ID' },
+      });
+    }
+
+    const createUrl = `https://graph.facebook.com/${config.graphVersion}/${config.instagramBusinessId}/media`;
+    const createBody = new URLSearchParams({
+      video_url: videoUrl,
+      media_type: 'STORIES',
+      access_token: config.accessToken,
+    });
+    const createResponse = await fetch(createUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: createBody,
+    });
+    const createPayload = await createResponse.json().catch(() => ({} as any));
+    if (!createResponse.ok) {
+      const parsed = this.parseMetaErrorPayload(createPayload, {
+        channel: 'instagram',
+        stage: 'instagram-story-video-container-create',
+        endpoint: `/${config.instagramBusinessId}/media`,
+        httpStatus: createResponse.status,
+      });
+      throw new MetaApiError(parsed);
+    }
+
+    const creationId = `${createPayload.id ?? ''}`.trim();
+    if (!creationId) {
+      throw new MetaApiError({
+        channel: 'instagram',
+        stage: 'instagram-story-video-container-create',
+        message: 'Instagram no devolvió creation_id para story de video.',
+        type: 'MALFORMED_RESPONSE',
+        code: null,
+        subcode: null,
+        fbtraceId: null,
+        httpStatus: createResponse.status,
+        endpoint: `/${config.instagramBusinessId}/media`,
+        details: { payload: createPayload },
+      });
+    }
+
+    const publishUrl = `https://graph.facebook.com/${config.graphVersion}/${config.instagramBusinessId}/media_publish`;
+    const publishBody = new URLSearchParams({
+      creation_id: creationId,
+      access_token: config.accessToken,
+    });
+    const publishResponse = await fetch(publishUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: publishBody,
+    });
+    const publishPayload = await publishResponse.json().catch(() => ({} as any));
+    if (!publishResponse.ok) {
+      const parsed = this.parseMetaErrorPayload(publishPayload, {
+        channel: 'instagram',
+        stage: 'instagram-story-video-publish',
+        endpoint: `/${config.instagramBusinessId}/media_publish`,
+        httpStatus: publishResponse.status,
+      });
+      throw new MetaApiError(parsed);
+    }
+
+    const mediaId = `${publishPayload.id ?? creationId}`.trim();
+    const verify = await this.verifyInstagramStory(config, mediaId);
+    return {
+      creationId,
+      mediaId,
+      createPayload,
+      publishPayload,
+      verify,
+    };
+  }
+
   private buildCaption(story: any) {
     const title = `${story.title ?? ''}`.trim();
     const shortText = `${story.shortText ?? ''}`.trim();
@@ -1666,7 +1909,7 @@ export class MarketingMetaPublisherService {
     return [title, shortText, cta, hashtags.join(' ')].filter((item) => item.trim().length > 0).join('\n\n');
   }
 
-  private resolveImageUrl(story: any) {
+  private resolveMediaUrl(story: any) {
     const imageUrl = `${story.imageUrl ?? ''}`.trim();
     if (imageUrl) return imageUrl;
     const generatedImageUrl = `${story.generatedImageUrl ?? ''}`.trim();
@@ -1675,7 +1918,22 @@ export class MarketingMetaPublisherService {
     return assetUrl;
   }
 
-  private assertPrePublishInputs(imageUrl: string, caption: string, captionRequired: boolean) {
+  private inferMediaKind(story: any, mediaUrl: string): 'image' | 'video' {
+    const mime = `${story?.mediaAsset?.mimeType ?? ''}`.trim().toLowerCase();
+    if (mime.startsWith('video/')) return 'video';
+    return this.isLikelyVideoUrl(mediaUrl) ? 'video' : 'image';
+  }
+
+  private isLikelyVideoUrl(url: string) {
+    return /\.(mp4|mov|m4v|webm|mkv)(\?|$)/i.test(`${url ?? ''}`.trim().toLowerCase());
+  }
+
+  private assertPrePublishInputs(
+    mediaUrl: string,
+    caption: string,
+    captionRequired: boolean,
+    mediaKind: 'image' | 'video',
+  ) {
     if (captionRequired && !caption.trim()) {
       throw new MetaApiError({
         channel: 'validation',
@@ -1691,11 +1949,11 @@ export class MarketingMetaPublisherService {
       });
     }
 
-    if (!imageUrl.trim()) {
+    if (!mediaUrl.trim()) {
       throw new MetaApiError({
         channel: 'validation',
-        stage: 'pre-validate-image-url',
-        message: 'No hay imagen para publicar.',
+        stage: 'pre-validate-media-url',
+        message: mediaKind === 'video' ? 'No hay video para publicar.' : 'No hay imagen para publicar.',
         type: 'VALIDATION_ERROR',
         code: null,
         subcode: null,
@@ -1706,11 +1964,11 @@ export class MarketingMetaPublisherService {
       });
     }
 
-    const parsed = this.validatePublicHttpsImageUrl(imageUrl);
+    const parsed = this.validatePublicHttpsMediaUrl(mediaUrl);
     if (!parsed.ok) {
       throw new MetaApiError({
         channel: 'validation',
-        stage: 'pre-validate-image-url',
+        stage: 'pre-validate-media-url',
         message: parsed.message,
         type: 'VALIDATION_ERROR',
         code: null,
@@ -1718,30 +1976,30 @@ export class MarketingMetaPublisherService {
         fbtraceId: null,
         httpStatus: null,
         endpoint: null,
-        details: { imageUrl },
+        details: { mediaUrl, mediaKind },
       });
     }
   }
 
-  private validatePublicHttpsImageUrl(imageUrl: string): { ok: boolean; message: string } {
-    const raw = `${imageUrl ?? ''}`.trim();
+  private validatePublicHttpsMediaUrl(mediaUrl: string): { ok: boolean; message: string } {
+    const raw = `${mediaUrl ?? ''}`.trim();
     let parsed: URL;
     try {
       parsed = new URL(raw);
     } catch {
-      return { ok: false, message: 'URL inválida para imagen final.' };
+      return { ok: false, message: 'URL inválida para media final.' };
     }
 
     if (parsed.protocol !== 'https:') {
-      return { ok: false, message: 'La URL de imagen debe ser HTTPS pública.' };
+      return { ok: false, message: 'La URL de media debe ser HTTPS pública.' };
     }
 
     const hostname = `${parsed.hostname ?? ''}`.trim().toLowerCase();
     if (!hostname || hostname === 'localhost' || hostname.endsWith('.local')) {
-      return { ok: false, message: 'La URL de imagen no es pública (localhost/local).' };
+      return { ok: false, message: 'La URL de media no es pública (localhost/local).' };
     }
     if (this.isPrivateHost(hostname)) {
-      return { ok: false, message: 'La URL de imagen apunta a una red privada.' };
+      return { ok: false, message: 'La URL de media apunta a una red privada.' };
     }
 
     return { ok: true, message: '' };
@@ -1810,7 +2068,7 @@ export class MarketingMetaPublisherService {
   private async validateImageForMeta(
     imageUrl: string,
     options: { requireStoryCompatibility: boolean },
-  ): Promise<ImageValidationResult> {
+  ): Promise<MediaValidationResult> {
     const response = await fetch(imageUrl, {
       method: 'GET',
       redirect: 'follow',
@@ -1886,7 +2144,8 @@ export class MarketingMetaPublisherService {
       }
     }
 
-    const result: ImageValidationResult = {
+    const result: MediaValidationResult = {
+      mediaKind: 'image',
       url: imageUrl,
       httpStatus: response.status,
       contentType,
@@ -1919,6 +2178,66 @@ export class MarketingMetaPublisherService {
     }
 
     return result;
+  }
+
+  private async validateVideoForMeta(videoUrl: string): Promise<MediaValidationResult> {
+    const response = await fetch(videoUrl, {
+      method: 'GET',
+      redirect: 'follow',
+      headers: { Accept: 'video/*' },
+    });
+
+    if (!response.ok) {
+      throw new MetaApiError({
+        channel: 'validation',
+        stage: 'pre-validate-video-reachability',
+        message: `La URL de video no es alcanzable (${response.status}).`,
+        type: 'VALIDATION_ERROR',
+        code: response.status,
+        subcode: null,
+        fbtraceId: null,
+        httpStatus: response.status,
+        endpoint: videoUrl,
+        details: { status: response.status },
+      });
+    }
+
+    const contentType = `${response.headers.get('content-type') ?? ''}`
+      .split(';')[0]
+      .trim()
+      .toLowerCase();
+    if (!contentType.startsWith('video/')) {
+      throw new MetaApiError({
+        channel: 'validation',
+        stage: 'pre-validate-video-content-type',
+        message: `La URL no responde como video (content-type: ${contentType || 'desconocido'}).`,
+        type: 'VALIDATION_ERROR',
+        code: null,
+        subcode: null,
+        fbtraceId: null,
+        httpStatus: response.status,
+        endpoint: videoUrl,
+        details: { contentType: contentType || null },
+      });
+    }
+
+    const contentLengthHeader = Number(response.headers.get('content-length') ?? 0);
+    const contentLength = Number.isFinite(contentLengthHeader) && contentLengthHeader > 0 ? contentLengthHeader : 0;
+    return {
+      mediaKind: 'video',
+      url: videoUrl,
+      httpStatus: response.status,
+      contentType,
+      contentLength,
+      width: null,
+      height: null,
+      aspectRatio: null,
+      format: null,
+      requiresStoryCompatibility: false,
+      isStoryReady: true,
+      issues: [],
+      checkedAt: new Date().toISOString(),
+    };
   }
 
   private resolvePublishSelection(
