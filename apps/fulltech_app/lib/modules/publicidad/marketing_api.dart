@@ -212,7 +212,7 @@ class MarketingApi {
         '${ApiRoutes.marketingStories}/$storyId/regenerate-copy-from-design',
       );
     } on DioException catch (error) {
-      _rethrow(error, 'No se pudo regenerar el copy desde la imagen de diseño');
+      _rethrow(error, 'No se pudo regenerar el copy desde el diseño (imagen o video)');
     }
   }
 

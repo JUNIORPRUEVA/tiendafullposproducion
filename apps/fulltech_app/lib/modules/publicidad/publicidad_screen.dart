@@ -8,6 +8,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:video_player/video_player.dart';
 
 import '../../core/auth/app_permissions.dart';
 import '../../core/auth/auth_provider.dart';
@@ -3557,6 +3558,20 @@ class _EstadoVideoScreenState extends State<_EstadoVideoScreen> {
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
+                      const SizedBox(height: 8),
+                      if (_resolveFinalImageUrl(story).trim().isNotEmpty)
+                        SizedBox(
+                          height: 280,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: AspectRatio(
+                              aspectRatio: 9 / 16,
+                              child: _StoryMediaView(
+                                url: _resolveFinalImageUrl(story).trim(),
+                              ),
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -5429,6 +5444,125 @@ class _StoryImageCanvas extends StatelessWidget {
       ),
       child: Center(
         child: Padding(padding: const EdgeInsets.all(10), child: child),
+      ),
+    );
+  }
+}
+
+class _StoryMediaView extends StatelessWidget {
+  const _StoryMediaView({required this.url});
+
+  final String url;
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isVideoMediaUrl(url)) {
+      return _StoryVideoView(url: url);
+    }
+    return _StoryImageView(url: url);
+  }
+}
+
+class _StoryVideoView extends StatefulWidget {
+  const _StoryVideoView({required this.url});
+
+  final String url;
+
+  @override
+  State<_StoryVideoView> createState() => _StoryVideoViewState();
+}
+
+class _StoryVideoViewState extends State<_StoryVideoView> {
+  VideoPlayerController? _controller;
+  Future<void>? _initializeFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _initController(widget.url);
+  }
+
+  @override
+  void didUpdateWidget(covariant _StoryVideoView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.url != widget.url) {
+      _disposeController();
+      _initController(widget.url);
+    }
+  }
+
+  void _initController(String rawUrl) {
+    final source = rawUrl.trim();
+    if (source.isEmpty || !(source.startsWith('http://') || source.startsWith('https://'))) {
+      return;
+    }
+    final controller = VideoPlayerController.networkUrl(Uri.parse(source));
+    _controller = controller;
+    _initializeFuture = controller.initialize().then((_) {
+      if (!mounted) return;
+      controller
+        ..setLooping(true)
+        ..setVolume(0)
+        ..play();
+      setState(() {});
+    });
+  }
+
+  void _disposeController() {
+    final current = _controller;
+    _controller = null;
+    _initializeFuture = null;
+    current?.dispose();
+  }
+
+  @override
+  void dispose() {
+    _disposeController();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = _controller;
+    final future = _initializeFuture;
+    if (controller == null || future == null) {
+      return const _BrokenImagePlaceholder();
+    }
+
+    return _StoryImageCanvas(
+      child: FutureBuilder<void>(
+        future: future,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.done &&
+              controller.value.isInitialized) {
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                FittedBox(
+                  fit: BoxFit.contain,
+                  child: SizedBox(
+                    width: controller.value.size.width,
+                    height: controller.value.size.height,
+                    child: VideoPlayer(controller),
+                  ),
+                ),
+                const Positioned(
+                  right: 8,
+                  top: 8,
+                  child: Icon(
+                    Icons.play_circle_fill_rounded,
+                    color: Colors.white70,
+                    size: 22,
+                  ),
+                ),
+              ],
+            );
+          }
+          if (snapshot.hasError) {
+            return const _BrokenImagePlaceholder();
+          }
+          return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+        },
       ),
     );
   }
@@ -8784,6 +8918,12 @@ String _safeImageUrl(String? raw) {
   }
   final clean = value.replaceFirst(RegExp(r'^\./'), '');
   return '${base.replaceFirst(RegExp(r'/+$'), '')}/${clean.replaceFirst(RegExp(r'^/+'), '')}';
+}
+
+bool _isVideoMediaUrl(String raw) {
+  final value = raw.trim().toLowerCase();
+  if (value.startsWith('data:video/')) return true;
+  return RegExp(r'\.(mp4|mov|m4v|webm|mkv)(\?|$)').hasMatch(value);
 }
 
 String _resolveFinalImageUrl(MarketingStory story) {

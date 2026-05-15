@@ -1590,7 +1590,10 @@ export class MarketingGenerationService {
     const mediaMimeType = `${(story as any).mediaAsset?.mimeType ?? ''}`
       .trim()
       .toLowerCase();
-    const isVideoDesign = mediaMimeType.startsWith('video/') || this.isVideoUrl(designUrl);
+    const isVideoDesign =
+      mediaMimeType.startsWith('video/') ||
+      this.isVideoUrl(designUrl) ||
+      (await this.isRemoteVideoByContentType(designUrl));
 
     // Retrieve OpenAI config (env takes precedence, then appConfig)
     const envKey = (process.env.OPENAI_API_KEY ?? '').trim();
@@ -1759,6 +1762,42 @@ Devuelve exactamente este JSON:
   private isVideoUrl(url: string): boolean {
     const value = `${url ?? ''}`.trim().toLowerCase();
     return /\.(mp4|mov|m4v|webm|mkv)(\?|$)/i.test(value);
+  }
+
+  private async isRemoteVideoByContentType(url: string): Promise<boolean> {
+    const normalized = `${url ?? ''}`.trim();
+    if (!normalized.startsWith('http://') && !normalized.startsWith('https://')) {
+      return false;
+    }
+
+    const parseContentType = (raw: string | null) =>
+      `${raw ?? ''}`
+        .split(';')
+        .map((part) => part.trim().toLowerCase())[0] || '';
+
+    try {
+      const head = await fetch(normalized, { method: 'HEAD' });
+      const contentType = parseContentType(head.headers.get('content-type'));
+      if (contentType.startsWith('video/')) {
+        return true;
+      }
+    } catch {
+      // Some storage providers block HEAD; fallback to ranged GET below.
+    }
+
+    try {
+      const probe = await fetch(normalized, {
+        method: 'GET',
+        headers: { Range: 'bytes=0-0' },
+      });
+      const contentType = parseContentType(probe.headers.get('content-type'));
+      return contentType.startsWith('video/');
+    } catch (error) {
+      this.logger.debug(
+        `[marketing-copy-from-design] Unable to probe content-type for URL ${normalized}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return false;
+    }
   }
 
   private async requestOpenAiImageCopy(params: {
