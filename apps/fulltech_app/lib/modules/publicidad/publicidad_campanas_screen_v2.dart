@@ -196,6 +196,7 @@ class _PublicidadCampanasScreenV2State
         whatsappPhoneNumberId: payload.whatsappPhoneNumberId,
         businessId: payload.businessId,
         adsAccessToken: payload.adsAccessToken,
+        userAccessToken: payload.userAccessToken,
         organicPageAccessToken: payload.organicPageAccessToken,
       );
 
@@ -2322,6 +2323,7 @@ class _MetaRuntimeConfigPayload {
     required this.whatsappPhoneNumberId,
     required this.businessId,
     required this.adsAccessToken,
+    required this.userAccessToken,
     required this.organicPageAccessToken,
   });
 
@@ -2334,6 +2336,7 @@ class _MetaRuntimeConfigPayload {
   final String whatsappPhoneNumberId;
   final String businessId;
   final String adsAccessToken;
+  final String userAccessToken;
   final String organicPageAccessToken;
 }
 
@@ -2358,6 +2361,7 @@ class _MetaRuntimeConfigDialogState extends State<_MetaRuntimeConfigDialog> {
   late final TextEditingController _whatsappIdCtrl;
   late final TextEditingController _businessIdCtrl;
   late final TextEditingController _adsTokenCtrl;
+  late final TextEditingController _userTokenCtrl;
   late final TextEditingController _organicTokenCtrl;
 
   @override
@@ -2372,6 +2376,7 @@ class _MetaRuntimeConfigDialogState extends State<_MetaRuntimeConfigDialog> {
     _whatsappIdCtrl = TextEditingController(text: widget.initial.whatsappPhoneNumberId);
     _businessIdCtrl = TextEditingController(text: widget.initial.businessId);
     _adsTokenCtrl = TextEditingController();
+    _userTokenCtrl = TextEditingController();
     _organicTokenCtrl = TextEditingController();
   }
 
@@ -2386,6 +2391,7 @@ class _MetaRuntimeConfigDialogState extends State<_MetaRuntimeConfigDialog> {
     _whatsappIdCtrl.dispose();
     _businessIdCtrl.dispose();
     _adsTokenCtrl.dispose();
+    _userTokenCtrl.dispose();
     _organicTokenCtrl.dispose();
     super.dispose();
   }
@@ -2463,6 +2469,15 @@ class _MetaRuntimeConfigDialogState extends State<_MetaRuntimeConfigDialog> {
                 ),
                 const SizedBox(height: 10),
                 TextFormField(
+                  controller: _userTokenCtrl,
+                  obscureText: true,
+                  decoration: InputDecoration(
+                    labelText: 'Token Usuario (META_USER_ACCESS_TOKEN)',
+                    helperText: 'Actual: ${widget.initial.userTokenPreview.isEmpty ? '-' : widget.initial.userTokenPreview}',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
                   controller: _organicTokenCtrl,
                   obscureText: true,
                   decoration: InputDecoration(
@@ -2494,6 +2509,7 @@ class _MetaRuntimeConfigDialogState extends State<_MetaRuntimeConfigDialog> {
                 whatsappPhoneNumberId: _whatsappIdCtrl.text.trim(),
                 businessId: _businessIdCtrl.text.trim(),
                 adsAccessToken: _adsTokenCtrl.text.trim(),
+                userAccessToken: _userTokenCtrl.text.trim(),
                 organicPageAccessToken: _organicTokenCtrl.text.trim(),
               ),
             );

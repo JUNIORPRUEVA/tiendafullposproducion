@@ -942,6 +942,8 @@ export class MarketingMetaPublisherService {
       process.env.META_PAGE_ACCESS_TOKEN ??
       this.config.get<string>('FACEBOOK_PAGE_ACCESS_TOKEN') ??
       process.env.FACEBOOK_PAGE_ACCESS_TOKEN ??
+      this.config.get<string>('META_USER_ACCESS_TOKEN') ??
+      process.env.META_USER_ACCESS_TOKEN ??
       this.config.get<string>('META_ACCESS_TOKEN') ??
       process.env.META_ACCESS_TOKEN ??
       ''

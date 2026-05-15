@@ -887,9 +887,11 @@ export class ContabilidadService {
       const from = query.from ? new Date(query.from) : null;
       const to = query.to ? new Date(query.to) : null;
       if (from || to) {
+        const fromRange = from ? this.normalizeDayRange(from) : null;
+        const toRange = to ? this.normalizeDayRange(to) : null;
         where.date = {
-          ...(from != null ? { gte: from } : {}),
-          ...(to != null ? { lte: to } : {}),
+          ...(fromRange != null ? { gte: fromRange.start } : {}),
+          ...(toRange != null ? { lte: toRange.end } : {}),
         };
       }
     }

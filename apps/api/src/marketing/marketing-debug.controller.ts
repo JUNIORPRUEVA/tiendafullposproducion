@@ -74,6 +74,7 @@ export class MarketingDebugController {
       whatsappPhoneNumberId?: string;
       businessId?: string;
       adsAccessToken?: string;
+      userAccessToken?: string;
       organicPageAccessToken?: string;
     },
   ) {

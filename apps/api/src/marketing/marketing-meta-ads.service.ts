@@ -63,6 +63,7 @@ export type MetaRuntimeConfigDebug = {
   whatsappPhoneNumberId: string;
   businessId: string;
   adsTokenPreview: string;
+  userTokenPreview: string;
   organicTokenPreview: string;
 };
 
@@ -304,6 +305,7 @@ export class MarketingMetaAdsService {
 
   getRuntimeMetaConfig(): MetaRuntimeConfigDebug {
     const organicToken = (process.env.META_PAGE_ACCESS_TOKEN ?? '').trim();
+    const userToken = (process.env.META_USER_ACCESS_TOKEN ?? '').trim();
     return {
       graphVersion: (process.env.META_GRAPH_VERSION ?? 'v23.0').trim() || 'v23.0',
       appId: (process.env.META_APP_ID ?? '').trim(),
@@ -314,6 +316,7 @@ export class MarketingMetaAdsService {
       whatsappPhoneNumberId: (process.env.META_WHATSAPP_PHONE_NUMBER_ID ?? '').trim(),
       businessId: (process.env.META_BUSINESS_ID ?? '').trim(),
       adsTokenPreview: this.tokenPreview((process.env.META_ACCESS_TOKEN ?? '').trim()),
+      userTokenPreview: this.tokenPreview(userToken),
       organicTokenPreview: this.tokenPreview(organicToken),
     };
   }
@@ -328,6 +331,7 @@ export class MarketingMetaAdsService {
     whatsappPhoneNumberId?: string;
     businessId?: string;
     adsAccessToken?: string;
+    userAccessToken?: string;
     organicPageAccessToken?: string;
   }) {
     const assign = (key: string, value: string | undefined) => {
@@ -344,10 +348,11 @@ export class MarketingMetaAdsService {
     assign('META_WHATSAPP_PHONE_NUMBER_ID', input.whatsappPhoneNumberId);
     assign('META_BUSINESS_ID', input.businessId);
     assign('META_ACCESS_TOKEN', input.adsAccessToken);
+    assign('META_USER_ACCESS_TOKEN', input.userAccessToken);
     assign('META_PAGE_ACCESS_TOKEN', input.organicPageAccessToken);
 
     this.logger.log(
-      `[meta-runtime-config] updated appId=${process.env.META_APP_ID ?? ''} adAccountId=${this.normalizeAccountId() || 'missing'} pageId=${process.env.META_FACEBOOK_PAGE_ID ?? ''} adsToken=${this.tokenPreview(process.env.META_ACCESS_TOKEN ?? '')} organicToken=${this.tokenPreview(process.env.META_PAGE_ACCESS_TOKEN ?? '')}`,
+      `[meta-runtime-config] updated appId=${process.env.META_APP_ID ?? ''} adAccountId=${this.normalizeAccountId() || 'missing'} pageId=${process.env.META_FACEBOOK_PAGE_ID ?? ''} adsToken=${this.tokenPreview(process.env.META_ACCESS_TOKEN ?? '')} userToken=${this.tokenPreview(process.env.META_USER_ACCESS_TOKEN ?? '')} organicToken=${this.tokenPreview(process.env.META_PAGE_ACCESS_TOKEN ?? '')}`,
     );
 
     return this.getRuntimeMetaConfig();

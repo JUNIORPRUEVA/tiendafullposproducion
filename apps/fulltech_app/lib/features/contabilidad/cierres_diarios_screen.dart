@@ -2597,6 +2597,7 @@ class _HistoryFullScreenPageState
       _setSummaryPreset(_FinancialSummaryPreset.hoy, refresh: false);
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
+        ref.read(cierresDiariosControllerProvider.notifier).loadAdminHistory();
         _fetchSummary();
       });
     }
@@ -2815,16 +2816,12 @@ class _HistoryFullScreenPageState
     final from = _summaryFromDate ?? DateTime.now();
     final to = _summaryToDate ?? from;
 
-    print(
-      '[CierresDiariosScreen._fetchSummary] iniciando from=$from to=$to business=$_summaryBusinessType',
-    );
     setState(() {
       _summaryLoading = true;
       _summaryError = null;
     });
 
     try {
-      final start = DateTime.now();
       final summary = await ref
           .read(contabilidadRepositoryProvider)
           .getCloseFinancialSummary(
@@ -2832,17 +2829,11 @@ class _HistoryFullScreenPageState
             toDate: to,
             businessType: _summaryBusinessType,
           );
-      final duration = DateTime.now().difference(start);
-      print(
-        '[CierresDiariosScreen._fetchSummary] completado en ${duration.inMilliseconds}ms',
-      );
       if (!mounted) return;
       setState(() {
         _summary = summary;
       });
-    } catch (e, st) {
-      print('[CierresDiariosScreen._fetchSummary] ERROR: $e');
-      print(st);
+    } catch (e) {
       if (!mounted) return;
       setState(() {
         _summaryError = e.toString();
@@ -3214,7 +3205,7 @@ class _HistoryFullScreenPageState
     final cardColor = const Color(0xFFF8FAFC);
 
     return Container(
-      height: double.infinity,
+      height: compact ? null : double.infinity,
       decoration: BoxDecoration(
         color: cardColor,
         borderRadius: BorderRadius.circular(16),
@@ -3515,11 +3506,7 @@ class _HistoryFullScreenPageState
               ],
             );
 
-            if (compact) {
-              return SingleChildScrollView(child: content);
-            }
-
-            return content;
+            return SingleChildScrollView(child: content);
           },
         ),
       ),
@@ -3536,21 +3523,8 @@ class _HistoryFullScreenPageState
       return _isWithinRange(close);
     }).toList();
 
-    final orderedFiltered = [...filtered]
+    final pairedFiltered = [...filtered]
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    final dayTypeMap = <DateTime, Map<CloseType, CloseModel>>{};
-    for (final close in orderedFiltered) {
-      final day = DateTime(close.date.year, close.date.month, close.date.day);
-      final typeMap = dayTypeMap.putIfAbsent(
-        day,
-        () => <CloseType, CloseModel>{},
-      );
-      typeMap.putIfAbsent(close.type, () => close);
-    }
-    final pairedFiltered = <CloseModel>[];
-    for (final typeMap in dayTypeMap.values) {
-      pairedFiltered.addAll(typeMap.values);
-    }
 
     final visibleIds = pairedFiltered.map((e) => e.id).toSet();
     if (_selectedCloseIds.any((id) => !visibleIds.contains(id))) {
@@ -4583,13 +4557,14 @@ class _CloseDetailFullScreenPageState
                                 List<String> rows, {
                                 String empty = 'N/D',
                               }) {
-                                if (rows.isEmpty)
+                                if (rows.isEmpty) {
                                   return Text(
                                     empty,
                                     style: Theme.of(
                                       context,
                                     ).textTheme.bodySmall,
                                   );
+                                }
                                 return Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: rows

@@ -1010,6 +1010,7 @@ class MarketingApi {
     String? whatsappPhoneNumberId,
     String? businessId,
     String? adsAccessToken,
+    String? userAccessToken,
     String? organicPageAccessToken,
   }) async {
     try {
@@ -1027,6 +1028,7 @@ class MarketingApi {
             'whatsappPhoneNumberId': whatsappPhoneNumberId,
           if (businessId != null) 'businessId': businessId,
           if (adsAccessToken != null) 'adsAccessToken': adsAccessToken,
+          if (userAccessToken != null) 'userAccessToken': userAccessToken,
           if (organicPageAccessToken != null)
             'organicPageAccessToken': organicPageAccessToken,
         },

@@ -357,6 +357,7 @@ class MetaRuntimeConfigDebug {
     required this.whatsappPhoneNumberId,
     required this.businessId,
     required this.adsTokenPreview,
+    required this.userTokenPreview,
     required this.organicTokenPreview,
   });
 
@@ -369,6 +370,7 @@ class MetaRuntimeConfigDebug {
   final String whatsappPhoneNumberId;
   final String businessId;
   final String adsTokenPreview;
+  final String userTokenPreview;
   final String organicTokenPreview;
 
   factory MetaRuntimeConfigDebug.fromJson(Map<String, dynamic> json) {
@@ -382,6 +384,7 @@ class MetaRuntimeConfigDebug {
       whatsappPhoneNumberId: '${json['whatsappPhoneNumberId'] ?? ''}',
       businessId: '${json['businessId'] ?? ''}',
       adsTokenPreview: '${json['adsTokenPreview'] ?? ''}',
+      userTokenPreview: '${json['userTokenPreview'] ?? ''}',
       organicTokenPreview: '${json['organicTokenPreview'] ?? ''}',
     );
   }

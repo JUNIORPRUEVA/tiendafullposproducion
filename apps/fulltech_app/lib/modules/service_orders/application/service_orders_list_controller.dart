@@ -120,6 +120,7 @@ class ServiceOrdersListController
       final localRepository = ref.read(serviceOrdersLocalRepositoryProvider);
       await localRepository.prepareForViewer(_viewerUserId);
       final snapshot = await localRepository.readSnapshot();
+      if (!mounted) return;
       if (snapshot.orders.isNotEmpty ||
           snapshot.clientsById.isNotEmpty ||
           snapshot.usersById.isNotEmpty) {
@@ -148,15 +149,19 @@ class ServiceOrdersListController
       try {
         final localRepository = ref.read(serviceOrdersLocalRepositoryProvider);
         await localRepository.prepareForViewer(_viewerUserId);
+        if (!mounted) return;
         final orders = await ref.read(serviceOrdersApiProvider).listOrders();
+        if (!mounted) return;
         final clients = await ref
             .read(clientesRepositoryProvider)
             .listClients(ownerId: _ownerId, pageSize: 200, skipLoader: true)
             .catchError((_) => <ClienteModel>[]);
+        if (!mounted) return;
         final users = await ref
             .read(usersRepositoryProvider)
             .getAllUsers(skipLoader: true)
             .catchError((_) => <UserModel>[]);
+        if (!mounted) return;
         final clientMap = <String, ClienteModel>{
           for (final client in clients) client.id: client,
         };
@@ -179,6 +184,7 @@ class ServiceOrdersListController
           clientsById: clientMap,
           usersById: userMap,
         );
+        if (!mounted) return;
         state = state.copyWith(
           loading: false,
           refreshing: false,
@@ -187,6 +193,7 @@ class ServiceOrdersListController
           usersById: userMap,
         );
       } catch (error) {
+        if (!mounted) return;
         if (error is ApiException && error.type == ApiErrorType.unauthorized) {
           ref.read(authSessionEventsProvider).requestUnauthorizedLogout();
           return;
@@ -211,6 +218,7 @@ class ServiceOrdersListController
 
   Future<void> deleteOrder(String id) async {
     await ref.read(serviceOrdersApiProvider).deleteOrder(id);
+    if (!mounted) return;
     final items = state.items
         .where((item) => item.id != id)
         .toList(growable: false);
@@ -230,6 +238,7 @@ class ServiceOrdersListController
     final localRepository = ref.read(serviceOrdersLocalRepositoryProvider);
     await localRepository.prepareForViewer(_viewerUserId);
     await localRepository.clearSnapshot();
+    if (!mounted) return 0;
     state = state.copyWith(
       items: const [],
       clientsById: const {},
@@ -240,6 +249,7 @@ class ServiceOrdersListController
   }
 
   void upsertOrder(ServiceOrderModel order) {
+    if (!mounted) return;
     final nextClientMap = {...state.clientsById};
     if (order.client != null) {
       nextClientMap[order.client!.id] = order.client!;
@@ -252,12 +262,13 @@ class ServiceOrdersListController
       items.add(order);
     }
     items.sort((a, b) => _orderActivityAt(b).compareTo(_orderActivityAt(a)));
+    final usersById = state.usersById;
     state = state.copyWith(items: items, clientsById: nextClientMap);
     unawaited(
       _persistSnapshot(
         items: items,
         clientsById: nextClientMap,
-        usersById: state.usersById,
+        usersById: usersById,
       ),
     );
     unawaited(
@@ -267,7 +278,7 @@ class ServiceOrdersListController
         await localRepository.saveOrder(
           order: order,
           client: order.client,
-          usersById: state.usersById,
+          usersById: usersById,
         );
       }),
     );
@@ -278,6 +289,7 @@ class ServiceOrdersListController
     required ServiceOrderStatus status,
     DateTime? scheduledFor,
   }) {
+    if (!mounted) return;
     final items = state.items
         .map(
           (item) => item.id == orderId
