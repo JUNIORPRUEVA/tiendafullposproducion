@@ -2305,6 +2305,7 @@ class _DailyStoriesTabState extends State<_DailyStoriesTab> {
           stories: widget.stories,
           busy: widget.busy,
           onApprove: widget.onApprove,
+          onRegenerateCopyFromDesign: widget.onRegenerateCopyFromDesign,
           onEdit: widget.onEdit,
           onUploadVideo: widget.onUploadVideo,
         ),
@@ -3252,6 +3253,7 @@ class _EstadoVideoScreen extends StatefulWidget {
     required this.stories,
     required this.busy,
     required this.onApprove,
+    required this.onRegenerateCopyFromDesign,
     required this.onEdit,
     required this.onUploadVideo,
   });
@@ -3263,6 +3265,7 @@ class _EstadoVideoScreen extends StatefulWidget {
     List<MarketingPublishTarget> publishTargets,
   )
   onApprove;
+  final Future<void> Function(String storyId) onRegenerateCopyFromDesign;
   final Future<void> Function(MarketingStory story, _EditStoryPayload payload)
   onEdit;
   final Future<String?> Function(BuildContext context)? onUploadVideo;
@@ -3323,6 +3326,10 @@ class _EstadoVideoScreenState extends State<_EstadoVideoScreen> {
         imageUrl: uploadedUrl.trim(),
       ),
     );
+
+    setState(() => _status = 'Analizando video y generando copy...');
+    await widget.onRegenerateCopyFromDesign(story.id);
+
     return uploadedUrl.trim();
   }
 

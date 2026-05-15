@@ -218,51 +218,48 @@ export class MarketingApprovalService {
     });
     if (!story) throw new NotFoundException('Contenido no encontrado');
 
-    String normalize(String? value) => (value ?? '').trim();
-    List<String> normalizeTags(List<String>? values) =>
-        (values ?? const <String>[])
-            .map((item) => item.trim())
-            .where((item) => item.isNotEmpty)
-            .toList(growable: false);
+    const normalize = (value?: string | null) => `${value ?? ''}`.trim();
+    const normalizeTags = (values?: string[] | null) =>
+      (values ?? []).map((item) => item.trim()).filter((item) => item.length > 0);
 
-    final currentTags = normalizeTags((story as any).hashtags as List<String>?);
-    final incomingTags = dto.hashtags != null ? normalizeTags(dto.hashtags) : currentTags;
+    const currentTags = normalizeTags((story as any).hashtags as string[] | null | undefined);
+    const incomingTags = dto.hashtags != null ? normalizeTags(dto.hashtags) : currentTags;
 
-    final hasPublishRelevantChange =
-        (dto.imageUrl != null && normalize(dto.imageUrl) != normalize((story as any).imageUrl as String?)) ||
-        (dto.title != null && normalize(dto.title) != normalize((story as any).title as String?)) ||
-        (dto.shortText != null && normalize(dto.shortText) != normalize((story as any).shortText as String?)) ||
-        (dto.longText != null && normalize(dto.longText) != normalize((story as any).longText as String?)) ||
-        (dto.imagePrompt != null && normalize(dto.imagePrompt) != normalize((story as any).imagePrompt as String?)) ||
-        (dto.usedCTA != null && normalize(dto.usedCTA) != normalize((story as any).usedCTA as String?)) ||
-        (dto.mediaAssetId != null && normalize(dto.mediaAssetId) != normalize((story as any).mediaAssetId as String?)) ||
-        incomingTags.join('|') != currentTags.join('|');
+    const hasPublishRelevantChange =
+      (dto.imageUrl != null && normalize(dto.imageUrl) !== normalize((story as any).imageUrl as string | null)) ||
+      (dto.title != null && normalize(dto.title) !== normalize((story as any).title as string | null)) ||
+      (dto.shortText != null && normalize(dto.shortText) !== normalize((story as any).shortText as string | null)) ||
+      (dto.longText != null && normalize(dto.longText) !== normalize((story as any).longText as string | null)) ||
+      (dto.imagePrompt != null && normalize(dto.imagePrompt) !== normalize((story as any).imagePrompt as string | null)) ||
+      (dto.usedCTA != null && normalize(dto.usedCTA) !== normalize((story as any).usedCTA as string | null)) ||
+      (dto.mediaAssetId != null && normalize(dto.mediaAssetId) !== normalize((story as any).mediaAssetId as string | null)) ||
+      incomingTags.join('|') !== currentTags.join('|');
 
-    final publishReset = hasPublishRelevantChange
-        ? <String, dynamic>{
-            'publishStatus': 'PENDING',
-            'publishedAt': null,
-            'publishError': null,
-            'publishErrorCode': null,
-            'publishErrorDetails': Prisma.JsonNull,
-            'publishedChannels': <String>[],
-            'publishTargets': <String>[],
-            'facebookStoryId': null,
-            'instagramStoryId': null,
-            'facebookPostId': null,
-            'instagramPostId': null,
-            'instagramMediaId': null,
-            'instagramContainerId': null,
-            'instagramStoryContainerId': null,
-            'instagramStoryPublishedAt': null,
-            'facebookStoryStatus': null,
-            'instagramStoryStatus': null,
-            'facebookPostStatus': null,
-            'instagramPostStatus': null,
-            'facebookStoryError': null,
-            'retryCount': 0,
-          }
-        : const <String, dynamic>{};
+    const publishReset: Record<string, unknown> = hasPublishRelevantChange
+      ? {
+          publishStatus: 'PENDING',
+          publishedAt: null,
+          publishError: null,
+          publishErrorCode: null,
+          publishErrorDetails: Prisma.JsonNull,
+          publishedChannels: [],
+          publishTargets: [],
+          facebookStoryId: null,
+          instagramStoryId: null,
+          facebookPostId: null,
+          instagramPostId: null,
+          instagramMediaId: null,
+          instagramContainerId: null,
+          instagramStoryContainerId: null,
+          instagramStoryPublishedAt: null,
+          facebookStoryStatus: null,
+          instagramStoryStatus: null,
+          facebookPostStatus: null,
+          instagramPostStatus: null,
+          facebookStoryError: null,
+          retryCount: 0,
+        }
+      : {};
 
     const updated = await this.prisma.marketingDailyStory.update({
       where: { id: story.id },

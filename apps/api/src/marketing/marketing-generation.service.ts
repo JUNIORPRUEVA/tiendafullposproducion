@@ -1564,22 +1564,33 @@ export class MarketingGenerationService {
   }
 
   /**
-   * Analyzes the manually uploaded design image (story.imageUrl) using OpenAI Vision
+   * Analyzes the manually uploaded final design media (image/video) using OpenAI
    * and regenerates ONLY the copy fields (title, shortText, hashtags, usedCTA).
    * Does NOT touch imageUrl, generatedImageUrl, imageStatus or the design flow.
    */
   async regenerateCopyFromDesignImage(companyId: string, storyId: string, userId: string) {
     const story = await this.prisma.marketingDailyStory.findFirst({
       where: { id: storyId, companyId },
+      include: {
+        mediaAsset: {
+          select: {
+            mimeType: true,
+          },
+        },
+      },
     });
     if (!story) throw new NotFoundException('Contenido no encontrado');
 
-    const imageUrl = (`${(story as any).imageUrl ?? ''}`.trim());
-    if (!imageUrl) {
+    const designUrl = (`${(story as any).imageUrl ?? ''}`.trim());
+    if (!designUrl) {
       throw new BadRequestException(
         'Este contenido no tiene diseño final subido. Sube el diseño primero.',
       );
     }
+    const mediaMimeType = `${(story as any).mediaAsset?.mimeType ?? ''}`
+      .trim()
+      .toLowerCase();
+    const isVideoDesign = mediaMimeType.startsWith('video/') || this.isVideoUrl(designUrl);
 
     // Retrieve OpenAI config (env takes precedence, then appConfig)
     const envKey = (process.env.OPENAI_API_KEY ?? '').trim();
@@ -1607,17 +1618,17 @@ export class MarketingGenerationService {
     if (apiKey) {
       const systemPrompt = `Eres un experto en marketing digital para la empresa ${companyName} en Higüey, República Dominicana. 
 Tu especialidad es seguridad electrónica, automatización del hogar y tecnología.
-Analizarás una imagen de diseño publicitario y generarás copy de marketing alineado al producto o servicio que SE VE VISUALMENTE en la imagen.
-Debes describir QUÉ PRODUCTO o SERVICIO aparece en la imagen y generar copy exclusivamente para ESE producto.
-NUNCA generes copy para un producto distinto al que aparece en la imagen.
+    Analizarás un diseño publicitario (imagen o video) y generarás copy de marketing alineado al producto o servicio que SE VE VISUALMENTE en el contenido.
+    Debes describir QUÉ PRODUCTO o SERVICIO aparece en el contenido y generar copy exclusivamente para ESE producto.
+    NUNCA generes copy para un producto distinto al que aparece en el contenido.
 Responde ÚNICAMENTE con JSON válido.`;
 
-      const userPrompt = `Analiza visualmente esta imagen de diseño publicitario: ${imageUrl}
+      const userPrompt = `Analiza visualmente este ${isVideoDesign ? 'video' : 'diseño'} publicitario: ${designUrl}
 
-La imagen muestra un diseño final de publicidad de ${companyName}.
+    El contenido muestra un diseño final de publicidad de ${companyName}.
 
 Tareas:
-1. Identifica el producto o servicio específico que aparece en la imagen (ej: motor de portón automático, cámara de seguridad, panel de alarma, control de acceso, etc.)
+    1. Identifica el producto o servicio específico que aparece en el contenido (ej: motor de portón automático, cámara de seguridad, panel de alarma, control de acceso, etc.)
 2. Genera copy de marketing en español dominicano para ESE producto específico
 
 Devuelve exactamente este JSON:
@@ -1633,40 +1644,26 @@ Devuelve exactamente este JSON:
 
       for (const candidate of modelCandidates) {
         try {
-          const response = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${apiKey}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: candidate,
-              temperature: 0.4,
-              messages: [
-                { role: 'system', content: systemPrompt },
-                {
-                  role: 'user',
-                  content: [
-                    {
-                      type: 'image_url',
-                      image_url: { url: imageUrl, detail: 'high' },
-                    },
-                    { type: 'text', text: userPrompt },
-                  ],
-                },
-              ],
-            }),
-          });
+            const raw = isVideoDesign
+                ? await this.requestOpenAiVideoCopy({
+                    apiKey,
+                    model: candidate,
+                    systemPrompt,
+                    userPrompt,
+                    videoUrl: designUrl,
+                  })
+                : await this.requestOpenAiImageCopy({
+                    apiKey,
+                    model: candidate,
+                    systemPrompt,
+                    userPrompt,
+                    imageUrl: designUrl,
+                  });
 
-          if (!response.ok) {
-            this.logger.warn(`[marketing-copy-from-design] OpenAI HTTP ${response.status} with model ${candidate}`);
+          if (raw == null || raw.trim().isEmpty) {
             continue;
           }
 
-          const payload = (await response.json()) as {
-            choices?: Array<{ message?: { content?: string } }>;
-          };
-          const raw = payload.choices?.[0]?.message?.content?.trim() ?? '';
           // Extract JSON from potential markdown code blocks
           const jsonMatch = raw.match(/\{[\s\S]*\}/);
           if (!jsonMatch) {
@@ -1719,7 +1716,8 @@ Devuelve exactamente este JSON:
         imageGenerationMetadata: {
           ...metadata,
           finalDesignUploaded: true,
-          finalDesignImageUrl: imageUrl,
+          finalDesignImageUrl: designUrl,
+          finalDesignMediaType: isVideoDesign ? 'video' : 'image',
           finalDesignSyncedAt: new Date().toISOString(),
         } as any,
       },
@@ -1733,7 +1731,7 @@ Devuelve exactamente este JSON:
       companyId,
       storyId,
       userId,
-      imageUrl,
+      imageUrl: designUrl,
       storyType: story.type,
       title: generatedCopy?.title || story.title,
       shortText: generatedCopy?.shortText || story.shortText,
@@ -1756,6 +1754,119 @@ Devuelve exactamente este JSON:
     }
 
     return updated;
+  }
+
+  private isVideoUrl(url: string): boolean {
+    const value = `${url ?? ''}`.trim().toLowerCase();
+    return /\.(mp4|mov|m4v|webm|mkv)(\?|$)/i.test(value);
+  }
+
+  private async requestOpenAiImageCopy(params: {
+    apiKey: string;
+    model: string;
+    systemPrompt: string;
+    userPrompt: string;
+    imageUrl: string;
+  }): Promise<string | null> {
+    const { apiKey, model, systemPrompt, userPrompt, imageUrl } = params;
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0.4,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'image_url',
+                image_url: { url: imageUrl, detail: 'high' },
+              },
+              { type: 'text', text: userPrompt },
+            ],
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      this.logger.warn(
+        `[marketing-copy-from-design] OpenAI image HTTP ${response.status} with model ${model}`,
+      );
+      return null;
+    }
+
+    const payload = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    return payload.choices?.[0]?.message?.content?.trim() ?? null;
+  }
+
+  private async requestOpenAiVideoCopy(params: {
+    apiKey: string;
+    model: string;
+    systemPrompt: string;
+    userPrompt: string;
+    videoUrl: string;
+  }): Promise<string | null> {
+    const { apiKey, model, systemPrompt, userPrompt, videoUrl } = params;
+    const response = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0.4,
+        input: [
+          {
+            role: 'system',
+            content: [{ type: 'input_text', text: systemPrompt }],
+          },
+          {
+            role: 'user',
+            content: [
+              { type: 'input_text', text: userPrompt },
+              { type: 'input_video', video_url: videoUrl },
+            ],
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      this.logger.warn(
+        `[marketing-copy-from-design] OpenAI video HTTP ${response.status} with model ${model}`,
+      );
+      return null;
+    }
+
+    const payload = (await response.json()) as Record<string, unknown>;
+    const outputText = `${payload['output_text'] ?? ''}`.trim();
+    if (outputText.length > 0) return outputText;
+
+    const output = Array.isArray(payload['output']) ? payload['output'] : [];
+    for (const item of output) {
+      if (!item || typeof item !== 'object') continue;
+      const content = Array.isArray((item as Record<string, unknown>)['content'])
+        ? ((item as Record<string, unknown>)['content'] as unknown[])
+        : [];
+      for (const part of content) {
+        if (!part || typeof part !== 'object') continue;
+        const partObj = part as Record<string, unknown>;
+        const text = `${partObj['text'] ?? ''}`.trim();
+        if (text.length > 0) {
+          return text;
+        }
+      }
+    }
+    return null;
   }
 
   private async upsertPublishedFinalDesignAsset(params: {
