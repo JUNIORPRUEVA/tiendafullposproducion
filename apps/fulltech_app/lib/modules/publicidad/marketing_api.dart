@@ -1069,4 +1069,19 @@ class MarketingApi {
       _rethrow(error, 'No se pudo validar permisos de Meta Ads');
     }
   }
+
+  Future<MetaWhatsappDebug> loadMetaWhatsappDebug() async {
+    try {
+      final res = await _dio.get(
+        ApiRoutes.marketingDebugMetaWhatsapp,
+        options: _backgroundOptions,
+      );
+      final raw =
+          (res.data as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
+      return MetaWhatsappDebug.fromJson(raw);
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo validar WhatsApp en Meta Ads');
+    }
+  }
 }

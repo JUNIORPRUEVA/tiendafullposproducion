@@ -38,6 +38,18 @@ class _PublicidadCampanasScreenV2State
 
   List<MarketingCampaign> _campaigns = const [];
   List<MarketingMediaAsset> _assets = const [];
+  MetaAdsConfigDebug _metaAdsConfig = const MetaAdsConfigDebug(
+    hasAppId: false,
+    hasAppSecret: false,
+    hasBusinessId: false,
+    hasAdAccountId: false,
+    hasPageId: false,
+    hasInstagramId: false,
+    tokenPreview: '',
+    tokenValid: false,
+    scopes: <String>[],
+    adAccountAccessible: false,
+  );
   String? _selectedId;
   final Set<String> _mediaChangeModeIds = <String>{};
   final Map<String, _CampaignCopy> _copyByCampaignId =
@@ -96,6 +108,7 @@ class _PublicidadCampanasScreenV2State
       setState(() {
         _campaigns = tuple.$1;
         _assets = assets;
+        _metaAdsConfig = tuple.$2;
         _selectedId = selected;
         for (final campaign in tuple.$1) {
           _copyByCampaignId[campaign.id] = _CampaignCopy.fromCampaign(campaign);
@@ -197,21 +210,23 @@ class _PublicidadCampanasScreenV2State
         whatsappBusinessAccountId: payload.whatsappBusinessAccountId,
         businessId: payload.businessId,
         adsAccessToken: payload.adsAccessToken,
-        userAccessToken: payload.userAccessToken,
-        organicPageAccessToken: payload.organicPageAccessToken,
       );
 
       final permissions = await api.loadMetaAdsPermissionsDebug();
+      final whatsapp = await api.loadMetaWhatsappDebug();
       if (!mounted) return;
       final fixes = permissions.recommendedFixes;
       final fixText = fixes.isEmpty ? '' : '\nSugerencia: ${fixes.first}';
+      final whatsappWarning = whatsapp.hasPermissionWarning
+          ? '\nAdvertencia: El token no puede consultar el número, pero se intentará usarlo al crear el anuncio.'
+          : '';
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             permissions.canUploadAdImage
                 ? 'Configuración Meta actualizada. Permisos Ads listos.'
-                : 'Configuración guardada. Aún faltan permisos en Meta Ads.$fixText',
+                : 'Configuración guardada. Aún faltan permisos en Meta Ads.$fixText$whatsappWarning',
           ),
         ),
       );
@@ -227,6 +242,54 @@ class _PublicidadCampanasScreenV2State
         context,
       ).showSnackBar(SnackBar(content: Text('Error: $error')));
     }
+  }
+
+  Future<void> _testMetaAdsConnection() async {
+    final api = ref.read(marketingApiProvider);
+    await _runAction('Prueba Meta Ads', () async {
+      final permissions = await api.loadMetaAdsPermissionsDebug();
+      final whatsapp = await api.loadMetaWhatsappDebug();
+      if (!mounted) return;
+
+      final checks = <String>[
+        '1. Token válido: ${permissions.tokenValid ? 'OK' : 'FALLO'}',
+        '2. ads_management: ${permissions.hasAdsManagement ? 'OK' : 'FALLO'}',
+        '3. Acceso ad account: ${permissions.adAccountAccessible ? 'OK' : 'FALLO'}',
+        '4. Acceso campaña: ${(permissions.tokenValid && permissions.hasAdsManagement && permissions.adAccountAccessible) ? 'OK' : 'FALLO'}',
+        '5. Acceso creative: ${(permissions.pageAccessible && permissions.instagramAccessible) ? 'OK' : 'FALLO'}',
+        '6. WhatsApp: ${whatsapp.phoneProbeOk ? 'OK' : 'NO VERIFICABLE'}',
+      ];
+
+      final warning = whatsapp.hasPermissionWarning
+          ? 'El token no puede consultar el número, pero se intentará usarlo al crear el anuncio.'
+          : '';
+
+      final fixes = permissions.recommendedFixes;
+      final details = [
+        ...checks,
+        if (warning.isNotEmpty) 'Advertencia: $warning',
+        if (whatsapp.phoneProbeMessage.trim().isNotEmpty)
+          'Detalle WhatsApp: ${whatsapp.phoneProbeMessage.trim()}',
+        if (fixes.isNotEmpty) 'Sugerencia: ${fixes.first}',
+      ].join('\n');
+
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Probar conexión Meta Ads'),
+          content: SizedBox(
+            width: 560,
+            child: SingleChildScrollView(child: SelectableText(details)),
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cerrar'),
+            ),
+          ],
+        ),
+      );
+    });
   }
 
   Future<void> _createDraft() async {
@@ -693,9 +756,14 @@ class _PublicidadCampanasScreenV2State
         title: 'Publicidad / Campanas',
         actions: [
           IconButton(
-            tooltip: 'Configuración de tokens Meta',
+            tooltip: 'Configuración Meta Ads',
             onPressed: _openMetaTokenSettings,
             icon: const Icon(Icons.settings_rounded),
+          ),
+          IconButton(
+            tooltip: 'Probar conexión Meta Ads',
+            onPressed: _busyAction ? null : _testMetaAdsConnection,
+            icon: const Icon(Icons.network_check_rounded),
           ),
         ],
       ),
@@ -1500,9 +1568,61 @@ class _PublicidadCampanasScreenV2State
   }
 
   Widget _buildPublishPanel(MarketingCampaign campaign) {
+    final hasAdsTokenConfigured = _metaAdsConfig.tokenPreview.trim().isNotEmpty;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: Theme.of(context).colorScheme.outlineVariant,
+            ),
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Destino: WhatsApp FullTech',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'Número: +1 829-534-4286',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Token: ${hasAdsTokenConfigured ? 'Meta Ads configurado ✅' : 'Meta Ads faltante ⚠️'}',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            OutlinedButton.icon(
+              onPressed: _busyAction ? null : _openMetaTokenSettings,
+              icon: const Icon(Icons.settings_rounded),
+              label: const Text('Configuración Meta Ads'),
+            ),
+            OutlinedButton.icon(
+              onPressed: _busyAction ? null : _testMetaAdsConnection,
+              icon: const Icon(Icons.network_check_rounded),
+              label: const Text('Probar conexión Meta Ads'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
         SizedBox(
           width: double.infinity,
           height: 48,
@@ -2325,8 +2445,6 @@ class _MetaRuntimeConfigPayload {
     required this.whatsappBusinessAccountId,
     required this.businessId,
     required this.adsAccessToken,
-    required this.userAccessToken,
-    required this.organicPageAccessToken,
   });
 
   final String graphVersion;
@@ -2339,8 +2457,6 @@ class _MetaRuntimeConfigPayload {
   final String whatsappBusinessAccountId;
   final String businessId;
   final String adsAccessToken;
-  final String userAccessToken;
-  final String organicPageAccessToken;
 }
 
 class _MetaRuntimeConfigDialog extends StatefulWidget {
@@ -2365,8 +2481,6 @@ class _MetaRuntimeConfigDialogState extends State<_MetaRuntimeConfigDialog> {
   late final TextEditingController _whatsappBusinessIdCtrl;
   late final TextEditingController _businessIdCtrl;
   late final TextEditingController _adsTokenCtrl;
-  late final TextEditingController _userTokenCtrl;
-  late final TextEditingController _organicTokenCtrl;
 
   @override
   void initState() {
@@ -2383,8 +2497,6 @@ class _MetaRuntimeConfigDialogState extends State<_MetaRuntimeConfigDialog> {
     );
     _businessIdCtrl = TextEditingController(text: widget.initial.businessId);
     _adsTokenCtrl = TextEditingController();
-    _userTokenCtrl = TextEditingController();
-    _organicTokenCtrl = TextEditingController();
   }
 
   @override
@@ -2399,15 +2511,13 @@ class _MetaRuntimeConfigDialogState extends State<_MetaRuntimeConfigDialog> {
     _whatsappBusinessIdCtrl.dispose();
     _businessIdCtrl.dispose();
     _adsTokenCtrl.dispose();
-    _userTokenCtrl.dispose();
-    _organicTokenCtrl.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Configuración Meta (Tokens)'),
+      title: const Text('Configuración Meta Ads'),
       content: SizedBox(
         width: 640,
         child: Form(
@@ -2417,7 +2527,7 @@ class _MetaRuntimeConfigDialogState extends State<_MetaRuntimeConfigDialog> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  'Separa token orgánico (página) y token Ads para evitar errores al publicar.',
+                  'Configura las credenciales exclusivas de Meta Ads para campañas.',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
                 const SizedBox(height: 12),
@@ -2428,14 +2538,14 @@ class _MetaRuntimeConfigDialogState extends State<_MetaRuntimeConfigDialog> {
                 const SizedBox(height: 10),
                 TextFormField(
                   controller: _appIdCtrl,
-                  decoration: const InputDecoration(labelText: 'META_APP_ID'),
+                  decoration: const InputDecoration(labelText: 'META_ADS_APP_ID'),
                 ),
                 const SizedBox(height: 10),
                 TextFormField(
                   controller: _appSecretCtrl,
                   obscureText: true,
                   decoration: InputDecoration(
-                    labelText: 'META_APP_SECRET',
+                    labelText: 'META_ADS_APP_SECRET',
                     helperText: widget.initial.appSecretConfigured
                         ? 'Ya configurado. Déjalo vacío para no reemplazar.'
                         : 'Obligatorio para validar debug_token.',
@@ -2478,26 +2588,8 @@ class _MetaRuntimeConfigDialogState extends State<_MetaRuntimeConfigDialog> {
                   controller: _adsTokenCtrl,
                   obscureText: true,
                   decoration: InputDecoration(
-                    labelText: 'Token Ads (META_ACCESS_TOKEN)',
+                    labelText: 'Token Ads (META_ADS_ACCESS_TOKEN)',
                     helperText: 'Actual: ${widget.initial.adsTokenPreview.isEmpty ? '-' : widget.initial.adsTokenPreview}',
-                  ),
-                ),
-                const SizedBox(height: 10),
-                TextFormField(
-                  controller: _userTokenCtrl,
-                  obscureText: true,
-                  decoration: InputDecoration(
-                    labelText: 'Token Usuario (META_USER_ACCESS_TOKEN)',
-                    helperText: 'Actual: ${widget.initial.userTokenPreview.isEmpty ? '-' : widget.initial.userTokenPreview}',
-                  ),
-                ),
-                const SizedBox(height: 10),
-                TextFormField(
-                  controller: _organicTokenCtrl,
-                  obscureText: true,
-                  decoration: InputDecoration(
-                    labelText: 'Token Orgánico (META_PAGE_ACCESS_TOKEN)',
-                    helperText: 'Actual: ${widget.initial.organicTokenPreview.isEmpty ? '-' : widget.initial.organicTokenPreview}',
                   ),
                 ),
               ],
@@ -2525,8 +2617,6 @@ class _MetaRuntimeConfigDialogState extends State<_MetaRuntimeConfigDialog> {
                 whatsappBusinessAccountId: _whatsappBusinessIdCtrl.text.trim(),
                 businessId: _businessIdCtrl.text.trim(),
                 adsAccessToken: _adsTokenCtrl.text.trim(),
-                userAccessToken: _userTokenCtrl.text.trim(),
-                organicPageAccessToken: _organicTokenCtrl.text.trim(),
               ),
             );
           },

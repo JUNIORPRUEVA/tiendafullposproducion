@@ -213,10 +213,14 @@ export class MarketingMetaAdsService {
   }
 
   private get appId() {
+    const adsAppId = (process.env.META_ADS_APP_ID ?? '').trim();
+    if (adsAppId.isNotEmpty) return adsAppId;
     return (process.env.META_APP_ID ?? '').trim();
   }
 
   private get appSecret() {
+    const adsAppSecret = (process.env.META_ADS_APP_SECRET ?? '').trim();
+    if (adsAppSecret.isNotEmpty) return adsAppSecret;
     return (process.env.META_APP_SECRET ?? '').trim();
   }
 
@@ -245,6 +249,8 @@ export class MarketingMetaAdsService {
   }
 
   private get accessToken() {
+    const adsAccessToken = (process.env.META_ADS_ACCESS_TOKEN ?? '').trim();
+    if (adsAccessToken.isNotEmpty) return adsAccessToken;
     return (process.env.META_ACCESS_TOKEN ?? '').trim();
   }
 
@@ -268,7 +274,7 @@ export class MarketingMetaAdsService {
   ensureAdsConfigured() {
     if (!this.accessToken) {
       throw new ServiceUnavailableException(
-        'No se pudo crear la campaña porque falta META_ACCESS_TOKEN.',
+        'No se pudo crear la campaña porque falta META_ADS_ACCESS_TOKEN (o fallback META_ACCESS_TOKEN).',
       );
     }
     if (!this.normalizeAccountId()) {
@@ -338,19 +344,30 @@ export class MarketingMetaAdsService {
   }
 
   getRuntimeMetaConfig(): MetaRuntimeConfigDebug {
-    const organicToken = (process.env.META_PAGE_ACCESS_TOKEN ?? '').trim();
+    const organicToken =
+      (process.env.META_ACCESS_TOKEN ?? '').trim() ||
+      (process.env.META_PAGE_ACCESS_TOKEN ?? '').trim();
     const userToken = (process.env.META_USER_ACCESS_TOKEN ?? '').trim();
+    const adsToken =
+      (process.env.META_ADS_ACCESS_TOKEN ?? '').trim() ||
+      (process.env.META_ACCESS_TOKEN ?? '').trim();
+    const runtimeAppId =
+      (process.env.META_ADS_APP_ID ?? '').trim() ||
+      (process.env.META_APP_ID ?? '').trim();
+    const runtimeAppSecret =
+      (process.env.META_ADS_APP_SECRET ?? '').trim() ||
+      (process.env.META_APP_SECRET ?? '').trim();
     return {
       graphVersion: (process.env.META_GRAPH_VERSION ?? 'v23.0').trim() || 'v23.0',
-      appId: (process.env.META_APP_ID ?? '').trim(),
-      appSecretConfigured: (process.env.META_APP_SECRET ?? '').trim().length > 0,
+      appId: runtimeAppId,
+      appSecretConfigured: runtimeAppSecret.length > 0,
       adAccountId: this.normalizeAccountId(),
       pageId: (process.env.META_FACEBOOK_PAGE_ID ?? '').trim(),
       instagramBusinessId: (process.env.META_INSTAGRAM_BUSINESS_ID ?? '').trim(),
       whatsappPhoneNumberId: (process.env.META_WHATSAPP_PHONE_NUMBER_ID ?? '').trim(),
       whatsappBusinessAccountId: (process.env.META_WHATSAPP_BUSINESS_ACCOUNT_ID ?? '').trim(),
       businessId: (process.env.META_BUSINESS_ID ?? '').trim(),
-      adsTokenPreview: this.tokenPreview((process.env.META_ACCESS_TOKEN ?? '').trim()),
+      adsTokenPreview: this.tokenPreview(adsToken),
       userTokenPreview: this.tokenPreview(userToken),
       organicTokenPreview: this.tokenPreview(organicToken),
     };
@@ -376,20 +393,20 @@ export class MarketingMetaAdsService {
     };
 
     assign('META_GRAPH_VERSION', input.graphVersion);
-    assign('META_APP_ID', input.appId);
-    assign('META_APP_SECRET', input.appSecret);
+    assign('META_ADS_APP_ID', input.appId);
+    assign('META_ADS_APP_SECRET', input.appSecret);
     assign('META_AD_ACCOUNT_ID', input.adAccountId);
     assign('META_FACEBOOK_PAGE_ID', input.pageId);
     assign('META_INSTAGRAM_BUSINESS_ID', input.instagramBusinessId);
     assign('META_WHATSAPP_PHONE_NUMBER_ID', input.whatsappPhoneNumberId);
     assign('META_WHATSAPP_BUSINESS_ACCOUNT_ID', input.whatsappBusinessAccountId);
     assign('META_BUSINESS_ID', input.businessId);
-    assign('META_ACCESS_TOKEN', input.adsAccessToken);
+    assign('META_ADS_ACCESS_TOKEN', input.adsAccessToken);
     assign('META_USER_ACCESS_TOKEN', input.userAccessToken);
-    assign('META_PAGE_ACCESS_TOKEN', input.organicPageAccessToken);
+    assign('META_ACCESS_TOKEN', input.organicPageAccessToken);
 
     this.logger.log(
-      `[meta-runtime-config] updated appId=${process.env.META_APP_ID ?? ''} adAccountId=${this.normalizeAccountId() || 'missing'} pageId=${process.env.META_FACEBOOK_PAGE_ID ?? ''} adsToken=${this.tokenPreview(process.env.META_ACCESS_TOKEN ?? '')} userToken=${this.tokenPreview(process.env.META_USER_ACCESS_TOKEN ?? '')} organicToken=${this.tokenPreview(process.env.META_PAGE_ACCESS_TOKEN ?? '')}`,
+      `[meta-runtime-config] updated adsAppId=${process.env.META_ADS_APP_ID ?? ''} adAccountId=${this.normalizeAccountId() || 'missing'} pageId=${process.env.META_FACEBOOK_PAGE_ID ?? ''} adsToken=${this.tokenPreview(process.env.META_ADS_ACCESS_TOKEN ?? process.env.META_ACCESS_TOKEN ?? '')} userToken=${this.tokenPreview(process.env.META_USER_ACCESS_TOKEN ?? '')} organicToken=${this.tokenPreview(process.env.META_ACCESS_TOKEN ?? '')}`,
     );
 
     return this.getRuntimeMetaConfig();
@@ -870,7 +887,7 @@ export class MarketingMetaAdsService {
     const response = await fetch(`${this.graphUrl('/me')}?${query.toString()}`);
     if (!response.ok) {
       const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-      throw new MetaAdsException(this.extractMetaError(payload, 'Validando token Meta', 'Verifica META_ACCESS_TOKEN y permisos ads_management.'));
+      throw new MetaAdsException(this.extractMetaError(payload, 'Validando token Meta', 'Verifica META_ADS_ACCESS_TOKEN (o fallback META_ACCESS_TOKEN) y permisos ads_management.'));
     }
   }
 
@@ -1023,7 +1040,7 @@ export class MarketingMetaAdsService {
     if (!this.accessToken.trim()) {
       return {
         ok: false,
-        message: 'META_ACCESS_TOKEN no configurado.',
+        message: 'META_ADS_ACCESS_TOKEN no configurado (ni fallback META_ACCESS_TOKEN).',
         code: null,
         subcode: null,
         fbtraceId: null,
@@ -1342,7 +1359,7 @@ export class MarketingMetaAdsService {
     stage: 'campaign' | 'adset' | 'creative' | 'upload',
     report: MetaAdsPermissionsDebugReport,
   ) {
-    if (!report.tokenValid) return 'META_ACCESS_TOKEN inválido o no corresponde a la app actual.';
+    if (!report.tokenValid) return 'META_ADS_ACCESS_TOKEN inválido o no corresponde a la app actual (ni fallback META_ACCESS_TOKEN).';
     if (!report.adAccountAccessible) return `No hay acceso al Ad Account ${report.adAccountId}.`;
     if (!report.hasAdsManagement) return 'Falta ads_management real sobre esta cuenta publicitaria.';
     if (stage === 'adset' && !report.pageAccessible) return 'La página configurada no es accesible con este token.';
@@ -1375,7 +1392,7 @@ export class MarketingMetaAdsService {
   }) {
     const fixes = new Set<string>();
 
-    if (!this.accessToken) fixes.add('Configura META_ACCESS_TOKEN con un token de system user válido.');
+    if (!this.accessToken) fixes.add('Configura META_ADS_ACCESS_TOKEN (o fallback META_ACCESS_TOKEN) con un token de system user válido.');
     if (!input.tokenValid) fixes.add('Regenera el token y reinicia el backend si cambió recientemente.');
     if (input.tokenType && input.tokenType !== 'SYSTEM_USER') fixes.add(`El token no es de system user. type=${input.tokenType}.`);
     if (!input.hasAdsManagement) fixes.add('El token debe incluir ads_management real para el Ad Account.');
@@ -1512,7 +1529,7 @@ export class MarketingMetaAdsService {
       subcode,
       fbtraceId: errorRaw.fbtrace_id != null ? `${errorRaw.fbtrace_id}` : null,
       recommendation: isAdImagePermissionError
-        ? 'Verifica que META_ACCESS_TOKEN pertenezca a un system user con acceso real al Ad Account, que la app tenga Marketing API aprobada y que META_AD_ACCOUNT_ID sea la cuenta correcta. Si necesitas compatibilidad inmediata, usa video_url directo o cambia a un Ad Account con permisos de adimages.'
+        ? 'Verifica que META_ADS_ACCESS_TOKEN (o fallback META_ACCESS_TOKEN) pertenezca a un system user con acceso real al Ad Account, que la app tenga Marketing API aprobada y que META_AD_ACCOUNT_ID sea la cuenta correcta. Si necesitas compatibilidad inmediata, usa video_url directo o cambia a un Ad Account con permisos de adimages.'
         : recommendation ?? null,
     };
   }

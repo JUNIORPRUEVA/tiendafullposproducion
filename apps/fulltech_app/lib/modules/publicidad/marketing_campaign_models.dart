@@ -396,13 +396,21 @@ class MetaRuntimeConfigDebug {
 class MetaAdsPermissionsDebug {
   const MetaAdsPermissionsDebug({
     required this.tokenValid,
+    required this.hasAdsManagement,
     required this.adAccountAccessible,
+    required this.pageAccessible,
+    required this.instagramAccessible,
+    required this.whatsappPhoneAccessible,
     required this.canUploadAdImage,
     required this.recommendedFixes,
   });
 
   final bool tokenValid;
+  final bool hasAdsManagement;
   final bool adAccountAccessible;
+  final bool pageAccessible;
+  final bool instagramAccessible;
+  final bool whatsappPhoneAccessible;
   final bool canUploadAdImage;
   final List<String> recommendedFixes;
 
@@ -410,11 +418,78 @@ class MetaAdsPermissionsDebug {
     final fixesRaw = json['recommendedFixes'];
     return MetaAdsPermissionsDebug(
       tokenValid: json['tokenValid'] == true,
+      hasAdsManagement: json['hasAdsManagement'] == true,
       adAccountAccessible: json['adAccountAccessible'] == true,
+      pageAccessible: json['pageAccessible'] == true,
+      instagramAccessible: json['instagramAccessible'] == true,
+      whatsappPhoneAccessible: json['whatsappPhoneAccessible'] == true,
       canUploadAdImage: json['canUploadAdImage'] == true,
       recommendedFixes: fixesRaw is List
           ? fixesRaw.map((item) => '$item').toList(growable: false)
           : const <String>[],
+    );
+  }
+}
+
+class MetaWhatsappDebug {
+  const MetaWhatsappDebug({
+    required this.hasMetaAccessToken,
+    required this.hasAdAccountId,
+    required this.hasFacebookPageId,
+    required this.hasInstagramBusinessId,
+    required this.hasWhatsappPhoneNumberId,
+    required this.hasWhatsappBusinessAccountId,
+    required this.whatsappPhoneNumberId,
+    required this.whatsappBusinessAccountId,
+    required this.businessId,
+    required this.tokenValid,
+    required this.scopes,
+    required this.phoneProbeOk,
+    required this.phoneProbeMessage,
+    required this.phoneProbeCode,
+  });
+
+  final bool hasMetaAccessToken;
+  final bool hasAdAccountId;
+  final bool hasFacebookPageId;
+  final bool hasInstagramBusinessId;
+  final bool hasWhatsappPhoneNumberId;
+  final bool hasWhatsappBusinessAccountId;
+  final String whatsappPhoneNumberId;
+  final String whatsappBusinessAccountId;
+  final String businessId;
+  final bool tokenValid;
+  final List<String> scopes;
+  final bool phoneProbeOk;
+  final String phoneProbeMessage;
+  final String? phoneProbeCode;
+
+  bool get hasPermissionWarning => !phoneProbeOk && (phoneProbeCode == '10');
+
+  factory MetaWhatsappDebug.fromJson(Map<String, dynamic> json) {
+    final scopesRaw = json['scopes'];
+    final phoneProbe = (json['phoneNumberProbe'] is Map)
+        ? (json['phoneNumberProbe'] as Map).cast<String, dynamic>()
+        : const <String, dynamic>{};
+    return MetaWhatsappDebug(
+      hasMetaAccessToken: json['hasMetaAccessToken'] == true,
+      hasAdAccountId: json['hasAdAccountId'] == true,
+      hasFacebookPageId: json['hasFacebookPageId'] == true,
+      hasInstagramBusinessId: json['hasInstagramBusinessId'] == true,
+      hasWhatsappPhoneNumberId: json['hasWhatsappPhoneNumberId'] == true,
+      hasWhatsappBusinessAccountId: json['hasWhatsappBusinessAccountId'] == true,
+      whatsappPhoneNumberId: '${json['whatsappPhoneNumberId'] ?? ''}',
+      whatsappBusinessAccountId: '${json['whatsappBusinessAccountId'] ?? ''}',
+      businessId: '${json['businessId'] ?? ''}',
+      tokenValid: json['tokenValid'] == true,
+      scopes: scopesRaw is List
+          ? scopesRaw.map((item) => '$item').toList(growable: false)
+          : const <String>[],
+      phoneProbeOk: phoneProbe['ok'] == true,
+      phoneProbeMessage: '${phoneProbe['message'] ?? ''}',
+      phoneProbeCode: '${phoneProbe['code'] ?? ''}'.trim().isEmpty
+          ? null
+          : '${phoneProbe['code']}',
     );
   }
 }
