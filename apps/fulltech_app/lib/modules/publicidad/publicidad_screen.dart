@@ -33,6 +33,8 @@ enum _PublicidadTab {
 
 enum _EstadosPhase { crearDiseno, copys, aprobarPublicar }
 
+enum _EstadosViewMode { normal, rapido }
+
 class MarketingMediaAssetDraft {
   const MarketingMediaAssetDraft({
     required this.fileUrl,
@@ -2078,6 +2080,22 @@ class _DailyStoriesTab extends StatefulWidget {
 
 class _DailyStoriesTabState extends State<_DailyStoriesTab> {
   _EstadosPhase _phase = _EstadosPhase.crearDiseno;
+  _EstadosViewMode _viewMode = _EstadosViewMode.normal;
+
+  Future<void> _openEstadoRapidoScreen() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _EstadoRapidoScreen(
+          stories: widget.stories,
+          busy: widget.busy,
+          onApprove: widget.onApprove,
+          onRegenerateCopyFromDesign: widget.onRegenerateCopyFromDesign,
+          onEdit: widget.onEdit,
+          onUploadDesignImage: widget.onUploadDesignImage,
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2092,7 +2110,83 @@ class _DailyStoriesTabState extends State<_DailyStoriesTab> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SegmentedButton<_EstadosPhase>(
+        if (!widget.compactActions)
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              color: Theme.of(context).colorScheme.surfaceContainerHighest
+                  .withValues(alpha: 0.35),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: SegmentedButton<_EstadosViewMode>(
+                    showSelectedIcon: false,
+                    segments: const [
+                      ButtonSegment<_EstadosViewMode>(
+                        value: _EstadosViewMode.normal,
+                        icon: Icon(Icons.view_day_outlined),
+                        label: Text('Estado normal'),
+                      ),
+                      ButtonSegment<_EstadosViewMode>(
+                        value: _EstadosViewMode.rapido,
+                        icon: Icon(Icons.flash_on_rounded),
+                        label: Text('Estado rápido'),
+                      ),
+                    ],
+                    selected: {_viewMode},
+                    onSelectionChanged: (next) {
+                      if (next.isEmpty) return;
+                      final selected = next.first;
+                      setState(() => _viewMode = selected);
+                      if (selected == _EstadosViewMode.rapido) {
+                        _openEstadoRapidoScreen();
+                      }
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        if (!widget.compactActions) const SizedBox(height: 10),
+        if (!widget.compactActions && _viewMode == _EstadosViewMode.rapido)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.35),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Modo rápido listo',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Sube imagen, genera copy y publica en Facebook/Instagram (Story + Post) desde una sola pantalla.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 10),
+                FilledButton.icon(
+                  onPressed: _openEstadoRapidoScreen,
+                  icon: const Icon(Icons.bolt_rounded),
+                  label: const Text('Abrir Estado rápido'),
+                ),
+              ],
+            ),
+          ),
+        if (!widget.compactActions && _viewMode == _EstadosViewMode.rapido)
+          const SizedBox(height: 10),
+        if (widget.compactActions || _viewMode == _EstadosViewMode.normal)
+          SegmentedButton<_EstadosPhase>(
           showSelectedIcon: false,
           style: ButtonStyle(
             visualDensity: VisualDensity.compact,
@@ -2129,9 +2223,11 @@ class _DailyStoriesTabState extends State<_DailyStoriesTab> {
             if (next.isEmpty) return;
             setState(() => _phase = next.first);
           },
-        ),
-        const SizedBox(height: 10),
-        LayoutBuilder(
+          ),
+        if (widget.compactActions || _viewMode == _EstadosViewMode.normal)
+          const SizedBox(height: 10),
+        if (widget.compactActions || _viewMode == _EstadosViewMode.normal)
+          LayoutBuilder(
           builder: (context, constraints) {
             const spacing = 12.0;
             final width = constraints.maxWidth;
@@ -2268,6 +2364,599 @@ class _DailyStoriesTabState extends State<_DailyStoriesTab> {
       if (item.id == target) return item;
     }
     return null;
+  }
+}
+
+class _EstadoRapidoScreen extends StatefulWidget {
+  const _EstadoRapidoScreen({
+    required this.stories,
+    required this.busy,
+    required this.onApprove,
+    required this.onRegenerateCopyFromDesign,
+    required this.onEdit,
+    required this.onUploadDesignImage,
+  });
+
+  final List<MarketingStory> stories;
+  final bool busy;
+  final Future<void> Function(
+    String storyId,
+    List<MarketingPublishTarget> publishTargets,
+  )
+  onApprove;
+  final Future<void> Function(String storyId) onRegenerateCopyFromDesign;
+  final Future<void> Function(MarketingStory story, _EditStoryPayload payload)
+  onEdit;
+  final Future<String?> Function(BuildContext context)? onUploadDesignImage;
+
+  @override
+  State<_EstadoRapidoScreen> createState() => _EstadoRapidoScreenState();
+}
+
+class _EstadoRapidoScreenState extends State<_EstadoRapidoScreen> {
+  static const _allTargets = <MarketingPublishTarget>[
+    MarketingPublishTarget.facebookStory,
+    MarketingPublishTarget.instagramStory,
+    MarketingPublishTarget.facebookPost,
+    MarketingPublishTarget.instagramPost,
+  ];
+
+  String? _selectedStoryId;
+  bool _running = false;
+  String _status = '';
+  late Set<MarketingPublishTarget> _selectedPublishTargets;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.stories.isNotEmpty) {
+      _selectedStoryId = widget.stories.first.id;
+    }
+    _selectedPublishTargets = _allTargets.toSet();
+  }
+
+  MarketingStory? get _selectedStory {
+    final id = (_selectedStoryId ?? '').trim();
+    if (id.isEmpty) return null;
+    for (final item in widget.stories) {
+      if (item.id == id) return item;
+    }
+    return null;
+  }
+
+  String _normalizeCopyText(String? value) {
+    final text = (value ?? '').trim();
+    if (text.isEmpty) return '';
+    return text;
+  }
+
+  Widget _buildGeneratedCopyPanel(BuildContext context, MarketingStory story) {
+    final shortText = _normalizeCopyText(story.shortText);
+    final longText = _normalizeCopyText(story.longText);
+    final hashtags = story.hashtags
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty)
+        .toList(growable: false);
+    final hasAnyCopy = shortText.isNotEmpty || longText.isNotEmpty || hashtags.isNotEmpty;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(10),
+        color: Theme.of(context).colorScheme.surface,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Copy generado',
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 8),
+          if (!hasAnyCopy)
+            Text(
+              'Todavía no hay copy generado para esta imagen.\nPulsa "Subir imagen" o "Generar copy".',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+          if (hasAnyCopy && shortText.isNotEmpty) ...[
+            Text(
+              'Texto principal',
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 4),
+            SelectableText(shortText, style: Theme.of(context).textTheme.bodyMedium),
+            const SizedBox(height: 8),
+          ],
+          if (hasAnyCopy && longText.isNotEmpty) ...[
+            Text(
+              'Copy largo',
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 4),
+            SelectableText(longText, style: Theme.of(context).textTheme.bodyMedium),
+            const SizedBox(height: 8),
+          ],
+          if (hasAnyCopy && hashtags.isNotEmpty) ...[
+            Text(
+              'Hashtags',
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 4),
+            SelectableText(
+              hashtags.map((tag) => tag.startsWith('#') ? tag : '#$tag').join(' '),
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<String?> _uploadAndAssignImage(MarketingStory story) async {
+    if (widget.onUploadDesignImage == null) {
+      throw Exception('No está disponible la subida de imagen en este modo.');
+    }
+    setState(() => _status = 'Subiendo imagen...');
+    final uploadedUrl = await widget.onUploadDesignImage!(context);
+    if (uploadedUrl == null || uploadedUrl.trim().isEmpty) {
+      return null;
+    }
+
+    setState(() => _status = 'Guardando imagen en el estado...');
+    await widget.onEdit(
+      story,
+      _EditStoryPayload(
+        title: story.title,
+        shortText: story.shortText,
+        longText: story.longText,
+        hashtags: List<String>.from(story.hashtags),
+        imagePrompt: story.imagePrompt,
+        imageUrl: uploadedUrl.trim(),
+      ),
+    );
+    return uploadedUrl.trim();
+  }
+
+  Future<void> _runFullQuickFlow() async {
+    final story = _selectedStory;
+    if (story == null) return;
+    if (_running || widget.busy) return;
+    if (_selectedPublishTargets.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Selecciona al menos un canal para publicar.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _running = true;
+      _status = 'Iniciando flujo rápido...';
+    });
+    try {
+      final uploaded = await _uploadAndAssignImage(story);
+      if (!mounted) return;
+      if (uploaded == null || uploaded.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No se subió imagen. Flujo cancelado.')),
+        );
+        return;
+      }
+
+      setState(() => _status = 'Generando copy desde el diseño...');
+      await widget.onRegenerateCopyFromDesign(story.id);
+
+      setState(() => _status = 'Publicando en los canales seleccionados...');
+      await widget.onApprove(story.id, _selectedPublishTargets.toList());
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Flujo rápido completado: publicación enviada a los canales seleccionados.'),
+        ),
+      );
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: ${error.message}')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _running = false;
+          _status = '';
+        });
+      }
+    }
+  }
+
+  Future<void> _generateCopyOnly() async {
+    final story = _selectedStory;
+    if (story == null || _running || widget.busy) return;
+    setState(() {
+      _running = true;
+      _status = 'Generando copy...';
+    });
+    try {
+      await widget.onRegenerateCopyFromDesign(story.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Copy generado correctamente.')),
+      );
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: ${error.message}')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _running = false;
+          _status = '';
+        });
+      }
+    }
+  }
+
+  Future<void> _publishAllOnly() async {
+    final story = _selectedStory;
+    if (story == null || _running || widget.busy) return;
+    if (_selectedPublishTargets.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Selecciona al menos un canal para publicar.')),
+      );
+      return;
+    }
+    setState(() {
+      _running = true;
+      _status = 'Publicando en los canales seleccionados...';
+    });
+    try {
+      await widget.onApprove(story.id, _selectedPublishTargets.toList());
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Publicación enviada a los canales seleccionados.')),
+      );
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: ${error.message}')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _running = false;
+          _status = '';
+        });
+      }
+    }
+  }
+
+  Future<void> _uploadImageOnly() async {
+    final story = _selectedStory;
+    if (story == null || _running || widget.busy) return;
+    setState(() {
+      _running = true;
+      _status = 'Preparando carga de imagen...';
+    });
+    try {
+      final uploaded = await _uploadAndAssignImage(story);
+      if (!mounted) return;
+      if (uploaded == null || uploaded.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No se seleccionó imagen.')),
+        );
+        return;
+      }
+
+      setState(() => _status = 'Generando copy desde la imagen...');
+      await widget.onRegenerateCopyFromDesign(story.id);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Imagen subida. Copy generado automáticamente.')),
+      );
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: ${error.message}')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _running = false;
+          _status = '';
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final story = _selectedStory;
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Estado rápido')),
+      body: story == null
+          ? const Center(child: Text('No hay estados disponibles para hoy.'))
+          : ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                Text(
+                  'Flujo express: subir imagen, generar copy y publicar Story + Post en Facebook e Instagram.',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: _selectedStoryId,
+                  decoration: const InputDecoration(
+                    labelText: 'Selecciona el estado',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: widget.stories
+                      .map(
+                        (item) => DropdownMenuItem<String>(
+                          value: item.id,
+                          child: Text(_storyTypeLabel(item.type)),
+                        ),
+                      )
+                      .toList(growable: false),
+                  onChanged: _running || widget.busy
+                      ? null
+                      : (value) {
+                          if (value == null) return;
+                          setState(() => _selectedStoryId = value);
+                        },
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(10),
+                    color: Theme.of(context).colorScheme.surfaceContainerHighest
+                        .withValues(alpha: 0.35),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        story.title.trim().isEmpty
+                            ? _storyTypeLabel(story.type)
+                            : story.title.trim(),
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final imageUrl = _resolveFinalImageUrl(story);
+                          final imageWidget = imageUrl.isNotEmpty
+                              ? SizedBox(
+                                  height: 280,
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(10),
+                                    child: AspectRatio(
+                                      aspectRatio: 9 / 16,
+                                      child: _StoryImageView(url: imageUrl),
+                                    ),
+                                  ),
+                                )
+                              : Container(
+                                  height: 180,
+                                  alignment: Alignment.center,
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(10),
+                                    color: Theme.of(context).colorScheme.surface,
+                                  ),
+                                  child: const Text('Aún no hay diseño final subido/generado'),
+                                );
+
+                          final copyWidget = _buildGeneratedCopyPanel(context, story);
+                          final desktopLike = constraints.maxWidth >= 900;
+
+                          if (!desktopLike) {
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                imageWidget,
+                                const SizedBox(height: 10),
+                                copyWidget,
+                              ],
+                            );
+                          }
+
+                          return Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              SizedBox(width: 240, child: imageWidget),
+                              const SizedBox(width: 12),
+                              Expanded(child: copyWidget),
+                            ],
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(10),
+                    color: Theme.of(context).colorScheme.surfaceContainerHighest
+                        .withValues(alpha: 0.35),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Canales de publicación',
+                        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      CheckboxListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Facebook Story'),
+                        subtitle: const Text('Publica como historia en Facebook Page'),
+                        value: _selectedPublishTargets
+                            .contains(MarketingPublishTarget.facebookStory),
+                        onChanged: _running || widget.busy
+                            ? null
+                            : (value) {
+                                setState(() {
+                                  if (value == true) {
+                                    _selectedPublishTargets
+                                        .add(MarketingPublishTarget.facebookStory);
+                                  } else {
+                                    _selectedPublishTargets
+                                        .remove(MarketingPublishTarget.facebookStory);
+                                  }
+                                });
+                              },
+                      ),
+                      CheckboxListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Instagram Story'),
+                        subtitle: const Text('Publica como historia en Instagram Business'),
+                        value: _selectedPublishTargets
+                            .contains(MarketingPublishTarget.instagramStory),
+                        onChanged: _running || widget.busy
+                            ? null
+                            : (value) {
+                                setState(() {
+                                  if (value == true) {
+                                    _selectedPublishTargets
+                                        .add(MarketingPublishTarget.instagramStory);
+                                  } else {
+                                    _selectedPublishTargets
+                                        .remove(MarketingPublishTarget.instagramStory);
+                                  }
+                                });
+                              },
+                      ),
+                      CheckboxListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Facebook Post'),
+                        subtitle: const Text('Publica en la Facebook Page'),
+                        value: _selectedPublishTargets
+                            .contains(MarketingPublishTarget.facebookPost),
+                        onChanged: _running || widget.busy
+                            ? null
+                            : (value) {
+                                setState(() {
+                                  if (value == true) {
+                                    _selectedPublishTargets
+                                        .add(MarketingPublishTarget.facebookPost);
+                                  } else {
+                                    _selectedPublishTargets
+                                        .remove(MarketingPublishTarget.facebookPost);
+                                  }
+                                });
+                              },
+                      ),
+                      CheckboxListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Instagram Post'),
+                        subtitle: const Text('Publica en el feed del Instagram Business'),
+                        value: _selectedPublishTargets
+                            .contains(MarketingPublishTarget.instagramPost),
+                        onChanged: _running || widget.busy
+                            ? null
+                            : (value) {
+                                setState(() {
+                                  if (value == true) {
+                                    _selectedPublishTargets
+                                        .add(MarketingPublishTarget.instagramPost);
+                                  } else {
+                                    _selectedPublishTargets
+                                        .remove(MarketingPublishTarget.instagramPost);
+                                  }
+                                });
+                              },
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: _running || widget.busy ? null : _uploadImageOnly,
+                      icon: const Icon(Icons.upload_rounded),
+                      label: const Text('Subir imagen'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: _running || widget.busy ? null : _generateCopyOnly,
+                      icon: const Icon(Icons.auto_awesome_rounded),
+                      label: const Text('Generar copy'),
+                    ),
+                    FilledButton.icon(
+                      onPressed: _running || widget.busy ? null : _publishAllOnly,
+                      icon: const Icon(Icons.publish_rounded),
+                      label: const Text('Publicar ahora'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                FilledButton.icon(
+                  onPressed: _running || widget.busy ? null : _runFullQuickFlow,
+                  icon: const Icon(Icons.flash_on_rounded),
+                  label: const Text('Ejecutar flujo rápido completo'),
+                ),
+                if (_status.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(_status)),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+    );
   }
 }
 

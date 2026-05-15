@@ -371,8 +371,10 @@ export class MarketingMetaPublisherService {
     try {
       const config = this.resolveMetaConfig(rawConfig);
       this.assertPrePublishInputs(normalizedImageUrl, caption, captionRequired);
+      // Validate reachability/type first. Story compatibility is solved by prepareStoryImage
+      // when Story channels are requested.
       imageValidation = await this.validateImageForMeta(normalizedImageUrl, {
-        requireStoryCompatibility: selection.publishFacebookStory || selection.publishInstagramStory,
+        requireStoryCompatibility: false,
       });
       await this.validateMetaConnectivity(config);
       await this.validatePageTokenPermissions(config, selection);
