@@ -61,10 +61,40 @@ export type MetaRuntimeConfigDebug = {
   pageId: string;
   instagramBusinessId: string;
   whatsappPhoneNumberId: string;
+  whatsappBusinessAccountId: string;
   businessId: string;
   adsTokenPreview: string;
   userTokenPreview: string;
   organicTokenPreview: string;
+};
+
+export type MetaWhatsappDebugReport = {
+  hasMetaAccessToken: boolean;
+  hasAdAccountId: boolean;
+  hasFacebookPageId: boolean;
+  hasInstagramBusinessId: boolean;
+  hasWhatsappPhoneNumberId: boolean;
+  hasWhatsappBusinessAccountId: boolean;
+  whatsappPhoneNumberId: string;
+  whatsappBusinessAccountId: string;
+  businessId: string;
+  tokenValid: boolean;
+  tokenType: string | null;
+  scopes: string[];
+  phoneNumberProbe: {
+    ok: boolean;
+    message: string;
+    code: string | null;
+    subcode: string | null;
+    fbtraceId: string | null;
+  };
+  whatsappBusinessProbe: {
+    ok: boolean;
+    message: string;
+    code: string | null;
+    subcode: string | null;
+    fbtraceId: string | null;
+  };
 };
 
 type MetaAdsIds = {
@@ -210,6 +240,10 @@ export class MarketingMetaAdsService {
     return (process.env.META_WHATSAPP_PHONE_NUMBER_ID ?? '').trim();
   }
 
+  private get whatsappBusinessAccountId() {
+    return (process.env.META_WHATSAPP_BUSINESS_ACCOUNT_ID ?? '').trim();
+  }
+
   private get accessToken() {
     return (process.env.META_ACCESS_TOKEN ?? '').trim();
   }
@@ -314,6 +348,7 @@ export class MarketingMetaAdsService {
       pageId: (process.env.META_FACEBOOK_PAGE_ID ?? '').trim(),
       instagramBusinessId: (process.env.META_INSTAGRAM_BUSINESS_ID ?? '').trim(),
       whatsappPhoneNumberId: (process.env.META_WHATSAPP_PHONE_NUMBER_ID ?? '').trim(),
+      whatsappBusinessAccountId: (process.env.META_WHATSAPP_BUSINESS_ACCOUNT_ID ?? '').trim(),
       businessId: (process.env.META_BUSINESS_ID ?? '').trim(),
       adsTokenPreview: this.tokenPreview((process.env.META_ACCESS_TOKEN ?? '').trim()),
       userTokenPreview: this.tokenPreview(userToken),
@@ -329,6 +364,7 @@ export class MarketingMetaAdsService {
     pageId?: string;
     instagramBusinessId?: string;
     whatsappPhoneNumberId?: string;
+    whatsappBusinessAccountId?: string;
     businessId?: string;
     adsAccessToken?: string;
     userAccessToken?: string;
@@ -346,6 +382,7 @@ export class MarketingMetaAdsService {
     assign('META_FACEBOOK_PAGE_ID', input.pageId);
     assign('META_INSTAGRAM_BUSINESS_ID', input.instagramBusinessId);
     assign('META_WHATSAPP_PHONE_NUMBER_ID', input.whatsappPhoneNumberId);
+    assign('META_WHATSAPP_BUSINESS_ACCOUNT_ID', input.whatsappBusinessAccountId);
     assign('META_BUSINESS_ID', input.businessId);
     assign('META_ACCESS_TOKEN', input.adsAccessToken);
     assign('META_USER_ACCESS_TOKEN', input.userAccessToken);
@@ -378,8 +415,16 @@ export class MarketingMetaAdsService {
     await this.emitStep(input, 'VALIDATING_INSTAGRAM', 'Validando Instagram Business', 'DONE');
 
     await this.emitStep(input, 'VALIDATING_WHATSAPP', 'Validando WhatsApp FullTech', 'RUNNING');
-    await this.validateWhatsappPhoneNumber();
-    await this.emitStep(input, 'VALIDATING_WHATSAPP', 'Validando WhatsApp FullTech', 'DONE', this.whatsappPhoneNumberId);
+    const whatsappValidation = await this.validateWhatsappPhoneNumberFlexible();
+    await this.emitStep(
+      input,
+      'VALIDATING_WHATSAPP',
+      'Validando WhatsApp FullTech',
+      'DONE',
+      whatsappValidation.warningMessage?.trim().isNotEmpty == true
+        ? whatsappValidation.warningMessage
+        : this.whatsappPhoneNumberId,
+    );
 
     await this.emitStep(input, 'VALIDATING_MEDIA', 'Validando media publica HTTPS', 'RUNNING');
     await this.validatePublicMediaUrl(input.mediaUrl);
@@ -547,6 +592,17 @@ export class MarketingMetaAdsService {
     };
   }
 
+  private buildWhatsappCtaValue(link: string) {
+    return {
+      link,
+      app_destination: 'WHATSAPP',
+      whatsapp_phone_number: this.whatsappPhoneNumberId,
+      whatsapp_destination: {
+        phone_number_id: this.whatsappPhoneNumberId,
+      },
+    };
+  }
+
   private buildCreativePayload(
     input: CreateFlowInput,
     media: PreparedCreativeMedia,
@@ -573,11 +629,7 @@ export class MarketingMetaAdsService {
                 description: input.description ?? '',
                 call_to_action: {
                   type: finalCta,
-                  value: {
-                    link,
-                    app_destination: 'WHATSAPP',
-                    whatsapp_phone_number: this.whatsappPhoneNumberId,
-                  },
+                  value: this.buildWhatsappCtaValue(link),
                 },
               },
             }
@@ -589,11 +641,7 @@ export class MarketingMetaAdsService {
                 link_description: input.description ?? '',
                 call_to_action: {
                   type: finalCta,
-                  value: {
-                    link,
-                    app_destination: 'WHATSAPP',
-                    whatsapp_phone_number: this.whatsappPhoneNumberId,
-                  },
+                  value: this.buildWhatsappCtaValue(link),
                 },
               },
             }),
@@ -868,20 +916,144 @@ export class MarketingMetaAdsService {
     }
   }
 
-  private async validateWhatsappPhoneNumber() {
+  private async validateWhatsappPhoneNumberFlexible(): Promise<{
+    validated: boolean;
+    warningMessage: string | null;
+  }> {
     const query = new URLSearchParams({
       fields: 'id,display_phone_number,verified_name',
       access_token: this.accessToken,
     });
     const response = await fetch(`${this.graphUrl(`/${this.whatsappPhoneNumberId}`)}?${query.toString()}`);
     const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-    if (!response.ok) {
-      throw new MetaAdsException(this.extractMetaError(
-        payload,
-        'Validando WhatsApp Phone Number ID',
-        'Verifica que META_WHATSAPP_PHONE_NUMBER_ID este autorizado para esta cuenta publicitaria y Business Manager.',
-      ));
+    if (response.ok) {
+      return { validated: true, warningMessage: null };
     }
+
+    const details = this.extractMetaError(
+      payload,
+      'Validando WhatsApp Phone Number ID',
+      'Verifica que META_WHATSAPP_PHONE_NUMBER_ID este autorizado para esta cuenta publicitaria y Business Manager.',
+    );
+
+    const canBypassValidation =
+      details.code === '10' &&
+      this.whatsappPhoneNumberId.length > 0 &&
+      this.pageId.length > 0 &&
+      this.normalizeAccountId().length > 0 &&
+      this.accessToken.length > 0;
+
+    if (canBypassValidation) {
+      const warningMessage =
+        'No se pudo validar el WhatsApp Phone Number ID por permisos, pero se continuara usando el ID configurado.';
+      this.logger.warn(
+        `[meta-ads] whatsapp-validation-warning code=10 phoneId=${this.whatsappPhoneNumberId} message=${details.message}`,
+      );
+      return { validated: false, warningMessage };
+    }
+
+    throw new MetaAdsException(details);
+  }
+
+  async debugMetaWhatsapp(): Promise<MetaWhatsappDebugReport> {
+    const token = await this.inspectTokenDetails().catch(() => ({
+      tokenValid: false,
+      scopes: [] as string[],
+      tokenType: null as string | null,
+    }));
+
+    const hasMetaAccessToken = this.accessToken.length > 0;
+    const hasAdAccountId = this.normalizeAccountId().length > 0;
+    const hasFacebookPageId = this.pageId.length > 0;
+    const hasInstagramBusinessId = this.igBusinessId.length > 0;
+    const hasWhatsappPhoneNumberId = this.whatsappPhoneNumberId.length > 0;
+    const hasWhatsappBusinessAccountId = this.whatsappBusinessAccountId.length > 0;
+
+    const probePhone = await this.probeMetaEntity(
+      hasWhatsappPhoneNumberId ? this.whatsappPhoneNumberId : '',
+      'id,display_phone_number,verified_name,quality_rating',
+      'No se pudo validar WhatsApp Phone Number ID',
+    );
+
+    const probeWaba = await this.probeMetaEntity(
+      hasWhatsappBusinessAccountId ? this.whatsappBusinessAccountId : '',
+      'id,name,account_review_status',
+      'No se pudo validar WhatsApp Business Account ID',
+    );
+
+    return {
+      hasMetaAccessToken,
+      hasAdAccountId,
+      hasFacebookPageId,
+      hasInstagramBusinessId,
+      hasWhatsappPhoneNumberId,
+      hasWhatsappBusinessAccountId,
+      whatsappPhoneNumberId: this.whatsappPhoneNumberId,
+      whatsappBusinessAccountId: this.whatsappBusinessAccountId,
+      businessId: this.businessId,
+      tokenValid: token.tokenValid,
+      tokenType: token.tokenType,
+      scopes: token.scopes,
+      phoneNumberProbe: probePhone,
+      whatsappBusinessProbe: probeWaba,
+    };
+  }
+
+  private async probeMetaEntity(
+    entityId: string,
+    fields: string,
+    emptyMessage: string,
+  ): Promise<{
+    ok: boolean;
+    message: string;
+    code: string | null;
+    subcode: string | null;
+    fbtraceId: string | null;
+  }> {
+    if (!entityId.trim()) {
+      return {
+        ok: false,
+        message: 'No configurado.',
+        code: null,
+        subcode: null,
+        fbtraceId: null,
+      };
+    }
+
+    if (!this.accessToken.trim()) {
+      return {
+        ok: false,
+        message: 'META_ACCESS_TOKEN no configurado.',
+        code: null,
+        subcode: null,
+        fbtraceId: null,
+      };
+    }
+
+    const query = new URLSearchParams({
+      fields,
+      access_token: this.accessToken,
+    });
+    const response = await fetch(`${this.graphUrl(`/${entityId}`)}?${query.toString()}`);
+    const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    if (response.ok) {
+      return {
+        ok: true,
+        message: 'OK',
+        code: null,
+        subcode: null,
+        fbtraceId: null,
+      };
+    }
+
+    const details = this.extractMetaError(payload, emptyMessage, null);
+    return {
+      ok: false,
+      message: details.message,
+      code: details.code ?? null,
+      subcode: details.subcode ?? null,
+      fbtraceId: details.fbtraceId ?? null,
+    };
   }
 
   private async validatePublicMediaUrl(mediaUrl: string) {

@@ -355,6 +355,7 @@ class MetaRuntimeConfigDebug {
     required this.pageId,
     required this.instagramBusinessId,
     required this.whatsappPhoneNumberId,
+    required this.whatsappBusinessAccountId,
     required this.businessId,
     required this.adsTokenPreview,
     required this.userTokenPreview,
@@ -368,6 +369,7 @@ class MetaRuntimeConfigDebug {
   final String pageId;
   final String instagramBusinessId;
   final String whatsappPhoneNumberId;
+  final String whatsappBusinessAccountId;
   final String businessId;
   final String adsTokenPreview;
   final String userTokenPreview;
@@ -382,6 +384,7 @@ class MetaRuntimeConfigDebug {
       pageId: '${json['pageId'] ?? ''}',
       instagramBusinessId: '${json['instagramBusinessId'] ?? ''}',
       whatsappPhoneNumberId: '${json['whatsappPhoneNumberId'] ?? ''}',
+      whatsappBusinessAccountId: '${json['whatsappBusinessAccountId'] ?? ''}',
       businessId: '${json['businessId'] ?? ''}',
       adsTokenPreview: '${json['adsTokenPreview'] ?? ''}',
       userTokenPreview: '${json['userTokenPreview'] ?? ''}',

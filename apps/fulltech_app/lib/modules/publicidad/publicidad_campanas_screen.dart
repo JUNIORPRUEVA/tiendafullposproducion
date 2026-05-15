@@ -23,6 +23,8 @@ class PublicidadCampanasScreen extends ConsumerStatefulWidget {
 
 class _PublicidadCampanasScreenState
     extends ConsumerState<PublicidadCampanasScreen> {
+  static const String _fixedWhatsappPhone = '+1 829-534-4286';
+
   bool _loading = true;
   bool _busy = false;
   String? _error;
@@ -112,7 +114,7 @@ class _PublicidadCampanasScreenState
     if (campaign == null) return;
     _dailyBudgetCtrl.text = campaign.dailyBudget?.toStringAsFixed(2) ?? '';
     _totalBudgetCtrl.text = campaign.totalBudget?.toStringAsFixed(2) ?? '';
-    _phoneCtrl.text = campaign.whatsappPhone ?? '';
+    _phoneCtrl.text = _fixedWhatsappPhone;
     _destinationCtrl.text = campaign.destinationUrl ?? '';
     _headlineCtrl.text = campaign.headline ?? '';
     _primaryTextCtrl.text = campaign.primaryText ?? '';
@@ -722,8 +724,11 @@ class _PublicidadCampanasScreenState
                 const SizedBox(height: 8),
                 TextField(
                   controller: _phoneCtrl,
+                  readOnly: true,
+                  enableInteractiveSelection: false,
                   decoration: const InputDecoration(
                     labelText: 'WhatsApp destino',
+                    helperText: 'Fijo: WhatsApp FullTech (no editable)',
                   ),
                 ),
                 const SizedBox(height: 8),

@@ -51,6 +51,11 @@ export class MarketingDebugController {
     return this.metaAds.debugMetaAdsPermissions();
   }
 
+  @Get('meta-whatsapp')
+  async metaWhatsapp() {
+    return this.metaAds.debugMetaWhatsapp();
+  }
+
   @Get('meta-adaccounts')
   async metaAdAccounts() {
     return this.metaAds.debugMetaAdAccounts();
@@ -72,6 +77,7 @@ export class MarketingDebugController {
       pageId?: string;
       instagramBusinessId?: string;
       whatsappPhoneNumberId?: string;
+      whatsappBusinessAccountId?: string;
       businessId?: string;
       adsAccessToken?: string;
       userAccessToken?: string;

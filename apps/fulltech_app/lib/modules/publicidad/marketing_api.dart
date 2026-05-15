@@ -1018,6 +1018,7 @@ class MarketingApi {
     String? pageId,
     String? instagramBusinessId,
     String? whatsappPhoneNumberId,
+    String? whatsappBusinessAccountId,
     String? businessId,
     String? adsAccessToken,
     String? userAccessToken,
@@ -1036,6 +1037,8 @@ class MarketingApi {
             'instagramBusinessId': instagramBusinessId,
           if (whatsappPhoneNumberId != null)
             'whatsappPhoneNumberId': whatsappPhoneNumberId,
+          if (whatsappBusinessAccountId != null)
+            'whatsappBusinessAccountId': whatsappBusinessAccountId,
           if (businessId != null) 'businessId': businessId,
           if (adsAccessToken != null) 'adsAccessToken': adsAccessToken,
           if (userAccessToken != null) 'userAccessToken': userAccessToken,

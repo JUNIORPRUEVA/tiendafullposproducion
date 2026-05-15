@@ -194,6 +194,7 @@ class _PublicidadCampanasScreenV2State
         pageId: payload.pageId,
         instagramBusinessId: payload.instagramBusinessId,
         whatsappPhoneNumberId: payload.whatsappPhoneNumberId,
+        whatsappBusinessAccountId: payload.whatsappBusinessAccountId,
         businessId: payload.businessId,
         adsAccessToken: payload.adsAccessToken,
         userAccessToken: payload.userAccessToken,
@@ -2321,6 +2322,7 @@ class _MetaRuntimeConfigPayload {
     required this.pageId,
     required this.instagramBusinessId,
     required this.whatsappPhoneNumberId,
+    required this.whatsappBusinessAccountId,
     required this.businessId,
     required this.adsAccessToken,
     required this.userAccessToken,
@@ -2334,6 +2336,7 @@ class _MetaRuntimeConfigPayload {
   final String pageId;
   final String instagramBusinessId;
   final String whatsappPhoneNumberId;
+  final String whatsappBusinessAccountId;
   final String businessId;
   final String adsAccessToken;
   final String userAccessToken;
@@ -2359,6 +2362,7 @@ class _MetaRuntimeConfigDialogState extends State<_MetaRuntimeConfigDialog> {
   late final TextEditingController _pageIdCtrl;
   late final TextEditingController _instagramIdCtrl;
   late final TextEditingController _whatsappIdCtrl;
+  late final TextEditingController _whatsappBusinessIdCtrl;
   late final TextEditingController _businessIdCtrl;
   late final TextEditingController _adsTokenCtrl;
   late final TextEditingController _userTokenCtrl;
@@ -2374,6 +2378,9 @@ class _MetaRuntimeConfigDialogState extends State<_MetaRuntimeConfigDialog> {
     _pageIdCtrl = TextEditingController(text: widget.initial.pageId);
     _instagramIdCtrl = TextEditingController(text: widget.initial.instagramBusinessId);
     _whatsappIdCtrl = TextEditingController(text: widget.initial.whatsappPhoneNumberId);
+    _whatsappBusinessIdCtrl = TextEditingController(
+      text: widget.initial.whatsappBusinessAccountId,
+    );
     _businessIdCtrl = TextEditingController(text: widget.initial.businessId);
     _adsTokenCtrl = TextEditingController();
     _userTokenCtrl = TextEditingController();
@@ -2389,6 +2396,7 @@ class _MetaRuntimeConfigDialogState extends State<_MetaRuntimeConfigDialog> {
     _pageIdCtrl.dispose();
     _instagramIdCtrl.dispose();
     _whatsappIdCtrl.dispose();
+    _whatsappBusinessIdCtrl.dispose();
     _businessIdCtrl.dispose();
     _adsTokenCtrl.dispose();
     _userTokenCtrl.dispose();
@@ -2455,6 +2463,13 @@ class _MetaRuntimeConfigDialogState extends State<_MetaRuntimeConfigDialog> {
                 ),
                 const SizedBox(height: 10),
                 TextFormField(
+                  controller: _whatsappBusinessIdCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'META_WHATSAPP_BUSINESS_ACCOUNT_ID (opcional)',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
                   controller: _businessIdCtrl,
                   decoration: const InputDecoration(labelText: 'META_BUSINESS_ID'),
                 ),
@@ -2507,6 +2522,7 @@ class _MetaRuntimeConfigDialogState extends State<_MetaRuntimeConfigDialog> {
                 pageId: _pageIdCtrl.text.trim(),
                 instagramBusinessId: _instagramIdCtrl.text.trim(),
                 whatsappPhoneNumberId: _whatsappIdCtrl.text.trim(),
+                whatsappBusinessAccountId: _whatsappBusinessIdCtrl.text.trim(),
                 businessId: _businessIdCtrl.text.trim(),
                 adsAccessToken: _adsTokenCtrl.text.trim(),
                 userAccessToken: _userTokenCtrl.text.trim(),
