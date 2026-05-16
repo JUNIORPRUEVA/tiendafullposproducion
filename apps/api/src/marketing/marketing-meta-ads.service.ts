@@ -243,13 +243,13 @@ export class MarketingMetaAdsService {
 
   private get appId() {
     const adsAppId = (process.env.META_ADS_APP_ID ?? '').trim();
-    if (adsAppId.isNotEmpty) return adsAppId;
+    if (adsAppId.length > 0) return adsAppId;
     return (process.env.META_APP_ID ?? '').trim();
   }
 
   private get appSecret() {
     const adsAppSecret = (process.env.META_ADS_APP_SECRET ?? '').trim();
-    if (adsAppSecret.isNotEmpty) return adsAppSecret;
+    if (adsAppSecret.length > 0) return adsAppSecret;
     return (process.env.META_APP_SECRET ?? '').trim();
   }
 
@@ -291,9 +291,7 @@ export class MarketingMetaAdsService {
   }
 
   private get accessToken() {
-    const adsAccessToken = (process.env.META_ADS_ACCESS_TOKEN ?? '').trim();
-    if (adsAccessToken.isNotEmpty) return adsAccessToken;
-    return (process.env.META_ACCESS_TOKEN ?? '').trim();
+    return (process.env.META_ADS_ACCESS_TOKEN ?? '').trim();
   }
 
   private get hasDedicatedAdsToken() {
@@ -432,9 +430,7 @@ export class MarketingMetaAdsService {
       (process.env.META_ACCESS_TOKEN ?? '').trim() ||
       (process.env.META_PAGE_ACCESS_TOKEN ?? '').trim();
     const userToken = (process.env.META_USER_ACCESS_TOKEN ?? '').trim();
-    const adsToken =
-      (process.env.META_ADS_ACCESS_TOKEN ?? '').trim() ||
-      (process.env.META_ACCESS_TOKEN ?? '').trim();
+    const adsToken = (process.env.META_ADS_ACCESS_TOKEN ?? '').trim();
     const runtimeAppId =
       (process.env.META_ADS_APP_ID ?? '').trim() ||
       (process.env.META_APP_ID ?? '').trim();
@@ -481,7 +477,7 @@ export class MarketingMetaAdsService {
     assign('META_GRAPH_VERSION', input.graphVersion);
     assign('META_ADS_APP_ID', input.appId);
     assign('META_ADS_APP_SECRET', input.appSecret);
-    assign('META_AD_ACCOUNT_ID', input.adAccountId?.trim().isEmpty == false ? input.adAccountId : DEFAULT_META_AD_ACCOUNT_ID);
+    assign('META_AD_ACCOUNT_ID', (input.adAccountId?.trim().length ?? 0) > 0 ? input.adAccountId : DEFAULT_META_AD_ACCOUNT_ID);
     assign('META_ADS_CAMPAIGN_MODE', input.campaignMode);
     assign('META_FACEBOOK_PAGE_ID', input.pageId);
     assign('META_INSTAGRAM_BUSINESS_ID', input.instagramBusinessId);
@@ -527,7 +523,7 @@ export class MarketingMetaAdsService {
       'VALIDATING_WHATSAPP',
       'Validando WhatsApp FullTech',
       'DONE',
-      whatsappValidation.warningMessage?.trim().isNotEmpty == true
+      (whatsappValidation.warningMessage?.trim().length ?? 0) > 0
         ? whatsappValidation.warningMessage
         : this.whatsappPhoneNumberId,
     );
@@ -1013,7 +1009,7 @@ export class MarketingMetaAdsService {
     const response = await fetch(`${this.graphUrl('/me')}?${query.toString()}`);
     if (!response.ok) {
       const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-      throw new MetaAdsException(this.extractMetaError(payload, 'Validando token Meta', 'Verifica META_ADS_ACCESS_TOKEN (o fallback META_ACCESS_TOKEN) y permisos ads_management.'));
+      throw new MetaAdsException(this.extractMetaError(payload, 'Validando token Meta', 'Verifica META_ADS_ACCESS_TOKEN y permisos ads_management.'));
     }
   }
 
@@ -1023,7 +1019,7 @@ export class MarketingMetaAdsService {
   }
 
   private assertMinimumPublishPermissions(report: MetaAdsPermissionsDebugReport) {
-    const needsBusinessManagement = this.businessId.trim().isNotEmpty;
+    const needsBusinessManagement = this.businessId.trim().length > 0;
     const requiresAdImages = this.shouldUploadImageToAdImagesFirst();
     if (!report.adAccountAccessible) {
       throw new MetaAdsException({
@@ -1203,7 +1199,7 @@ export class MarketingMetaAdsService {
     if (!this.accessToken.trim()) {
       return {
         ok: false,
-        message: 'META_ADS_ACCESS_TOKEN no configurado (ni fallback META_ACCESS_TOKEN).',
+        message: 'META_ADS_ACCESS_TOKEN no configurado. Guarda el token en Configuración Meta Ads.',
         code: null,
         subcode: null,
         fbtraceId: null,
@@ -1626,7 +1622,7 @@ export class MarketingMetaAdsService {
       await this.postForm(path, {
         ...payload,
         execution_options: '["validate_only"]',
-      }, stage, null);
+      }, stage, undefined);
       return {
         label,
         ok: true,

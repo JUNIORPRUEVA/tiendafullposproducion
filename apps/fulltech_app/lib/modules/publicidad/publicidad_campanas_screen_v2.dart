@@ -284,7 +284,7 @@ class _PublicidadCampanasScreenV2State
 
       final checks = <String>[
         'Token válido: ${permissions.tokenValid ? 'OK' : 'FALLO'}',
-        'Token Ads dedicado: ${permissions.usingAdsAccessToken ? 'OK (META_ADS_ACCESS_TOKEN)' : 'FALLO (usa fallback META_ACCESS_TOKEN)'}',
+        'Token Ads dedicado: ${permissions.usingAdsAccessToken ? 'OK (META_ADS_ACCESS_TOKEN) ✅' : 'FALLO (META_ADS_ACCESS_TOKEN no configurado) ❌'}',
         'ads_management: ${permissions.hasAdsManagement ? 'OK' : 'FALLO'}',
         'ads_read: ${permissions.hasAdsRead ? 'OK' : 'FALLO'}',
         if (_metaAdsConfig.hasBusinessId)

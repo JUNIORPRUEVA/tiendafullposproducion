@@ -1663,7 +1663,7 @@ Devuelve exactamente este JSON:
                     imageUrl: designUrl,
                   });
 
-          if (raw == null || raw.trim().isEmpty) {
+          if (raw == null || raw.trim().length === 0) {
             continue;
           }
 
