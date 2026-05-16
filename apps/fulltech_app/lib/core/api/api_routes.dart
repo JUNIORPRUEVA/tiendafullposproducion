@@ -293,6 +293,8 @@ class ApiRoutes {
       '/marketing/debug/meta-ads-permissions';
   static const marketingDebugMetaAdAccounts =
       '/marketing/debug/meta-adaccounts';
+  static const marketingDebugMetaN8nCompatibility =
+      '/marketing/debug/meta-n8n-compatibility';
   static const marketingDebugMetaWhatsapp = '/marketing/debug/meta-whatsapp';
   static const marketingContentGallery = '/marketing/content-gallery';
   static const marketingMediaAssets = '/marketing/media-assets';

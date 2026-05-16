@@ -352,6 +352,7 @@ class MetaRuntimeConfigDebug {
     required this.appId,
     required this.appSecretConfigured,
     required this.adAccountId,
+    required this.campaignMode,
     required this.pageId,
     required this.instagramBusinessId,
     required this.whatsappPhoneNumberId,
@@ -366,6 +367,7 @@ class MetaRuntimeConfigDebug {
   final String appId;
   final bool appSecretConfigured;
   final String adAccountId;
+  final String campaignMode;
   final String pageId;
   final String instagramBusinessId;
   final String whatsappPhoneNumberId;
@@ -381,6 +383,7 @@ class MetaRuntimeConfigDebug {
       appId: '${json['appId'] ?? ''}',
       appSecretConfigured: json['appSecretConfigured'] == true,
       adAccountId: '${json['adAccountId'] ?? ''}',
+      campaignMode: '${json['campaignMode'] ?? 'DIRECT_IMAGE_URL'}',
       pageId: '${json['pageId'] ?? ''}',
       instagramBusinessId: '${json['instagramBusinessId'] ?? ''}',
       whatsappPhoneNumberId: '${json['whatsappPhoneNumberId'] ?? ''}',
@@ -396,8 +399,16 @@ class MetaRuntimeConfigDebug {
 class MetaAdsPermissionsDebug {
   const MetaAdsPermissionsDebug({
     required this.tokenValid,
+    required this.tokenSource,
+    required this.usingAdsAccessToken,
+    required this.appId,
+    required this.tokenPreview,
+    required this.adAccountId,
     required this.hasAdsManagement,
+    required this.hasAdsRead,
+    required this.hasBusinessManagement,
     required this.adAccountAccessible,
+    required this.canReadAdImages,
     required this.pageAccessible,
     required this.instagramAccessible,
     required this.whatsappPhoneAccessible,
@@ -406,8 +417,16 @@ class MetaAdsPermissionsDebug {
   });
 
   final bool tokenValid;
+  final String tokenSource;
+  final bool usingAdsAccessToken;
+  final String appId;
+  final String tokenPreview;
+  final String adAccountId;
   final bool hasAdsManagement;
+  final bool hasAdsRead;
+  final bool hasBusinessManagement;
   final bool adAccountAccessible;
+  final bool canReadAdImages;
   final bool pageAccessible;
   final bool instagramAccessible;
   final bool whatsappPhoneAccessible;
@@ -418,8 +437,16 @@ class MetaAdsPermissionsDebug {
     final fixesRaw = json['recommendedFixes'];
     return MetaAdsPermissionsDebug(
       tokenValid: json['tokenValid'] == true,
+      tokenSource: '${json['tokenSource'] ?? ''}',
+      usingAdsAccessToken: json['usingAdsAccessToken'] == true,
+      appId: '${json['appId'] ?? ''}',
+      tokenPreview: '${json['tokenPreview'] ?? ''}',
+      adAccountId: '${json['adAccountId'] ?? ''}',
       hasAdsManagement: json['hasAdsManagement'] == true,
+      hasAdsRead: json['hasAdsRead'] == true,
+      hasBusinessManagement: json['hasBusinessManagement'] == true,
       adAccountAccessible: json['adAccountAccessible'] == true,
+      canReadAdImages: json['canReadAdImages'] == true,
       pageAccessible: json['pageAccessible'] == true,
       instagramAccessible: json['instagramAccessible'] == true,
       whatsappPhoneAccessible: json['whatsappPhoneAccessible'] == true,

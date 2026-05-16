@@ -2,9 +2,15 @@ import {
   Logger,
   Injectable,
   UnprocessableEntityException,
-  ServiceUnavailableException,
 } from '@nestjs/common';
 import sharp from 'sharp';
+
+const DEFAULT_META_AD_ACCOUNT_ID = 'act_1425678481793809';
+
+export type MetaAdsCampaignMode =
+  | 'DIRECT_VIDEO_URL'
+  | 'DIRECT_IMAGE_URL'
+  | 'ADIMAGES_UPLOAD';
 
 export type MetaAdsDebugConfig = {
   hasAppId: boolean;
@@ -21,6 +27,8 @@ export type MetaAdsDebugConfig = {
 
 export type MetaAdsPermissionsDebugReport = {
   tokenValid: boolean;
+  tokenSource: 'META_ADS_ACCESS_TOKEN' | 'META_ACCESS_TOKEN' | 'MISSING';
+  usingAdsAccessToken: boolean;
   appId: string;
   tokenPreview: string;
   adAccountId: string;
@@ -61,6 +69,7 @@ export type MetaRuntimeConfigDebug = {
   appId: string;
   appSecretConfigured: boolean;
   adAccountId: string;
+  campaignMode: MetaAdsCampaignMode;
   pageId: string;
   instagramBusinessId: string;
   whatsappPhoneNumberId: string;
@@ -69,6 +78,23 @@ export type MetaRuntimeConfigDebug = {
   adsTokenPreview: string;
   userTokenPreview: string;
   organicTokenPreview: string;
+};
+
+export type MetaAdsN8nCompatibilityDebug = {
+  credentialEquivalent: string;
+  adAccountId: string;
+  campaignMode: MetaAdsCampaignMode;
+  modeLabel: string;
+  tokenPreview: string;
+  appId: string;
+  checks: Array<{
+    label: string;
+    ok: boolean;
+    detail: string;
+    code?: string | null;
+    subcode?: string | null;
+    fbtraceId?: string | null;
+  }>;
 };
 
 export type MetaWhatsappDebugReport = {
@@ -232,7 +258,20 @@ export class MarketingMetaAdsService {
   }
 
   private get adAccountId() {
-    return (process.env.META_AD_ACCOUNT_ID ?? '').trim();
+    return (process.env.META_AD_ACCOUNT_ID ?? '').trim() || DEFAULT_META_AD_ACCOUNT_ID;
+  }
+
+  private get campaignMode(): MetaAdsCampaignMode {
+    const raw = (process.env.META_ADS_CAMPAIGN_MODE ?? '').trim().toUpperCase();
+    switch (raw) {
+      case 'DIRECT_VIDEO_URL':
+        return 'DIRECT_VIDEO_URL';
+      case 'ADIMAGES_UPLOAD':
+        return 'ADIMAGES_UPLOAD';
+      case 'DIRECT_IMAGE_URL':
+      default:
+        return 'DIRECT_IMAGE_URL';
+    }
   }
 
   private get pageId() {
@@ -257,6 +296,16 @@ export class MarketingMetaAdsService {
     return (process.env.META_ACCESS_TOKEN ?? '').trim();
   }
 
+  private get hasDedicatedAdsToken() {
+    return (process.env.META_ADS_ACCESS_TOKEN ?? '').trim().length > 0;
+  }
+
+  private get tokenSource(): 'META_ADS_ACCESS_TOKEN' | 'META_ACCESS_TOKEN' | 'MISSING' {
+    if (this.hasDedicatedAdsToken) return 'META_ADS_ACCESS_TOKEN';
+    if ((process.env.META_ACCESS_TOKEN ?? '').trim().length > 0) return 'META_ACCESS_TOKEN';
+    return 'MISSING';
+  }
+
   private tokenPreview(token: string) {
     if (!token) return '';
     if (token.length <= 14) return `${token.substring(0, 4)}***`;
@@ -276,29 +325,36 @@ export class MarketingMetaAdsService {
 
   ensureAdsConfigured() {
     if (!this.accessToken) {
-      throw new ServiceUnavailableException(
-        'No se pudo crear la campaña porque falta META_ADS_ACCESS_TOKEN (o fallback META_ACCESS_TOKEN).',
-      );
+      throw new MetaAdsException({
+        stage: 'Validando token Meta',
+        message: 'No se pudo crear la campaña porque falta META_ADS_ACCESS_TOKEN.',
+        recommendation: 'Configura META_ADS_ACCESS_TOKEN para campañas pagadas. No uses META_ACCESS_TOKEN para este flujo.',
+      });
     }
     if (!this.normalizeAccountId()) {
-      throw new ServiceUnavailableException(
-        'No se pudo crear la campaña porque falta META_AD_ACCOUNT_ID.',
-      );
+      throw new MetaAdsException({
+        stage: 'Validando cuenta publicitaria',
+        message: 'No se pudo crear la campaña porque falta META_AD_ACCOUNT_ID.',
+        recommendation: 'Configura META_AD_ACCOUNT_ID con el Ad Account correcto.',
+      });
     }
     if (!this.pageId) {
-      throw new ServiceUnavailableException(
-        'No se pudo crear la campaña porque falta META_FACEBOOK_PAGE_ID.',
-      );
+      throw new MetaAdsException({
+        stage: 'Validando pagina Facebook',
+        message: 'No se pudo crear la campaña porque falta META_FACEBOOK_PAGE_ID.',
+      });
     }
     if (!this.igBusinessId) {
-      throw new ServiceUnavailableException(
-        'No se pudo crear la campaña porque falta META_INSTAGRAM_BUSINESS_ID.',
-      );
+      throw new MetaAdsException({
+        stage: 'Validando Instagram Business',
+        message: 'No se pudo crear la campaña porque falta META_INSTAGRAM_BUSINESS_ID.',
+      });
     }
     if (!this.whatsappPhoneNumberId) {
-      throw new ServiceUnavailableException(
-        'No se pudo crear la campaña porque falta META_WHATSAPP_PHONE_NUMBER_ID.',
-      );
+      throw new MetaAdsException({
+        stage: 'Validando WhatsApp FullTech',
+        message: 'No se pudo crear la campaña porque falta META_WHATSAPP_PHONE_NUMBER_ID.',
+      });
     }
   }
 
@@ -328,6 +384,12 @@ export class MarketingMetaAdsService {
     return this.inspectMetaAdsPermissions();
   }
 
+  async ensureMetaAdsPublishReadiness() {
+    const report = await this.inspectMetaAdsPermissions();
+    this.assertMinimumPublishPermissions(report);
+    return report;
+  }
+
   async debugMetaAdAccounts() {
     const candidates = Array.from(new Set([
       this.normalizeAccountId(),
@@ -343,6 +405,25 @@ export class MarketingMetaAdsService {
     return {
       activeAdAccountId: this.normalizeAccountId(),
       accounts,
+    };
+  }
+
+  async debugMetaAdsN8nCompatibility(): Promise<MetaAdsN8nCompatibilityDebug> {
+    const checks: MetaAdsN8nCompatibilityDebug['checks'] = [];
+
+    checks.push(await this.runN8nGetAdAccountsCheck());
+    checks.push(await this.runN8nCampaignValidateCheck());
+    checks.push(await this.runN8nAdsetValidateCheck());
+    checks.push(await this.runN8nCreativeValidateCheck());
+
+    return {
+      credentialEquivalent: 'Token Meta Ads',
+      adAccountId: this.normalizeAccountId(),
+      campaignMode: this.campaignMode,
+      modeLabel: this.describeCampaignMode(),
+      tokenPreview: this.tokenPreview(this.accessToken),
+      appId: this.appId,
+      checks,
     };
   }
 
@@ -365,6 +446,7 @@ export class MarketingMetaAdsService {
       appId: runtimeAppId,
       appSecretConfigured: runtimeAppSecret.length > 0,
       adAccountId: this.normalizeAccountId(),
+      campaignMode: this.campaignMode,
       pageId: (process.env.META_FACEBOOK_PAGE_ID ?? '').trim(),
       instagramBusinessId: (process.env.META_INSTAGRAM_BUSINESS_ID ?? '').trim(),
       whatsappPhoneNumberId: (process.env.META_WHATSAPP_PHONE_NUMBER_ID ?? '').trim(),
@@ -381,6 +463,7 @@ export class MarketingMetaAdsService {
     appId?: string;
     appSecret?: string;
     adAccountId?: string;
+    campaignMode?: MetaAdsCampaignMode;
     pageId?: string;
     instagramBusinessId?: string;
     whatsappPhoneNumberId?: string;
@@ -398,7 +481,8 @@ export class MarketingMetaAdsService {
     assign('META_GRAPH_VERSION', input.graphVersion);
     assign('META_ADS_APP_ID', input.appId);
     assign('META_ADS_APP_SECRET', input.appSecret);
-    assign('META_AD_ACCOUNT_ID', input.adAccountId);
+    assign('META_AD_ACCOUNT_ID', input.adAccountId?.trim().isEmpty == false ? input.adAccountId : DEFAULT_META_AD_ACCOUNT_ID);
+    assign('META_ADS_CAMPAIGN_MODE', input.campaignMode);
     assign('META_FACEBOOK_PAGE_ID', input.pageId);
     assign('META_INSTAGRAM_BUSINESS_ID', input.instagramBusinessId);
     assign('META_WHATSAPP_PHONE_NUMBER_ID', input.whatsappPhoneNumberId);
@@ -448,24 +532,26 @@ export class MarketingMetaAdsService {
         : this.whatsappPhoneNumberId,
     );
 
-    // For image creatives, validate real Ad Account upload permissions before creating campaign/adset.
-    if (media.mediaType === 'IMAGE') {
-      await this.emitStep(input, 'UPLOADING_MEDIA', 'Subiendo imagen', 'RUNNING', 'Pre-validando permisos de subida /adimages');
-      await this.validateImageUploadPreflight();
-      await this.emitStep(input, 'UPLOADING_MEDIA', 'Subiendo imagen', 'DONE', 'Permisos de subida confirmados');
-    }
-
     await this.emitStep(input, 'VALIDATING_MEDIA', 'Validando media publica HTTPS', 'RUNNING');
     await this.validatePublicMediaUrl(input.mediaUrl);
     await this.emitStep(input, 'VALIDATING_MEDIA', 'Validando media publica HTTPS', 'DONE');
 
-    await this.emitStep(
-      input,
-      'UPLOADING_MEDIA',
-      'Subiendo imagen',
-      'DONE',
-      media.mode === 'DIRECT_VIDEO_URL' ? 'Usando video_url directo' : 'Usando picture URL directa',
-    );
+    if (media.mediaType === 'IMAGE' && this.shouldUploadImageToAdImagesFirst()) {
+      await this.emitStep(input, 'UPLOADING_MEDIA', 'Subiendo imagen', 'RUNNING', 'Modo AdImages: subiendo imagen al Ad Account');
+      await this.validateImageUploadPreflight();
+      media = await this.uploadImageHashToAdAccount(input);
+      await this.emitStep(input, 'UPLOADING_MEDIA', 'Subiendo imagen', 'DONE', media.imageHash);
+    } else {
+      await this.emitStep(
+        input,
+        'UPLOADING_MEDIA',
+        'Subiendo imagen',
+        'DONE',
+        media.mediaType === 'VIDEO'
+          ? 'Usando video_url directo (compatible n8n)'
+          : 'Usando picture URL directa (compatible n8n)',
+      );
+    }
 
     await this.emitStep(input, 'CREATING_CAMPAIGN', 'Creando campana', 'RUNNING');
     const campaign = await this.postForm(
@@ -483,7 +569,10 @@ export class MarketingMetaAdsService {
 
     const campaignId = `${campaign.id ?? ''}`.trim();
     if (!campaignId) {
-      throw new ServiceUnavailableException('Meta no devolvió campaign_id al crear Campaign.');
+      throw new MetaAdsException({
+        stage: 'Creando Campaign',
+        message: 'Meta no devolvió campaign_id al crear Campaign.',
+      });
     }
     await this.emitStep(input, 'CREATING_CAMPAIGN', 'Creando campana', 'DONE', campaignId);
 
@@ -518,7 +607,10 @@ export class MarketingMetaAdsService {
     );
     const adSetId = `${adset.id ?? ''}`.trim();
     if (!adSetId) {
-      throw new ServiceUnavailableException('Meta no devolvió adset_id al crear Ad Set.');
+      throw new MetaAdsException({
+        stage: 'Creando AdSet',
+        message: 'Meta no devolvió adset_id al crear Ad Set.',
+      });
     }
     await this.emitStep(input, 'CREATING_ADSET', 'Creando segmentacion', 'DONE', adSetId);
 
@@ -550,7 +642,10 @@ export class MarketingMetaAdsService {
     }
     const creativeId = `${creative.id ?? ''}`.trim();
     if (!creativeId) {
-      throw new ServiceUnavailableException('Meta no devolvió creative_id al crear Creative.');
+      throw new MetaAdsException({
+        stage: 'Creando Creative',
+        message: 'Meta no devolvió creative_id al crear Creative.',
+      });
     }
     await this.emitStep(input, 'CREATING_CREATIVE', 'Creando anuncio creativo', 'DONE', creativeId);
 
@@ -568,7 +663,10 @@ export class MarketingMetaAdsService {
     );
     const adId = `${ad.id ?? ''}`.trim();
     if (!adId) {
-      throw new ServiceUnavailableException('Meta no devolvió ad_id al crear Ad.');
+      throw new MetaAdsException({
+        stage: 'Creando Ad',
+        message: 'Meta no devolvió ad_id al crear Ad.',
+      });
     }
     await this.emitStep(input, 'CREATING_AD', 'Creando anuncio', 'DONE', adId);
 
@@ -729,7 +827,10 @@ export class MarketingMetaAdsService {
   private prepareCreativeMedia(input: CreateFlowInput): PreparedCreativeMedia {
     const mediaUrl = `${input.mediaUrl ?? ''}`.trim();
     if (!mediaUrl) {
-      throw new ServiceUnavailableException('No hay imagen o video seleccionado para subir a Meta Ads.');
+      throw new MetaAdsException({
+        stage: 'Validando media',
+        message: 'No hay imagen o video seleccionado para subir a Meta Ads.',
+      });
     }
 
     const mediaType = this.detectMediaType(input);
@@ -761,7 +862,10 @@ export class MarketingMetaAdsService {
     const firstImage = Object.values(images)[0] ?? {};
     const imageHash = `${firstImage.hash ?? response.hash ?? ''}`.trim();
     if (!imageHash) {
-      throw new ServiceUnavailableException('Meta no devolvió image_hash al subir la imagen.');
+      throw new MetaAdsException({
+        stage: 'Subiendo imagen',
+        message: 'Meta no devolvió image_hash al subir la imagen.',
+      });
     }
     return {
       mediaType: 'IMAGE',
@@ -876,10 +980,21 @@ export class MarketingMetaAdsService {
   }
 
   private async validateAccessToken() {
+    if (!this.hasDedicatedAdsToken) {
+      throw new MetaAdsException({
+        stage: 'Validando token Meta',
+        message: 'No se puede publicar campaña pagada sin META_ADS_ACCESS_TOKEN.',
+        recommendation: 'Configura META_ADS_ACCESS_TOKEN para campañas Ads. META_ACCESS_TOKEN queda reservado para publicación orgánica.',
+      });
+    }
+
     if (this.appId && this.appSecret) {
       const inspected = await this.inspectToken();
       if (!inspected.tokenValid) {
-        throw new ServiceUnavailableException('El token Meta configurado no es válido.');
+        throw new MetaAdsException({
+          stage: 'Validando token Meta',
+          message: 'El token META_ADS_ACCESS_TOKEN no es válido.',
+        });
       }
       if (!inspected.scopes.includes('ads_management')) {
         throw new MetaAdsException({
@@ -904,6 +1019,12 @@ export class MarketingMetaAdsService {
 
   private async validateAdAccount() {
     const report = await this.inspectMetaAdsPermissions();
+    this.assertMinimumPublishPermissions(report);
+  }
+
+  private assertMinimumPublishPermissions(report: MetaAdsPermissionsDebugReport) {
+    const needsBusinessManagement = this.businessId.trim().isNotEmpty;
+    const requiresAdImages = this.shouldUploadImageToAdImagesFirst();
     if (!report.adAccountAccessible) {
       throw new MetaAdsException({
         stage: 'Validando cuenta publicitaria',
@@ -916,6 +1037,37 @@ export class MarketingMetaAdsService {
         stage: 'Validando cuenta publicitaria',
         message: 'El token Meta no tiene el permiso ads_management real sobre esta cuenta publicitaria.',
         recommendation: 'Usa un token de system user con ads_management y acceso real al Ad Account.',
+      });
+    }
+    if (!report.hasAdsRead) {
+      throw new MetaAdsException({
+        stage: 'Validando cuenta publicitaria',
+        message: 'El token Meta Ads no tiene el permiso ads_read.',
+        recommendation: 'Incluye ads_read en META_ADS_ACCESS_TOKEN para inspeccionar y validar recursos de Ads.',
+      });
+    }
+    if (needsBusinessManagement && !report.hasBusinessManagement) {
+      throw new MetaAdsException({
+        stage: 'Validando cuenta publicitaria',
+        message: 'El token Meta Ads no tiene business_management y esta configuración lo requiere.',
+        recommendation: 'Incluye business_management en META_ADS_ACCESS_TOKEN cuando el Ad Account depende de Business Manager.',
+      });
+    }
+    if (requiresAdImages && !report.canReadAdImages) {
+      throw new MetaAdsException({
+        stage: 'Validando cuenta publicitaria',
+        message: 'El token Meta Ads no puede leer adimages del Ad Account.',
+        recommendation: 'Revisa asignación del system user y permisos reales sobre el Ad Account.',
+      });
+    }
+    if (requiresAdImages && !report.canUploadAdImage) {
+      throw new MetaAdsException({
+        stage: 'Subiendo imagen',
+        message:
+          'El token Meta Ads no tiene permiso real para subir imágenes al Ad Account. Revisa System User, Ads Management y acceso total a la cuenta publicitaria.',
+        code: '200',
+        subcode: '1815066',
+        recommendation: report.recommendedFixes[0] ?? null,
       });
     }
   }
@@ -1126,7 +1278,7 @@ export class MarketingMetaAdsService {
     throw new MetaAdsException({
       stage: 'Subiendo imagen',
       message:
-        'No se pudo subir la imagen al Ad Account. El token/app no tiene permiso ads_management real sobre esta cuenta publicitaria o la app no tiene acceso aprobado para esta operación.',
+        'El token Meta Ads no tiene permiso real para subir imágenes al Ad Account. Revisa System User, Ads Management y acceso total a la cuenta publicitaria.',
       code: '200',
       subcode: '1815066',
       fbtraceId: null,
@@ -1271,6 +1423,8 @@ export class MarketingMetaAdsService {
 
     return {
       tokenValid: tokenInspection.tokenValid,
+      tokenSource: this.tokenSource,
+      usingAdsAccessToken: this.tokenSource === 'META_ADS_ACCESS_TOKEN',
       appId: this.appId,
       tokenPreview: this.tokenPreview(this.accessToken),
       adAccountId: accountId,
@@ -1362,8 +1516,149 @@ export class MarketingMetaAdsService {
 
   private logMetaAdsContext(context: string) {
     this.logger.log(
-      `[meta-ads] ${context} tokenPreview=${this.tokenPreview(this.accessToken)} adAccountId=${this.normalizeAccountId() || 'missing'} appId=${this.appId || 'missing'} pageId=${this.pageId || 'missing'}`,
+      `[meta-ads] ${context} tokenPreview=${this.tokenPreview(this.accessToken)} adAccountId=${this.normalizeAccountId() || 'missing'} appId=${this.appId || 'missing'} pageId=${this.pageId || 'missing'} campaignMode=${this.campaignMode}`,
     );
+  }
+
+  private shouldUploadImageToAdImagesFirst() {
+    return this.campaignMode === 'ADIMAGES_UPLOAD';
+  }
+
+  private describeCampaignMode() {
+    switch (this.campaignMode) {
+      case 'DIRECT_VIDEO_URL':
+        return 'Compatible n8n · Video URL directo';
+      case 'ADIMAGES_UPLOAD':
+        return 'Imagen subida a AdImages';
+      case 'DIRECT_IMAGE_URL':
+      default:
+        return 'Compatible n8n · Imagen URL directa';
+    }
+  }
+
+  private async runN8nGetAdAccountsCheck() {
+    try {
+      const payload = await this.fetchGraphObject<{ data?: Array<Record<string, unknown>> }>(
+        'me/adaccounts',
+        'id,name,account_status',
+        this.accessToken,
+        { limit: '10' },
+      );
+      const total = Array.isArray(payload?.data) ? payload!.data!.length : 0;
+      return {
+        label: 'GET /me/adaccounts',
+        ok: total > 0,
+        detail: total > 0 ? `OK. ${total} cuentas visibles.` : 'Meta no devolvió cuentas publicitarias visibles.',
+        code: null,
+        subcode: null,
+        fbtraceId: null,
+      };
+    } catch (error) {
+      return this.mapN8nCheckError('GET /me/adaccounts', error);
+    }
+  }
+
+  private async runN8nCampaignValidateCheck() {
+    return this.runN8nValidateOnlyCheck(
+      `/${this.normalizeAccountId()}/campaigns`,
+      {
+        name: 'FULLTECH N8N Campaign Validation',
+        objective: 'OUTCOME_ENGAGEMENT',
+        buying_type: 'AUCTION',
+        status: 'PAUSED',
+        special_ad_categories: '[]',
+      },
+      'POST /act_1425678481793809/campaigns',
+      'Validando Campaign n8n',
+    );
+  }
+
+  private async runN8nAdsetValidateCheck() {
+    return this.runN8nValidateOnlyCheck(
+      `/${this.normalizeAccountId()}/adsets`,
+      {
+        campaign_id: '23800000000000000',
+        name: 'FULLTECH N8N AdSet Validation',
+        billing_event: 'IMPRESSIONS',
+        optimization_goal: 'REACH',
+        status: 'PAUSED',
+        daily_budget: '50000',
+        targeting: JSON.stringify({ geo_locations: { countries: ['DO'] }, age_min: 25, age_max: 50 }),
+        promoted_object: JSON.stringify(this.buildPromotedObject()),
+      },
+      'POST /act_1425678481793809/adsets',
+      'Validando AdSet n8n',
+    );
+  }
+
+  private async runN8nCreativeValidateCheck() {
+    return this.runN8nValidateOnlyCheck(
+      `/${this.normalizeAccountId()}/adcreatives`,
+      this.stringifyPayload({
+        name: 'FULLTECH N8N Creative Validation',
+        object_story_spec: {
+          page_id: this.pageId,
+          ...(this.igBusinessId ? { instagram_actor_id: this.igBusinessId } : {}),
+          video_data: {
+            video_url: 'https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+            message: 'Prueba compatible n8n',
+            title: 'FULLTECH N8N',
+            link_description: 'Validación técnica',
+            call_to_action: {
+              type: 'WHATSAPP_MESSAGE',
+              value: this.buildWhatsappCtaValue(this.resolveDestination(null)),
+            },
+          },
+        },
+      }),
+      'POST /act_1425678481793809/adcreatives',
+      'Validando Creative n8n',
+    );
+  }
+
+  private async runN8nValidateOnlyCheck(
+    path: string,
+    payload: Record<string, string>,
+    label: string,
+    stage: string,
+  ) {
+    try {
+      await this.postForm(path, {
+        ...payload,
+        execution_options: '["validate_only"]',
+      }, stage, null);
+      return {
+        label,
+        ok: true,
+        detail: 'OK (validate_only).',
+        code: null,
+        subcode: null,
+        fbtraceId: null,
+      };
+    } catch (error) {
+      return this.mapN8nCheckError(label, error);
+    }
+  }
+
+  private mapN8nCheckError(label: string, error: unknown) {
+    if (error instanceof MetaAdsException) {
+      return {
+        label,
+        ok: false,
+        detail: error.metaDetails.message,
+        code: error.metaDetails.code ?? null,
+        subcode: error.metaDetails.subcode ?? null,
+        fbtraceId: error.metaDetails.fbtraceId ?? null,
+      };
+    }
+    return {
+      label,
+      ok: false,
+      detail: error instanceof Error ? error.message : `${error}`,
+      code: null,
+      subcode: null,
+      fbtraceId: null,
+    };
   }
 
   private normalizeProvidedAccountId(raw: string) {

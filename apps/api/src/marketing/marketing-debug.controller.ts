@@ -61,6 +61,11 @@ export class MarketingDebugController {
     return this.metaAds.debugMetaAdAccounts();
   }
 
+  @Get('meta-n8n-compatibility')
+  async metaN8nCompatibility() {
+    return this.metaAds.debugMetaAdsN8nCompatibility();
+  }
+
   @Get('meta-runtime-config')
   async metaRuntimeConfig() {
     return this.metaAds.getRuntimeMetaConfig();
@@ -74,6 +79,7 @@ export class MarketingDebugController {
       appId?: string;
       appSecret?: string;
       adAccountId?: string;
+      campaignMode?: 'DIRECT_VIDEO_URL' | 'DIRECT_IMAGE_URL' | 'ADIMAGES_UPLOAD';
       pageId?: string;
       instagramBusinessId?: string;
       whatsappPhoneNumberId?: string;

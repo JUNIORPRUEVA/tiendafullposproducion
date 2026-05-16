@@ -25,6 +25,7 @@ class PublicidadCampanasScreenV2 extends ConsumerStatefulWidget {
 
 class _PublicidadCampanasScreenV2State
     extends ConsumerState<PublicidadCampanasScreenV2> {
+  static const String _defaultMetaAdAccountId = 'act_1425678481793809';
   static const String _defaultCity = 'Higüey, La Altagracia';
   static const int _defaultRadiusKm = 10;
   static const double _defaultMinAge = 25;
@@ -50,6 +51,8 @@ class _PublicidadCampanasScreenV2State
     scopes: <String>[],
     adAccountAccessible: false,
   );
+  MetaAdsPermissionsDebug? _metaAdsPermissions;
+  MetaRuntimeConfigDebug? _metaRuntimeConfig;
   String? _selectedId;
   final Set<String> _mediaChangeModeIds = <String>{};
   final Map<String, _CampaignCopy> _copyByCampaignId =
@@ -99,6 +102,12 @@ class _PublicidadCampanasScreenV2State
     try {
       final api = ref.read(marketingApiProvider);
       final tuple = await api.loadCampaigns();
+      final runtimeConfig = await api.loadMetaRuntimeConfig().catchError((_) {
+        return null;
+      });
+      final permissions = await api.loadMetaAdsPermissionsDebug().catchError((_) {
+        return null;
+      });
       final assets = _publishedCampaignAssets(await api.loadContentGallery());
       final selected = tuple.$1.any((item) => item.id == _selectedId)
           ? _selectedId
@@ -109,6 +118,8 @@ class _PublicidadCampanasScreenV2State
         _campaigns = tuple.$1;
         _assets = assets;
         _metaAdsConfig = tuple.$2;
+        _metaAdsPermissions = permissions;
+        _metaRuntimeConfig = runtimeConfig;
         _selectedId = selected;
         for (final campaign in tuple.$1) {
           _copyByCampaignId[campaign.id] = _CampaignCopy.fromCampaign(campaign);
@@ -204,6 +215,7 @@ class _PublicidadCampanasScreenV2State
         appId: payload.appId,
         appSecret: payload.appSecret,
         adAccountId: payload.adAccountId,
+        campaignMode: payload.campaignMode,
         pageId: payload.pageId,
         instagramBusinessId: payload.instagramBusinessId,
         whatsappPhoneNumberId: payload.whatsappPhoneNumberId,
@@ -212,21 +224,34 @@ class _PublicidadCampanasScreenV2State
         adsAccessToken: payload.adsAccessToken,
       );
 
+      final runtimeConfig = await api.loadMetaRuntimeConfig();
       final permissions = await api.loadMetaAdsPermissionsDebug();
-      final whatsapp = await api.loadMetaWhatsappDebug();
+      setState(() {
+        _metaRuntimeConfig = runtimeConfig;
+        _metaAdsPermissions = permissions;
+      });
+      MetaWhatsappDebug? whatsapp;
+      try {
+        whatsapp = await api.loadMetaWhatsappDebug();
+      } catch (_) {
+        // Backward compatibility: route may not exist in older deployed backend.
+      }
       if (!mounted) return;
       final fixes = permissions.recommendedFixes;
       final fixText = fixes.isEmpty ? '' : '\nSugerencia: ${fixes.first}';
-      final whatsappWarning = whatsapp.hasPermissionWarning
+      final whatsappWarning = (whatsapp?.hasPermissionWarning ?? false)
           ? '\nAdvertencia: El token no puede consultar el número, pero se intentará usarlo al crear el anuncio.'
+          : '';
+      final whatsappUnavailable = whatsapp == null
+          ? '\nNota: El debug de WhatsApp no está disponible en este backend (requiere actualización/reinicio del API).'
           : '';
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            permissions.canUploadAdImage
+            _hasMinimumMetaAdsPermissions(permissions)
                 ? 'Configuración Meta actualizada. Permisos Ads listos.'
-                : 'Configuración guardada. Aún faltan permisos en Meta Ads.$fixText$whatsappWarning',
+                : 'Configuración guardada. Aún faltan permisos en Meta Ads.$fixText$whatsappWarning$whatsappUnavailable',
           ),
         ),
       );
@@ -246,40 +271,112 @@ class _PublicidadCampanasScreenV2State
 
   Future<void> _testMetaAdsConnection() async {
     final api = ref.read(marketingApiProvider);
-    await _runAction('Prueba Meta Ads', () async {
+    await _runAction('Prueba permisos Meta Ads', () async {
       final permissions = await api.loadMetaAdsPermissionsDebug();
-      final whatsapp = await api.loadMetaWhatsappDebug();
+      setState(() => _metaAdsPermissions = permissions);
+      MetaWhatsappDebug? whatsapp;
+      try {
+        whatsapp = await api.loadMetaWhatsappDebug();
+      } catch (_) {
+        whatsapp = null;
+      }
       if (!mounted) return;
 
       final checks = <String>[
-        '1. Token válido: ${permissions.tokenValid ? 'OK' : 'FALLO'}',
-        '2. ads_management: ${permissions.hasAdsManagement ? 'OK' : 'FALLO'}',
-        '3. Acceso ad account: ${permissions.adAccountAccessible ? 'OK' : 'FALLO'}',
-        '4. Acceso campaña: ${(permissions.tokenValid && permissions.hasAdsManagement && permissions.adAccountAccessible) ? 'OK' : 'FALLO'}',
-        '5. Acceso creative: ${(permissions.pageAccessible && permissions.instagramAccessible) ? 'OK' : 'FALLO'}',
-        '6. WhatsApp: ${whatsapp.phoneProbeOk ? 'OK' : 'NO VERIFICABLE'}',
+        'Token válido: ${permissions.tokenValid ? 'OK' : 'FALLO'}',
+        'Token Ads dedicado: ${permissions.usingAdsAccessToken ? 'OK (META_ADS_ACCESS_TOKEN)' : 'FALLO (usa fallback META_ACCESS_TOKEN)'}',
+        'ads_management: ${permissions.hasAdsManagement ? 'OK' : 'FALLO'}',
+        'ads_read: ${permissions.hasAdsRead ? 'OK' : 'FALLO'}',
+        if (_metaAdsConfig.hasBusinessId)
+          'business_management: ${permissions.hasBusinessManagement ? 'OK' : 'FALLO'}',
+        'Ad Account accesible: ${permissions.adAccountAccessible ? 'OK' : 'FALLO'}',
+        'Puede leer adimages: ${permissions.canReadAdImages ? 'OK' : 'FALLO'}',
+        'Puede subir imágenes: ${permissions.canUploadAdImage ? 'OK' : 'FALLO'}',
+        'WhatsApp configurado: ${whatsapp == null ? 'ENDPOINT DEBUG NO DISPONIBLE' : (whatsapp.hasWhatsappPhoneNumberId ? 'OK' : 'FALLO')}',
       ];
 
-      final warning = whatsapp.hasPermissionWarning
+      final warning = (whatsapp?.hasPermissionWarning ?? false)
           ? 'El token no puede consultar el número, pero se intentará usarlo al crear el anuncio.'
           : '';
 
       final fixes = permissions.recommendedFixes;
       final details = [
+        'Token preview: ${permissions.tokenPreview.isEmpty ? '-' : permissions.tokenPreview}',
+        'Token source: ${permissions.tokenSource.isEmpty ? '-' : permissions.tokenSource}',
+        'App ID usado: ${permissions.appId.isEmpty ? '-' : permissions.appId}',
+        'Ad Account usado: ${permissions.adAccountId.isEmpty ? '-' : permissions.adAccountId}',
+        '',
         ...checks,
+        if (whatsapp == null)
+          'Nota: GET /marketing/debug/meta-whatsapp no existe en el backend actual. Reinicia/actualiza API para habilitarlo.',
         if (warning.isNotEmpty) 'Advertencia: $warning',
-        if (whatsapp.phoneProbeMessage.trim().isNotEmpty)
-          'Detalle WhatsApp: ${whatsapp.phoneProbeMessage.trim()}',
+        if ((whatsapp?.phoneProbeMessage.trim().isNotEmpty ?? false))
+          'Detalle WhatsApp: ${whatsapp!.phoneProbeMessage.trim()}',
         if (fixes.isNotEmpty) 'Sugerencia: ${fixes.first}',
       ].join('\n');
 
       await showDialog<void>(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text('Probar conexión Meta Ads'),
+          title: const Text('Probar permisos Meta Ads'),
           content: SizedBox(
             width: 560,
             child: SingleChildScrollView(child: SelectableText(details)),
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cerrar'),
+            ),
+          ],
+        ),
+      );
+    });
+  }
+
+  Future<void> _testMetaAdsN8nLogic() async {
+    final api = ref.read(marketingApiProvider);
+    await _runAction('Prueba lógica n8n', () async {
+      final report = await api.loadMetaN8nCompatibilityDebug();
+      if (!mounted) return;
+
+      final checksRaw = (report['checks'] is List)
+          ? (report['checks'] as List)
+          : const [];
+      final lines = <String>[
+        'Credencial equivalente: ${report['credentialEquivalent'] ?? 'Token Meta Ads'}',
+        'Cuenta Ads actual: ${report['adAccountId'] ?? _defaultMetaAdAccountId}',
+        'Modo: ${report['modeLabel'] ?? 'Compatible n8n'}',
+        'Token preview: ${report['tokenPreview'] ?? '-'}',
+        'App ID usado: ${report['appId'] ?? '-'}',
+        '',
+      ];
+
+      for (final item in checksRaw.whereType<Map>()) {
+        final check = item.cast<String, dynamic>();
+        final ok = check['ok'] == true;
+        final parts = <String>[
+          '${ok ? 'OK' : 'FALLO'} ${check['label'] ?? 'Check'}',
+          '${check['detail'] ?? ''}'.trim(),
+          if ('${check['code'] ?? ''}'.trim().isNotEmpty)
+            'code=${check['code']}',
+          if ('${check['subcode'] ?? ''}'.trim().isNotEmpty)
+            'subcode=${check['subcode']}',
+          if ('${check['fbtraceId'] ?? ''}'.trim().isNotEmpty)
+            'fbtrace_id=${check['fbtraceId']}',
+        ].where((item) => item.trim().isNotEmpty).toList(growable: false);
+        lines.add(parts.join(' · '));
+      }
+
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Probar con lógica n8n'),
+          content: SizedBox(
+            width: 620,
+            child: SingleChildScrollView(
+              child: SelectableText(lines.join('\n')),
+            ),
           ),
           actions: [
             FilledButton(
@@ -548,12 +645,85 @@ class _PublicidadCampanasScreenV2State
     if (campaign == null) return;
 
     await _runAction('Campana publicada', () async {
+      final permissions = await _refreshMetaAdsPermissions();
+      if (!_hasMinimumMetaAdsPermissions(permissions)) {
+        throw ApiException(_buildMetaAdsPermissionErrorMessage(permissions), 422);
+      }
       await _saveDraftSilently(campaign.id);
       final published = await _createMetaCampaignWithProgress(campaign.id);
       if (mounted) {
         setState(() => _upsertCampaign(published));
       }
     });
+  }
+
+  Future<MetaAdsPermissionsDebug> _refreshMetaAdsPermissions() async {
+    final permissions = await ref
+        .read(marketingApiProvider)
+        .loadMetaAdsPermissionsDebug();
+    if (mounted) {
+      setState(() => _metaAdsPermissions = permissions);
+    }
+    return permissions;
+  }
+
+  bool _hasMinimumMetaAdsPermissions(MetaAdsPermissionsDebug permissions) {
+    final needsBusinessManagement = _metaAdsConfig.hasBusinessId;
+    final requiresAdImages = _requiresAdImagesMode;
+    return permissions.tokenValid &&
+        permissions.usingAdsAccessToken &&
+        permissions.hasAdsManagement &&
+        permissions.hasAdsRead &&
+        (!needsBusinessManagement || permissions.hasBusinessManagement) &&
+        permissions.adAccountAccessible &&
+        (!requiresAdImages || permissions.canReadAdImages) &&
+        (!requiresAdImages || permissions.canUploadAdImage);
+  }
+
+  String _buildMetaAdsPermissionErrorMessage(MetaAdsPermissionsDebug permissions) {
+    if (_requiresAdImagesMode && !permissions.canUploadAdImage) {
+      return 'El token Meta Ads no tiene permiso real para subir imágenes al Ad Account. Revisa System User, Ads Management y acceso total a la cuenta publicitaria.';
+    }
+
+    final missing = <String>[];
+    if (!permissions.tokenValid) missing.add('Token inválido');
+    if (!permissions.usingAdsAccessToken) {
+      missing.add('No está usando META_ADS_ACCESS_TOKEN');
+    }
+    if (!permissions.hasAdsManagement) missing.add('Falta ads_management');
+    if (!permissions.hasAdsRead) missing.add('Falta ads_read');
+    if (_metaAdsConfig.hasBusinessId && !permissions.hasBusinessManagement) {
+      missing.add('Falta business_management');
+    }
+    if (!permissions.adAccountAccessible) {
+      missing.add('Ad Account sin acceso real');
+    }
+    if (_requiresAdImagesMode && !permissions.canReadAdImages) {
+      missing.add('No puede leer adimages');
+    }
+
+    if (missing.isEmpty) {
+      return 'Permisos Meta Ads incompletos para crear campaña.';
+    }
+
+    return 'No se puede crear campaña en Meta Ads todavía: ${missing.join(', ')}.';
+  }
+
+  bool get _requiresAdImagesMode {
+    return (_metaRuntimeConfig?.campaignMode ?? 'DIRECT_IMAGE_URL') ==
+        'ADIMAGES_UPLOAD';
+  }
+
+  String get _campaignModeLabel {
+    switch (_metaRuntimeConfig?.campaignMode ?? 'DIRECT_IMAGE_URL') {
+      case 'DIRECT_VIDEO_URL':
+        return 'Compatible n8n';
+      case 'ADIMAGES_UPLOAD':
+        return 'Imagen subida a AdImages';
+      case 'DIRECT_IMAGE_URL':
+      default:
+        return 'Compatible n8n';
+    }
   }
 
   Future<MarketingCampaign> _createMetaCampaignWithProgress(
@@ -761,7 +931,7 @@ class _PublicidadCampanasScreenV2State
             icon: const Icon(Icons.settings_rounded),
           ),
           IconButton(
-            tooltip: 'Probar conexión Meta Ads',
+            tooltip: 'Probar permisos Meta Ads',
             onPressed: _busyAction ? null : _testMetaAdsConnection,
             icon: const Icon(Icons.network_check_rounded),
           ),
@@ -1569,6 +1739,9 @@ class _PublicidadCampanasScreenV2State
 
   Widget _buildPublishPanel(MarketingCampaign campaign) {
     final hasAdsTokenConfigured = _metaAdsConfig.tokenPreview.trim().isNotEmpty;
+    final permissions = _metaAdsPermissions;
+    final canCreateMeta = permissions != null && _hasMinimumMetaAdsPermissions(permissions);
+    final runtimeConfig = _metaRuntimeConfig;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -1602,6 +1775,38 @@ class _PublicidadCampanasScreenV2State
                   fontWeight: FontWeight.w700,
                 ),
               ),
+              const SizedBox(height: 6),
+              Text(
+                'Cuenta Ads actual: ${runtimeConfig?.adAccountId.isNotEmpty == true ? runtimeConfig!.adAccountId : _defaultMetaAdAccountId}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              Text(
+                'Credencial equivalente: Token Meta Ads',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              Text(
+                'Modo: $_campaignModeLabel',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              if (permissions != null) ...[
+                const SizedBox(height: 6),
+                Text(
+                  'Token preview: ${permissions.tokenPreview.isEmpty ? '-' : permissions.tokenPreview}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                Text(
+                  'App ID: ${permissions.appId.isEmpty ? '-' : permissions.appId}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                Text(
+                  'Ad Account: ${permissions.adAccountId.isEmpty ? '-' : permissions.adAccountId}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                Text(
+                  'Fuente token: ${permissions.tokenSource.isEmpty ? '-' : permissions.tokenSource}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
             ],
           ),
         ),
@@ -1618,16 +1823,31 @@ class _PublicidadCampanasScreenV2State
             OutlinedButton.icon(
               onPressed: _busyAction ? null : _testMetaAdsConnection,
               icon: const Icon(Icons.network_check_rounded),
-              label: const Text('Probar conexión Meta Ads'),
+              label: const Text('Probar permisos Meta Ads'),
+            ),
+            OutlinedButton.icon(
+              onPressed: _busyAction ? null : _testMetaAdsN8nLogic,
+              icon: const Icon(Icons.hub_rounded),
+              label: const Text('Probar con lógica n8n'),
             ),
           ],
         ),
         const SizedBox(height: 10),
+        if (!canCreateMeta)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Text(
+              permissions == null
+                  ? 'No se pueden validar permisos de Meta Ads todavía. Usa "Probar permisos Meta Ads".'
+                  : _buildMetaAdsPermissionErrorMessage(permissions),
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ),
         SizedBox(
           width: double.infinity,
           height: 48,
           child: FilledButton.icon(
-            onPressed: _busyAction ? null : _publishCampaign,
+            onPressed: _busyAction || !canCreateMeta ? null : _publishCampaign,
             icon: _busyAction
                 ? const SizedBox(
                     width: 18,
@@ -2439,6 +2659,7 @@ class _MetaRuntimeConfigPayload {
     required this.appId,
     required this.appSecret,
     required this.adAccountId,
+    required this.campaignMode,
     required this.pageId,
     required this.instagramBusinessId,
     required this.whatsappPhoneNumberId,
@@ -2451,6 +2672,7 @@ class _MetaRuntimeConfigPayload {
   final String appId;
   final String appSecret;
   final String adAccountId;
+  final String campaignMode;
   final String pageId;
   final String instagramBusinessId;
   final String whatsappPhoneNumberId;
@@ -2471,6 +2693,20 @@ class _MetaRuntimeConfigDialog extends StatefulWidget {
 
 class _MetaRuntimeConfigDialogState extends State<_MetaRuntimeConfigDialog> {
   final _formKey = GlobalKey<FormState>();
+  static const List<DropdownMenuItem<String>> _campaignModeItems = [
+    DropdownMenuItem(
+      value: 'DIRECT_VIDEO_URL',
+      child: Text('Video URL directo'),
+    ),
+    DropdownMenuItem(
+      value: 'DIRECT_IMAGE_URL',
+      child: Text('Imagen URL directa'),
+    ),
+    DropdownMenuItem(
+      value: 'ADIMAGES_UPLOAD',
+      child: Text('Imagen subida a AdImages'),
+    ),
+  ];
   late final TextEditingController _graphVersionCtrl;
   late final TextEditingController _appIdCtrl;
   late final TextEditingController _appSecretCtrl;
@@ -2481,6 +2717,7 @@ class _MetaRuntimeConfigDialogState extends State<_MetaRuntimeConfigDialog> {
   late final TextEditingController _whatsappBusinessIdCtrl;
   late final TextEditingController _businessIdCtrl;
   late final TextEditingController _adsTokenCtrl;
+  late String _campaignMode;
 
   @override
   void initState() {
@@ -2488,7 +2725,11 @@ class _MetaRuntimeConfigDialogState extends State<_MetaRuntimeConfigDialog> {
     _graphVersionCtrl = TextEditingController(text: widget.initial.graphVersion);
     _appIdCtrl = TextEditingController(text: widget.initial.appId);
     _appSecretCtrl = TextEditingController();
-    _adAccountCtrl = TextEditingController(text: widget.initial.adAccountId);
+    _adAccountCtrl = TextEditingController(
+      text: widget.initial.adAccountId.isEmpty
+          ? _PublicidadCampanasScreenV2State._defaultMetaAdAccountId
+          : widget.initial.adAccountId,
+    );
     _pageIdCtrl = TextEditingController(text: widget.initial.pageId);
     _instagramIdCtrl = TextEditingController(text: widget.initial.instagramBusinessId);
     _whatsappIdCtrl = TextEditingController(text: widget.initial.whatsappPhoneNumberId);
@@ -2497,6 +2738,9 @@ class _MetaRuntimeConfigDialogState extends State<_MetaRuntimeConfigDialog> {
     );
     _businessIdCtrl = TextEditingController(text: widget.initial.businessId);
     _adsTokenCtrl = TextEditingController();
+    _campaignMode = widget.initial.campaignMode.isEmpty
+      ? 'DIRECT_IMAGE_URL'
+      : widget.initial.campaignMode;
   }
 
   @override
@@ -2557,6 +2801,16 @@ class _MetaRuntimeConfigDialogState extends State<_MetaRuntimeConfigDialog> {
                   decoration: const InputDecoration(labelText: 'META_AD_ACCOUNT_ID'),
                 ),
                 const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  value: _campaignMode,
+                  items: _campaignModeItems,
+                  decoration: const InputDecoration(labelText: 'Modo de campaña'),
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setState(() => _campaignMode = value);
+                  },
+                ),
+                const SizedBox(height: 10),
                 TextFormField(
                   controller: _pageIdCtrl,
                   decoration: const InputDecoration(labelText: 'META_FACEBOOK_PAGE_ID'),
@@ -2610,7 +2864,10 @@ class _MetaRuntimeConfigDialogState extends State<_MetaRuntimeConfigDialog> {
                 graphVersion: _graphVersionCtrl.text.trim(),
                 appId: _appIdCtrl.text.trim(),
                 appSecret: _appSecretCtrl.text.trim(),
-                adAccountId: _adAccountCtrl.text.trim(),
+                adAccountId: _adAccountCtrl.text.trim().isEmpty
+                    ? _PublicidadCampanasScreenV2State._defaultMetaAdAccountId
+                    : _adAccountCtrl.text.trim(),
+                campaignMode: _campaignMode,
                 pageId: _pageIdCtrl.text.trim(),
                 instagramBusinessId: _instagramIdCtrl.text.trim(),
                 whatsappPhoneNumberId: _whatsappIdCtrl.text.trim(),

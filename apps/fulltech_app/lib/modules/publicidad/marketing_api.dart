@@ -1015,6 +1015,7 @@ class MarketingApi {
     String? appId,
     String? appSecret,
     String? adAccountId,
+    String? campaignMode,
     String? pageId,
     String? instagramBusinessId,
     String? whatsappPhoneNumberId,
@@ -1032,6 +1033,7 @@ class MarketingApi {
           if (appId != null) 'appId': appId,
           if (appSecret != null) 'appSecret': appSecret,
           if (adAccountId != null) 'adAccountId': adAccountId,
+          if (campaignMode != null) 'campaignMode': campaignMode,
           if (pageId != null) 'pageId': pageId,
           if (instagramBusinessId != null)
             'instagramBusinessId': instagramBusinessId,
@@ -1082,6 +1084,19 @@ class MarketingApi {
       return MetaWhatsappDebug.fromJson(raw);
     } on DioException catch (error) {
       _rethrow(error, 'No se pudo validar WhatsApp en Meta Ads');
+    }
+  }
+
+  Future<Map<String, dynamic>> loadMetaN8nCompatibilityDebug() async {
+    try {
+      final res = await _dio.get(
+        ApiRoutes.marketingDebugMetaN8nCompatibility,
+        options: _backgroundOptions,
+      );
+      return (res.data as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
+    } on DioException catch (error) {
+      _rethrow(error, 'No se pudo probar la lógica n8n de Meta Ads');
     }
   }
 }

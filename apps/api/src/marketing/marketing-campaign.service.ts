@@ -725,6 +725,8 @@ Devuelve exactamente este JSON:
       this.asRecord(campaign.recommendedAudienceJson) ??
       this.buildAudienceRecommendation('servicios', 'Higüey', 'La Altagracia');
 
+    await this.metaAds.ensureMetaAdsPublishReadiness();
+
     const targeting = this.mapAudienceToMetaTargeting(audience);
     await this.prisma.marketingAdCampaign.update({
       where: { id },
