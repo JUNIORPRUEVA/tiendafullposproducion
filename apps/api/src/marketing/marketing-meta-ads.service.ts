@@ -258,7 +258,12 @@ export class MarketingMetaAdsService {
   }
 
   private get adAccountId() {
-    return (process.env.META_AD_ACCOUNT_ID ?? '').trim() || DEFAULT_META_AD_ACCOUNT_ID;
+    const configured = (process.env.META_AD_ACCOUNT_ID ?? '').trim();
+    // n8n-compatible direct modes must always use the known working ad account.
+    if (this.campaignMode === 'DIRECT_IMAGE_URL' || this.campaignMode === 'DIRECT_VIDEO_URL') {
+      return DEFAULT_META_AD_ACCOUNT_ID;
+    }
+    return configured || DEFAULT_META_AD_ACCOUNT_ID;
   }
 
   private get campaignMode(): MetaAdsCampaignMode {
@@ -300,7 +305,6 @@ export class MarketingMetaAdsService {
 
   private get tokenSource(): 'META_ADS_ACCESS_TOKEN' | 'META_ACCESS_TOKEN' | 'MISSING' {
     if (this.hasDedicatedAdsToken) return 'META_ADS_ACCESS_TOKEN';
-    if ((process.env.META_ACCESS_TOKEN ?? '').trim().length > 0) return 'META_ACCESS_TOKEN';
     return 'MISSING';
   }
 

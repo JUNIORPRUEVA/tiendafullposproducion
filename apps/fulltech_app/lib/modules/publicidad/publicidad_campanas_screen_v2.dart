@@ -1806,6 +1806,12 @@ class _PublicidadCampanasScreenV2State
                   'Fuente token: ${permissions.tokenSource.isEmpty ? '-' : permissions.tokenSource}',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
+                Text(
+                  permissions.usingAdsAccessToken
+                      ? 'Token usado: META_ADS_ACCESS_TOKEN ✅'
+                      : 'Token usado: META_ADS_ACCESS_TOKEN ❌',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
               ],
             ],
           ),
@@ -2678,7 +2684,7 @@ class _MetaRuntimeConfigPayload {
   final String whatsappPhoneNumberId;
   final String whatsappBusinessAccountId;
   final String businessId;
-  final String adsAccessToken;
+  final String? adsAccessToken;
 }
 
 class _MetaRuntimeConfigDialog extends StatefulWidget {
@@ -2873,7 +2879,9 @@ class _MetaRuntimeConfigDialogState extends State<_MetaRuntimeConfigDialog> {
                 whatsappPhoneNumberId: _whatsappIdCtrl.text.trim(),
                 whatsappBusinessAccountId: _whatsappBusinessIdCtrl.text.trim(),
                 businessId: _businessIdCtrl.text.trim(),
-                adsAccessToken: _adsTokenCtrl.text.trim(),
+                adsAccessToken: _adsTokenCtrl.text.trim().isEmpty
+                    ? null
+                    : _adsTokenCtrl.text.trim(),
               ),
             );
           },
