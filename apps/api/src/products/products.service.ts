@@ -266,9 +266,15 @@ export class ProductsService {
         const publicHost = new URL(this.publicBaseUrl).host.toLowerCase();
         const currentHost = parsed.host.toLowerCase();
         const normalizedPath = extractUploadsPath(parsed.pathname);
-        const isUploadsPath = normalizedPath != null;
 
-        if (isUploadsPath && currentHost !== publicHost) {
+        // Preserve fully-qualified URLs to external hosts.
+        // Do not rewrite FULLPOS-hosted upload URLs to the API public host unless
+        // they are already served from the same domain.
+        if (currentHost !== publicHost) {
+          return url;
+        }
+
+        if (normalizedPath) {
           const query = parsed.search ?? '';
           return `${this.publicBaseUrl}${normalizedPath}${query}`;
         }

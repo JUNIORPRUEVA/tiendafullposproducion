@@ -102,12 +102,18 @@ class _PublicidadCampanasScreenV2State
     try {
       final api = ref.read(marketingApiProvider);
       final tuple = await api.loadCampaigns();
-      final runtimeConfig = await api.loadMetaRuntimeConfig().catchError((_) {
-        return null;
-      });
-      final permissions = await api.loadMetaAdsPermissionsDebug().catchError((_) {
-        return null;
-      });
+      MetaRuntimeConfigDebug? runtimeConfig;
+      try {
+        runtimeConfig = await api.loadMetaRuntimeConfig();
+      } catch (_) {
+        runtimeConfig = null;
+      }
+      MetaAdsPermissionsDebug? permissions;
+      try {
+        permissions = await api.loadMetaAdsPermissionsDebug();
+      } catch (_) {
+        permissions = null;
+      }
       final assets = _publishedCampaignAssets(await api.loadContentGallery());
       final selected = tuple.$1.any((item) => item.id == _selectedId)
           ? _selectedId
@@ -2808,7 +2814,7 @@ class _MetaRuntimeConfigDialogState extends State<_MetaRuntimeConfigDialog> {
                 ),
                 const SizedBox(height: 10),
                 DropdownButtonFormField<String>(
-                  value: _campaignMode,
+                  initialValue: _campaignMode,
                   items: _campaignModeItems,
                   decoration: const InputDecoration(labelText: 'Modo de campaña'),
                   onChanged: (value) {

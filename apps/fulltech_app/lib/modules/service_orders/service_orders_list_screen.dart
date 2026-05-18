@@ -47,9 +47,9 @@ bool _shouldUseOperationsDesktopLayout(double width) {
 }
 
 double _operationsDesktopSidebarWidth(double width) {
-  if (width >= 1320) return 292;
-  if (width >= 980) return 268;
-  return 244;
+  if (width >= 1320) return 584; // Doble del ancho anterior (292 * 2)
+  if (width >= 980) return 536; // Doble del ancho anterior (268 * 2)
+  return 488; // Doble del ancho anterior (244 * 2)
 }
 
 class ServiceOrdersListScreen extends ConsumerStatefulWidget {
@@ -495,6 +495,7 @@ class _ServiceOrdersListScreenState
                     searchController: _collapsedQuickSearchCtrl,
                     availableCreators: availableCreators,
                     availableTechnicians: availableTechnicians,
+                    visibleOrders: visibleOrders,
                     onSearchChanged: (_) => setState(() {}),
                     onClearSearch: () {
                       _collapsedQuickSearchCtrl.clear();
@@ -985,7 +986,7 @@ class _ServiceOrdersListScreenState
   }
 }
 
-enum ServiceOrdersDatePreset { all, today, thisWeek, custom }
+enum ServiceOrdersDatePreset { all, today, yesterday, thisWeek, currentPayPeriod, previousPayPeriod, custom }
 
 enum ServiceOrdersCompletionFilter { any, finalizadas, noFinalizadas }
 
@@ -1112,8 +1113,14 @@ class ServiceOrdersFilter {
         return 'Órdenes activas';
       case ServiceOrdersDatePreset.today:
         return 'Hoy';
+      case ServiceOrdersDatePreset.yesterday:
+        return 'Ayer';
       case ServiceOrdersDatePreset.thisWeek:
         return 'Esta semana';
+      case ServiceOrdersDatePreset.currentPayPeriod:
+        return 'Quincena actual';
+      case ServiceOrdersDatePreset.previousPayPeriod:
+        return 'Quincena pasada';
       case ServiceOrdersDatePreset.custom:
         if (customRange == null) return 'Personalizado';
         final formatter = DateFormat('dd MMM', 'es_DO');
@@ -1167,10 +1174,49 @@ class ServiceOrdersFilter {
     final now = DateTime.now();
     final todayStart = DateTime(now.year, now.month, now.day);
     final todayEnd = todayStart.add(const Duration(days: 1));
+    final yesterdayStart = todayStart.subtract(const Duration(days: 1));
+    final yesterdayEnd = todayStart;
     final weekStart = todayStart.subtract(
       Duration(days: todayStart.weekday - 1),
     );
     final weekEnd = weekStart.add(const Duration(days: 7));
+    
+    // Calcular quincenas: 15-29 y 30-14 (del mes siguiente)
+    DateTime payPeriodStart, payPeriodEnd;
+    if (now.day >= 15 && now.day <= 29) {
+      // Primera quincena (15-29)
+      payPeriodStart = DateTime(now.year, now.month, 15);
+      payPeriodEnd = DateTime(now.year, now.month, 30);
+    } else if (now.day >= 30) {
+      // Segunda quincena (30-14 del siguiente mes)
+      payPeriodStart = DateTime(now.year, now.month, 30);
+      final nextMonth = now.month == 12 ? 1 : now.month + 1;
+      final nextYear = now.month == 12 ? now.year + 1 : now.year;
+      payPeriodEnd = DateTime(nextYear, nextMonth, 15);
+    } else {
+      // Primeros 14 días: segunda quincena del mes anterior
+      final prevMonth = now.month == 1 ? 12 : now.month - 1;
+      final prevYear = now.month == 1 ? now.year - 1 : now.year;
+      payPeriodStart = DateTime(prevYear, prevMonth, 30);
+      payPeriodEnd = DateTime(now.year, now.month, 15);
+    }
+    
+    // Quincena pasada
+    DateTime prevPayPeriodStart, prevPayPeriodEnd;
+    if (payPeriodStart.day == 15) {
+      // La quincena actual es 15-29, la pasada es 30-14
+      prevPayPeriodStart = DateTime(now.year, now.month, 30).subtract(
+        Duration(days: DateTime(now.year, now.month, 30).day - 1),
+      );
+      prevPayPeriodStart = DateTime(now.year, now.month - (now.month > 1 ? 1 : 12),
+          now.month > 1 ? 30 : 30);
+      prevPayPeriodEnd = payPeriodStart;
+    } else {
+      // La quincena actual es 30-14, la pasada es 15-29
+      prevPayPeriodStart = DateTime(now.year, now.month, 15);
+      prevPayPeriodEnd = payPeriodStart;
+    }
+    
     final customStart = customRange == null
         ? null
         : DateTime(
@@ -1194,8 +1240,14 @@ class ServiceOrdersFilter {
             ServiceOrdersDatePreset.all => true,
             ServiceOrdersDatePreset.today =>
               !activityAt.isBefore(todayStart) && activityAt.isBefore(todayEnd),
+            ServiceOrdersDatePreset.yesterday =>
+              !activityAt.isBefore(yesterdayStart) && activityAt.isBefore(yesterdayEnd),
             ServiceOrdersDatePreset.thisWeek =>
               !activityAt.isBefore(weekStart) && activityAt.isBefore(weekEnd),
+            ServiceOrdersDatePreset.currentPayPeriod =>
+              !activityAt.isBefore(payPeriodStart) && activityAt.isBefore(payPeriodEnd),
+            ServiceOrdersDatePreset.previousPayPeriod =>
+              !activityAt.isBefore(prevPayPeriodStart) && activityAt.isBefore(prevPayPeriodEnd),
             ServiceOrdersDatePreset.custom =>
               customStart != null &&
                   customEnd != null &&
@@ -1431,29 +1483,6 @@ class _FiltersSheetState extends State<_FiltersSheet> {
               _CompactHeader(
                 selectedCount: _selectedCount,
                 onClose: () => Navigator.of(context).pop(),
-              ),
-              const SizedBox(height: 12),
-              _CompactSection(
-                title: 'Cierre',
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: ServiceOrdersCompletionFilter.values
-                      .map(
-                        (value) => _ChoiceFilterTile(
-                          label: value.label,
-                          icon: value.icon,
-                          selected: _completionFilter == value,
-                          compact: true,
-                          onTap: () {
-                            setState(() {
-                              _completionFilter = value;
-                            });
-                          },
-                        ),
-                      )
-                      .toList(growable: false),
-                ),
               ),
               const SizedBox(height: 10),
               _CompactSection(
@@ -2585,6 +2614,7 @@ class _DesktopOperationsFilterSidebar extends StatefulWidget {
     required this.searchController,
     required this.availableCreators,
     required this.availableTechnicians,
+    required this.visibleOrders,
     required this.onSearchChanged,
     required this.onClearSearch,
     required this.onReset,
@@ -2598,6 +2628,7 @@ class _DesktopOperationsFilterSidebar extends StatefulWidget {
   final TextEditingController searchController;
   final List<_FilterUserOption> availableCreators;
   final List<_FilterUserOption> availableTechnicians;
+  final List<ServiceOrderModel> visibleOrders;
   final ValueChanged<String> onSearchChanged;
   final VoidCallback onClearSearch;
   final VoidCallback onReset;
@@ -2771,14 +2802,37 @@ class _DesktopOperationsFilterSidebarState
                     ],
                   ),
                   const SizedBox(height: 12),
-                  _OperationsQuickSearchField(
-                    controller: searchController,
-                    onChanged: onSearchChanged,
-                    onClear: onClearSearch,
-                    onOpenFilters: null,
-                    hasActiveFilters: filter.hasActiveFilters,
-                    hintText: 'Buscar orden, cliente, técnico',
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: _OperationsQuickSearchField(
+                          controller: searchController,
+                          onChanged: onSearchChanged,
+                          onClear: onClearSearch,
+                          onOpenFilters: null,
+                          hasActiveFilters: filter.hasActiveFilters,
+                          hintText: 'Buscar orden, cliente, técnico',
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      _DesktopDatePresetButton(
+                        selectedPreset: filter.datePreset,
+                        onSelected: _selectDatePreset,
+                      ),
+                    ],
                   ),
+                  if (filter.datePreset == ServiceOrdersDatePreset.custom)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 12, bottom: 12),
+                      child: _CustomDateRangeBanner(
+                        range: filter.customRange,
+                        compact: true,
+                        onTap: () => _selectDatePreset(
+                          ServiceOrdersDatePreset.custom,
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -2790,156 +2844,94 @@ class _DesktopOperationsFilterSidebarState
                   child: SingleChildScrollView(
                     primary: true,
                     padding: const EdgeInsets.fromLTRB(14, 2, 14, 16),
-                    child: Column(
+                    child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _SidebarFilterSection(
-                          title: 'Cierre',
-                          child: Wrap(
-                            spacing: 7,
-                            runSpacing: 7,
-                            children: ServiceOrdersCompletionFilter.values
-                                .map(
-                                  (value) => _ChoiceFilterTile(
-                                    label: value.label,
-                                    icon: value.icon,
-                                    selected: filter.completionFilter == value,
-                                    compact: true,
-                                    onTap: () => onFilterChanged(
-                                      filter.copyWith(completionFilter: value),
-                                    ),
-                                  ),
-                                )
-                                .toList(growable: false),
-                          ),
-                        ),
-                        _SidebarFilterSection(
-                          title: 'Estado',
-                          child: Wrap(
-                            spacing: 7,
-                            runSpacing: 7,
-                            children: ServiceOrderStatus.values
-                                .map(
-                                  (status) => _CompactFilterChip(
-                                    label: status.label,
-                                    selected: filter.statuses.contains(status),
-                                    accent: status.color,
-                                    onTap: () => _toggleStatus(status),
-                                  ),
-                                )
-                                .toList(growable: false),
-                          ),
-                        ),
-                        _SidebarFilterSection(
-                          title: 'Servicio',
-                          child: Wrap(
-                            spacing: 7,
-                            runSpacing: 7,
-                            children: ServiceOrderType.values
-                                .map(
-                                  (serviceType) => _CompactFilterChip(
-                                    label: serviceType.label,
-                                    selected: filter.serviceTypes.contains(
-                                      serviceType,
-                                    ),
-                                    onTap: () =>
-                                        _toggleServiceType(serviceType),
-                                  ),
-                                )
-                                .toList(growable: false),
-                          ),
-                        ),
-                        _SidebarFilterSection(
-                          title: 'Fecha',
-                          child: Wrap(
-                            spacing: 7,
-                            runSpacing: 7,
+                        Expanded(
+                          flex: 2,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              _ChoiceFilterTile(
-                                label: 'Todas',
-                                icon: Icons.all_inbox_rounded,
-                                selected:
-                                    filter.datePreset ==
-                                    ServiceOrdersDatePreset.all,
-                                compact: true,
-                                onTap: () => _selectDatePreset(
-                                  ServiceOrdersDatePreset.all,
+                              _SidebarFilterSection(
+                                title: 'Estado',
+                                child: Wrap(
+                                  spacing: 7,
+                                  runSpacing: 7,
+                                  children: ServiceOrderStatus.values
+                                      .map(
+                                        (status) => _CompactFilterChip(
+                                          label: status.label,
+                                          selected: filter.statuses.contains(status),
+                                          accent: status.color,
+                                          onTap: () => _toggleStatus(status),
+                                        ),
+                                      )
+                                      .toList(growable: false),
                                 ),
                               ),
-                              _ChoiceFilterTile(
-                                label: 'Hoy',
-                                icon: Icons.today_rounded,
-                                selected:
-                                    filter.datePreset ==
-                                    ServiceOrdersDatePreset.today,
-                                compact: true,
-                                onTap: () => _selectDatePreset(
-                                  ServiceOrdersDatePreset.today,
+                              _SidebarFilterSection(
+                                title: 'Servicio',
+                                child: Wrap(
+                                  spacing: 7,
+                                  runSpacing: 7,
+                                  children: ServiceOrderType.values
+                                      .map(
+                                        (serviceType) => _CompactFilterChip(
+                                          label: serviceType.label,
+                                          selected: filter.serviceTypes.contains(
+                                            serviceType,
+                                          ),
+                                          onTap: () =>
+                                              _toggleServiceType(serviceType),
+                                        ),
+                                      )
+                                      .toList(growable: false),
                                 ),
                               ),
-                              _ChoiceFilterTile(
-                                label: 'Semana',
-                                icon: Icons.date_range_rounded,
-                                selected:
-                                    filter.datePreset ==
-                                    ServiceOrdersDatePreset.thisWeek,
-                                compact: true,
-                                onTap: () => _selectDatePreset(
-                                  ServiceOrdersDatePreset.thisWeek,
-                                ),
+                              _SidebarFilterSection(
+                                title: 'Usuarios / vendedores',
+                                badge: '${availableCreators.length}',
+                                child: availableCreators.isEmpty
+                                    ? const _SidebarEmptyFilterText(
+                                        text: 'No hay usuarios disponibles',
+                                      )
+                                    : _SidebarIdentityGrid(
+                                        options: availableCreators,
+                                        selectedIds: filter.creatorIds,
+                                        accent: colorScheme.primary,
+                                        onTap: _toggleCreator,
+                                      ),
                               ),
-                              _ChoiceFilterTile(
-                                label: 'Rango',
-                                icon: Icons.edit_calendar_rounded,
-                                selected:
-                                    filter.datePreset ==
-                                    ServiceOrdersDatePreset.custom,
-                                compact: true,
-                                onTap: () => _selectDatePreset(
-                                  ServiceOrdersDatePreset.custom,
-                                ),
+                              _SidebarFilterSection(
+                                title: 'Técnicos',
+                                badge: '${availableTechnicians.length}',
+                                child: availableTechnicians.isEmpty
+                                    ? const _SidebarEmptyFilterText(
+                                        text: 'No hay técnicos asignados',
+                                      )
+                                    : _SidebarIdentityGrid(
+                                        options: availableTechnicians,
+                                        selectedIds: filter.technicianIds,
+                                        accent: const Color(0xFF0F766E),
+                                        onTap: _toggleTechnician,
+                                      ),
                               ),
                             ],
                           ),
                         ),
-                        if (filter.datePreset == ServiceOrdersDatePreset.custom)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: _CustomDateRangeBanner(
-                              range: filter.customRange,
-                              compact: true,
-                              onTap: () => _selectDatePreset(
-                                ServiceOrdersDatePreset.custom,
+                        const SizedBox(width: 12),
+                        Expanded(
+                          flex: 1,
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              _OperationsAdminTotalsPanel(
+                                visibleOrders: widget.visibleOrders,
+                                colorScheme: colorScheme,
                               ),
-                            ),
+                            ],
                           ),
-                        _SidebarFilterSection(
-                          title: 'Usuarios / vendedores',
-                          badge: '${availableCreators.length}',
-                          child: availableCreators.isEmpty
-                              ? const _SidebarEmptyFilterText(
-                                  text: 'No hay usuarios disponibles',
-                                )
-                              : _SidebarIdentityGrid(
-                                  options: availableCreators,
-                                  selectedIds: filter.creatorIds,
-                                  accent: colorScheme.primary,
-                                  onTap: _toggleCreator,
-                                ),
-                        ),
-                        _SidebarFilterSection(
-                          title: 'Técnicos',
-                          badge: '${availableTechnicians.length}',
-                          child: availableTechnicians.isEmpty
-                              ? const _SidebarEmptyFilterText(
-                                  text: 'No hay técnicos asignados',
-                                )
-                              : _SidebarIdentityGrid(
-                                  options: availableTechnicians,
-                                  selectedIds: filter.technicianIds,
-                                  accent: const Color(0xFF0F766E),
-                                  onTap: _toggleTechnician,
-                                ),
                         ),
                       ],
                     ),
@@ -2957,6 +2949,104 @@ class _DesktopOperationsFilterSidebarState
                   label: const Text('Restablecer filtros'),
                 ),
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DesktopDatePresetButton extends StatelessWidget {
+  const _DesktopDatePresetButton({
+    required this.selectedPreset,
+    required this.onSelected,
+  });
+
+  final ServiceOrdersDatePreset selectedPreset;
+  final ValueChanged<ServiceOrdersDatePreset> onSelected;
+
+  String get _label {
+    switch (selectedPreset) {
+      case ServiceOrdersDatePreset.today:
+        return 'Hoy';
+      case ServiceOrdersDatePreset.yesterday:
+        return 'Ayer';
+      case ServiceOrdersDatePreset.thisWeek:
+        return 'Semana';
+      case ServiceOrdersDatePreset.currentPayPeriod:
+        return 'Quincena actual';
+      case ServiceOrdersDatePreset.previousPayPeriod:
+        return 'Quincena pasada';
+      case ServiceOrdersDatePreset.custom:
+        return 'Rango';
+      case ServiceOrdersDatePreset.all:
+        return 'Todas';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return PopupMenuButton<ServiceOrdersDatePreset>(
+      tooltip: 'Seleccionar fecha',
+      onSelected: onSelected,
+      itemBuilder: (context) => [
+        const PopupMenuItem<ServiceOrdersDatePreset>(
+          value: ServiceOrdersDatePreset.today,
+          child: Text('Hoy'),
+        ),
+        const PopupMenuItem<ServiceOrdersDatePreset>(
+          value: ServiceOrdersDatePreset.yesterday,
+          child: Text('Ayer'),
+        ),
+        const PopupMenuItem<ServiceOrdersDatePreset>(
+          value: ServiceOrdersDatePreset.thisWeek,
+          child: Text('Semana'),
+        ),
+        const PopupMenuItem<ServiceOrdersDatePreset>(
+          value: ServiceOrdersDatePreset.currentPayPeriod,
+          child: Text('Quincena actual'),
+        ),
+        const PopupMenuItem<ServiceOrdersDatePreset>(
+          value: ServiceOrdersDatePreset.previousPayPeriod,
+          child: Text('Quincena pasada'),
+        ),
+        const PopupMenuItem<ServiceOrdersDatePreset>(
+          value: ServiceOrdersDatePreset.custom,
+          child: Text('Rango'),
+        ),
+      ],
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: colorScheme.surfaceVariant.withValues(alpha: 0.16),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: colorScheme.outlineVariant.withValues(alpha: 0.7),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.calendar_month_outlined,
+              size: 18,
+              color: colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              'Fecha · $_label',
+              style: theme.textTheme.labelMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Icon(
+              Icons.keyboard_arrow_down_rounded,
+              size: 18,
+              color: colorScheme.onSurfaceVariant,
             ),
           ],
         ),
@@ -4915,6 +5005,198 @@ class _PanelMetaPill extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _OperationsAdminTotalsPanel extends StatelessWidget {
+  const _OperationsAdminTotalsPanel({
+    required this.visibleOrders,
+    required this.colorScheme,
+  });
+
+  final List<ServiceOrderModel> visibleOrders;
+  final ColorScheme colorScheme;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
+    // Calcular totales
+    final totalQuotations = visibleOrders
+        .where((order) => order.quotationId != null && order.quotationId!.isNotEmpty)
+        .length;
+    final totalServices = visibleOrders.length;
+    
+    // Nota: Si el modelo tiene campos de monto, estos debería calcularse aquí
+    // Por ahora mostramos placeholders que pueden actualizarse
+    const totalAmount = 0.0; // Placeholder
+    const totalUtility = 0.0; // Placeholder
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainer,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [colorScheme.tertiary, colorScheme.secondary],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(
+                    Icons.assessment_outlined,
+                    color: Colors.white,
+                    size: 16,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Totales',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: -0.1,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Resumen de operaciones',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Container(
+              width: 56,
+              height: 3,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(99),
+                gradient: LinearGradient(
+                  colors: [colorScheme.primary, colorScheme.secondary],
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _TotalRowItem(
+                  label: 'Cotizaciones',
+                  value: '$totalQuotations',
+                  icon: Icons.description_outlined,
+                  accent: colorScheme.primary,
+                ),
+                const SizedBox(height: 12),
+                _TotalRowItem(
+                  label: 'Servicios',
+                  value: '$totalServices',
+                  icon: Icons.handyman_outlined,
+                  accent: colorScheme.secondary,
+                ),
+                const SizedBox(height: 12),
+                _TotalRowItem(
+                  label: 'Monto Total',
+                  value: totalAmount == 0.0 ? '---' : '\$${totalAmount.toStringAsFixed(2)}',
+                  icon: Icons.attach_money_rounded,
+                  accent: const Color(0xFF10B981),
+                ),
+                const SizedBox(height: 12),
+                _TotalRowItem(
+                  label: 'Utilidad',
+                  value: totalUtility == 0.0 ? '---' : '\$${totalUtility.toStringAsFixed(2)}',
+                  icon: Icons.trending_up_rounded,
+                  accent: const Color(0xFF8B5CF6),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TotalRowItem extends StatelessWidget {
+  const _TotalRowItem({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.accent,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return Row(
+      children: [
+        Container(
+          width: 28,
+          height: 28,
+          decoration: BoxDecoration(
+            color: accent.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(
+            icon,
+            size: 14,
+            color: accent,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            label,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        Text(
+          value,
+          style: theme.textTheme.labelMedium?.copyWith(
+            color: colorScheme.onSurface,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
     );
   }
 }
